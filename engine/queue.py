@@ -14,7 +14,8 @@ from engine.artifacts import LocalArtifactStore
 from engine.worker import validate_answer
 from engine.validation.review import validate_review
 
-MIGRATION = Path(__file__).resolve().parents[1] / "migrations" / "001_decomp_queue.sql"
+MIGRATIONS = tuple(sorted((Path(__file__).resolve().parents[1] / "migrations").glob(
+    "[0-9][0-9][0-9]_decomp_*.sql")))
 
 
 class DurableQueue:
@@ -27,7 +28,8 @@ class DurableQueue:
 
     def migrate(self) -> None:
         with self._connect() as conn:
-            conn.execute(MIGRATION.read_text())
+            for migration in MIGRATIONS:
+                conn.execute(migration.read_text())
 
     @staticmethod
     def _event(conn, campaign: str, event_type: str, payload: dict) -> None:
