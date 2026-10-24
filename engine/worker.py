@@ -112,6 +112,14 @@ def normalize_answer_text_items(answer: dict) -> list[dict]:
 def prompt_for(task: dict, scope: dict, evidence: dict, *, max_evidence_bytes: int) -> tuple[str, bool]:
     relevant = {"schema": evidence["schema"], "entry": evidence["entry"],
                 "name": evidence.get("name"), "signature": evidence.get("signature"),
+                "signature_source": evidence.get("signature_source"),
+                "listing_parameters": evidence.get("listing_parameters", []),
+                "listing_return": evidence.get("listing_return"),
+                "listing_locals": evidence.get("listing_locals", []),
+                "decompiler_signature": evidence.get("decompiler_signature"),
+                "decompiler_prototype": evidence.get("decompiler_prototype"),
+                "decompiler_locals": evidence.get("decompiler_locals", []),
+                "referenced_data": evidence.get("referenced_data", []),
                 "body_min": evidence.get("body_min"), "body_max": evidence.get("body_max"),
                 "status": evidence.get("status"),
                 "instructions": evidence.get("instructions", []),
@@ -129,7 +137,9 @@ def prompt_for(task: dict, scope: dict, evidence: dict, *, max_evidence_bytes: i
                     if "CALL" in ref.get("type", "") and not ref.get("external")]
     prompt = (
         "Analyze this native function for a behavioral specification. Use only the evidence "
-        "below. The C rendering is Ghidra output, not verified source. Do not invent callback "
+        "below. The C rendering and decompiler prototype are Ghidra inferences, not verified "
+        "source or confirmed parameter types. Keep listing types and inferred types distinct. "
+        "Do not invent callback "
         "targets or claim complete behavior from static evidence. Do not invent failures such "
         "as inaccessible memory unless the instructions show a relevant check. Return exactly "
         "one JSON object with this shape: "

@@ -51,6 +51,12 @@ def validate_review(answer: dict, evidence: dict, claim_count: int) -> list[str]
 
 def review_prompt(draft: dict, evidence: dict, scope: dict | None = None) -> str:
     raw = {"entry": evidence["entry"], "name": evidence.get("name"),
+           "signature_source": evidence.get("signature_source"),
+           "listing_parameters": evidence.get("listing_parameters", []),
+           "listing_return": evidence.get("listing_return"),
+           "decompiler_signature": evidence.get("decompiler_signature"),
+           "decompiler_prototype": evidence.get("decompiler_prototype"),
+           "referenced_data": evidence.get("referenced_data", []),
            "instructions": evidence.get("instructions", []),
            "references": evidence.get("references", []),
            "decompilation": evidence.get("decompilation")}
@@ -61,7 +67,8 @@ def review_prompt(draft: dict, evidence: dict, scope: dict | None = None) -> str
     coverage_questions = (scope.get("request", {}).get("expected_observables", [])
                           if scope else [])
     return (
-        "Independently review these behavior claims against raw native evidence. Challenge "
+        "Independently review these behavior claims against raw native evidence. The "
+        "decompiler prototype is inferred; do not treat an unlocked type as confirmed. Challenge "
         "plausible but wrong interpretations. An address citation proves location only. Do not "
         "assume the draft's pseudocode is correct. For each claim, choose supported_static, "
         "contradicted, or uncertain. Explain the exact observed instruction/control-flow basis, "
