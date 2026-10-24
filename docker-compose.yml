@@ -1,5 +1,5 @@
 services:
-  # Production & Demo Unified Service (Default)
+  # Splice Unified Production & Demo Service (Default)
   splice:
     build:
       context: .
@@ -17,7 +17,7 @@ services:
       - REA_MODE=${REA_MODE:-mock}
     restart: unless-stopped
 
-  # Development Service with Hot-Reloading (Trigger with: docker compose --profile dev up)
+  # Splice Development Service with Hot-Reloading (docker compose --profile dev up)
   splice-dev:
     profiles:
       - dev
@@ -39,6 +39,33 @@ services:
     volumes:
       - ./packages:/app/packages
       - ./targets:/app/targets
-      # Anonymous volume prevents host directory from masking container node_modules
       - /app/node_modules
     restart: unless-stopped
+
+  # Ghidra / OpenCode Agent Worker (docker compose --profile worker up)
+  orchestrator:
+    profiles:
+      - worker
+    build:
+      context: .
+      dockerfile: worker.Dockerfile
+    privileged: true
+    security_opt:
+      - label=disable
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      STORAGE_DRIVER: vfs
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+    volumes:
+      - .:/workspace
+      - podman-storage:/var/lib/containers
+      - ${OPENCODE_BIN:-/home/mitch/.opencode/bin/opencode}:/run/opencode-bin:ro
+      - ${OPENCODE_AUTH_FILE:-/home/mitch/.local/share/opencode/auth.json}:/run/opencode-auth.json:ro
+    working_dir: /workspace
+    command: ["python", "launch.py", "--help"]
+
+volumes:
+  podman-storage:

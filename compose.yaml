@@ -1,13 +1,60 @@
 services:
-  orchestrator:
+  # Splice Unified Production & Demo Service (Default)
+  splice:
     build:
       context: .
       dockerfile: Dockerfile
+      target: runner
+    container_name: splice-app
+    ports:
+      - "3001:3001"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - REA_MODE=${REA_MODE:-mock}
+    restart: unless-stopped
+
+  # Splice Development Service with Hot-Reloading (docker compose --profile dev up)
+  splice-dev:
+    profiles:
+      - dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    container_name: splice-dev
+    ports:
+      - "3001:3001"
+      - "5173:5173"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - REA_MODE=${REA_MODE:-mock}
+    volumes:
+      - ./packages:/app/packages
+      - ./targets:/app/targets
+      - /app/node_modules
+    restart: unless-stopped
+
+  # Ghidra / OpenCode Agent Worker (docker compose --profile worker up)
+  orchestrator:
+    profiles:
+      - worker
+    build:
+      context: .
+      dockerfile: worker.Dockerfile
     privileged: true
     security_opt:
       - label=disable
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       STORAGE_DRIVER: vfs
       AWS_REGION: ${AWS_REGION:-us-east-1}
