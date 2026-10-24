@@ -95,6 +95,9 @@ def main() -> None:
                    for edge in spec["boundary"]["unresolved_edges"])
         assert any(edge["kind"] == "cross_module_binding_unverified"
                    for edge in spec["boundary"]["unresolved_edges"])
+        assert any(blocker["kind"] == "cross_module_bindings_unresolved" and
+                   blocker["edges"][0]["symbol"] == "project_adjust"
+                   for blocker in spec["blockers"])
         assert spec["provenance"]["analysis"]["reviews"][0]["model"] == "independent-reviewer"
         ambiguous = {**dossier, "draft_artifacts": [draft_artifact, "f" * 64],
                      "functions": [*dossier["functions"],

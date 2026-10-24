@@ -327,6 +327,14 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
     if uncovered_calls:
         blockers.append({"kind": "direct_calls_without_bound_dependencies",
                          "calls": uncovered_calls})
+    cross_module_edges = [edge for edge in scope["unresolved"]
+                          if edge.get("kind") in {
+                              "cross_module_binding_unverified",
+                              "cross_module_import_ambiguous",
+                              "cross_module_import_unmatched"}]
+    if cross_module_edges:
+        blockers.append({"kind": "cross_module_bindings_unresolved",
+                         "edges": cross_module_edges})
     unmapped = [claim for claim in claims if claim["execution_state"] == "unmapped"]
     if unmapped:
         blockers.append({"kind": "claims_not_linked_to_original_probes",
