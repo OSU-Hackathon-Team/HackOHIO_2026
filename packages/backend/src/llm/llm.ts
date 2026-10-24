@@ -52,6 +52,8 @@ export function setClaudeClientForTests(c: ClaudeClient | null) {
 export function setConverseClientForTests(c: ConverseClient | null) {
   converseClientInstance = c;
 }
+export const setClaudeClient = setClaudeClientForTests;
+export const setConverseClient = setConverseClientForTests;
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -69,6 +71,73 @@ export class LlmSchemaError extends Error {
     super(message);
     this.name = "LlmSchemaError";
   }
+}
+
+export class LlmServiceError extends Error {
+  readonly code?: string;
+  readonly status?: number;
+  constructor(message: string, options?: { code?: string; status?: number; cause?: unknown }) {
+    super(sanitizeSecrets(message));
+    this.name = "LlmServiceError";
+    this.code = options?.code;
+    this.status = options?.status;
+    if (options?.cause) this.cause = options.cause;
+  }
+}
+
+/**
+ * Strips AWS credentials, session tokens, and API keys from error messages or logs.
+ */
+export function sanitizeSecrets(text: string): string {
+  if (!text) return text;
+  return text
+    // AWS Access Key ID
+    .replace(/(AKIA[0-9A-Z]{16})/g, "[REDACTED_AWS_KEY]")
+    // AWS Secret Access Key (look for typical key patterns)
+    .replace(/(aws_secret_access_key\s*[:=]\s*)[A-Za-z0-9/+=]{40}/gi, "$1[REDACTED]")
+    // AWS Session Token
+    .replace(/(ASIA[0-9A-Z]{16})/g, "[REDACTED_AWS_SESSION_KEY]")
+    // Bearer tokens
+    .replace(/(Bearer\s+)[A-Za-z0-9\-._~+/]+=*/gi, "$1[REDACTED]")
+    // Anthropic API keys
+    .replace(/(sk-ant-[A-Za-z0-9\-._~+/]+)/gi, "[REDACTED_API_KEY]");
+}
+
+/**
+ * Formats LLM errors into safe, informative error strings without leaking secrets.
+ */
+export function formatLlmError(error: unknown): string {
+  if (!error) return "Unknown LLM error";
+  if (error instanceof LlmRefusalError) {
+    return error.message;
+  }
+  if (error instanceof LlmTruncatedError) {
+    return error.message;
+  }
+  if (error instanceof LlmSchemaError) {
+    return `${error.message} (output: ${error.raw.slice(0, 120)}${error.raw.length > 120 ? "..." : ""})`;
+  }
+  if (error instanceof LlmServiceError) {
+    return `LLM Service Error (${error.code ?? "unknown"}): ${error.message}`;
+  }
+  if (error instanceof Error) {
+    const name = error.name || "Error";
+    const msg = sanitizeSecrets(error.message);
+    if (name === "AbortError" || msg.includes("aborted")) {
+      return "Request was aborted or timed out";
+    }
+    if (name === "ThrottlingException" || msg.includes("throttled") || msg.includes("rate limit")) {
+      return `Bedrock request throttled: ${msg}`;
+    }
+    if (name === "AccessDeniedException" || msg.includes("AccessDenied")) {
+      return `Bedrock access denied: check IAM permissions and model access in AWS region (${msg})`;
+    }
+    if (name === "ExpiredTokenException" || msg.includes("token has expired")) {
+      return `AWS session token expired: refresh credentials (${msg})`;
+    }
+    return `${name}: ${msg}`;
+  }
+  return sanitizeSecrets(String(error));
 }
 
 export interface StructuredCallOpts<T> {
@@ -287,3 +356,50 @@ export function continueWith(
 ): Anthropic.MessageParam[] {
   return [...messages, { role: "assistant", content: assistantContent }, { role: "user", content: feedback }];
 }
+
+/**
+ * Manual tool-use loop helper (spec: agents/2_requirements_extraction/02_llm_client.md §5).
+ */
+export async function toolLoop(o: {
+  role: Exclude<SpliceRole, "refusal_fallback">;
+  system: string;
+  user: string;
+  tools: Anthropic.Tool[];
+  run: (name: string, input: unknown) => Promise<string>; // returns tool_result text
+  maxIterations?: number;
+  signal?: AbortSignal;
+}): Promise<Anthropic.Message> {
+  const modelId = spliceModel(o.role).id;
+  const messages: Anthropic.MessageParam[] = [{ role: "user", content: o.user }];
+  for (let i = 0; i < (o.maxIterations ?? 8); i++) {
+    const stream = claude().messages.stream(
+      {
+        model: modelId,
+        max_tokens: 16_000,
+        output_config: { effort: "medium" },
+        system: [{ type: "text", text: o.system, cache_control: { type: "ephemeral" } }],
+        tools: o.tools,
+        messages,
+      },
+      { signal: o.signal },
+    );
+    const msg = await stream.finalMessage();
+    if (msg.stop_reason === "refusal") {
+      throw new LlmRefusalError((msg as any).stop_details?.category ?? null, null);
+    }
+    if (msg.stop_reason !== "tool_use") return msg;
+    messages.push({ role: "assistant", content: msg.content });
+    const results: Anthropic.ToolResultBlockParam[] = [];
+    for (const b of msg.content) {
+      if (b.type !== "tool_use") continue;
+      try {
+        results.push({ type: "tool_result", tool_use_id: b.id, content: await o.run(b.name, b.input) });
+      } catch (e) {
+        results.push({ type: "tool_result", tool_use_id: b.id, content: sanitizeSecrets((e as Error).message), is_error: true });
+      }
+    }
+    messages.push({ role: "user", content: results }); // all results in ONE user message
+  }
+  throw new Error("tool loop hit max iterations");
+}
+
