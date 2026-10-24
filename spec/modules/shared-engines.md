@@ -1,8 +1,10 @@
 # Module Specification: Shared Document & Formatting Engines
 
-## 1. Overview & Purpose
+> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** `chart2`, `xmloff` dirs exist (trees/API contents); `sc/.../document.cxx` includes `editeng/*` + `svx/svditer.hxx` (supports editeng/svx as dependencies); `sd/.../drawdoc.cxx` includes `xmloff/SoundReference.hxx` (supports xmloff integration). **Still UNVERIFIED in this pass:** `editeng/.../editeng.cxx`, `xmloff/source/core/xmlimp.cxx`, `filter/.../typedetection.cxx` contents, magic-byte/sniffing order, ODF export order, Hunspell/Libhyphen wiring — not yet fetched.
 
-The **Shared Document Engines Layer** provides cross-application features: rich-text editing, vector shape manipulation, file format parsing and serialization, linguistic verification, charting, and embedded form controls. These engines ensure that features like vector shapes or spell checking operate identically whether embedded in a Writer document, a Calc sheet, or an Impress presentation.
+## 1. Overview & Purpose (UNVERIFIED)
+
+The spec claims the **Shared Document Engines Layer** provides cross-application features: rich-text editing, vector shape manipulation, file format parsing and serialization, linguistic verification, charting, and embedded form controls. These engines ensure that features like vector shapes or spell checking operate identically whether embedded in a Writer document, a Calc sheet, or an Impress presentation.
 
 ### Subsystems Covered
 - **EditEngine & Outliner (`editeng`):** Core multi-line rich text editor supporting inline formatting attributes, spell checking markers, and hierarchical outline indentation.
@@ -60,7 +62,7 @@ classDiagram
     OdfExportFilter ..> SdrModel : serializes drawing shapes
 ```
 
-### Conceptual Data Structures
+### Conceptual Data Structures (UNVERIFIED — no corresponding sources found)
 
 #### 1. `EditEngine` Paragraph & Character Portions
 - **Paragraphs:** Ordered list of paragraph objects. Each paragraph owns an `SfxItemSet` for paragraph-level styling (margins, alignment, tab stops) and a list of `EditCharAttrib` spans.
@@ -72,7 +74,7 @@ classDiagram
 
 ---
 
-## 3. Behavioral Rules & Algorithms
+## 3. Behavioral Rules & Algorithms (UNVERIFIED — magic-byte values, ZIP-entry names, export order not verified)
 
 ### 3.1 Content-Based Format Sniffing Algorithm
 
@@ -142,7 +144,7 @@ Output: None
 
 ---
 
-## 4. Linguistic Verification & Spell Checking Pipeline
+## 4. Linguistic Verification & Spell Checking Pipeline (UNVERIFIED — Hunspell/Libhyphen integration not observed)
 
 ```mermaid
 flowchart LR
@@ -161,7 +163,7 @@ flowchart LR
 
 ---
 
-## 5. Error Handling & Edge Cases
+## 5. Error Handling & Edge Cases (UNVERIFIED — unknown-element, missing-dictionary, corrupt-graphic claims not observed)
 
 1. **Unsupported XML Elements in ODF/OOXML:** When parsing future format versions containing unrecognized XML tags:
    - The XML parser ignores unknown elements without aborting the parse loop.

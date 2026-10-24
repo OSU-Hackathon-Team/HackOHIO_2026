@@ -58,7 +58,7 @@
       "target": {
         "path": "targets/build/inkwell/app.asar",
         "artifact_type": "electron_asar",
-        "sha256": "d22cde98d964b169b1fefa6fe412b9a2429c63fadaf9a662c57618854cac7026"
+        "sha256": "37979c1c709c822434e0e72767e0d1edb0fcd7032e8cf4fa08a32bd65f383942"
       },
       "rea_package_version": "development-seed",
       "tool_calls": [],

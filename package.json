@@ -18,6 +18,7 @@
     "dev:frontend": "npm run dev --workspace=@splice/frontend",
     "dev": "npm run build:contracts && concurrently -n contracts,backend,frontend -c yellow,green,cyan \"npm run dev --workspace=@splice/contracts\" \"npm run dev:backend\" \"npm run dev:frontend\"",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
     "start": "npm run start --workspace=@splice/backend",
     "build:targets": "node scripts/build-targets.mjs",
     "test:studio": "playwright test"

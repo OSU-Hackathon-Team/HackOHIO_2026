@@ -1,0 +1,77 @@
+{
+  "app_id": "inkwell",
+  "feature_id": "inkwell.wikilink_graph",
+  "target": {
+    "path": "targets/build/inkwell/app.asar",
+    "artifact_type": "electron_asar",
+    "sha256": "37979c1c709c822434e0e72767e0d1edb0fcd7032e8cf4fa08a32bd65f383942"
+  },
+  "rea_package_version": "6.7.0",
+  "mode": "replay",
+  "tool_calls": [
+    {
+      "seq": 1,
+      "tool": "binary_session",
+      "args": {},
+      "ok": true,
+      "duration_ms": 12,
+      "evidence_id": null,
+      "summary": "Initialized REA session and retrieved tool capabilities",
+      "limitations": []
+    },
+    {
+      "seq": 2,
+      "tool": "analyze_javascript_application",
+      "args": {
+        "input_path": "targets/build/inkwell/app.asar",
+        "detail": "summary"
+      },
+      "ok": true,
+      "duration_ms": 245,
+      "evidence_id": "ev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "summary": "Discovered 5 modules across inkwell archive",
+      "limitations": ["Dynamic evaluation not traced"]
+    },
+    {
+      "seq": 3,
+      "tool": "trace_application_feature",
+      "args": {
+        "evidence_id": "ev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "seed": {
+          "kind": "module",
+          "value": "src/graph/backlinks.js"
+        }
+      },
+      "ok": true,
+      "duration_ms": 190,
+      "evidence_id": "ev_fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+      "summary": "Traced call path from buildLinkGraph to parseWikiLinks and normalizeTitle",
+      "limitations": []
+    }
+  ],
+  "snippets": [
+    {
+      "location": "app.asar:src/graph/wikilinks.js",
+      "symbol": "parseWikiLinks",
+      "language": "javascript",
+      "code": "\"use strict\";\nconst FENCE = /^```/;\nconst LINK = /\\[\\[([^\\]|#]+)(?:#([^\\]|]+))?(?:\\|([^\\]]+))?\\]\\]/g;\nfunction parseWikiLinks(markdown) {\n  const links = [];\n  let inFence = false;\n  for (const rawLine of markdown.split(/\\r?\\n/)) {\n    if (FENCE.test(rawLine.trim())) {\n      inFence = !inFence;\n      continue;\n    }\n    if (inFence) continue;\n    const line = rawLine.replace(/`[^`]*`/g, \"\");\n    LINK.lastIndex = 0;\n    let m;\n    while ((m = LINK.exec(line)) !== null) {\n      links.push({\n        target: m[1].trim(),\n        heading: m[2] ? m[2].trim() : null,\n        alias: m[3] ? m[3].trim() : null,\n      });\n    }\n  }\n  return links;\n}\nfunction normalizeTitle(title) {\n  return title.trim().toLowerCase().replace(/\\s+/g, \" \");\n}\nmodule.exports = { parseWikiLinks, normalizeTitle };",
+      "full_module": true
+    },
+    {
+      "location": "app.asar:src/graph/backlinks.js",
+      "symbol": "buildLinkGraph",
+      "language": "javascript",
+      "code": "\"use strict\";\nconst { parseWikiLinks, normalizeTitle } = require(\"./wikilinks\");\nfunction buildLinkGraph(notes) {\n  const byTitle = new Map();\n  for (const n of notes) byTitle.set(normalizeTitle(n.title), n.id);\n  const edges = [];\n  const seen = new Set();\n  const backlinks = {};\n  const unresolved = {};\n  for (const n of notes) backlinks[n.id] = [];\n  for (const note of notes) {\n    for (const link of parseWikiLinks(note.body)) {\n      const targetId = byTitle.get(normalizeTitle(link.target));\n      if (!targetId) {\n        (unresolved[note.id] = unresolved[note.id] || []).push(link.target);\n        continue;\n      }\n      if (targetId === note.id) continue;\n      const key = note.id + \"->\" + targetId;\n      if (seen.has(key)) continue;\n      seen.add(key);\n      edges.push({ from: note.id, to: targetId });\n      backlinks[targetId].push(note.id);\n    }\n  }\n  const degree = {};\n  for (const e of edges) {\n    degree[e.from] = (degree[e.from] || 0) + 1;\n    degree[e.to] = (degree[e.to] || 0) + 1;\n  }\n  const nodes = notes.map((n) => ({ id: n.id, title: n.title, degree: degree[n.id] || 0 }));\n  return { nodes, edges, backlinks, unresolved };\n}\nmodule.exports = { buildLinkGraph };",
+      "full_module": true
+    }
+  ],
+  "related_paths": [
+    "src/graph/wikilinks.js",
+    "src/graph/backlinks.js"
+  ],
+  "limitations": [
+    "Dynamic evaluation not traced"
+  ],
+  "unknowns": [],
+  "collected_at": "2026-10-24T12:00:00.000Z"
+}

@@ -1,5 +1,9 @@
 # LibreOffice Behavioral Specification
 
+> **Verification Status (2026-10-24, rev.2 — against LibreOffice core remote `https://github.com/LibreOffice/core` / `https://git.libreoffice.org/core`, master).**
+> Local `~/libreoffice-core` does **not** exist; audit uses the remote core as source of truth (per user override). Prior rev.1 banners claiming "no LibreOffice source" referred to the Splice project repo and are superseded.
+> **Verified so far:** remote core exists; top-level modules `sal`, `basic`, `basctl`, `basegfx`, `binaryurp`, `canvas`, `chart2`, `comphelper`, `configmgr`, `connectivity`, `cppu`, `cppuhelper`, `cui`, `dbaccess`, `desktop`, `animations`, `avmedia` exist (via `git/trees/master` API); files `sal/osl/unx/thread.cxx` (osl thread impl), `sw/source/core/doc/doc.cxx` (`SwDoc::acquire/release`, `GetUndoManager`, `IDocument*` managers), `sfx2/source/control/dispatch.cxx` (`SfxDispatcher`, `SfxShellStack_Impl`), `vcl/source/app/svapp.cxx` (includes `comphelper/solarmutex.hxx`) exist (HTTP 200 + content checked). **Still UNVERIFIED:** exact file-entry counts, per-module production-file counts, and detailed behavioral/pseudocode claims unless individually cited below. Do not use this spec as evidence for its own correctness.
+
 ## 1. Purpose of the Specification
 
 This specification provides a language-agnostic, architectural, and behavioral description of the **LibreOffice** software system. The goal of this documentation is to describe system responsibilities, component interactions, runtime lifecycles, data representations, algorithms, state transitions, and operational invariants in sufficient detail that an independent development team can implement compatible software components without inspecting the original C++ or Java source code.
@@ -36,7 +40,7 @@ The specification is structured modularly across multiple documents within this 
 
 ## 3. Scope of Analysis & Repository Taxonomy
 
-The LibreOffice repository comprises **149,761 cataloged file entries** across 154 top-level directories. To provide a thorough behavioral extraction without drowning in peripheral data, the repository is partitioned into clear functional categories:
+The specification claims the LibreOffice repository comprises **149,761 cataloged file entries** across 154 top-level directories. **UNVERIFIED — and inconsistent with this repository:** this repository has 197 tracked files and 8 top-level non-vendored directories (`agents/`, `docs/`, `fixtures/`, `packages/`, `scripts/`, `spec/`, `targets/`, plus config files); no LibreOffice modules were found. The partitioning below is therefore **UNVERIFIED**:
 
 ```mermaid
 flowchart TD
@@ -73,9 +77,9 @@ flowchart TD
 
 ## 4. Analysis Status & Tracking
 
-Every core module has been surveyed and analyzed across its architectural boundaries:
+Every core module is *claimed to have been* surveyed and analyzed across its architectural boundaries. **UNVERIFIED — no corresponding source was found in this repository to support any "Completed" status below:**
 
-| Module / Subsystem | Analysis Status | Key Verified Capabilities | Unresolved / Inferred Questions |
+| Module / Subsystem | Analysis Status (UNVERIFIED) | Key *Claimed* Capabilities (UNVERIFIED) | Unresolved / Inferred Questions |
 | :--- | :--- | :--- | :--- |
 | **Foundation (SAL / CPPU / URE)** | Completed | OS-independent threading, memory allocators, UNO dynamic proxy dispatch, binary remote protocol, configuration backend. | Native memory arena pooling behavior under heavy page-swapping workloads. |
 | **Core Utilities (BaseGFX / Tools / UCB)** | Completed | B2DHomMatrix transformations, polygon clipping, UCB URI scheme resolution, ZIP package stream encryption. | Exact fallback behaviors on corrupted ODF digital signature manifests. |

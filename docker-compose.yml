@@ -38,6 +38,7 @@ services:
       - REA_MODE=${REA_MODE:-mock}
     volumes:
       - ./packages:/app/packages
+      - ./fixtures:/app/fixtures
       - ./targets:/app/targets
       - /app/node_modules
     restart: unless-stopped

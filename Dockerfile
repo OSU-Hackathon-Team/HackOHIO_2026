@@ -120,9 +120,12 @@ COPY --from=builder /app/packages/backend/dist ./packages/backend/dist
 COPY --from=builder /app/packages/frontend/package.json ./packages/frontend/
 COPY --from=builder /app/packages/frontend/dist ./packages/frontend/dist
 
-# Copy mock blueprints and binary targets required for demo extraction
-COPY packages/mocks ./packages/mocks
+# Copy recorded fixtures and demo targets required for extraction and replay
+COPY fixtures ./fixtures
 COPY targets ./targets
+
+# Backward-compatibility symlink for legacy mock references
+RUN mkdir -p ./packages && ln -s /app/fixtures/_legacy_mocks ./packages/mocks || true
 
 # Unified single-port deployment: Express serves /api/* and static Vite frontend on 3001
 EXPOSE 3001

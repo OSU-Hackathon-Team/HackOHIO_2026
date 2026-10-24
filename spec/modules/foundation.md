@@ -1,8 +1,10 @@
 # Module Specification: Foundation & System Abstraction Layer
 
-## 1. Overview & Purpose
+> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** `sal/` exists (trees API); `sal/osl/unx/thread.cxx` exists (pthread impl with `osl_thread_create_Impl`, priorities, TLS handling). `cppu`, `cppuhelper`, `binaryurp`, `configmgr` top-level dirs verified via trees API (`cppu`, `cppuhelper`, `binaryurp`, `configmgr` present). **Still UNVERIFIED in this pass:** `sal/osl/all/mutex.cxx` exact path, `cppu/source/uno/any.cxx`, `configmgr/source/configurationprovider.cxx` contents, `OslMutex`/`WeakComponentImpl` field lists, `QueryInterface`/`ResolveConfigProperty` pseudocode step order, `osl_allocateMemory`/`osl_File_E_INVAL` codes, and lifecycle/error details — headers not yet fetched.
 
-The **Foundation Layer** provides the core operating system abstraction, memory management, object model runtime, and inter-process communication infrastructure for LibreOffice. It isolates the entire application stack from platform-specific APIs (POSIX, Win32, Cocoa), providing a unified runtime environment across all supported operating systems.
+## 1. Overview & Purpose (UNVERIFIED)
+
+The spec claims the **Foundation Layer** provides the core operating system abstraction, memory management, object model runtime, and inter-process communication infrastructure for LibreOffice. It isolates the entire application stack from platform-specific APIs (POSIX, Win32, Cocoa), providing a unified runtime environment across all supported operating systems.
 
 ### Subsystems Covered
 - **SAL (System Abstraction Layer) (`sal`, `salhelper`):** Primitive operating system services: threads, mutexes, file I/O, process management, dynamic library loading, and unicode string primitives.
@@ -54,7 +56,7 @@ classDiagram
     ConfigRegistry ..> OslFile : persists data via
 ```
 
-### Conceptual Data Structures
+### Conceptual Data Structures (UNVERIFIED — no corresponding headers or sources found)
 
 #### 1. `OslMutex` & Synchronization Primitives
 - **Type:** Recursive operating system mutex handle.
@@ -78,7 +80,7 @@ classDiagram
 
 ---
 
-## 3. Behavioral Rules & Algorithms
+## 3. Behavioral Rules & Algorithms (UNVERIFIED — pseudocode illustrates claimed behavior only; no implementation checked)
 
 ### 3.1 Object Lifetime and Interface Query Algorithm
 
@@ -146,7 +148,7 @@ Output: Resolved property value
 
 ---
 
-## 4. State Transitions & Lifecycle
+## 4. State Transitions & Lifecycle (UNVERIFIED)
 
 ### UNO Component Lifecycle
 
@@ -169,7 +171,7 @@ stateDiagram-v2
 
 ---
 
-## 5. Error Handling & Edge Cases
+## 5. Error Handling & Edge Cases (UNVERIFIED — error codes and recovery behaviors not observed in this repository)
 
 1. **Memory Allocation Exhaustion:** SAL memory allocators (`osl_allocateMemory`) return NULL on exhaustion. High-level C++ bindings convert NULL allocations into `std::bad_alloc` or catch catastrophic out-of-memory states to trigger emergency document recovery.
 2. **Path Encoding Edge Cases:** File paths containing illegal characters, percent-encoded spaces (`%20`), non-ASCII UTF-8 sequences, or unresolved symlinks are canonicalized before file handle creation. If an invalid URI is supplied, `osl_File_E_INVAL` is returned.

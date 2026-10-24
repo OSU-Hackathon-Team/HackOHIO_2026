@@ -64,3 +64,9 @@ Browser tests use installed Microsoft Edge on isolated port 5175, leaving port 5
 
 Existing hand-authored fixtures or historical journal rows are not recordings of live runs.
 User-authored PLAN.md and the frontend-guidelines move are preserved separately from this milestone.
+
+## Integration with latest dev
+
+The incoming dev changes add hand-authored fixtures, contract schema tests, and improved static SPA serving. Both dependency additions are retained. The two Inkwell restorations differed only in the final source newline; dev's latest source/archive/hash set was kept together, and our seed metadata was regenerated to match. The Windows working-tree `npm ci` attempt hit a native Rollup file lock; dependencies were restored with `npm install --ignore-scripts` before post-merge checks.
+
+Post-merge checks passed: production build, workspace typecheck, 13 incoming contract tests, 65 backend unit tests, 10 frontend tests, and 5 browser tests (38.5s under concurrent build/test load). Both target archive checksums match; Inkwell source is byte-identical to its archived module. Production HTTP checks again returned 200/200/404/200 and implement 400/503 as expected. The Windows file-lock cleanup warnings concern ignored node_modules only.

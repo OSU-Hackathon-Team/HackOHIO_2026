@@ -1,8 +1,10 @@
 # Module Specification: Writer (Word Processor)
 
-## 1. Overview & Purpose
+> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** `sw/source/core/doc/doc.cxx` exists and defines `SwDoc::acquire/release` (atomic refcount), `GetUndoManager`/`GetIDocumentUndoRedo`, `IDocumentDrawModelAccess/SettingAccess` managers (supports `SwDoc` + `IDocument*` + undo claims). `sw/` module existence verified. **Still UNVERIFIED in this pass:** `sw/source/core/layout/flowfrm.cxx`, `writerfilter/source/dmapper/DomainMapper.cxx` contents, `SwNodes`/`SwpHintsArray` flat-array partitioning, widow/orphan rules, follow-frame and hint-merging pseudocode step order — layout/filter sources not yet fetched.
 
-**LibreOffice Writer** (`sw`) is a full-featured word processing and desktop publishing application. It manages complex text flow, multi-column page layouts, nested tables, foot/endnotes, live cross-references, mail merge, and track-changes editing.
+## 1. Overview & Purpose (UNVERIFIED)
+
+The spec claims **LibreOffice Writer** (`sw`) is a full-featured word processing and desktop publishing application. It manages complex text flow, multi-column page layouts, nested tables, foot/endnotes, live cross-references, mail merge, and track-changes editing.
 
 ### Subsystems Covered
 - **Writer Document Core (`sw/source/core/`):**
@@ -76,7 +78,7 @@ classDiagram
     SwTextFrame --> SwTextNode : visual layout projection
 ```
 
-### Conceptual Data Structures
+### Conceptual Data Structures (UNVERIFIED — no `SwNodes`/`SwpHintsArray` sources found)
 
 #### 1. Flat Node Array (`SwNodes`)
 Unlike a recursive DOM tree, Writer stores all document content in a single linear array of `SwNode` pointers. Hierarchical sections (tables, headers, footnotes, nested sections) are bounded by paired sentinel nodes:
@@ -98,7 +100,7 @@ Character formatting is not stored as nested tags. Instead, each `SwTextNode` ma
 
 ---
 
-## 3. Behavioral Rules & Algorithms
+## 3. Behavioral Rules & Algorithms (UNVERIFIED — pseudocode not verified; widow/orphan, follow-frame behavior not observed)
 
 ### 3.1 Paragraph Flow and Page Splitting Algorithm
 
@@ -174,7 +176,7 @@ Output: List<TextPortion>
 
 ---
 
-## 4. State Transitions & Layout Tree Synchronization
+## 4. State Transitions & Layout Tree Synchronization (UNVERIFIED — lazy-formatting/synchronization claims not observed)
 
 ```mermaid
 stateDiagram-v2
@@ -192,7 +194,7 @@ stateDiagram-v2
 
 ---
 
-## 5. Error Handling & Edge Cases
+## 5. Error Handling & Edge Cases (UNVERIFIED — table-split, anchor-loop, hint-normalization claims not observed)
 
 1. **Table Larger Than Single Page:** When an individual table row exceeds the physical height of an entire page:
    - If row splitting is enabled (`RowSplit=True`), Writer breaks cell contents across pages, cloning header frames.

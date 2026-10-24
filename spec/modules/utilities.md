@@ -1,8 +1,10 @@
 # Module Specification: Core Utilities, Geometry & Internationalization
 
-## 1. Overview & Purpose
+> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** top-level dirs `basegfx`, `comphelper` exist (trees API); `vcl/source/app/svapp.cxx` includes `svl/poolitem.hxx/itemset.hxx/itempool.hxx` (supports `svl` pool claims indirectly). **Still UNVERIFIED in this pass:** `basegfx/matrix/b2dhommatrix.cxx`, `ucb/source/core/ucb.cxx`, `svl/source/items/itempool.cxx` contents, `B2DHomMatrix` 3x3 layout, `SfxItemPool`/`WhichId` mechanics, UCB scheme list, break-iterator and ZIP-manifest fallback details — those sources not yet fetched.
 
-The **Core Utilities Layer** provides fundamental mathematical, geometrical, internationalization, content resolution, and container storage facilities. It operates directly above the foundation layer and serves as the universal library substrate for graphics, framework, and document applications.
+## 1. Overview & Purpose (UNVERIFIED)
+
+The spec claims the **Core Utilities Layer** provides fundamental mathematical, geometrical, internationalization, content resolution, and container storage facilities. It operates directly above the foundation layer and serves as the universal library substrate for graphics, framework, and document applications.
 
 ### Subsystems Covered
 - **BaseGFX (`basegfx`):** Pure mathematical 2D and 3D geometry engine: homogeneous transformation matrices, bezier curves, polygon clipping, and bounding boxes.
@@ -61,7 +63,7 @@ classDiagram
     UniversalContentBroker ..> B2DHomMatrix : unrelated
 ```
 
-### Conceptual Data Structures
+### Conceptual Data Structures (UNVERIFIED — no corresponding sources found)
 
 #### 1. `B2DHomMatrix` (Affine 2D Transformation)
 - **Data Representation:** $3 \times 3$ double-precision matrix representing homogeneous coordinates:
@@ -78,7 +80,7 @@ classDiagram
 
 ---
 
-## 3. Behavioral Rules & Algorithms
+## 3. Behavioral Rules & Algorithms (UNVERIFIED — pseudocode not verified against implementation)
 
 ### 3.1 Affine Point Transformation
 
@@ -141,7 +143,7 @@ Output: None
 
 ---
 
-## 4. Internationalization (I18N) Rules & Break Iterator
+## 4. Internationalization (I18N) Rules & Break Iterator (UNVERIFIED)
 
 The `i18npool` subsystem processes text based on Unicode character classes and locale-specific rules:
 
@@ -161,7 +163,7 @@ flowchart TD
 
 ---
 
-## 5. Error Handling & Edge Cases
+## 5. Error Handling & Edge Cases (UNVERIFIED — matrix-invert, ZIP-manifest, locale-fallback behaviors not observed)
 
 1. **Non-Invertible Matrix:** When calling `B2DHomMatrix::invert()`, if the determinant $|\mathbf{A}| \approx 0$ (scale factors are zero or points are collinear):
    - Inversion fails gracefully.

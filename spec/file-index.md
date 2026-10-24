@@ -1,8 +1,10 @@
 # LibreOffice Repository File Index & Inventory
 
-## 1. System-Wide Module Directory Catalog
+> **Verification Status (2026-10-24, rev.2 — LibreOffice core remote, master).** Prior rev.1 (Splice repo, 197 files) is superseded. **Verified:** top-level dirs `sal`, `basctl`, `basegfx`, `basic`, `binaryurp`, `canvas`, `chart2`, `comphelper`, `configmgr`, `connectivity`, `cppu`, `cppuhelper`, `cui`, `dbaccess`, `desktop`, `animations`, `avmedia` exist (via `git/trees/master`); files `sal/osl/unx/thread.cxx`, `sw/source/core/doc/doc.cxx`, `sfx2/source/control/dispatch.cxx`, `vcl/source/app/svapp.cxx` exist (HTTP 200). `sw/`, `sfx2/`, `vcl/` existence thus verified; `sc/sd/xmloff/oox/starmath/connectivity/reportdesign/pyuno/libreofficekit` paths not yet individually fetched in this pass — **UNVERIFIED for those rows until checked**. **Still UNVERIFIED:** all numeric counts (149,761 total, per-module totals/production counts) — would require full clone + cloc; do not cite as verified. Note: `spec/` directory is `spec/`, not `specs/`.
 
-This inventory accounts for all top-level repository modules and directories in LibreOffice (149,761 total cataloged entries). Each module is classified by role, file count, and linked directly to its governing architectural specification document.
+## 1. System-Wide Module Directory Catalog (UNVERIFIED)
+
+The spec claims this inventory accounts for all top-level repository modules and directories in LibreOffice (149,761 total cataloged entries). **UNVERIFIED and contradicted by this repository (197 tracked files).** Each module below is classified by claimed role and file count — all counts **UNVERIFIED**:
 
 | Module Directory | Primary Role & Responsibility | Total Entries | Production Files | Governing Specification |
 | :--- | :--- | :--- | :--- | :--- |
@@ -57,13 +59,13 @@ This inventory accounts for all top-level repository modules and directories in 
 
 ---
 
-## 2. Key Production Source File Inventory
+## 2. Key Production Source File Inventory (partially verified against LO core remote, master)
 
-The following index categorizes critical production source files across the repository, summarizing their conceptual responsibility and linking to the relevant behavioral specification:
+The following index categorizes critical production source files. **Verification (2026-10-24, rev.2): `sal/osl/unx/thread.cxx` VERIFIED (200, pthread impl); `sw/source/core/doc/doc.cxx` VERIFIED (`SwDoc::acquire/release`, undo/IDocument managers); `sfx2/source/control/dispatch.cxx` VERIFIED (`SfxDispatcher_Impl` stack); `vcl/source/app/svapp.cxx` VERIFIED; `sc/source/core/data/document.cxx` VERIFIED (`ScDocument::MakeTable`, `formulacell/group` includes); `basegfx/source/matrix/b2dhommatrix.cxx` VERIFIED (`B2DHomMatrix::invert/rotate/translate`, determinant check) — see corrections below. Remaining paths in this list are UNVERIFIED in this pass until individually fetched. Numeric counts in §1 remain UNVERIFIED.**
 
 ### Foundation & Platform Abstraction Layer
 - `sal/osl/unx/thread.cxx` / `sal/osl/w32/thread.cxx`: Implements OS thread creation, priority mapping, and thread-local storage. -> [modules/foundation.md#2-component-architecture--data-structures](./modules/foundation.md)
-- `sal/osl/all/mutex.cxx`: Implements recursive OS mutex handles and atomic test-and-set guards. -> [modules/foundation.md#2-component-architecture--data-structures](./modules/foundation.md)
+- `sal/osl/all/mutex.cxx` — **INCORRECT PATH (UNVERIFIED as written): `sal/osl/all/` contains `mutexshared.cxx`, not `mutex.cxx` (verified via contents API 2026-10-24). Mutex impl is per-platform (`sal/osl/unx/`, `sal/osl/w32/`). Correct to `sal/osl/all/mutexshared.cxx` for shared bits or platform-specific mutex source. -> [modules/foundation.md#2-component-architecture--data-structures](./modules/foundation.md)
 - `sal/osl/unx/file.cxx` / `sal/osl/w32/file.cxx`: Implements RFC-2396 URI-based native file streaming and directory traversal. -> [modules/foundation.md#2-component-architecture--data-structures](./modules/foundation.md)
 - `cppu/source/uno/any.cxx`: Implements `uno::Any` generic polymorphic type container and reflection metadata binding. -> [modules/foundation.md#3-behavioral-rules--algorithms](./modules/foundation.md)
 - `cppuhelper/source/weak.cxx`: Implements `OWeakObject` intrusive atomic reference counting and weak connection notifications. -> [modules/foundation.md#3-behavioral-rules--algorithms](./modules/foundation.md)
@@ -71,8 +73,8 @@ The following index categorizes critical production source files across the repo
 - `configmgr/source/configurationprovider.cxx`: Implements layered configuration resolution merging schema defaults with user XML profiles. -> [modules/foundation.md#32-configuration-resolution-hierarchy](./modules/foundation.md)
 
 ### Core Utilities, Geometry & Internationalization Layer
-- `basegfx/matrix/b2dhommatrix.cxx`: Implements $3 \times 3$ affine transformation matrix multiplication, rotation, scaling, and inversion. -> [modules/utilities.md#2-component-architecture--data-structures](./modules/utilities.md)
-- `basegfx/polygon/b2dpolygon.cxx`: Implements 2D poly-bezier curve subdivision and polygon clipping routines. -> [modules/utilities.md#2-component-architecture--data-structures](./modules/utilities.md)
+- `basegfx/source/matrix/b2dhommatrix.cxx` — **CORRECTED (was `basegfx/matrix/b2dhommatrix.cxx`, 404): VERIFIED 200 2026-10-24, defines `B2DHomMatrix::rotate/translate/scale/invert/isInvertible`, determinant-zero → `return false`.** Implements 3×3 affine matrix ops. -> [modules/utilities.md#2-component-architecture--data-structures](./modules/utilities.md)
+- `basegfx/source/polygon/b2dpolygon.cxx` — **CORRECTED PATH (was `basegfx/polygon/...`, UNVERIFIED as written; `basegfx/` layout is `source/` + `inc/` per contents API). Existence of polygon source UNVERIFIED in this pass until fetched.** Implements 2D poly-bezier subdivision/clipping (claimed). -> [modules/utilities.md#2-component-architecture--data-structures](./modules/utilities.md)
 - `comphelper/source/property/propertysethelper.cxx`: Implements fast integer-indexed property lookup and change broadcasts for UNO components. -> [modules/utilities.md#1-overview--purpose](./modules/utilities.md)
 - `i18npool/source/breakiterator/breakiterator_unicode.cxx`: Implements Unicode word, sentence, and script boundary analysis using ICU break iterators. -> [modules/utilities.md#4-internationalization-i18n-rules--break-iterator](./modules/utilities.md)
 - `ucb/source/core/ucb.cxx`: Coordinates URL scheme routing and dispatches content commands to registered provider plugins. -> [modules/utilities.md#32-ucb-content-resolution-and-streaming](./modules/utilities.md)
@@ -135,9 +137,9 @@ The following index categorizes critical production source files across the repo
 
 ---
 
-## 3. Non-Production Directory Inventory
+## 3. Non-Production Directory Inventory (UNVERIFIED — none of these directories exist in this repository)
 
-Directories outside the production compilation path are categorized below:
+The spec claims directories outside the production compilation path are categorized below. **UNVERIFIED: `icon-themes/`, `extras/`, `dictionaries/`, `helpcontent2/`, `external/`, `qadevOOo/`, `test/`, `uitest/`, `solenv/`, `compilerplugins/`, `codemaker/`, `sysui/`/`scp2` as described do not exist as LibreOffice infrastructure in this repository (this repo has `fixtures/`, `targets/`, `packages/`, `agents/` for the Splice project instead):**
 
 | Directory | Classification | Content Description | Handling in Specification |
 | :--- | :--- | :--- | :--- |

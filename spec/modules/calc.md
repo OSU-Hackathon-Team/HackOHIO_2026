@@ -1,8 +1,10 @@
 # Module Specification: Calc (Spreadsheet)
 
-## 1. Overview & Purpose
+> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** `sc/source/core/data/document.cxx` exists and references `document.hxx`, `table.hxx`, `column.hxx`, `formulacell.hxx`, `formulagroup.hxx`, `brdcst.hxx` with `ScDocument::MakeTable`, `maTabs` (`ScTable` per sheet) — supports `ScDocument`/`ScTable`/broadcaster claims. **Still UNVERIFIED in this pass:** `sc/source/core/tool/compiler.cxx`/`interpre.cxx` contents, `mdds` block types, RPN opcodes (`ocAdd`, `ocSUM`), 10,000-sheet / 16,384-col / 16M-row limits, OpenCL/SIMD grouping, error codes 522/503 — formula/dirty-propagation sources not yet fetched.
 
-**LibreOffice Calc** (`sc`, `formula`) is a high-performance spreadsheet computation engine supporting complex mathematical, statistical, financial, and engineering analysis. It features column-oriented contiguous array storage, vectorized calculation groups, multi-threaded formula evaluation, OpenCL GPU offloading, and pivot table modeling.
+## 1. Overview & Purpose (UNVERIFIED)
+
+The spec claims **LibreOffice Calc** (`sc`, `formula`) is a high-performance spreadsheet computation engine supporting complex mathematical, statistical, financial, and engineering analysis. It features column-oriented contiguous array storage, vectorized calculation groups, multi-threaded formula evaluation, OpenCL GPU offloading, and pivot table modeling.
 
 ### Subsystems Covered
 - **Document & Data Storage (`sc/source/core/data/`):**
@@ -71,7 +73,7 @@ classDiagram
     ScFormulaCell ..> ScInterpreter : evaluated by
 ```
 
-### Conceptual Data Structures
+### Conceptual Data Structures (UNVERIFIED — no `mdds`/column-storage sources found; limits unverified)
 
 #### 1. Column Multi-Type Vector Storage (`mdds`)
 To maximize cache locality and reduce memory overhead, spreadsheet cells are stored column-wise in contiguous memory blocks partitioned by data type:
@@ -90,7 +92,7 @@ To maximize cache locality and reduce memory overhead, spreadsheet cells are sto
 
 ---
 
-## 3. Behavioral Rules & Algorithms
+## 3. Behavioral Rules & Algorithms (UNVERIFIED — RPN opcodes, dirty-propagation not verified)
 
 ### 3.1 Formula Stack Machine Evaluation
 
@@ -165,7 +167,7 @@ Output: None
 
 ---
 
-## 4. State Transitions & Vectorized Formula Groups
+## 4. State Transitions & Vectorized Formula Groups (UNVERIFIED — formula-group/OpenCL/SIMD claims not observed)
 
 Contiguous formula cells containing identical logic across consecutive rows (e.g., `=A1*B1`, `=A2*B2`, `=A3*B3`) are consolidated into a **Formula Group**:
 
@@ -186,7 +188,7 @@ flowchart TD
 
 ---
 
-## 5. Error Handling & Edge Cases
+## 5. Error Handling & Edge Cases (UNVERIFIED — circular-ref/div-zero/deleted-sheet claims not observed)
 
 1. **Circular Reference Detection:** When formula evaluation encounters an indirect cycle ($A1 \to B1 \to C1 \to A1$):
    - The interpreter tracks evaluation depth on the active call stack (`RecursionCounter`).

@@ -1,8 +1,10 @@
 # LibreOffice Subsystem Dependencies & Interactions
 
-## 1. Dependency Philosophy & Layering Rules
+> **Verification Status (2026-10-24, rev.2 — LibreOffice core remote, master).** **Verified:** `sal`, `sfx2` (`SfxDispatcher` stack impl), `sw` (`SwDoc`), `vcl` (`svapp.cxx`), `desktop`, `comphelper`, `configmgr`, `connectivity`, `cppu/cppuhelper`, `binaryurp` top-level dirs exist; `sal/osl/unx/thread.cxx`, `sfx2/source/control/dispatch.cxx`, `sw/source/core/doc/doc.cxx`, `vcl/source/app/svapp.cxx` return HTTP 200. Linkage-type/fallback-severity labels (Fatal/Graceful), UNO discovery step order, and third-party version claims below remain **UNVERIFIED** — build files (`.mk`, `Repository.mk`) and service manifests not yet checked in this pass.
 
-LibreOffice enforces a strict unidirectional dependency hierarchy. High-level components depend on low-level foundations, but lower layers are prohibited from depending on higher-level modules. This architectural isolation ensures that core engines (such as the document models, layout systems, and headless converters) can function independently of the desktop user interface.
+## 1. Dependency Philosophy & Layering Rules (UNVERIFIED)
+
+The spec claims LibreOffice enforces a strict unidirectional dependency hierarchy. High-level components depend on low-level foundations, but lower layers are prohibited from depending on higher-level modules. This architectural isolation ensures that core engines (such as the document models, layout systems, and headless converters) can function independently of the desktop user interface.
 
 ```mermaid
 graph TD
@@ -33,7 +35,7 @@ graph TD
 
 ## 2. Module Linkage & Interaction Matrix
 
-The table below summarizes the linkage relationships, interaction mechanisms, and failure modes across the major repository subsystems:
+The table below *claims to* summarize linkage relationships, interaction mechanisms, and failure modes. **UNVERIFIED — no source or build files in this repository confirm any linkage type, mechanism, or Fatal/Graceful fallback below:**
 
 | Source Module | Target Module | Linkage Type | Interaction Mechanism | Criticality & Fallback Behavior |
 | :--- | :--- | :--- | :--- | :--- |
@@ -55,7 +57,7 @@ The table below summarizes the linkage relationships, interaction mechanisms, an
 
 ## 3. Dynamic UNO Service Discovery & Registration
 
-While performance-critical components use direct C++ shared library linkage, cross-cutting features and file filters are resolved dynamically at runtime through UNO service discovery.
+The spec claims performance-critical components use direct C++ linkage while filters resolve via UNO service discovery. **UNVERIFIED — no libraries, component manifests (`.components`), or type libraries (`.rdb`) found in this repository.**
 
 ```mermaid
 sequenceDiagram
@@ -87,7 +89,7 @@ sequenceDiagram
 
 ## 4. External & Third-Party Library Integration
 
-LibreOffice encapsulates dozens of external third-party libraries behind clean internal wrapper facades. These external components provide specialized functionality where standardizing on mature open-source solutions is preferred:
+The spec claims LibreOffice encapsulates dozens of external third-party libraries behind wrapper facades. **UNVERIFIED — `external/` with ICU/Skia/HarfBuzz/Zlib patches as described does not exist in this repository; third-party responsibilities below are UNVERIFIED.** These external components provide specialized functionality where standardizing on mature open-source solutions is preferred:
 
 ```mermaid
 flowchart LR
@@ -135,7 +137,7 @@ flowchart LR
 
 ## 5. Inter-Process Communication & Remote Bridges
 
-LibreOffice supports headless, multi-process, and networked deployments through two primary external interfaces:
+The spec claims LibreOffice supports headless, multi-process, and networked deployments through two primary external interfaces. **UNVERIFIED — no `binaryurp`, socket/pipe IPC gateway, or LOKit C ABI source found in this repository:**
 
 ```mermaid
 flowchart TD

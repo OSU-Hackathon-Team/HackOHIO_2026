@@ -1,0 +1,169 @@
+[
+  {
+    "type": "stage",
+    "run_id": "run_rec_001",
+    "feature_id": "recall.sm2_scheduler",
+    "ts": 1792864800000,
+    "stage": "queued",
+    "message": "Queued extraction task for recall.sm2_scheduler"
+  },
+  {
+    "type": "stage",
+    "run_id": "run_rec_001",
+    "feature_id": "recall.sm2_scheduler",
+    "ts": 1792864800100,
+    "stage": "connecting",
+    "message": "Connecting to REA agents MCP bridge"
+  },
+  {
+    "type": "tool_call",
+    "run_id": "run_rec_001",
+    "feature_id": "recall.sm2_scheduler",
+    "ts": 1792864800200,
+    "seq": 1,
+    "tool": "binary_session",
+    "args_preview": "{}"
+  },
+  {
+    "type": "tool_result",
+    "run_id": "run_rec_001",
+    "feature_id": "recall.sm2_scheduler",
+    "ts": 1792864800250,
+    "seq": 1,
+    "tool": "binary_session",
+    "ok": true,
+    "duration_ms": 15,
+    "summary": "Initialized REA session and retrieved tool capabilities",
+    "evidence_id": null
+  },
+  {
+    "type": "stage",
+    "run_id": "run_rec_001",
+    "feature_id": "recall.sm2_scheduler",
+    "ts": 1792864800300,
+    "stage": "analyzing",
+    "message": "Analyzing JavaScript application archive targets/build/recall/app.asar"
+  },
+  {
+    "type": "tool_call",
+    "run_id": "run_rec_001",
+    "feature_id": "recall.sm2_scheduler",
+    "ts": 1792864800350,
+    "seq": 2,
+    "tool": "analyze_javascript_application",
+    "args_preview": "{\"input_path\": \"targets/build/recall/app.asar\", \"detail\": \"summary\"}"
+  },
+  {
+    "type": "tool_result",
+    "run_id": "run_rec_001",
+    "feature_id": "recall.sm2_scheduler",
+    "ts": 1792864800600,
+    "seq": 2,
+    "tool": "analyze_javascript_application",
+    "ok": true,
+    "duration_ms": 230,
+    "summary": "Discovered 4 JS modules across recall application archive",
+    "evidence_id": "ev_1122334455667788112233445566778811223344556677881122334455667788"
+  },
+  {
+    "type": "stage",
+    "run_id": "run_rec_001",
+    "feature_id": "recall.sm2_scheduler",
+    "ts": 1792864800650,
+    "stage": "tracing",
+    "message": "Tracing call graph and symbols for seed module src/scheduler/sm2.js"
+  },
+  {
+    "type": "tool_call",
+    "run_id": "run_rec_001",
+    "feature_id": "recall.sm2_scheduler",
+    "ts": 1792864800700,
+    "seq": 3,
+    "tool": "trace_application_feature",
+    "args_preview": "{\"seed\": {\"kind\": \"module\", \"value\": \"src/scheduler/sm2.js\"}}"
+  },
+  {
+    "type": "tool_result",
+    "run_id": "run_rec_001",
+    "feature_id": "recall.sm2_scheduler",
+    "ts": 1792864800900,
+    "seq": 3,
+    "tool": "trace_application_feature",
+    "ok": true,
+    "duration_ms": 165,
+    "summary": "Extracted module src/scheduler/sm2.js with symbols scheduleReview and updateEase",
+    "evidence_id": "ev_8877665544332211887766554433221188776655443322118877665544332211"
+  },
+  {
+    "type": "stage",
+    "run_id": "run_rec_001",
+    "feature_id": "recall.sm2_scheduler",
+    "ts": 1792864801000,
+    "stage": "specifying",
+    "message": "Generating formal requirements specification and acceptance tests"
+  },
+  {
+    "type": "llm_progress",
+    "run_id": "run_rec_001",
+    "feature_id": "recall.sm2_scheduler",
+    "ts": 1792864801500,
+    "phase": "specifying",
+    "output_chars": 850
+  },
+  {
+    "type": "stage",
+    "run_id": "run_rec_001",
+    "feature_id": "recall.sm2_scheduler",
+    "ts": 1792864802000,
+    "stage": "checking_oracle",
+    "message": "Executing acceptance tests against original module in sandbox adapter"
+  },
+  {
+    "type": "test_result",
+    "run_id": "run_rec_001",
+    "feature_id": "recall.sm2_scheduler",
+    "ts": 1792864802100,
+    "name": "REQ-1: invalid grade throws RangeError",
+    "kind": "oracle",
+    "passed": true,
+    "error": null
+  },
+  {
+    "type": "test_result",
+    "run_id": "run_rec_001",
+    "feature_id": "recall.sm2_scheduler",
+    "ts": 1792864802150,
+    "name": "REQ-2: grade 4 advances repetitions and expands interval",
+    "kind": "oracle",
+    "passed": true,
+    "error": null
+  },
+  {
+    "type": "test_result",
+    "run_id": "run_rec_001",
+    "feature_id": "recall.sm2_scheduler",
+    "ts": 1792864802200,
+    "name": "REQ-3 REQ-4: lapse resets reps and bounds ease at 1.30",
+    "kind": "oracle",
+    "passed": true,
+    "error": null
+  },
+  {
+    "type": "test_result",
+    "run_id": "run_rec_001",
+    "feature_id": "recall.sm2_scheduler",
+    "ts": 1792864802250,
+    "name": "REQ-5: lapses >= 8 flags card as leech",
+    "kind": "oracle",
+    "passed": true,
+    "error": null
+  },
+  {
+    "type": "done",
+    "run_id": "run_rec_001",
+    "feature_id": "recall.sm2_scheduler",
+    "ts": 1792864802500,
+    "ok": true,
+    "replayed": true
+  }
+]

@@ -1,0 +1,285 @@
+{
+  "schema_version": 1,
+  "feature_id": "inkwell.wikilink_graph",
+  "spec": {
+    "schema_version": 1,
+    "feature_id": "inkwell.wikilink_graph",
+    "app_id": "inkwell",
+    "source_app": "Inkwell Notes",
+    "source_icon": "BookOpen",
+    "artifact_type": "electron_asar",
+    "consumer_title": "Wiki-Link Graph & Backlink Indexer",
+    "consumer_description": "Parses markdown wiki-links and constructs directional graph nodes, backlinks, and unresolved target lists.",
+    "category": "graph",
+    "requirements": [
+      {
+        "id": "REQ-1",
+        "kind": "behavior",
+        "statement": "Extracts [[Target]], [[Target|alias]], and [[Target#Heading|alias]] links while ignoring fenced code blocks and inline code spans",
+        "source_refs": [
+          "src/graph/wikilinks.js:L9-L38"
+        ]
+      },
+      {
+        "id": "REQ-2",
+        "kind": "behavior",
+        "statement": "Normalizes titles by trimming whitespace, lowercasing, and collapsing internal whitespace",
+        "source_refs": [
+          "src/graph/wikilinks.js:L40-L42"
+        ]
+      },
+      {
+        "id": "REQ-3",
+        "kind": "behavior",
+        "statement": "Builds de-duplicated directed edges between notes, discarding self-links",
+        "source_refs": [
+          "src/graph/backlinks.js:L19-L33"
+        ]
+      },
+      {
+        "id": "REQ-4",
+        "kind": "behavior",
+        "statement": "Collects unresolved link targets per note when target title is not in the note collection",
+        "source_refs": [
+          "src/graph/backlinks.js:L22-L25"
+        ]
+      },
+      {
+        "id": "REQ-5",
+        "kind": "invariant",
+        "statement": "Computes node degree as the sum of incoming and outgoing unique edges",
+        "source_refs": [
+          "src/graph/backlinks.js:L35-L40"
+        ]
+      }
+    ],
+    "interface": {
+      "module_name": "wikilinkGraph",
+      "exports": [
+        {
+          "name": "parseWikiLinks",
+          "kind": "function",
+          "signature": "(markdown: string) => WikiLink[]",
+          "description": "Extracts wiki-link objects from markdown text"
+        },
+        {
+          "name": "normalizeTitle",
+          "kind": "function",
+          "signature": "(title: string) => string",
+          "description": "Normalizes a note title for case-insensitive lookup"
+        },
+        {
+          "name": "buildLinkGraph",
+          "kind": "function",
+          "signature": "(notes: NoteInput[]) => GraphResult",
+          "description": "Builds full graph result with nodes, edges, backlinks, and unresolved targets"
+        }
+      ],
+      "types_code": "export interface WikiLink {\n  target: string;\n  heading: string | null;\n  alias: string | null;\n}\n\nexport interface NoteInput {\n  id: string;\n  title: string;\n  body: string;\n}\n\nexport interface GraphNode {\n  id: string;\n  title: string;\n  degree: number;\n}\n\nexport interface GraphEdge {\n  from: string;\n  to: string;\n}\n\nexport interface GraphResult {\n  nodes: GraphNode[];\n  edges: GraphEdge[];\n  backlinks: Record<string, string[]>;\n  unresolved: Record<string, string[]>;\n}\n\nexport declare function parseWikiLinks(markdown: string): WikiLink[];\nexport declare function normalizeTitle(title: string): string;\nexport declare function buildLinkGraph(notes: NoteInput[]): GraphResult;\n"
+    },
+    "inputs": [
+      {
+        "name": "notes",
+        "type": "NoteInput[]",
+        "description": "Array of notes containing id, title, and body markdown"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "graph",
+        "type": "GraphResult",
+        "description": "Constructed graph nodes, edges, backlinks, and unresolved targets"
+      }
+    ],
+    "acceptance_tests": "test(\"REQ-1: parses wikilinks while ignoring code spans\", () => {\n  const links = parseWikiLinks(\"Read [[Architecture]] or `[[Ignored]]`\");\n  assert.equal(links.length, 1);\n  assert.equal(links[0].target, \"Architecture\");\n});\n\ntest(\"REQ-2: normalizes titles with whitespace collapsing\", () => {\n  assert.equal(normalizeTitle(\"  My   Note  \"), \"my note\");\n});\n\ntest(\"REQ-3 REQ-4 REQ-5: constructs graph with edges, backlinks, and degree\", () => {\n  const notes = [\n    { id: \"1\", title: \"Index\", body: \"Links to [[Guide]] and [[Missing]]\" },\n    { id: \"2\", title: \"Guide\", body: \"Self link [[Guide]] and back [[Index]]\" },\n  ];\n  const g = buildLinkGraph(notes);\n  assert.equal(g.edges.length, 2);\n  assert.deepEqual(g.backlinks[\"2\"], [\"1\"]);\n  assert.deepEqual(g.unresolved[\"1\"], [\"Missing\"]);\n});\n",
+    "coverage": [
+      {
+        "requirement_id": "REQ-1",
+        "test_names": [
+          "REQ-1: parses wikilinks while ignoring code spans"
+        ]
+      },
+      {
+        "requirement_id": "REQ-2",
+        "test_names": [
+          "REQ-2: normalizes titles with whitespace collapsing"
+        ]
+      },
+      {
+        "requirement_id": "REQ-3",
+        "test_names": [
+          "REQ-3 REQ-4 REQ-5: constructs graph with edges, backlinks, and degree"
+        ]
+      },
+      {
+        "requirement_id": "REQ-4",
+        "test_names": [
+          "REQ-3 REQ-4 REQ-5: constructs graph with edges, backlinks, and degree"
+        ]
+      },
+      {
+        "requirement_id": "REQ-5",
+        "test_names": [
+          "REQ-3 REQ-4 REQ-5: constructs graph with edges, backlinks, and degree"
+        ]
+      }
+    ],
+    "allowed_deviations": [
+      "Headings within links are parsed but not indexed into note anchors"
+    ],
+    "stripped_glue": [
+      "ipcMain.handle('vault:graph')",
+      "electron webview force-graph"
+    ],
+    "oracle": {
+      "status": "passed",
+      "adapter_code": "const w = require('./src/graph/wikilinks.js'); const b = require('./src/graph/backlinks.js'); module.exports = { parseWikiLinks: w.parseWikiLinks, normalizeTitle: w.normalizeTitle, buildLinkGraph: b.buildLinkGraph };",
+      "tests": [
+        {
+          "name": "REQ-1: parses wikilinks while ignoring code spans",
+          "kind": "oracle",
+          "passed": true,
+          "error": null,
+          "duration_ms": 2
+        },
+        {
+          "name": "REQ-2: normalizes titles with whitespace collapsing",
+          "kind": "oracle",
+          "passed": true,
+          "error": null,
+          "duration_ms": 1
+        },
+        {
+          "name": "REQ-3 REQ-4 REQ-5: constructs graph with edges, backlinks, and degree",
+          "kind": "oracle",
+          "passed": true,
+          "error": null,
+          "duration_ms": 2
+        }
+      ],
+      "passed": 3,
+      "total": 3
+    },
+    "status": "verified",
+    "open_issues": [],
+    "repair_attempts": 0,
+    "provenance": {
+      "mode": "replay",
+      "target": {
+        "path": "targets/build/inkwell/app.asar",
+        "artifact_type": "electron_asar",
+        "sha256": "37979c1c709c822434e0e72767e0d1edb0fcd7032e8cf4fa08a32bd65f383942"
+      },
+      "rea_package_version": "6.7.0",
+      "tool_calls": [
+        {
+          "seq": 1,
+          "tool": "binary_session",
+          "args": {},
+          "ok": true,
+          "duration_ms": 12,
+          "evidence_id": null,
+          "summary": "Initialized REA session and retrieved tool capabilities",
+          "limitations": []
+        },
+        {
+          "seq": 2,
+          "tool": "analyze_javascript_application",
+          "args": {
+            "input_path": "targets/build/inkwell/app.asar",
+            "detail": "summary"
+          },
+          "ok": true,
+          "duration_ms": 245,
+          "evidence_id": "ev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "summary": "Discovered 5 modules across inkwell archive",
+          "limitations": [
+            "Dynamic evaluation not traced"
+          ]
+        },
+        {
+          "seq": 3,
+          "tool": "trace_application_feature",
+          "args": {
+            "evidence_id": "ev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "seed": {
+              "kind": "module",
+              "value": "src/graph/backlinks.js"
+            }
+          },
+          "ok": true,
+          "duration_ms": 190,
+          "evidence_id": "ev_fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+          "summary": "Traced call path from buildLinkGraph to parseWikiLinks and normalizeTitle",
+          "limitations": []
+        }
+      ],
+      "snippets": [
+        {
+          "location": "app.asar:src/graph/wikilinks.js",
+          "symbol": "parseWikiLinks",
+          "language": "javascript",
+          "code": "\"use strict\";\nconst FENCE = /^```/;\nconst LINK = /\\[\\[([^\\]|#]+)(?:#([^\\]|]+))?(?:\\|([^\\]]+))?\\]\\]/g;\nfunction parseWikiLinks(markdown) {\n  const links = [];\n  let inFence = false;\n  for (const rawLine of markdown.split(/\\r?\\n/)) {\n    if (FENCE.test(rawLine.trim())) {\n      inFence = !inFence;\n      continue;\n    }\n    if (inFence) continue;\n    const line = rawLine.replace(/`[^`]*`/g, \"\");\n    LINK.lastIndex = 0;\n    let m;\n    while ((m = LINK.exec(line)) !== null) {\n      links.push({\n        target: m[1].trim(),\n        heading: m[2] ? m[2].trim() : null,\n        alias: m[3] ? m[3].trim() : null,\n      });\n    }\n  }\n  return links;\n}\nfunction normalizeTitle(title) {\n  return title.trim().toLowerCase().replace(/\\s+/g, \" \");\n}\nmodule.exports = { parseWikiLinks, normalizeTitle };",
+          "full_module": true
+        },
+        {
+          "location": "app.asar:src/graph/backlinks.js",
+          "symbol": "buildLinkGraph",
+          "language": "javascript",
+          "code": "\"use strict\";\nconst { parseWikiLinks, normalizeTitle } = require(\"./wikilinks\");\nfunction buildLinkGraph(notes) {\n  const byTitle = new Map();\n  for (const n of notes) byTitle.set(normalizeTitle(n.title), n.id);\n  const edges = [];\n  const seen = new Set();\n  const backlinks = {};\n  const unresolved = {};\n  for (const n of notes) backlinks[n.id] = [];\n  for (const note of notes) {\n    for (const link of parseWikiLinks(note.body)) {\n      const targetId = byTitle.get(normalizeTitle(link.target));\n      if (!targetId) {\n        (unresolved[note.id] = unresolved[note.id] || []).push(link.target);\n        continue;\n      }\n      if (targetId === note.id) continue;\n      const key = note.id + \"->\" + targetId;\n      if (seen.has(key)) continue;\n      seen.add(key);\n      edges.push({ from: note.id, to: targetId });\n      backlinks[targetId].push(note.id);\n    }\n  }\n  const degree = {};\n  for (const e of edges) {\n    degree[e.from] = (degree[e.from] || 0) + 1;\n    degree[e.to] = (degree[e.to] || 0) + 1;\n  }\n  const nodes = notes.map((n) => ({ id: n.id, title: n.title, degree: degree[n.id] || 0 }));\n  return { nodes, edges, backlinks, unresolved };\n}\nmodule.exports = { buildLinkGraph };",
+          "full_module": true
+        }
+      ],
+      "limitations": [
+        "Dynamic evaluation not traced"
+      ],
+      "unknowns": [],
+      "collected_at": "2026-10-24T12:00:00.000Z",
+      "specified_at": "2026-10-24T12:02:30.000Z",
+      "model": "amazon-bedrock/anthropic.claude-opus-5-5"
+    }
+  },
+  "implementation": {
+    "module_name": "wikilinkGraph",
+    "portable_code": "export interface WikiLink {\n  target: string;\n  heading: string | null;\n  alias: string | null;\n}\n\nexport interface NoteInput {\n  id: string;\n  title: string;\n  body: string;\n}\n\nexport interface GraphNode {\n  id: string;\n  title: string;\n  degree: number;\n}\n\nexport interface GraphEdge {\n  from: string;\n  to: string;\n}\n\nexport interface GraphResult {\n  nodes: GraphNode[];\n  edges: GraphEdge[];\n  backlinks: Record<string, string[]>;\n  unresolved: Record<string, string[]>;\n}\n\nconst FENCE = /^```/;\nconst LINK = /\\[\\[([^\\]|#]+)(?:#([^\\]|]+))?(?:\\|([^\\]]+))?\\]\\]/g;\n\nexport function parseWikiLinks(markdown: string): WikiLink[] {\n  const links: WikiLink[] = [];\n  let inFence = false;\n  for (const rawLine of markdown.split(/\\r?\\n/)) {\n    if (FENCE.test(rawLine.trim())) {\n      inFence = !inFence;\n      continue;\n    }\n    if (inFence) continue;\n    const line = rawLine.replace(/`[^`]*`/g, \"\");\n    LINK.lastIndex = 0;\n    let m: RegExpExecArray | null;\n    while ((m = LINK.exec(line)) !== null) {\n      links.push({\n        target: m[1].trim(),\n        heading: m[2] ? m[2].trim() : null,\n        alias: m[3] ? m[3].trim() : null,\n      });\n    }\n  }\n  return links;\n}\n\nexport function normalizeTitle(title: string): string {\n  return title.trim().toLowerCase().replace(/\\s+/g, \" \");\n}\n\nexport function buildLinkGraph(notes: NoteInput[]): GraphResult {\n  const byTitle = new Map<string, string>();\n  for (const n of notes) byTitle.set(normalizeTitle(n.title), n.id);\n  const edges: GraphEdge[] = [];\n  const seen = new Set<string>();\n  const backlinks: Record<string, string[]> = {};\n  const unresolved: Record<string, string[]> = {};\n  for (const n of notes) backlinks[n.id] = [];\n\n  for (const note of notes) {\n    for (const link of parseWikiLinks(note.body)) {\n      const targetId = byTitle.get(normalizeTitle(link.target));\n      if (!targetId) {\n        (unresolved[note.id] = unresolved[note.id] || []).push(link.target);\n        continue;\n      }\n      if (targetId === note.id) continue;\n      const key = `${note.id}->${targetId}`;\n      if (seen.has(key)) continue;\n      seen.add(key);\n      edges.push({ from: note.id, to: targetId });\n      backlinks[targetId].push(note.id);\n    }\n  }\n\n  const degree: Record<string, number> = {};\n  for (const e of edges) {\n    degree[e.from] = (degree[e.from] || 0) + 1;\n    degree[e.to] = (degree[e.to] || 0) + 1;\n  }\n  const nodes: GraphNode[] = notes.map((n) => ({\n    id: n.id,\n    title: n.title,\n    degree: degree[n.id] || 0,\n  }));\n\n  return { nodes, edges, backlinks, unresolved };\n}\n",
+    "notes": [
+      "Pure, deterministic graph engine implemented directly from FeatureSpec",
+      "No DOM, Electron, or global environment dependencies"
+    ]
+  },
+  "verification": {
+    "status": "passed",
+    "tests": [
+      {
+        "name": "REQ-1: parses wikilinks while ignoring code spans",
+        "kind": "acceptance",
+        "passed": true,
+        "error": null,
+        "duration_ms": 2
+      },
+      {
+        "name": "REQ-2: normalizes titles with whitespace collapsing",
+        "kind": "acceptance",
+        "passed": true,
+        "error": null,
+        "duration_ms": 1
+      },
+      {
+        "name": "REQ-3 REQ-4 REQ-5: constructs graph with edges, backlinks, and degree",
+        "kind": "acceptance",
+        "passed": true,
+        "error": null,
+        "duration_ms": 2
+      }
+    ],
+    "passed": 3,
+    "total": 3,
+    "purity_violations": [],
+    "type_errors": [],
+    "repair_attempts": 0,
+    "duration_ms": 22,
+    "implemented_at": "2026-10-24T12:06:00.000Z",
+    "model": "amazon-bedrock/anthropic.claude-opus-5-5",
+    "mode": "replay"
+  }
+}

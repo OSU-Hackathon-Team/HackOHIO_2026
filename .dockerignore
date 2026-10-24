@@ -46,6 +46,6 @@ tmp
 temp
 .temp
 
-# Critical: Retain mock fixtures and binary targets for reverse-engineering extraction
-!packages/mocks/**
+# Critical: Retain fixtures and binary targets for reverse-engineering extraction
+!fixtures/**
 !targets/**
