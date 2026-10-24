@@ -693,6 +693,8 @@ def main() -> None:
                 baseline["cache_hits"] += 1
             elif event["stage"] == "indexed":
                 item["function_count"] = event["functions"]
+                if "static_inventory" in event:
+                    item["static_inventory"] = event["static_inventory"]
             elif event["stage"] == "function_exported":
                 item["_exported"].add(event["address"])
             elif event["stage"] == "function_failed":

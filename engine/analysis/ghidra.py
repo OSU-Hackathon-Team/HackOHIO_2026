@@ -168,7 +168,7 @@ class GhidraAnalysis:
         temporary.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
         os.replace(temporary, manifest_path)
         self._emit(campaign, "indexed", functions=len(index["functions"]),
-                   artifact=index_sha)
+                   static_inventory=index["static_inventory"], artifact=index_sha)
         return manifest
 
     def index(self, manifest: dict) -> dict:
@@ -322,6 +322,9 @@ class GhidraAnalysis:
                   for status in sorted({r["status"] for r in results})}
         inventory = {"schema": SCHEMA, "campaign": manifest["campaign"],
                      "index_artifact": manifest["index_artifact"],
+                     "static_inventory": index.get("static_inventory"),
+                     "unassigned_instruction_regions":
+                         index.get("unassigned_instruction_regions", []),
                      "functions": results, "counts": counts,
                      "complete": bulk_error is None and len(results) == len(functions) and
                      all(item["status"] in {"ok", "external"} for item in results)}
