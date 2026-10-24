@@ -109,8 +109,10 @@ at the engine state directory if needed.
 
 ```bash
 npm run dev:backend
-curl http://localhost:3001/api/health            # 200 JSON
-curl -X POST http://localhost:3001/api/extract   # 404 JSON until Step 2 implements it
+curl http://localhost:3001/api/health            # 200 JSON (connectivity & model routing metadata)
+curl http://localhost:3001/api/pantry            # 200 JSON (available targets and feature list)
+curl http://localhost:3001/api/nonexistent       # 404 JSON (API 404 guard)
+curl -X POST http://localhost:3001/api/extract   # 400 JSON without body; active POST SSE route
 ```
 
 ## Core Studio milestone
@@ -118,5 +120,6 @@ curl -X POST http://localhost:3001/api/extract   # 404 JSON until Step 2 impleme
 - `npm run seed:studio -w @splice/backend`: regenerate authored development seeds and run six local engine checks plus purity/conformance/bundle validation. No original-code oracle is run.
 - Open `http://localhost:5173/?mode=development` for the fixed two-feature study-room demo. Live mode never silently falls back to this data.
 - `npm run test:unit -w @splice/frontend`: POST-SSE and state regression tests.
-- `npm run test:studio`: headless Edge browser checks on isolated port 5175; Sandpack needs internet.
+- `npm run test:studio`: browser checks on isolated port 5175. Default channel is MS Edge; for CI / headless Chromium run `CI=true npx playwright test --grep-invert "Sandpack boots"` (install Chromium with `npx playwright install chromium`). Full Sandpack boot tests require internet.
 - Current acceptance and blockers: `docs/STEP3_MILESTONE.md`.
+
