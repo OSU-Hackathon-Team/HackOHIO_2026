@@ -170,6 +170,7 @@ export async function implementEngine(spec: FeatureSpec, hooks: ImplementHooks):
   ];
   const call = (phase: "implementing" | "repairing_engine") =>
     structuredCall({
+      role: "engine_writer",
       system: ENGINE_SYSTEM,
       messages,
       schema: ENGINE_DRAFT_SCHEMA,

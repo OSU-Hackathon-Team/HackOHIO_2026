@@ -99,10 +99,12 @@ output looks like.
 ```bash
 AWS_REGION=us-east-2       # region with Claude model access enabled in Bedrock
 AWS_PROFILE=splice         # or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN
-# Per-role models come from root models.json (MODEL_<ROLE> env overrides it).
-# SPLICE_MODEL below is only the legacy single-model default kept for config.ts.
-SPLICE_MODEL=anthropic.claude-opus-5-5
-SPLICE_FALLBACK_MODEL=anthropic.claude-opus-4-8
+# Splice roles are routed in root models.json and MUST be Claude models (llm.ts = Anthropic
+# Messages API on Bedrock). Override a role without editing models.json:
+# MODEL_SPEC_WRITER=amazon-bedrock/anthropic.claude-opus-5-5
+# MODEL_ENGINE_WRITER=amazon-bedrock/anthropic.claude-opus-5-5
+# MODEL_UI_SYNTHESIZER=amazon-bedrock/anthropic.claude-opus-5-5
+# MODEL_REFUSAL_FALLBACK=amazon-bedrock/anthropic.claude-opus-4-8
 LLM_DEBUG=0
 PORT=3001
 REA_MODE=auto              # live | replay | auto

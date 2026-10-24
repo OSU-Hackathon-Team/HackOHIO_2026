@@ -76,7 +76,7 @@ export function formatRefineRequest(req: RefineRequest): string {
 export async function refine(req: RefineRequest, hooks: SynthHooks & { onSummary(s: string): void }): Promise<SynthesisBundle> {
   let messages: Parameters<typeof structuredCall>[0]["messages"] = [{ role: "user", content: formatRefineRequest(req) }];
   const call = () => structuredCall({
-    system: REFINE_SYSTEM, messages, schema: REFINE_DRAFT_SCHEMA, parse: (v) => RefineDraft.parse(v),
+    role: "ui_synthesizer", system: REFINE_SYSTEM, messages, schema: REFINE_DRAFT_SCHEMA, parse: (v) => RefineDraft.parse(v),
     effort: "medium", maxTokens: 48_000, signal: hooks.signal, onProgress: hooks.onProgress,
   });
 

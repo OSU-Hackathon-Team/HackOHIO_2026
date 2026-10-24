@@ -10,3 +10,4 @@ Feeds the Curiosity and Challenge Navigation slides (see README.md §9). One row
 | H? | E2 | Spec WITHOUT oracle vs WITH oracle on 4 features | e.g. 5 invented requirements caught, 3 repaired, 2 unverified | Oracle stays |
 | H? | E2 | Direct reconstruction vs spec-first engines | e.g. direct: 3/4 pass own tests but 2/4 fail the oracle tests | Spec-first |
 | H? | E1 | Scripted vs agentic REA collection | e.g. scripted 9 s avg, 100% symbols found; agentic 41 s, 75% | Scripted for demo |
+| H0 | team | Model routing: teammate routed spec_writer to Nova Pro; llm.ts design (structured outputs, effort) is Anthropic-Messages-only | Non-Claude IDs would fail at the first Bedrock call | All Splice roles → Claude (Opus 5.5, fallback Opus 4.8); Qwen3 Coder 480B, Nova, DeepSeek kept as options for OpenCode roles; bedrockModelId() guards it |

@@ -220,7 +220,7 @@ evidence drawer tabs (keep the card back only) → refine chat (keep auto-fix on
 - Every backend module ships with a CLI script under `packages/backend/src/scripts/` that runs it
   alone. "It works" means that script passes.
 - Pin exact versions with a committed `package-lock.json`. Never write `"latest"` anywhere (code or prompts).
-- Models are routed per role in root `models.json` (`decomp_worker` → nova lite, `spec_writer` → nova pro, `legal_verification` → opus 4.6). Override a role with `MODEL_<ROLE>` env (e.g. `MODEL_SPEC_WRITER`); `OPENCODE_MODEL` remains the legacy default override. Do not hard-code model IDs; Python resolves via `model_config.py`, TS via `packages/backend/src/models.ts`, and all Claude calls go through `llm/llm.ts`.
+- Models are routed per role in root `models.json`. Splice roles are Claude on Bedrock: `spec_writer`, `engine_writer` and `ui_synthesizer` → Claude Opus 5.5, `refusal_fallback` → Claude Opus 4.8. Python-pipeline roles: `decomp_worker` → Nova Lite, `legal_verification` → Claude Opus 4.6. `models.json` `options` lists alternatives, including Qwen3 Coder 480B for OpenCode roles. Override a role with `MODEL_<ROLE>` env (e.g. `MODEL_SPEC_WRITER`); `OPENCODE_MODEL` remains the legacy default override. Do not hard-code model IDs; Python resolves via `model_config.py`, TS via `packages/backend/src/models.ts`, and all Claude calls go through `llm/llm.ts`.
 
 ---
 
