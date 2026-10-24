@@ -13,8 +13,8 @@ if the pre-specification acceptance gates pass. Completing a dossier or reaching
 Work exclusively on the native pre-specification pipeline: intake, analysis, scope,
 semantic work, independent review, original-execution probes, findings, reconciliation,
 dossiers, queue reliability, progress visibility, and their acceptance gates. Do not start
-M5 specification generation, the dossier-to-spec handoff, shared TypeScript contract
-migration, or downstream implementation/API integration. Those phases remain in this plan
+M5 specification generation, the dossier-to-spec handoff, or downstream API integration.
+Those phases remain in this plan
 for future work and require an explicit user instruction to resume.
 
 ## Required outcome
@@ -33,25 +33,25 @@ independently checked behavior, and successful recovery after a worker is killed
 
 Keep the current rename command as an integration diagnostic. Introduce the engine in a
 Python package and expose orchestration through `launch.py`; retain `model_config.py` as the
-role resolver. The TypeScript backend consumes engine job state/results after contract work.
+role resolver. A future API client may consume engine job state after contract work.
 Use PostgreSQL for tasks, attempts, claims, dependency indexes, and outbox events. Begin with
 local immutable artifacts behind a storage interface, then add shared storage for remote workers.
 
-Proposed layout (files do not yet exist):
+Engine layout (some components are still planned):
 
 ```text
 engine/
-  models.py             # internal versioned records and validation
-  intake.py             # artifact identity and campaign creation
-  artifacts.py          # immutable storage interface
-  analysis/             # backend adapter, evidence export, warm pool
-  scope.py              # seed discovery and bounded expansion
-  queue.py              # leases, retries, fencing, deduplication
-  worker.py             # bounded semantic analysis and checkpoints
-  findings.py           # conditional publication and invalidation
-  validation/           # structural review, semantic review, original probes
-  dossier.py            # immutable assembly and readable rendering
-  service.py            # job API and event delivery
+  models.py             # internal records and validation (implemented)
+  intake.py             # campaign intake (planned)
+  artifacts.py          # immutable local artifacts (implemented)
+  analysis/             # Ghidra import and evidence export (implemented); warm pool (planned)
+  scope.py              # seed discovery and bounded expansion (implemented)
+  queue.py              # leases, retries, fencing, deduplication (implemented)
+  worker.py             # bounded semantic analysis and checkpoints (implemented)
+  findings.py           # conditional publication and invalidation (implemented)
+  validation/           # static review, dependency checks, original probes (implemented)
+  dossier.py            # immutable assembly and readable rendering (implemented)
+  service.py            # job API and event delivery (planned)
 migrations/             # PostgreSQL schema migrations
 scripts/                # independent CLI checks and benchmarks
 fixtures/decomp/        # source-known evaluation targets and expected behavior
@@ -63,9 +63,8 @@ when the corresponding milestone demonstrates its need.
 
 ## Proposed data records
 
-These are design requirements, not replacements already applied to `agents/CONTRACTS.md`.
-Implement internal schemas first. At M5, update the shared TypeScript schemas and contract
-document together, following repository contract-review rules.
+These are design requirements, not all implemented records. Implement internal schemas
+first. Define a versioned external contract at M5, after the current stop boundary is lifted.
 
 | Record | Required information |
 | --- | --- |
@@ -201,14 +200,13 @@ Depends on M3 and M4.
 
 Deliverables:
 
-- Versioned dossier and scope schemas in the shared contract package and `agents/CONTRACTS.md`.
-- Migration mapping for the existing Electron evidence path; preserve old fixtures explicitly
-  or migrate them, rather than silently changing the meaning of existing `verified`/`coverage` fields.
+- Versioned dossier and scope schemas for the new external API. Define provenance,
+  validation status, and coverage fields explicitly.
 - A durable campaign/job API with separate create, status, result, and event-subscription operations.
   Transport disconnects must not silently discard durable work; cancellation is an explicit operation.
 - Spec writer consumes scope, supported claims, uncertainties, and evidence links. Render original
-  pseudocode for analysts; preserve the existing downstream implementer's spec-only boundary.
-- Native probe statuses replace the assumption that all non-JavaScript targets are untestable.
+  pseudocode for analysts; keep downstream implementation isolated from raw source evidence.
+- Native probe statuses distinguish executable cases from unavailable ones.
 - Model/runtime/schema provenance and recorded deviations in every exported specification.
 
 Acceptance:
@@ -216,7 +214,7 @@ Acceptance:
 - A separate implementer can answer held-out behavior questions using the dossier/spec alone.
 - Open blockers survive the handoff and cannot be relabeled as verified requirements.
 - Exclusions and pure-function adaptations preserve an audit trail of observable behavior.
-- Existing Electron demo fixtures retain honest provenance and remain readable through migration.
+- API consumers can distinguish static support, probe agreement, and unresolved blockers.
 - Reconnecting to a job reports the same durable results without restarting analysis.
 
 ## M6 — Benchmark, tune, and prove multi-host operation

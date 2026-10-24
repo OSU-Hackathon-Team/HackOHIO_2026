@@ -1,6 +1,8 @@
 # Build and run
 
-## Requirements
+The [root README](../README.md) is the detailed CLI reference. Run commands from the repo
+root. Python dependencies are in `requirements-decomp.txt`. Ghidra headless and a C compiler
+are needed for native analysis and fixture builds. Queue checks need PostgreSQL.
 
 - **Node 22.19+**. `rea-agents@6.7.0` refuses older versions. Check with `node -v`.
 - **AWS credentials with Bedrock access to the configured model (Qwen by default)** (for any live LLM step). Use the default AWS
@@ -17,72 +19,26 @@ cp packages/backend/.env.example packages/backend/.env      # then fill AWS_* (n
 cp packages/frontend/.env.example packages/frontend/.env.development
 ```
 
-Step-specific dependencies aren't installed yet. Install each when you implement its module,
-with the exact command in its spec doc (e.g. `npm install -w @splice/backend --save-exact rea-agents@6.7.0`),
-and commit the lockfile change in the same branch.
+The export and scope checks invoke Ghidra. Fixture builds write ignored data under
+`decomp-state/fixtures/`. Model-backed checks may incur cost. Queue and findings checks
+create disposable PostgreSQL databases; consult the root README for prerequisites.
 
-## Everyday commands (run from repo root)
+Analyze a binary and discover a scope:
 
-| Goal | Command |
-|---|---|
-| Everything in dev mode (contracts watch + backend + frontend) | `npm run dev` |
-| Backend only (tsx watch, :3001) | `npm run dev:backend` |
-| Frontend only (Vite, :5173, proxies `/api` → :3001) | `npm run dev:frontend` |
-| Frontend with **no backend** | set `VITE_API_MODE=mock` in `packages/frontend/.env.development`, then `npm run dev:frontend` |
-| Rebuild contracts after editing them | `npm run build:contracts` (or keep `npm run dev` running) |
-| Typecheck all packages | `npm run typecheck` |
-| Production build (contracts → backend → frontend) | `npm run build` |
-| Pack demo targets into `.asar` | `npm run build:targets` (needs `npm install -D --save-exact @electron/asar` at the root first) |
+```sh
+python launch.py analyze --binary /absolute/path/to/program
+python launch.py status
+python launch.py scope --manifest decomp-state/projects/<campaign>/manifest.json \
+  --request fixtures/decomp/scope_request.json
+```
 
-**Definition of "it compiles":** `npm run build:contracts && npm run typecheck` exits 0.
+Use `python launch.py --help` for the full CLI. Models come from `models.json` or a
+`MODEL_<ROLE>` override. Keep credentials in the ignored `.env` or process environment.
+The rename diagnostic uses Docker Compose and nested Podman:
 
-## Per-module scripts (`npm run <script> -w @splice/backend`)
-
-Each script runs one module alone. "Done" for a module means its script passes.
-
-| Script | Owner | Checks |
-|---|---|---|
-| `rea:catalog` | Eng 1 | Dumps REA's real tool list to `fixtures/rea/tools.json`. **Run this before writing any REA call** |
-| `test:bridge` | Eng 1 | MCP connect, `binary_session`, analyze + trace Inkwell |
-| `test:collector [feature_id]` | Eng 1 | Full Step 1 per feature → `fixtures/evidence/*.latest.json` |
-| `seed:evidence` | Eng 1 | Hand-built seed evidence from target source → `fixtures/evidence/_seed/` |
-| `record:evidence` | Eng 1 | Records live evidence for every feature |
-| `fixtures:promote [id]` | anyone | Copies `*.latest.json` → golden `*.json` (only after a human reviewed it) |
-| `test:llm` | Eng 2 | Bedrock smoke test (structured JSON) |
-| `test:sandbox` | Eng 2 | Oracle/acceptance runner incl. cheating-adapter and infinite-loop cases |
-| `test:spec [feature_id]` / `spec:all` | Eng 2 | Step 2 on recorded evidence; prints requirements + oracle results |
-| `test:implement [feature_id]` | Eng 3 | Step 3a engine from a golden spec |
-| `test:synthesis` | Eng 3 | The demo recipes → validated bundles |
-| `test:unit` | all | `node:test` files `src/**/*.test.ts` |
-
-## Runtime modes (backend `.env`)
-
-| Var | Values | Effect |
-|---|---|---|
-| `REA_MODE` | `live` / `replay` / `auto` | `auto` tries live REA, then falls back to recorded evidence after 45 s or on error |
-| `LLM_MODE` | `live` / `replay` | `replay` re-emits recorded transcripts with their timing; no Bedrock calls |
-
-`mock` (the default in the Dockerfile, compose files and root `.env.example`, which CI uses) is
-accepted as an alias for `replay`. Develop with `REA_MODE=auto LLM_MODE=live`. Without AWS access, use `LLM_MODE=replay` (needs
-recorded transcripts) or frontend mock mode.
-
-## CI
-
-`.github/workflows/ci.yml` runs on Node 22: `npm ci` → `npm run build`, then builds the root
-`Dockerfile` (`runner` target) with `.env` copied from the root `.env.example`, boots it, and
-checks `/api/health` (200), `/` (200) and `/api/nonexistent` (404). Before pushing backend
-changes, run `npm run build`. Then run `NODE_ENV=production node packages/backend/dist/server.js`
-and hit those three URLs.
-
-## Decompilation engine track (Python, Docker only)
-
-From the root `README.md`. The host runs Docker Compose only:
-
-```bash
+```sh
 docker compose build orchestrator
-docker compose run --rm orchestrator python launch.py build          # builds the Ghidra worker image (slow, GBs)
-docker compose run --rm orchestrator python launch.py rename \
-  --binary /workspace/path/to/binary --address 0x401126 --new-name parse_packet
+docker compose run --rm orchestrator python launch.py build
 ```
 
 Outputs go to `runs/<attempt-id>/` (gitignored). Models come from `models.json` roles via
