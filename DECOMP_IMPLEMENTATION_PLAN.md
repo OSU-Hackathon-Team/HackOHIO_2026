@@ -6,16 +6,16 @@ Architecture and decision rationale: [DecompPileline.md](DecompPileline.md).
 
 ## Current execution boundary
 
-**Stop before specification generation.** This instruction governs the current work even
-if the pre-specification acceptance gates pass. Completing a dossier or reaching
-`ready_for_spec` does not authorize starting the next phase.
+**Stop before specification generation as a campaign phase.** Completing a dossier or
+reaching `ready_for_spec` does not authorize advancing a live campaign into M5.
 
 Work exclusively on the native pre-specification pipeline: intake, analysis, scope,
 semantic work, independent review, original-execution probes, findings, reconciliation,
-dossiers, queue reliability, progress visibility, and their acceptance gates. Do not start
-or continue M5 specification generation, the dossier-to-spec handoff, or downstream API
-integration. Existing M5 draft code is outside the current work and does not change this
-boundary. Those phases require a new explicit user instruction to resume.
+dossiers, queue reliability, progress visibility, and their acceptance gates. Verify that
+these outputs remain compatible with the existing spec generator through temporary
+handoff checks. Do not publish campaign specifications, extend M5 generation or API work,
+or proceed to downstream implementation. Those phases require a new explicit user
+instruction to resume.
 
 ## Required outcome
 

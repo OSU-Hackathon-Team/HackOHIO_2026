@@ -18,7 +18,7 @@ python launch.py function --manifest decomp-state/projects/<campaign>/manifest.j
 python launch.py export-all --manifest decomp-state/projects/<campaign>/manifest.json
 ```
 
-Each function artifact records its entry address, decompilation status, C rendering, instructions, and references. External functions and decompilation errors have explicit statuses. Targeted cache misses use two reusable Ghidra contexts by default; set `DECOMP_ANALYSIS_WORKERS` to `0..16` to size the local pool (`0` uses a fresh process per request). Each context opens a separate copy of the closed analyzed project because this Ghidra headless version locks projects even in read-only mode. A failed or timed-out context is stopped and started again on its next request. `export-all` keeps one Ghidra decompiler context open for the full indexed program and returns a coverage inventory. Its `complete` flag means every *discovered* function exported successfully; it does not mean all behavior has been discovered or validated. `decomp-state/progress.jsonl` contains append-only JSON events, including each completed function and warm-pool activity, for a future job API/UI; `launch.py status` summarizes exports, cache hits, pool waits, completions, failures, and worker restarts. All artifacts are SHA-256 addressed under `decomp-state/artifacts/`. This is static evidence, not a validated behavioral dossier.
+Each function artifact records its entry address, decompilation status, C rendering, instructions, references, defined data targets, and separate listing and decompiler-inferred type information. Inferred parameters are not confirmed source types; source and lock fields preserve that distinction. External functions and decompilation errors have explicit statuses. Targeted cache misses use two reusable Ghidra contexts by default; set `DECOMP_ANALYSIS_WORKERS` to `0..16` to size the local pool (`0` uses a fresh process per request). Each context opens a separate copy of the closed analyzed project because this Ghidra headless version locks projects even in read-only mode. A failed or timed-out context is stopped and started again on its next request. `export-all` keeps one Ghidra decompiler context open for the full indexed program and returns a coverage inventory. Its `complete` flag means every *discovered* function exported successfully; it does not mean all behavior has been discovered or validated. `decomp-state/progress.jsonl` contains append-only JSON events, including each completed function and warm-pool activity, for a future job API/UI; `launch.py status` summarizes exports, cache hits, pool waits, completions, failures, and worker restarts. All artifacts are SHA-256 addressed under `decomp-state/artifacts/`. This is static evidence, not a validated behavioral dossier.
 
 Build source-known stripped executable and shared-library fixtures at `-O0` and `-O2`, then execute held-out cases against the original code:
 
@@ -155,7 +155,19 @@ Assemble an immutable dossier from explicit artifact IDs with `python launch.py 
 
 The dossier inputs may also include `gap_adjudication_artifacts`. Each adjudication must match a supplied draft, review, and original probe report. Its decisions and reasons remain visible; blocking or uncertain decisions remain dossier blockers. A matching original case with disagreement or execution error prevents gap clearance. `queue-adjudicate-gaps` uses a model different from the claim reviewer and clears review gaps only when all current claims have static support and every gap is independently classified nonblocking. Tasks with dependencies remain in reconciliation until every dependency is reviewed against its active helper contract. Dossier coverage reports distinct original cases and total probe runs separately.
 
-Generate a native subsystem specification from one immutable dossier revision:
+Check a persisted dossier against the existing specification generator's input contract
+without writing a specification artifact:
+
+```sh
+python scripts/check_decomp_handoff.py --dossier-artifact <dossier-artifact-sha256>
+```
+
+The check preserves dossier coverage, original cases, blockers, and evidence links. The
+current execution boundary in `DECOMP_IMPLEMENTATION_PLAN.md` stops before advancing a
+live campaign into specification generation.
+
+The existing generator can produce a native subsystem specification from one immutable
+dossier revision when that phase is resumed:
 
 ```sh
 python launch.py spec --dossier-artifact <dossier-artifact-sha256>
