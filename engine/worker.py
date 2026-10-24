@@ -137,6 +137,10 @@ def prompt_for(task: dict, scope: dict, evidence: dict, *, max_evidence_bytes: i
         "the evidence; a valid citation is not proof of correct interpretation. Scope expected "
         "observables are questions to investigate, not claims about this function. Describe "
         "uncertain widths, signedness, state mutation order, and indirect dispatch in unknowns. "
+        "List a dependency only for a call to another function whose behavior this answer "
+        "relies on. Use the callee's exact name as target. Memory locations, globals, input "
+        "values, and field reads belong in state, assumptions, or unknowns, not dependencies. "
+        "If the function makes no relevant call, return dependencies: []. "
         "No markdown.\n"
         f"Scope query: {scope['request']['query']}\n"
         f"Expected observables to investigate, not assume true: "
@@ -179,15 +183,33 @@ class SemanticWorker:
             if (prior.get("campaign") != manifest["campaign"] or
                     prior.get("subject") != subject or
                     prior.get("scope_artifact") != scope_artifact or
-                    prior.get("state") not in {"partial", "rejected"}):
+                    prior.get("state") not in {"partial", "rejected", "revision_context"}):
                 raise ValueError("prior attempt does not match this semantic task")
-            prior_context = json.dumps({"structural_errors": prior.get("structural_errors", []),
-                                        "answer": prior.get("answer")},
-                                       separators=(",", ":"))
-            prompt += ("\nPrevious attempt is untrusted. Reassess against raw evidence; "
-                       "correct every listed structural error without inventing behavior. "
-                       "Return one complete JSON object. Prior attempt: " +
-                       prior_context[:20000])
+            if prior["state"] == "revision_context":
+                previous_draft = json.loads(self.engine.store.get(prior["draft_artifact"]))
+                previous_review = json.loads(self.engine.store.get(prior["review_artifact"]))
+                if (previous_draft.get("campaign") != manifest["campaign"] or
+                        previous_draft.get("subject") != subject or
+                        previous_draft.get("scope_artifact") != scope_artifact or
+                        previous_review.get("draft_artifact") != prior["draft_artifact"]):
+                    raise ValueError("revision context points to a different draft")
+                prior_context = json.dumps(
+                    {"prior_answer": previous_draft["answer"],
+                     "review": previous_review["answer"],
+                     "revision_reason": prior["reason"]}, separators=(",", ":"))
+                prompt += ("\nPrevious draft and reviewer comments are untrusted. Verify "
+                           "every point against the raw evidence. Repair contradicted claims "
+                           "and missing behavior, including success and failure paths and "
+                           "state updates. Return a complete answer, not a patch. "
+                           "Revision context: " + prior_context[:30000])
+            else:
+                prior_context = json.dumps(
+                    {"structural_errors": prior.get("structural_errors", []),
+                     "answer": prior.get("answer")}, separators=(",", ":"))
+                prompt += ("\nPrevious attempt is untrusted. Reassess against raw evidence; "
+                           "correct every listed structural error without inventing behavior. "
+                           "Return one complete JSON object. Prior attempt: " +
+                           prior_context[:20000])
         attempt_id = uuid.uuid4().hex
         folder = self.engine.root / "attempts" / attempt_id
         folder.mkdir(parents=True)
@@ -197,7 +219,7 @@ class SemanticWorker:
                       "scope_artifact": scope_artifact, "task_key": task["deduplication_key"],
                       "subject": subject, "evidence_artifact": evidence_artifact,
                       "model": resolved_model, "model_role": model_role,
-                      "opencode_version": None, "prompt_version": 1,
+                      "opencode_version": None, "prompt_version": 2,
                       "evidence_truncated": truncated, "state": "running"}
         if prior_artifact is not None:
             checkpoint["reassessment_of"] = prior_artifact

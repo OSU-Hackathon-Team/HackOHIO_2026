@@ -53,7 +53,9 @@ def main() -> None:
                 queue.migrate()
                 campaign = "c" * 64
                 queue.create_campaign(campaign, "b" * 64)
-                index = put(store, {"schema": 1, "binary_sha256": "b" * 64})
+                index = put(store, {"schema": 1, "binary_sha256": "b" * 64,
+                                    "language": "x86:LE:64:default", "calls": [],
+                                    "indirect_calls": []})
                 tasks = []
                 for i in range(17):
                     subject = f"{0x100000 + i * 16:08x}"
@@ -61,7 +63,8 @@ def main() -> None:
                                   "question": f"Explain function {subject}", "priority": 50,
                                   "deduplication_key": f"{i:064x}",
                                   "index_artifact": index})
-                scope = {"campaign": campaign, "scope_id": "s" * 64, "tasks": tasks}
+                scope = {"campaign": campaign, "scope_id": "s" * 64,
+                         "index_artifact": index, "tasks": tasks}
                 scope_artifact = put(store, scope)
                 assert len(queue.enqueue_scope(scope_artifact)) == 17
                 assert queue.enqueue_scope(scope_artifact) == []
@@ -313,6 +316,33 @@ def main() -> None:
                 resumed_review = queue.lease_review("review-replacement", campaign=campaign)
                 assert resumed_review["task_id"] == review_recovery["task_id"]
                 assert resumed_review["epoch"] == expired_review["epoch"] + 1
+                prior_review = queue.task(dependent["task_id"])["review_artifact"]
+                reclassified = queue.reclassify_intrinsic_dependencies(dependent["task_id"])
+                assert reclassified["state"] == "validated"
+                revised = json.loads(store.get(reclassified["result_artifact"]))
+                assert revised["answer"]["dependencies"] == []
+                assert revised["reclassified_dependencies"][0]["target"] == "helper"
+                assert revised["source_review_artifact"] == prior_review
+                assert queue.task(dependent["task_id"])["review_job"]["state"] == "queued"
+                revised_review = {**dependent_review,
+                                  "draft_artifact": reclassified["result_artifact"],
+                                  "answer": {**dependent_review["answer"],
+                                             "missing_behavior": ["unexamined path"]}}
+                assert queue.publish_review(dependent["task_id"],
+                                            put(store, revised_review)) == "needs_reconciliation"
+                assert queue.reopen_review(dependent["task_id"],
+                                           "check the omitted path")
+                assert queue.task(dependent["task_id"])["state"] == "validated"
+                assert not queue.reopen_review(dependent["task_id"],
+                                               "duplicate reopen")
+                assert queue.publish_review(dependent["task_id"],
+                                            put(store, revised_review)) == "needs_reconciliation"
+                revision = queue.revise_semantics(dependent["task_id"],
+                                                  "cover the omitted path")
+                assert revision["state"] == "queued"
+                context = json.loads(store.get(revision["context_artifact"]))
+                assert context["review_artifact"] == revision["source_review"]
+                assert queue.task(dependent["task_id"])["state"] == "queued"
                 final_status = queue.status(campaign)
                 print(json.dumps({"active_leases": 16, "recovered_epoch": recovered["epoch"],
                                   "killed_worker_recovered_epoch": resumed["epoch"],

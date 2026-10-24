@@ -909,6 +909,157 @@ class DurableQueue:
                 "result_artifact": artifact, "citation_changes": citation_changes,
                 "text_item_changes": text_changes}
 
+    def reclassify_intrinsic_dependencies(self, task_id: str) -> dict:
+        with self._connect() as conn:
+            task = conn.execute("SELECT * FROM decomp_tasks WHERE id = %s",
+                                (task_id,)).fetchone()
+        if (task is None or task["state"] != "needs_reconciliation" or
+                task["terminal_reason"] != "dependency_contracts_unreviewed" or
+                task["support_level"] != "static_only"):
+            return {"state": "invalid"}
+        source_artifact = task["result_artifact"]
+        draft = json.loads(self.store.get(source_artifact))
+        evidence = json.loads(self.store.get(draft["evidence_artifact"]))
+        scope = json.loads(self.store.get(task["scope_artifact"]))
+        index = json.loads(self.store.get(scope["index_artifact"]))
+        dependencies = draft["answer"]["dependencies"]
+        if (not dependencies or not index.get("language", "").lower().startswith("x86:") or
+                draft["campaign"] != task["campaign_id"] or
+                draft["subject"] != task["subject"] or
+                evidence["entry"] != task["subject"] or
+                any(item.get("caller") == task["subject"] for item in
+                    index.get("calls", []) + index.get("indirect_calls", [])) or
+                any("CALL" in item.get("type", "").upper() for item in
+                    evidence.get("references", [])) or
+                any(item.get("text", "").strip().upper().split(" ", 1)[0] in
+                    {"CALL", "LCALL"} for item in evidence.get("instructions", []))):
+            return {"state": "blocked", "reason": "function may call another function"}
+        answer = json.loads(json.dumps(draft["answer"]))
+        answer["dependencies"] = []
+        answer["unknowns"].extend(
+            f"External state assumption at {item['target']}: {item['contract']}"
+            for item in dependencies)
+        if validate_answer(answer, evidence):
+            return {"state": "invalid"}
+        revised = {**draft, "answer": answer, "state": "unreviewed",
+                   "structural_errors": [], "source_artifact": source_artifact,
+                   "source_review_artifact": task["review_artifact"],
+                   "reclassification_version": 1,
+                   "reclassified_dependencies": dependencies}
+        artifact = self.store.put(json.dumps(revised, sort_keys=True).encode())
+        with self._connect() as conn:
+            current = conn.execute("SELECT state, result_artifact, review_artifact, "
+                                   "terminal_reason FROM decomp_tasks WHERE id = %s FOR UPDATE",
+                                   (task_id,)).fetchone()
+            if (current["state"] != "needs_reconciliation" or
+                    current["result_artifact"] != source_artifact or
+                    current["review_artifact"] != task["review_artifact"] or
+                    current["terminal_reason"] != "dependency_contracts_unreviewed"):
+                return {"state": "stale"}
+            review_job = conn.execute("SELECT state FROM decomp_review_jobs "
+                                      "WHERE task_id = %s FOR UPDATE", (task_id,)).fetchone()
+            if review_job is None or review_job["state"] != "completed":
+                return {"state": "blocked", "reason": "prior review job is not completed"}
+            conn.execute("UPDATE decomp_tasks SET state = 'validated', "
+                         "result_artifact = %s, review_artifact = NULL, "
+                         "support_level = 'none', terminal_reason = NULL, "
+                         "updated_at = now() WHERE id = %s", (artifact, task_id))
+            conn.execute("UPDATE decomp_review_jobs SET state = 'queued', "
+                         "attempts_count = 0, review_artifact = NULL, "
+                         "terminal_reason = NULL, available_at = now(), "
+                         "updated_at = now() WHERE task_id = %s", (task_id,))
+            self._event(conn, task["campaign_id"], "intrinsic_dependencies_reclassified",
+                        {"task_id": task_id, "source_artifact": source_artifact,
+                         "source_review_artifact": task["review_artifact"],
+                         "result_artifact": artifact,
+                         "reclassified_count": len(dependencies)})
+        return {"state": "validated", "source_artifact": source_artifact,
+                "result_artifact": artifact,
+                "reclassified_count": len(dependencies)}
+
+    def reopen_review(self, task_id: str, reason: str) -> bool:
+        if not reason.strip():
+            raise ValueError("re-review reason is required")
+        with self._connect() as conn:
+            task = conn.execute("SELECT * FROM decomp_tasks WHERE id = %s FOR UPDATE",
+                                (task_id,)).fetchone()
+            if task is None or task["state"] != "needs_reconciliation" or not task["review_artifact"]:
+                return False
+            if conn.execute("SELECT 1 FROM decomp_findings WHERE task_id = %s LIMIT 1",
+                            (task_id,)).fetchone():
+                return False
+            job = conn.execute("SELECT state FROM decomp_review_jobs WHERE task_id = %s "
+                               "FOR UPDATE", (task_id,)).fetchone()
+            if job is None or job["state"] != "completed":
+                return False
+            prior_review = task["review_artifact"]
+            conn.execute("UPDATE decomp_tasks SET state = 'validated', "
+                         "review_artifact = NULL, support_level = 'none', "
+                         "terminal_reason = NULL, updated_at = now() WHERE id = %s",
+                         (task_id,))
+            conn.execute("UPDATE decomp_review_jobs SET state = 'queued', "
+                         "attempts_count = 0, review_artifact = NULL, "
+                         "terminal_reason = NULL, available_at = now(), "
+                         "updated_at = now() WHERE task_id = %s", (task_id,))
+            self._event(conn, task["campaign_id"], "review_reopened",
+                        {"task_id": task_id, "reason": reason,
+                         "draft_artifact": task["result_artifact"],
+                         "prior_review_artifact": prior_review})
+            return True
+
+    def revise_semantics(self, task_id: str, reason: str) -> dict:
+        if not reason.strip():
+            raise ValueError("semantic revision reason is required")
+        with self._connect() as conn:
+            task = conn.execute("SELECT * FROM decomp_tasks WHERE id = %s",
+                                (task_id,)).fetchone()
+        if (task is None or task["state"] != "needs_reconciliation" or
+                not task["review_artifact"] or
+                task["attempts_count"] >= task["max_attempts"] or
+                not any(blocker in (task["terminal_reason"] or "") for blocker in
+                        ("missing_behavior", "claims_not_all_supported"))):
+            return {"state": "invalid"}
+        self.store.get(task["result_artifact"])
+        self.store.get(task["review_artifact"])
+        context = {"schema": 1, "state": "revision_context",
+                   "campaign": task["campaign_id"], "subject": task["subject"],
+                   "scope_artifact": task["scope_artifact"],
+                   "draft_artifact": task["result_artifact"],
+                   "review_artifact": task["review_artifact"], "reason": reason}
+        artifact = self.store.put(json.dumps(context, sort_keys=True).encode())
+        with self._connect() as conn:
+            current = conn.execute("SELECT * FROM decomp_tasks WHERE id = %s FOR UPDATE",
+                                   (task_id,)).fetchone()
+            if (current["state"] != "needs_reconciliation" or
+                    current["result_artifact"] != task["result_artifact"] or
+                    current["review_artifact"] != task["review_artifact"] or
+                    current["attempts_count"] >= current["max_attempts"]):
+                return {"state": "stale"}
+            if conn.execute("SELECT 1 FROM decomp_findings WHERE task_id = %s LIMIT 1",
+                            (task_id,)).fetchone():
+                return {"state": "blocked", "reason": "published findings need invalidation"}
+            job = conn.execute("SELECT state FROM decomp_review_jobs WHERE task_id = %s "
+                               "FOR UPDATE", (task_id,)).fetchone()
+            if job is None or job["state"] != "completed":
+                return {"state": "blocked", "reason": "prior review job is not completed"}
+            conn.execute("UPDATE decomp_tasks SET state = 'queued', "
+                         "checkpoint_artifact = %s, review_artifact = NULL, "
+                         "support_level = 'none', terminal_reason = %s, "
+                         "available_at = now(), updated_at = now() WHERE id = %s",
+                         (artifact, reason, task_id))
+            conn.execute("UPDATE decomp_review_jobs SET state = 'queued', "
+                         "attempts_count = 0, review_artifact = NULL, "
+                         "terminal_reason = NULL, available_at = now(), "
+                         "updated_at = now() WHERE task_id = %s", (task_id,))
+            self._event(conn, task["campaign_id"], "semantic_revision_queued",
+                        {"task_id": task_id, "context_artifact": artifact,
+                         "source_draft": task["result_artifact"],
+                         "source_review": task["review_artifact"],
+                         "reason": reason})
+        return {"state": "queued", "context_artifact": artifact,
+                "source_draft": task["result_artifact"],
+                "source_review": task["review_artifact"]}
+
     def events(self, campaign: str, after_id: int = 0, limit: int = 100) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute("SELECT id, event_type, payload, created_at FROM decomp_outbox "

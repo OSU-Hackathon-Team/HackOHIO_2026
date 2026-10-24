@@ -49,7 +49,7 @@ def validate_review(answer: dict, evidence: dict, claim_count: int) -> list[str]
     return errors
 
 
-def review_prompt(draft: dict, evidence: dict) -> str:
+def review_prompt(draft: dict, evidence: dict, scope: dict | None = None) -> str:
     raw = {"entry": evidence["entry"], "name": evidence.get("name"),
            "instructions": evidence.get("instructions", []),
            "references": evidence.get("references", []),
@@ -58,19 +58,28 @@ def review_prompt(draft: dict, evidence: dict) -> str:
                "asserted_addresses": claim["evidence_addresses"],
                "assumptions": claim["assumptions"]}
               for i, claim in enumerate(draft["answer"]["claims"])]
+    coverage_questions = (scope.get("request", {}).get("expected_observables", [])
+                          if scope else [])
     return (
         "Independently review these behavior claims against raw native evidence. Challenge "
         "plausible but wrong interpretations. An address citation proves location only. Do not "
         "assume the draft's pseudocode is correct. For each claim, choose supported_static, "
         "contradicted, or uncertain. Explain the exact observed instruction/control-flow basis, "
         "and mention alternative explanations or missing evidence. If a claim is about the "
-        "entire input domain, check boundary paths before supporting it. Return exactly one JSON "
+        "entire input domain, check boundary paths before supporting it. Independently inventory "
+        "the function's major branch outcomes and observable state effects, then list behavior "
+        "visible in the raw evidence but omitted from the draft in missing_behavior. In "
+        "particular, check success as well as failure paths and each state update. Scope "
+        "observables are coverage questions, not facts to assume true. Do not say there is no "
+        "missing behavior merely because the listed claims are individually correct. "
+        "Return exactly one JSON "
         "object with reviews array, missing_behavior array of strings, unresolved array of "
         "strings. Each review object must have claim_index, outcome, reason, "
         "evidence_addresses array. Return each claim_index exactly once. Use exact addresses "
         "from the raw evidence. This is static review; do not claim execution agreement. "
         "No markdown.\n"
         f"Claims: {json.dumps(claims, separators=(',', ':'))}\n"
+        f"Scope coverage questions: {json.dumps(coverage_questions, separators=(',', ':'))}\n"
         f"Raw evidence: {json.dumps(raw, separators=(',', ':'))}"
     )
 
@@ -91,7 +100,12 @@ class IndependentReviewer:
         evidence = json.loads(self.engine.store.get(draft["evidence_artifact"]))
         if evidence["entry"] != draft["subject"]:
             raise ValueError("draft subject and evidence disagree")
-        prompt = review_prompt(draft, evidence)
+        scope = None
+        if draft.get("scope_artifact"):
+            scope = json.loads(self.engine.store.get(draft["scope_artifact"]))
+            if scope["campaign"] != draft["campaign"]:
+                raise ValueError("draft and scope campaign disagree")
+        prompt = review_prompt(draft, evidence, scope)
         review_id = uuid.uuid4().hex
         folder = self.engine.root / "reviews" / review_id
         folder.mkdir(parents=True)
@@ -101,7 +115,8 @@ class IndependentReviewer:
                       "campaign": draft["campaign"], "draft_artifact": draft_artifact,
                       "evidence_artifact": draft["evidence_artifact"],
                       "subject": draft["subject"], "model": resolved_model,
-                      "model_role": model_role, "state": "running"}
+                      "model_role": model_role, "prompt_version": 2,
+                      "state": "running"}
         checkpoint_path = folder / "checkpoint.json"
         checkpoint_path.write_text(json.dumps(checkpoint, indent=2) + "\n")
         self.engine._emit(draft["campaign"], "review_started", review_id=review_id,

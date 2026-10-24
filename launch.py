@@ -194,6 +194,9 @@ def main() -> None:
         ("queue-resolve-dependencies", "accept a caller after all dependency reviews"),
         ("queue-reassess", "requeue one partial task with its prior draft"),
         ("queue-normalize-partial", "revalidate a partial draft after safe shape normalization"),
+        ("queue-reclassify-intrinsic", "move no-call state dependencies into visible unknowns"),
+        ("queue-reopen-review", "recheck one unresolved draft against updated review criteria"),
+        ("queue-revise-semantics", "rerun a contradicted or incomplete draft with review context"),
         ("queue-task", "inspect a durable native task and its blocker"),
         ("queue-events", "read ordered transactional campaign events"),
         ("queue-findings", "inspect published claim and contract versions"),
@@ -238,7 +241,13 @@ def main() -> None:
         if name == "queue-reassess":
             command.add_argument("--task-id", required=True)
             command.add_argument("--reason", required=True)
-        if name == "queue-normalize-partial":
+        if name == "queue-reopen-review":
+            command.add_argument("--task-id", required=True)
+            command.add_argument("--reason", required=True)
+        if name == "queue-revise-semantics":
+            command.add_argument("--task-id", required=True)
+            command.add_argument("--reason", required=True)
+        if name in {"queue-normalize-partial", "queue-reclassify-intrinsic"}:
             command.add_argument("--task-id", required=True)
         if name in {"queue-task", "queue-publish-claims", "queue-publish-contract"}:
             command.add_argument("--task-id", required=True)
@@ -510,6 +519,14 @@ def main() -> None:
                       "task": queue.task(args.task_id)}
         elif args.command == "queue-normalize-partial":
             result = queue.normalize_partial(args.task_id)
+        elif args.command == "queue-reclassify-intrinsic":
+            result = queue.reclassify_intrinsic_dependencies(args.task_id)
+        elif args.command == "queue-reopen-review":
+            reopened = queue.reopen_review(args.task_id, args.reason)
+            result = {"task_id": args.task_id, "reopened": reopened,
+                      "task": queue.task(args.task_id)}
+        elif args.command == "queue-revise-semantics":
+            result = queue.revise_semantics(args.task_id, args.reason)
         elif args.command == "queue-task":
             result = queue.task(args.task_id)
         elif args.command == "queue-events":
