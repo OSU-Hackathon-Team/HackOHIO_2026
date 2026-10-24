@@ -21,6 +21,7 @@ from engine.worker import SemanticWorker
 from engine.validation.review import IndependentReviewer
 from engine.validation.probes import NativeProbeRunner
 from engine.dossier import persist_dossier
+from engine.specification import persist_spec
 
 ROOT = Path(__file__).resolve().parent
 RUNS = ROOT / "runs"
@@ -178,6 +179,9 @@ def main() -> None:
     dossier.add_argument("--state", type=Path, default=ENGINE_STATE)
     dossier.add_argument("--dsn", default=os.environ.get("DECOMP_DATABASE_URL"),
                          help="PostgreSQL DSN for a current helper-contract snapshot")
+    specification = sub.add_parser("spec", help="generate a native spec from an immutable dossier")
+    specification.add_argument("--dossier-artifact", required=True)
+    specification.add_argument("--state", type=Path, default=ENGINE_STATE)
     status = sub.add_parser("status", help="show persisted decomp campaign progress")
     status.add_argument("--state", type=Path, default=ENGINE_STATE)
     status.add_argument("--campaign", help="limit output to one campaign hash")
@@ -393,6 +397,8 @@ def main() -> None:
                           "readiness": result["readiness"],
                           "coverage": result["coverage"],
                           "blockers": result["blockers"]}, indent=2))
+    elif args.command == "spec":
+        print(json.dumps(persist_spec(args.state, args.dossier_artifact), indent=2))
     elif args.command.startswith("queue-"):
         from engine.artifacts import LocalArtifactStore
         from engine.queue import DurableQueue

@@ -164,7 +164,10 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                                "expected": result["expected"],
                                "observed": result["observed"],
                                "outcome": result["outcome"],
-                               "probe_artifact": result["artifact"]})
+                               "probe_artifact": result["artifact"],
+                               "execution_mode": result.get("execution_mode"),
+                               "runner_sha256": result.get("runner_sha256"),
+                               "adapter_sha256": result.get("adapter_sha256")})
     probe_case_outcomes = {}
     for probe in probes:
         key = (probe["kind"], probe["target"], probe["case_id"],
@@ -345,6 +348,24 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
               "dependency_resolution_artifacts": sorted(dependency_resolution_artifacts),
               "gap_adjudication_artifacts": sorted(gap_adjudication_artifacts),
               "contract_snapshot": contract_snapshot,
+              "analysis_provenance": {
+                  "drafts": [{"artifact": artifact, "subject": draft["subject"],
+                              "model": draft.get("model"),
+                              "model_role": draft.get("model_role"),
+                              "runtime_version": draft.get("opencode_version"),
+                              "prompt_version": draft.get("prompt_version"),
+                              "record_schema": draft.get("schema"),
+                              "evidence_truncated": draft.get("evidence_truncated")}
+                             for artifact, draft in sorted(drafts.items())],
+                  "reviews": [{"artifact": artifact,
+                               "draft_artifact": draft_artifact,
+                               "model": review.get("model"),
+                               "model_role": review.get("model_role"),
+                               "runtime_version": review.get("opencode_version"),
+                               "prompt_version": review.get("prompt_version"),
+                               "record_schema": review.get("schema")}
+                              for draft_artifact, items in sorted(reviews.items())
+                              for artifact, review in items]},
               "functions": sorted(function_summaries, key=lambda item: item["subject"]),
               "claims": claims, "dependency_contracts": dependencies,
               "uncovered_direct_calls": uncovered_calls,
