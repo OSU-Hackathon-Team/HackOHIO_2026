@@ -1,0 +1,37 @@
+{
+  "app_id": "inkwell",
+  "feature_id": "inkwell.fuzzy_search",
+  "target": {
+    "path": "targets/build/inkwell/app.asar",
+    "artifact_type": "electron_asar",
+    "sha256": "37979c1c709c822434e0e72767e0d1edb0fcd7032e8cf4fa08a32bd65f383942"
+  },
+  "rea_package_version": "6.7.0",
+  "mode": "replay",
+  "tool_calls": [],
+  "snippets": [
+    {
+      "location": "app.asar:src/search/fuzzy.js",
+      "symbol": "fuzzyScore",
+      "language": "javascript",
+      "code": "\"use strict\";\n\nfunction isBoundary(text, i) {\n  return i === 0 || /[\\s\\-_/.]/.test(text[i - 1]);\n}\n\n/** Subsequence match. Returns null if not all query chars appear in order. Higher = better. */\nfunction fuzzyScore(query, text) {\n  const q = query.toLowerCase();\n  const t = text.toLowerCase();\n  if (q.length === 0) return 0;\n  let score = 0;\n  let ti = 0;\n  let prev = -2;\n  for (let qi = 0; qi < q.length; qi++) {\n    const ch = q[qi];\n    if (ch === \" \") continue;\n    let found = -1;\n    while (ti < t.length) {\n      if (t[ti] === ch) { found = ti; break; }\n      ti++;\n    }\n    if (found === -1) return null;\n    score += 1;\n    if (found === prev + 1) score += 5;\n    if (isBoundary(text, found)) score += 10;\n    if (found === 0) score += 3;\n    prev = found;\n    ti = found + 1;\n  }\n  score -= Math.floor((t.length - q.length) / 10);\n  return score;\n}\n\nfunction rankNotes(query, notes, limit) {\n  const out = [];\n  for (const n of notes) {\n    const s = fuzzyScore(query, n.title);\n    if (s !== null) out.push({ id: n.id, title: n.title, score: s });\n  }\n  out.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));\n  return out.slice(0, limit === undefined ? 10 : limit);\n}\n\nmodule.exports = { fuzzyScore, rankNotes };\n",
+      "full_module": true
+    },
+    {
+      "location": "app.asar:src/main.js",
+      "symbol": "rankNotes",
+      "language": "javascript",
+      "code": "\"use strict\";\nconst { app, BrowserWindow, ipcMain } = require(\"electron\");\nconst path = require(\"path\");\nconst { loadVault } = require(\"./storage/vault\");\nconst { buildLinkGraph } = require(\"./graph/backlinks\");\nconst { rankNotes } = require(\"./search/fuzzy\");\n\nlet vault = [];\n\napp.whenReady().then(async () => {\n  vault = await loadVault(path.join(app.getPath(\"documents\"), \"Inkwell\"));\n  ipcMain.handle(\"graph:get\", () => buildLinkGraph(vault));\n  ipcMain.handle(\"search:query\", (_e, q) => rankNotes(q, vault, 20));\n  const win = new BrowserWindow({\n    width: 1100,\n    height: 720,\n    webPreferences: { preload: path.join(__dirname, \"preload.js\") },\n  });\n  win.loadURL(\"data:text/html,<h1>Inkwell</h1>\");\n});\n",
+      "full_module": true
+    }
+  ],
+  "related_paths": [
+    "src/search/fuzzy.js",
+    "src/main.js"
+  ],
+  "limitations": [
+    "Seed evidence assembled from source, not from REA"
+  ],
+  "unknowns": [],
+  "collected_at": "2026-10-24T19:09:50.348Z"
+}
