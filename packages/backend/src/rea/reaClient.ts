@@ -2,27 +2,30 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { execSync } from "child_process";
 
+// Owner: Eng 1 (REA) — spec: agents/1_reverse_engineering/03_mcp_bridge.md §2
+// Interim client: launch command fixed (verified live against rea-agents 6.7.0). Replace with the
+// spec's ReaBridge (serialized calls, timeouts, normalize()) when implementing Step 1.
+const REA_VERSION = process.env.REA_VERSION ?? "6.7.0";
+
 export class ReaMcpManager {
   private client: Client | null = null;
   private transport: StdioClientTransport | null = null;
 
   /**
-   * Resolves the REA execution binary.
-   * Prioritizes globally installed `rea-agents` (from Docker `npm install -g rea-agents`)
-   * to ensure 100% offline hackathon execution without registry checks, falling back to `npx`.
+   * Resolves the REA launch command. The MCP server is the `mcp` SUBCOMMAND (not `--mcp`).
+   * Prefers a globally installed `rea-agents` (Docker image), else a pinned npx; Windows needs cmd.exe for npx.
    */
   private resolveReaCommand(): { command: string; args: string[] } {
     try {
-      execSync("which rea-agents || where rea-agents", { stdio: "ignore" });
-      return {
-        command: "rea-agents",
-        args: ["--mcp"]
-      };
+      execSync(process.platform === "win32" ? "where rea-agents" : "which rea-agents", { stdio: "ignore" });
+      return process.platform === "win32"
+        ? { command: "cmd.exe", args: ["/d", "/c", "rea-agents", "mcp"] }
+        : { command: "rea-agents", args: ["mcp"] };
     } catch {
-      return {
-        command: "npx",
-        args: ["-y", "rea-agents@latest", "--mcp"]
-      };
+      const npx = ["-y", `rea-agents@${REA_VERSION}`, "mcp"];
+      return process.platform === "win32"
+        ? { command: "cmd.exe", args: ["/d", "/c", "npx", ...npx] }
+        : { command: "npx", args: npx };
     }
   }
 
