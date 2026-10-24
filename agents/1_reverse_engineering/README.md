@@ -1,5 +1,11 @@
 # Step 1 — Reverse Engineering (Owner: Engineer 1)
 
+> **Engine update:** Follow [the architecture](../../DecompPileline.md) and
+> [implementation plan](../../DECOMP_IMPLEMENTATION_PLAN.md) for native and subsystem work.
+> Import/index once, export immutable evidence, and schedule bounded behavioral tasks across
+> 16+ reasoning workers. The fixed REA collector and timings below apply to the Electron demo.
+> Native analysis is a primary engine path; the old replay-only stretch policy is demo-specific.
+
 **Input:** a pantry feature (`app_id`, `feature_id`, seeds, symbols) from `targets/manifest.json`.
 **Output:** a `RawEvidence` object (see `../CONTRACTS.md` §3) that contains the real tool calls
 REA made, the source REA located, and REA's limitations.

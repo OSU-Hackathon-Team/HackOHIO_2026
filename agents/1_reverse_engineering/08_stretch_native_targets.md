@@ -1,5 +1,11 @@
 # 08 — Stretch: Compiled-Binary Target (only if all CP2 gates are green by H16)
 
+> **Historical demo policy:** Replay-only native targets and the H16 restriction below apply
+> only to the original stage demo. Native subsystem analysis is now a primary engine objective.
+> Follow [the architecture](../../DecompPileline.md) and [plan](../../DECOMP_IMPLEMENTATION_PLAN.md).
+> A native target may be probed through an original binary harness; inability to execute it in
+> the JavaScript sandbox does not imply that native behavior cannot be tested.
+
 A compiled target shows judges that REA is not "just reading JavaScript". It is **replay-only**
 in the demo. It doesn't run live on stage.
 

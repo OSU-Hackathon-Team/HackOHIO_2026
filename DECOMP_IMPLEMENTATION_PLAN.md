@@ -1,0 +1,265 @@
+# Subsystem decompilation engine implementation plan
+
+Status: planned; no engine implementation is claimed by this document.
+Updated: 2026-10-24.
+Architecture and decision rationale: [DecompPileline.md](DecompPileline.md).
+
+## Required outcome
+
+- Support at least 16 concurrently leased reasoning tasks, with a path to multiple hosts.
+- Optimize for subsystem scope; support project-wide campaigns through shared subsystem work.
+- Deliver readable, evidence-backed behavior sufficient to write a specification.
+- Never require reconstructed C to compile or all variables to be renamed.
+- Preserve uncertainty, partial results, and recovery state through failures.
+
+The first end-to-end acceptance run must produce a subsystem dossier with traceable claims,
+independently checked behavior, and successful recovery after a worker is killed during a
+16-worker campaign. Scale and quality are separate gates: occupied workers alone do not pass.
+
+## Implementation boundaries
+
+Keep the current rename command as an integration diagnostic. Introduce the engine in a
+Python package and expose orchestration through `launch.py`; retain `model_config.py` as the
+role resolver. The TypeScript backend consumes engine job state/results after contract work.
+Use PostgreSQL for tasks, attempts, claims, dependency indexes, and outbox events. Begin with
+local immutable artifacts behind a storage interface, then add shared storage for remote workers.
+
+Proposed layout (files do not yet exist):
+
+```text
+engine/
+  models.py             # internal versioned records and validation
+  intake.py             # artifact identity and campaign creation
+  artifacts.py          # immutable storage interface
+  analysis/             # backend adapter, evidence export, warm pool
+  scope.py              # seed discovery and bounded expansion
+  queue.py              # leases, retries, fencing, deduplication
+  worker.py             # bounded semantic analysis and checkpoints
+  findings.py           # conditional publication and invalidation
+  validation/           # structural review, semantic review, original probes
+  dossier.py            # immutable assembly and readable rendering
+  service.py            # job API and event delivery
+migrations/             # PostgreSQL schema migrations
+scripts/                # independent CLI checks and benchmarks
+fixtures/decomp/        # source-known evaluation targets and expected behavior
+```
+
+Avoid a graph database, custom workflow platform, full project merging on every result,
+and a second implementation of scheduling in the web backend. Introduce infrastructure only
+when the corresponding milestone demonstrates its need.
+
+## Proposed data records
+
+These are design requirements, not replacements already applied to `agents/CONTRACTS.md`.
+Implement internal schemas first. At M5, update the shared TypeScript schemas and contract
+document together, following repository contract-review rules.
+
+| Record | Required information |
+| --- | --- |
+| Campaign | Input/module manifest hashes, analysis configuration, budgets, state |
+| ScopeRequest | Mode, query, seeds, explicit inclusions/exclusions, expected observables |
+| ScopeRevision | Entries, included entities, boundary contracts, unresolved edges, expansion reasons |
+| EvidenceArtifact | Hash, kind, module/function identity, analysis revision, address/line mapping, tool provenance, omissions |
+| AnalysisTask | Scope/question, subject entities, priority, deduplication key, dependencies, pinned versions, budget |
+| Attempt | Task ID, worker identity, lease epoch, deadlines, model/runtime versions, usage, checkpoints, terminal reason |
+| BehaviorClaim | Statement, subject, evidence refs, assumptions, dependencies, alternatives, review and probe records |
+| DependencyContract | Interface, relevant effects, preconditions, evidence, version, known limitations |
+| ProbeResult | Original target identity, input/state/environment, adapter/harness version, expected and observed output, outcome |
+| SubsystemDossier | Scope/claim versions, contracts, pseudocode, state/effects/errors, examples, coverage inventory, blockers, readiness |
+
+Use separate dimensions for review, evidence support, probe execution, and readiness. Proposed
+readiness values: `partial`, `ready_for_spec`, `blocked`. Campaign outcomes also distinguish
+`completed`, `budget_exhausted`, `stalled`, and infrastructure failure. These must not collapse
+into one unqualified `verified` boolean.
+
+## M0 — Establish evidence and quality baselines
+
+Deliverables:
+
+- Record current rename startup/import/verification time and resource use.
+- Create small source-known native fixtures: arithmetic boundaries, shared mutable state,
+  structs/aliasing, recursion, callbacks, initialization, and error paths.
+- Build stripped binaries with multiple optimization settings. Keep source/debug metadata
+  available to evaluators and unavailable to analysis workers.
+- Define the expected observable behaviors and independently held-out probe cases.
+- Define a small subsystem, a subsystem with at least 16 useful tasks, and a project-wide case.
+
+Acceptance:
+
+- A repeatable CLI run records input hashes, versions, elapsed time, peak memory, and outputs.
+- Evaluation distinguishes incorrect claims, missing behavior, and unsupported claims.
+- Baseline report clearly labels static inspection versus executed verification.
+
+## M1 — Analyze once and export reusable evidence
+
+Depends on M0.
+
+Deliverables:
+
+- Campaign/module identity and configuration-aware import cache.
+- Function/string/import/reference index and scoped decompilation requests.
+- Immutable evidence exports with native address mappings and explicit omission/error records.
+- Warm analysis service with bounded concurrency, per-operation timeouts, and restart handling.
+- Narrow engine-owned read interfaces: inspect function, references, data/types, and evidence.
+  These are wrapper contracts; discover actual backend tools instead of inventing tool names.
+
+Acceptance:
+
+- Multiple requests for the same binary/configuration reuse the analyzed baseline.
+- Repeat function requests reuse identical evidence artifacts.
+- Concurrent calls do not mix programs or sessions; a hung function does not lose other results.
+- Toolchain/options changes create distinct cache entries.
+- Type/prototype experiments use an isolated closed snapshot and cannot alter baseline evidence.
+
+## M2 — Scope discovery and one useful semantic worker
+
+Depends on M1.
+
+Deliverables:
+
+- Scope request/revision records and seed ranking.
+- Bounded expansion through calls, data, callers, initialization, and callbacks.
+- Behavioral task schema and prompts that require citations, assumptions, and alternatives.
+- Worker output includes contracts and readable pseudocode, with no C compilation gate.
+- Partial checkpoints and targeted requests for additional evidence.
+- First dossier renderer from persisted records.
+
+Acceptance:
+
+- A worker explains one subsystem's inputs, outputs, state, errors, and relevant dependencies.
+- A shared helper's contract can terminate expansion without analyzing its entire implementation.
+- Unresolved indirect dispatch appears as a potential blocker, not a fabricated target.
+- Relevant persistence/timing effects survive extraction.
+- Exhausted budgets return partial findings with a concrete unresolved question.
+
+## M3 — Durable parallel execution and reconciliation
+
+Depends on M2; final evaluation requires M4 quality checks.
+
+Deliverables:
+
+- PostgreSQL queue with transactional dispatch, leases, heartbeat renewal, fencing epochs,
+  task deduplication, retry classification, and idempotent result submission.
+- Configurable reasoning concurrency of at least 16; separately sized analysis/review pools.
+- Priority classes for boundary discovery, blocking dependencies, behavior extraction, and
+  reconciliation; aging prevents starvation.
+- Worker-owned model sessions, bounded context/tool/time/token budgets, and partial checkpoints.
+- Conditional claim publication, immutable dossier revisions, reverse dependency invalidation,
+  and transactional outbox events.
+- Preserve conflicting findings; schedule a bounded reconciliation task using both evidence sets.
+
+Acceptance:
+
+- Demonstrate 16 simultaneous active leases on meaningful tasks with distinct worker identities.
+- Kill a worker, let its lease expire, and recover its task and checkpoints.
+- Deliver a result twice: one accepted effect. Deliver an expired result: no newer lease mutation.
+- Restart the scheduler without losing completed findings or duplicating active assignments.
+- Concurrent helper requests deduplicate. Conflicting claims do not silently overwrite one another.
+- Correct a dependency contract: consumers become stale, unrelated findings remain usable.
+- Crash between artifact storage and database commit: no published pointer references missing data.
+- Bound validation backlog and provider throttling through admission control.
+
+## M4 — Semantic quality and original-behavior validation
+
+Depends on M2; integrate with M3 before declaring parallel acceptance.
+
+Deliverables:
+
+- Structural validation for evidence identity, reference bounds, required fields, and versions.
+- Independent reviewer tasks grounded in raw evidence, focused on observable claims and assumptions.
+- Original-execution probes through a harness/application interface where available.
+- Boundary, error, and state-sequence cases; counterexample probes for conflicting interpretations.
+- Adapter review and regression cases where the adapter calls the original but discards its output.
+- A behavior inventory linking claims to identified branches/state transitions and probe cases.
+  Label unobserved/unknown paths instead of asserting complete coverage.
+
+Acceptance:
+
+- Seed a plausible but wrong semantic claim and show it is rejected or flagged.
+- Reject invalid citations and detect unsupported claims despite valid citation locations.
+- Catch the discarded-original-result adapter case; a positive call count alone must not pass it.
+- Report static-only support separately from execution agreement.
+- A missing observable behavior prevents readiness when it blocks writing the specification.
+- Cases unavailable for execution remain explicit limitations; probes do not substitute guessed outputs.
+
+## M5 — Dossier-to-spec handoff and API integration
+
+Depends on M3 and M4.
+
+Deliverables:
+
+- Versioned dossier and scope schemas in the shared contract package and `agents/CONTRACTS.md`.
+- Migration mapping for the existing Electron evidence path; preserve old fixtures explicitly
+  or migrate them, rather than silently changing the meaning of existing `verified`/`coverage` fields.
+- A durable campaign/job API with separate create, status, result, and event-subscription operations.
+  Transport disconnects must not silently discard durable work; cancellation is an explicit operation.
+- Spec writer consumes scope, supported claims, uncertainties, and evidence links. Render original
+  pseudocode for analysts; preserve the existing downstream implementer's spec-only boundary.
+- Native probe statuses replace the assumption that all non-JavaScript targets are untestable.
+- Model/runtime/schema provenance and recorded deviations in every exported specification.
+
+Acceptance:
+
+- A separate implementer can answer held-out behavior questions using the dossier/spec alone.
+- Open blockers survive the handoff and cannot be relabeled as verified requirements.
+- Exclusions and pure-function adaptations preserve an audit trail of observable behavior.
+- Existing Electron demo fixtures retain honest provenance and remain readable through migration.
+- Reconnecting to a job reports the same durable results without restarting analysis.
+
+## M6 — Benchmark, tune, and prove multi-host operation
+
+Depends on M3–M5.
+
+Run the same workloads at 1, 4, 8, 16, and 32 reasoning workers. Separate cold import time from
+warm analysis and reasoning time; report both. Repeat runs with fixed input/configuration and
+record model nondeterminism. Compare a shared-evidence baseline with the existing per-attempt
+project approach where tasks are comparable; rename success is not a semantic-quality baseline.
+
+Measure:
+
+- Time to first usable dossier and total campaign time.
+- Accepted supported behavior per minute and per dollar.
+- Incorrect, missing, contradicted, and reopened claims on held-out fixtures.
+- Duplicate work, evidence cache hits, task latency, and validation backlog.
+- Model throttling, token usage, CPU, JVM/native memory, and artifact I/O.
+- Recovery time after worker, analysis-service, and scheduler failures.
+
+Acceptance:
+
+- The 16-worker run improves warm useful-work throughput over the 8-worker run on the
+  sufficiently parallel fixture, without increased measured semantic error rate. If quotas or
+  hardware prevent this, identify the bottleneck and rerun after adjustment; do not claim scaling.
+- Report quality counts and sample sizes rather than a fabricated confidence percentage.
+- Run at least 16 total workers across two hosts with shared durable state and artifacts.
+- Loss of one host leaves completed findings intact and reclaims unfinished leases.
+- Choose default pool sizes and model routing from recorded results. Document the point where
+  more workers stop helping, including import/serial coordination costs.
+
+## Task lifecycle and failure rules
+
+```text
+queued -> leased -> result_pending -> validated -> accepted
+              |             |            |
+              |             |            +-> needs_reconciliation / rejected
+              +-> checkpoint + retryable failure -> queued (new attempt/epoch)
+              +-> budget exhausted -> partial result + explicit campaign decision
+```
+
+Retain failed and rejected attempts with reasons. Infrastructure retries differ from semantic
+reassessment: unchanged evidence plus repeated no-progress must not generate endless tasks.
+A terminal campaign requires accounting for running attempts, pending reviews, conflicts,
+and unexamined scope edges. Short database transactions publish findings; analysis-affecting
+Ghidra changes use their own isolated revision path.
+
+## Completion checklist
+
+- [ ] M0 baseline and held-out behavior fixtures recorded.
+- [ ] M1 reusable evidence and warm analysis pool verified.
+- [ ] M2 first subsystem dossier produced with explicit boundaries and unknowns.
+- [ ] M3 sixteen-worker recovery and concurrency gates pass.
+- [ ] M4 semantic and original-behavior checks pass.
+- [ ] M5 shared contracts and specification handoff integrated.
+- [ ] M6 measured scaling and two-host recovery demonstrated.
+
+Do not mark these complete based on documentation, worker counts, rename persistence,
+compilable pseudocode, or passing only model-authored tests.
