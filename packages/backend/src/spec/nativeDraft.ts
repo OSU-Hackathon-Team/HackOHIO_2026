@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { continueWith } from "../llm/llm.js";
+import { continueWith, LlmSchemaError } from "../llm/llm.js";
 import { writeDraft } from "./writeDraft.js";
 import { sourceLikeText } from "./nativeSafety.js";
 
@@ -8,7 +8,7 @@ export const NativeDraft = z.object({
   title: text,
   purpose: text,
   interface: z.object({ inputs: z.array(text).min(1), outputs: z.array(text).min(1), state: z.array(text) }),
-  requirements: z.array(z.object({ id: text, statement: text, claim_ids: z.array(text).min(1) })).min(1),
+  requirements: z.array(z.object({ id: text, statement: text, claim_ids: z.array(text) })).min(1),
   behavior_steps: z.array(text).min(1),
   acceptance_criteria: z.array(text).min(1),
   deviations: z.array(text),
@@ -45,6 +45,9 @@ Do not write source code, disassembly, language syntax, type declarations, execu
 or close translations of source control flow. behavior_steps are short, high-level prose.
 Do not mention decompilation, reviews, evidence scores, addresses, claims, unknowns, or gaps.
 Do not guess. Every factual requirement must cite one or more supplied claim_ids.
+Do not invent initial values, thresholds, widths, error behavior, or causal rules from a
+single example. Treat function summaries and examples as context, not as permission to
+add facts absent from claims. If a statement has no claim, remove it.
 Cover every supplied claim_id with a requirement. Combine facts when that improves clarity.
 Number requirements REQ-1 onward without gaps. The interface is a descriptive data contract,
 not a programming-language signature. Acceptance criteria are observable checks in prose.
@@ -63,6 +66,7 @@ export function nativeDraftProblems(d: NativeDraft, claimIds: string[]): string[
   const covered = new Set<string>();
   d.requirements.forEach((r, index) => {
     if (r.id !== `REQ-${index + 1}`) errors.push(`requirement ${index + 1} has wrong ID`);
+    if (!r.claim_ids.length) errors.push(`${r.id} has no supporting claim`);
     for (const id of r.claim_ids) {
       if (!expected.has(id)) errors.push(`${r.id} cites invented claim ${id}`);
       else covered.add(id);
@@ -84,9 +88,16 @@ export async function writeNativeDraft(input: { claims: { id: string }[]; [key: 
     { role: "user", content: JSON.stringify(input) },
   ];
   for (let attempt = 0; attempt < 3; attempt++) {
-    const result = await writeDraft({ system: SYSTEM, messages,
-      schema: NATIVE_DRAFT_SCHEMA, parse: (value) => NativeDraft.parse(value),
-      maxTokens: 16_384 });
+    let result;
+    try {
+      result = await writeDraft({ system: SYSTEM, messages,
+        schema: NATIVE_DRAFT_SCHEMA, parse: (value) => NativeDraft.parse(value),
+        maxTokens: 16_384 });
+    } catch (error) {
+      if (!(error instanceof LlmSchemaError) || attempt === 2) throw error;
+      messages = [{ role: "user", content: `${JSON.stringify(input)}\n\nThe previous draft failed schema validation: ${error.message}. Return every required field with valid types.` }];
+      continue;
+    }
     const problems = nativeDraftProblems(result.value, ids);
     if (!problems.length) return { draft: result.value, model: result.model };
     if (attempt === 2) throw new Error(`native spec draft failed validation: ${problems.join("; ")}`);
