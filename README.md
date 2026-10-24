@@ -68,13 +68,29 @@ python launch.py queue-run-one --manifest decomp-state/projects/<campaign>/manif
 python launch.py queue-drain --manifest decomp-state/projects/<campaign>/manifest.json \
   --workers 4 --max-tasks 4
 python launch.py queue-status --campaign <campaign>
+python launch.py queue-task --task-id <task-uuid>
+python launch.py queue-events --campaign <campaign> --after-id 0
 python launch.py queue-review --task-id <validated-task-uuid>
 python launch.py queue-reassess --task-id <partial-task-uuid> \
   --reason "Correct missing dependency fields"
 python scripts/check_decomp_queue.py
 ```
 
-`queue-run-one` leases one task, renews its lease while the model runs, submits the immutable draft, and checks its scope and evidence structure. `queue-drain` first warms the function export cache, then runs up to 32 worker loops while the database enforces its configured reasoning capacity; it prints each task outcome as it finishes. The PostgreSQL queue uses epochs to reject expired submissions, deduplicates tasks and submissions, retains checkpoints and rejected draft artifacts, caps reasoning leases at 16 by default, and writes progress events in the same transactions as task changes. `queue-reassess` explicitly requeues a partial task while carrying its rejected draft and errors into the next fenced attempt; the task's maximum attempt count still applies. `queue-review` runs an independent static reviewer and accepts a task only when every claim is supported and no gaps are reported. Accepted tasks record `static_only`; original probe agreement still needs separate reconciliation. The queue check creates and removes its own test database; set `DECOMP_TEST_PG_DSN` if the local PostgreSQL test server is elsewhere. Review pool leasing, claim reconciliation, dependency invalidation, and full throughput benchmarking remain open M3/M6 work.
+`queue-run-one` leases one task, renews its lease while the model runs, submits the immutable draft, and checks its scope and evidence structure. `queue-drain` first warms the function export cache, then runs up to 32 worker loops while the database enforces its configured reasoning capacity; it prints each task outcome as it finishes. The PostgreSQL queue uses epochs to reject expired submissions, deduplicates tasks and submissions, retains checkpoints and rejected draft artifacts, caps reasoning leases at 16 by default, and writes progress events in the same transactions as task changes. `queue-reassess` explicitly requeues a partial task while carrying its rejected draft and errors into the next fenced attempt; the task's maximum attempt count still applies. `queue-review` runs an independent static reviewer; supported claims with unresolved dependencies stay in `needs_reconciliation`. Accepted tasks record `static_only`; original probe agreement still needs separate reconciliation. The queue check creates and removes its own test database; set `DECOMP_TEST_PG_DSN` if the local PostgreSQL test server is elsewhere. Review pool leasing, automatic conflict reconciliation, and full throughput benchmarking remain open M3/M6 work.
+
+`queue-init` applies the current PostgreSQL migrations and audits earlier accepted tasks for unresolved dependencies. Run it again after upgrading the engine. A review with supported claims but unreviewed dependencies is retained as `needs_reconciliation`, with its reason visible through `queue-task` and the ordered `queue-events` cursor.
+
+Reviewed, accepted claims can be published into explicit semantic slots. Supply a JSON object such as `{"0":"seen_counter_increment"}` for a one-claim draft:
+
+```sh
+python launch.py queue-publish-claims --task-id <accepted-task-uuid> --slots <slots.json>
+python launch.py queue-publish-contract --task-id <accepted-task-uuid> \
+  --claim-index 0 --contract-key record_seen --expected-version 0
+python launch.py queue-findings --campaign <campaign>
+python scripts/check_decomp_findings.py
+```
+
+Findings and contract versions are immutable artifact-backed records. Conditional publication checks the accepted review and contract head versions; conflicting statements in the same subject and semantic slot remain separate, with open conflict records. A changed or disputed contract stales its indexed consumers while unrelated findings remain active. Contract publication currently requires a dependency-free accepted source claim. Semantic slot assignment and dependency contract review are still explicit steps; open conflicts do not auto-resolve.
 
 Independently challenge a draft against the raw function evidence:
 
