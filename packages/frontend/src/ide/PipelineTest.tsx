@@ -126,6 +126,8 @@ export function PipelineTest() {
   const passedBlueprints = specs
     .map(s => runs[s.feature_id]?.blueprint)
     .filter((bp): bp is FeatureBlueprint => bp?.verification.status === "passed");
+  const excluded = specs.filter(s => selected.includes(s.feature_id) && runs[s.feature_id] &&
+    runs[s.feature_id].status !== "running" && runs[s.feature_id].blueprint?.verification.status !== "passed");
 
   async function synthesize() {
     const abort = new AbortController(); controller.current = abort;
@@ -249,6 +251,11 @@ export function PipelineTest() {
               </WorkspaceButton>
               {!passedBlueprints.length && <span className="text-xs text-stone-500">Needs at least one engine that passed.</span>}
             </div>
+            {!!excluded.length && (
+              <p className="mt-3 text-xs text-amber-200">
+                Left out because their engines did not pass: {excluded.map(s => s.consumer_title).join(", ")}. The app will not include them.
+              </p>
+            )}
             {synthError && <p role="alert" className="mt-3 break-words text-sm text-red-300">{synthError}</p>}
           </section>
 
@@ -274,6 +281,9 @@ export function PipelineTest() {
     </div>
   );
 }
+
+/** Sandpack copies <script> tags from /public/index.html without running them, so inject Tailwind here. */
+const TAILWIND_CDN = ["https://cdn.tailwindcss.com/3.4.17"];
 
 function BundlePreview({ bundle }: { bundle: SynthesisBundle }) {
   const [tab, setTab] = useState<"preview" | "code">("preview");
@@ -305,7 +315,8 @@ function BundlePreview({ bundle }: { bundle: SynthesisBundle }) {
         <ul className="text-xs text-amber-200">{bundle.warnings.map(w => <li key={w}>{w}</li>)}</ul>
       )}
       <SandpackProvider key={`${bundle.bundle_id}:${bundle.revision}`} template="react-ts" theme="dark" files={files}
-        customSetup={{ dependencies: bundle.dependencies }} options={{ recompileMode: "delayed", recompileDelay: 500 }}>
+        customSetup={{ dependencies: bundle.dependencies }}
+        options={{ recompileMode: "delayed", recompileDelay: 500, externalResources: TAILWIND_CDN }}>
         <SandpackLayout style={{ height: 640 }}>
           {tab === "code" && (
             <div className="flex h-full w-full min-w-0">

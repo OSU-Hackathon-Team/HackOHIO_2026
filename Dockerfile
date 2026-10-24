@@ -39,8 +39,8 @@ COPY packages/contracts/package.json ./packages/contracts/
 COPY packages/backend/package.json ./packages/backend/
 COPY packages/frontend/package.json ./packages/frontend/
 
-# Install full dependencies across all workspaces
-RUN npm install
+# Install the committed dependency tree across all workspaces.
+RUN npm ci
 
 # Copy source code and TypeScript project configurations
 COPY tsconfig*.json ./
@@ -53,7 +53,8 @@ COPY targets/manifest.json ./targets/manifest.json
 # Build in strict topological dependency order:
 # 1. contracts (shared types & Zod schemas)
 # 2. backend (Express API, REA client, agent loops)
-# 3. frontend (Vite React studio SPA)
+# 3. frontend (the active App.tsx entry point; currently the chat/library workspace).
+# Host dist folders are excluded by .dockerignore, so this always builds source from this checkout.
 RUN npm run build --workspace=@splice/contracts \
     && npm run build --workspace=@splice/backend \
     && npm run build --workspace=@splice/frontend
@@ -77,13 +78,13 @@ COPY packages/backend/package.json ./packages/backend/
 COPY packages/frontend/package.json ./packages/frontend/
 
 # Install all dependencies including dev tooling
-RUN npm install
+RUN npm ci
 
 # Copy monorepo sources
 COPY . .
 
 # Build contracts once so dev servers can resolve @splice/contracts
-RUN npm run build --workspace=@splice/contracts || true
+RUN npm run build --workspace=@splice/contracts
 
 ENV NODE_ENV=development
 ENV PORT=3001
@@ -118,7 +119,8 @@ COPY --from=builder /app/packages/contracts/dist ./packages/contracts/dist
 COPY --from=builder /app/packages/backend/package.json ./packages/backend/
 COPY --from=builder /app/packages/backend/dist ./packages/backend/dist
 
-# Copy package.json and compiled dist for frontend (static assets served by Express in production)
+# Copy the same freshly built frontend; there is no separate Docker UI or mock frontend.
+# Express serves it on :3001. Development uses Vite on :5173 instead.
 COPY --from=builder /app/packages/frontend/package.json ./packages/frontend/
 COPY --from=builder /app/packages/frontend/dist ./packages/frontend/dist
 

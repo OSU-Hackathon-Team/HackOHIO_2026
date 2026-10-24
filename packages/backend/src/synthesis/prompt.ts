@@ -52,6 +52,7 @@ Do NOT write /index.tsx, /styles.css, /public/*, or anything under /engines/. Th
 - Engines are pure: keep app state in React (useState/useReducer). Pass dates as "YYYY-MM-DD" strings when an engine asks for them; compute "today" in the UI with new Date().toISOString().slice(0, 10).
 - Combine the engines so they feed each other where the user's request implies it (e.g. notes from one engine become cards for another). This fusion is the point of the app.
 - Include a small footer "Built from:" listing each engine's consumer title and source app (given below).
+- The engines are the only source of feature logic. If the user's request asks for behaviour no engine provides (for example scheduling, search, or streaks without a matching engine), do not implement that algorithm yourself. Leave it out and show one short, muted note in the UI naming the missing feature.
 
 # Data
 - Ship realistic seed data for the user's domain so the app is useful the moment it opens (at least 5 items). No lorem ipsum.
