@@ -795,7 +795,8 @@ class DurableQueue:
         with self._connect() as conn:
             row = conn.execute("SELECT id, campaign_id, subject, state, result_artifact, "
                                "review_artifact, support_level, terminal_reason, "
-                               "dependency_versions, dependency_resolution_artifact "
+                               "dependency_versions, dependency_resolution_artifact, "
+                               "coverage_revision_count "
                                "FROM decomp_tasks "
                                "WHERE id = %s", (task_id,)).fetchone()
             if row is None:
@@ -1059,6 +1060,102 @@ class DurableQueue:
         return {"state": "queued", "context_artifact": artifact,
                 "source_draft": task["result_artifact"],
                 "source_review": task["review_artifact"]}
+
+    def record_coverage_attempt(self, task_id: str, expansion_artifact: str) -> bool:
+        try:
+            result = json.loads(self.store.get(expansion_artifact))
+        except (ValueError, TypeError, FileNotFoundError):
+            return False
+        with self._connect() as conn:
+            task = conn.execute("SELECT campaign_id, result_artifact, review_artifact "
+                                "FROM decomp_tasks WHERE id = %s", (task_id,)).fetchone()
+            if (task is None or result.get("campaign") != task["campaign_id"] or
+                    result.get("draft_artifact") != task["result_artifact"] or
+                    result.get("review_artifact") != task["review_artifact"]):
+                return False
+            self._event(conn, task["campaign_id"], "coverage_attempt_recorded",
+                        {"task_id": task_id, "artifact": expansion_artifact,
+                         "state": result.get("state"),
+                         "structural_errors": result.get("structural_errors", [])})
+            return True
+
+    def publish_coverage_candidate(self, task_id: str, candidate_artifact: str) -> str:
+        from engine.validation.coverage import validate_expansion
+
+        try:
+            candidate = json.loads(self.store.get(candidate_artifact))
+            expansion_artifact = candidate["coverage_expansion_artifact"]
+            expansion = json.loads(self.store.get(expansion_artifact))
+            source_artifact = candidate["source_artifact"]
+            source_review_artifact = candidate["source_review_artifact"]
+            source = json.loads(self.store.get(source_artifact))
+            review = json.loads(self.store.get(source_review_artifact))
+            evidence = json.loads(self.store.get(source["evidence_artifact"]))
+        except (ValueError, KeyError, TypeError, FileNotFoundError):
+            return "invalid"
+        if (candidate.get("state") != "unreviewed" or
+                candidate.get("structural_errors") != [] or
+                candidate.get("campaign") != source.get("campaign") or
+                candidate.get("subject") != source.get("subject") or
+                candidate.get("scope_artifact") != source.get("scope_artifact") or
+                candidate.get("evidence_artifact") != source.get("evidence_artifact") or
+                expansion.get("state") != "candidate" or
+                expansion.get("structural_errors") != [] or
+                expansion.get("draft_artifact") != source_artifact or
+                expansion.get("review_artifact") != source_review_artifact or
+                validate_expansion(expansion["expansion"], source, review, evidence)):
+            return "invalid"
+        expected = json.loads(json.dumps(source["answer"]))
+        expected["claims"].extend(expansion["expansion"]["additional_claims"])
+        expected["dependencies"].extend(expansion["expansion"]["additional_dependencies"])
+        expected["unknowns"].extend(expansion["expansion"]["remaining_unknowns"])
+        if candidate.get("answer") != expected:
+            return "invalid"
+        with self._connect() as conn:
+            task = conn.execute("SELECT * FROM decomp_tasks WHERE id = %s FOR UPDATE",
+                                (task_id,)).fetchone()
+            if (task is None or task["state"] != "needs_reconciliation" or
+                    task["result_artifact"] != source_artifact or
+                    task["review_artifact"] != source_review_artifact or
+                    task["campaign_id"] != source["campaign"] or
+                    task["subject"] != source["subject"] or
+                    task["coverage_revision_count"] >= 2):
+                return "stale"
+            if not any(blocker in (task["terminal_reason"] or "") for blocker in
+                       ("missing_behavior", "claims_not_all_supported")):
+                return "blocked"
+            if conn.execute("SELECT 1 FROM decomp_findings WHERE task_id = %s LIMIT 1",
+                            (task_id,)).fetchone():
+                return "blocked"
+            job = conn.execute("SELECT state FROM decomp_review_jobs WHERE task_id = %s "
+                               "FOR UPDATE", (task_id,)).fetchone()
+            if job is None or job["state"] != "completed":
+                return "blocked"
+            inserted = conn.execute(
+                "INSERT INTO decomp_coverage_revisions "
+                "(task_id, source_review_artifact, expansion_artifact, candidate_artifact) "
+                "VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING RETURNING task_id",
+                (task_id, source_review_artifact, expansion_artifact,
+                 candidate_artifact)).fetchone()
+            if not inserted:
+                return "stale"
+            conn.execute("UPDATE decomp_tasks SET state = 'validated', "
+                         "result_artifact = %s, review_artifact = NULL, "
+                         "support_level = 'none', terminal_reason = NULL, "
+                         "coverage_revision_count = coverage_revision_count + 1, "
+                         "updated_at = now() WHERE id = %s", (candidate_artifact, task_id))
+            conn.execute("UPDATE decomp_review_jobs SET state = 'queued', "
+                         "attempts_count = 0, review_artifact = NULL, "
+                         "terminal_reason = NULL, available_at = now(), "
+                         "updated_at = now() WHERE task_id = %s", (task_id,))
+            self._event(conn, task["campaign_id"], "coverage_revision_published",
+                        {"task_id": task_id, "source_draft": source_artifact,
+                         "source_review": source_review_artifact,
+                         "expansion_artifact": expansion_artifact,
+                         "candidate_artifact": candidate_artifact,
+                         "claim_count": len(expected["claims"]),
+                         "revision_count": task["coverage_revision_count"] + 1})
+            return "validated"
 
     def events(self, campaign: str, after_id: int = 0, limit: int = 100) -> list[dict]:
         with self._connect() as conn:

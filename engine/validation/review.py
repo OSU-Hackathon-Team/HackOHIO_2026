@@ -72,6 +72,12 @@ def review_prompt(draft: dict, evidence: dict, scope: dict | None = None) -> str
         "particular, check success as well as failure paths and each state update. Scope "
         "observables are coverage questions, not facts to assume true. Do not say there is no "
         "missing behavior merely because the listed claims are individually correct. "
+        "List missing_behavior only for an observable path or effect shown by this raw "
+        "function and absent from the draft. Do not invent error codes, callee failures, "
+        "or required return-value checks that the instructions do not show. If callee "
+        "internals are unavailable and the draft lacks a dependency for that callee, put "
+        "the limitation in unresolved and identify it instead of asserting an invented "
+        "failure path. Listed dependencies receive separate contract review. "
         "Return exactly one JSON "
         "object with reviews array, missing_behavior array of strings, unresolved array of "
         "strings. Each review object must have claim_index, outcome, reason, "
@@ -115,7 +121,7 @@ class IndependentReviewer:
                       "campaign": draft["campaign"], "draft_artifact": draft_artifact,
                       "evidence_artifact": draft["evidence_artifact"],
                       "subject": draft["subject"], "model": resolved_model,
-                      "model_role": model_role, "prompt_version": 2,
+                      "model_role": model_role, "prompt_version": 3,
                       "state": "running"}
         checkpoint_path = folder / "checkpoint.json"
         checkpoint_path.write_text(json.dumps(checkpoint, indent=2) + "\n")

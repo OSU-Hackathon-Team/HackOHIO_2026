@@ -197,6 +197,7 @@ def main() -> None:
         ("queue-reclassify-intrinsic", "move no-call state dependencies into visible unknowns"),
         ("queue-reopen-review", "recheck one unresolved draft against updated review criteria"),
         ("queue-revise-semantics", "rerun a contradicted or incomplete draft with review context"),
+        ("queue-expand-coverage", "add cited claims for independently identified omissions"),
         ("queue-task", "inspect a durable native task and its blocker"),
         ("queue-events", "read ordered transactional campaign events"),
         ("queue-findings", "inspect published claim and contract versions"),
@@ -218,11 +219,14 @@ def main() -> None:
                                  help="limit the report to matching worker IDs")
             command.add_argument("--after-event-id", type=int,
                                  help="include attempts leased after this event cursor")
-        if name in {"queue-review", "queue-review-dependency", "queue-review-drain"}:
+        if name in {"queue-review", "queue-review-dependency", "queue-review-drain",
+                    "queue-expand-coverage"}:
             if name != "queue-review-drain":
                 command.add_argument("--task-id", required=True)
             command.add_argument("--timeout", type=int, default=180)
-            command.add_argument("--model-role", default="legal_verification")
+            command.add_argument("--model-role", default="decomp_worker"
+                                 if name == "queue-expand-coverage" else
+                                 "legal_verification")
             command.add_argument("--model")
             command.add_argument("--opencode", type=Path,
                                  default=Path(os.environ.get(
@@ -527,6 +531,26 @@ def main() -> None:
                       "task": queue.task(args.task_id)}
         elif args.command == "queue-revise-semantics":
             result = queue.revise_semantics(args.task_id, args.reason)
+        elif args.command == "queue-expand-coverage":
+            from engine.validation.coverage import CoverageExpander
+
+            task = queue.task(args.task_id)
+            if task is None or task["state"] != "needs_reconciliation":
+                parser.error("coverage expansion requires an unresolved reviewed task")
+            engine = GhidraAnalysis(args.state, Path(os.environ.get(
+                "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+            expander = CoverageExpander(engine, args.opencode, timeout=args.timeout)
+            attempt = expander.run(task["result_artifact"], task["review_artifact"],
+                                   model=args.model, model_role=args.model_role)
+            recorded = queue.record_coverage_attempt(args.task_id, attempt["artifact"])
+            queue_state = (queue.publish_coverage_candidate(
+                args.task_id, attempt["candidate_artifact"])
+                if attempt["candidate_artifact"] else "unchanged")
+            result = {"task_id": args.task_id, "attempt_state": attempt["state"],
+                      "attempt_artifact": attempt["artifact"],
+                      "candidate_artifact": attempt["candidate_artifact"],
+                      "structural_errors": attempt.get("structural_errors", []),
+                      "recorded": recorded, "queue_state": queue_state}
         elif args.command == "queue-task":
             result = queue.task(args.task_id)
         elif args.command == "queue-events":
