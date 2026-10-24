@@ -334,6 +334,14 @@ step3Router.post("/api/implement", async (req, res) => {
 });
 ```
 
+> **Implementation note (as built), applies to all Step 3 routes (also 02 §7, 04 §2):** the router
+> is built by `createStep3Router(deps)`. `src/routes/step3/deps.ts` is the single place that wires
+> Eng 1/2 helpers (`openSse`, `newRunId`, `createTranscript`, `replayTranscript`, `config.llmMode`,
+> `structuredCall`/`continueWith`, `runTests`). While it exports `null`, valid POSTs answer
+> **503 JSON** listing the missing helpers. Request validation, including "only passed engines can be
+> fused" and "refine blueprints must match the bundle", runs first and answers **400 JSON** before
+> any stream opens. `GET /api/blueprints` needs no upstream helpers.
+
 ## 7. Test script — `npm run test:implement [feature_id]`
 
 Loads `fixtures/specs/<id>.json` (or `_seed`), runs `implementEngine` with console hooks, and
