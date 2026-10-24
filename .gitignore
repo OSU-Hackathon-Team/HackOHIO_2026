@@ -38,3 +38,5 @@ yarn-error.log*
 
 # Splice fixtures: *.latest.json are scratch; promote to golden *.json (agents/1_reverse_engineering/05_record_and_replay.md)
 fixtures/**/*.latest.json
+test-results/
+playwright-report/

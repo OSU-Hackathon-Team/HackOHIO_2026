@@ -101,20 +101,20 @@ export default function App() {
     const result = reviewCard(cards[title] ?? { repetitions: 0, intervalDays: 0, easeFactor: 2.5, lapses: 0 }, 4, new Date().toISOString().slice(0,10));
     setCards({ ...cards, [title]: result }); setDue({ ...due, [title]: result.dueDate });
   }
-  return <main className="mx-auto max-w-3xl p-6 text-slate-900">
+  return <main style={{ maxWidth: 768, margin: "auto", padding: 24, fontFamily: "system-ui, sans-serif", color: "#17232d", lineHeight: 1.6 }} className="mx-auto max-w-3xl p-6 text-slate-900">
     <p className="text-xs font-bold uppercase tracking-widest text-amber-700">Development data · local checks only</p>
-    <h1 className="my-3 text-3xl font-bold">Study room</h1>
+    <h1 style={{ fontSize: 30, lineHeight: 1.2, letterSpacing: "-0.04em", margin: "16px 0" }} className="my-3 text-3xl font-bold">Study room</h1>
     <p className="mb-6">Link your notes. Practice a little every day.</p>
-    <form onSubmit={e => { e.preventDefault(); if (!title.trim() || notes.some(n => n.title.toLowerCase() === title.trim().toLowerCase())) return; setNotes([...notes, { title: title.trim(), body }]); setTitle(""); setBody(""); }} className="mb-6 grid gap-3 rounded-xl border bg-white p-4">
-      <label>Note title<input className="mt-1 block w-full rounded border p-2" value={title} onChange={e => setTitle(e.target.value)} required /></label>
-      <label>Note text<textarea className="mt-1 block w-full rounded border p-2" value={body} onChange={e => setBody(e.target.value)} placeholder="Connect an idea with [[Cardiology]]" /></label>
-      <button className="min-h-11 rounded bg-slate-900 px-4 py-2 text-white">Add note</button>
+    <form onSubmit={e => { e.preventDefault(); if (!title.trim() || notes.some(n => n.title.toLowerCase() === title.trim().toLowerCase())) return; setNotes([...notes, { title: title.trim(), body }]); setTitle(""); setBody(""); }} style={{ display: "grid", gap: 12, padding: 16, margin: "24px 0", border: "1px solid #cbd5e1", borderRadius: 10, background: "white" }} className="mb-6 grid gap-3 rounded-xl border bg-white p-4">
+      <label>Note title<input style={{ display: "block", width: "100%", boxSizing: "border-box", minHeight: 44, padding: 8, border: "1px solid #94a3b8", borderRadius: 5 }} className="mt-1 block w-full rounded border p-2" value={title} onChange={e => setTitle(e.target.value)} required /></label>
+      <label>Note text<textarea style={{ display: "block", width: "100%", boxSizing: "border-box", minHeight: 70, padding: 8, border: "1px solid #94a3b8", borderRadius: 5 }} className="mt-1 block w-full rounded border p-2" value={body} onChange={e => setBody(e.target.value)} placeholder="Connect an idea with [[Cardiology]]" /></label>
+      <button style={{ minHeight: 44, border: 0, borderRadius: 5, background: "#17232d", color: "white", cursor: "pointer" }} className="min-h-11 rounded bg-slate-900 px-4 py-2 text-white">Add note</button>
     </form>
-    <div className="grid gap-4 sm:grid-cols-2">{notes.map(n => <article className="rounded-xl border bg-white p-4" key={n.title}>
+    <div style={{ display: "grid", gap: 16, gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))" }} className="grid gap-4 sm:grid-cols-2">{notes.map(n => <article style={{ padding: 16, border: "1px solid #cbd5e1", borderRadius: 10, background: "white", overflowWrap: "anywhere" }} className="rounded-xl border bg-white p-4" key={n.title}>
       <h2 className="text-lg font-semibold">{n.title}</h2><p className="my-2 text-sm">{n.body}</p>
       <p className="text-xs text-slate-600">Links: {parseLinks(n.body).join(", ") || "None"}</p>
       <p className="my-2 text-xs text-slate-600">Backlinks: {notes.filter(other => parseLinks(other.body).some(t => t.toLowerCase() === n.title.toLowerCase())).map(other => other.title).join(", ") || "None"}</p>
-      <button className="my-2 min-h-11 rounded border px-3" onClick={() => review(n.title)}>Review {n.title} · grade 4</button>
+      <button style={{ minHeight: 44, width: "100%", padding: 8, margin: "12px 0", border: "1px solid #94a3b8", borderRadius: 5, background: "#edf5f0", cursor: "pointer" }} className="my-2 min-h-11 rounded border px-3" onClick={() => review(n.title)}>Review {n.title} · grade 4</button>
       <p role="status" className="text-sm">{due[n.title] ? "Next review: " + due[n.title] : "Ready to review"}</p>
     </article>)}</div>
     <footer className="mt-6 text-xs text-slate-500">Built from: Wiki links (Inkwell Notes) and SM-2 (Recall Flashcards). Authored development seeds; original behavior unverified.</footer>
