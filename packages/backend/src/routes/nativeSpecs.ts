@@ -5,7 +5,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Router } from "express";
-import { NativeSubsystemSpec } from "@splice/contracts";
+import { FeatureSpec, NativeSubsystemSpec } from "@splice/contracts";
+import { adaptNativeSpecToFeatureSpec } from "../native/nativeAdapter.js";
 import { REPO_ROOT } from "../config.js";
 
 export const nativeSpecsRouter = Router();
@@ -66,6 +67,41 @@ nativeSpecsRouter.post("/api/native-specs", async (req, res) => {
   }
 });
 
+nativeSpecsRouter.get("/api/native-specs", async (_req, res) => {
+  try {
+    const artRoot = path.join(stateDir(), "artifacts");
+    const results: Array<{ artifact: string; spec: NativeSubsystemSpec }> = [];
+    let prefixes: string[] = [];
+    try {
+      prefixes = await fs.readdir(artRoot);
+    } catch {
+      return res.json({ specs: [] });
+    }
+    for (const prefix of prefixes) {
+      if (prefix.length !== 2) continue;
+      const subDir = path.join(artRoot, prefix);
+      let files: string[] = [];
+      try {
+        files = await fs.readdir(subDir);
+      } catch {
+        continue;
+      }
+      for (const file of files) {
+        if (!digest.test(file)) continue;
+        try {
+          const spec = await readSpec(file);
+          results.push({ artifact: file, spec });
+        } catch {
+          // Skip artifacts that are not valid NativeSubsystemSpecs
+        }
+      }
+    }
+    return res.json({ specs: results });
+  } catch (error) {
+    return res.status(500).json({ error: (error as Error).message });
+  }
+});
+
 nativeSpecsRouter.get("/api/native-specs/:artifact", async (req, res) => {
   if (!digest.test(req.params.artifact)) {
     return res.status(400).json({ error: "artifact must be a SHA-256 digest" });
@@ -79,3 +115,35 @@ nativeSpecsRouter.get("/api/native-specs/:artifact", async (req, res) => {
     return res.status(500).json({ error: (error as Error).message });
   }
 });
+
+nativeSpecsRouter.post("/api/native-specs/adapt", async (req, res) => {
+  try {
+    let nativeSpec: NativeSubsystemSpec;
+    if (typeof req.body?.artifact === "string" && digest.test(req.body.artifact)) {
+      try {
+        nativeSpec = await readSpec(req.body.artifact);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+          return res.status(404).json({ error: "spec artifact not found" });
+        }
+        throw err;
+      }
+    } else if (req.body?.spec && typeof req.body.spec === "object") {
+      nativeSpec = NativeSubsystemSpec.parse(req.body.spec);
+    } else if (req.body && typeof req.body === "object" && "subsystem_id" in req.body) {
+      nativeSpec = NativeSubsystemSpec.parse(req.body);
+    } else {
+      return res.status(400).json({
+        error: "Request body must contain 'spec' (NativeSubsystemSpec) or valid 'artifact' SHA-256 digest",
+      });
+    }
+
+    const featureId = typeof req.body?.feature_id === "string" ? req.body.feature_id : undefined;
+    const featureSpec = adaptNativeSpecToFeatureSpec(nativeSpec, { feature_id: featureId });
+    const validated = FeatureSpec.parse(featureSpec);
+    return res.json({ spec: validated, feature_spec: validated });
+  } catch (error) {
+    return res.status(400).json({ error: (error as Error).message });
+  }
+});
+
