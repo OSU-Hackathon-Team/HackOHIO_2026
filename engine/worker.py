@@ -10,6 +10,7 @@ import uuid
 from engine.analysis.ghidra import GhidraAnalysis
 from engine.citations import evidence_addresses, normalize_references
 from engine.model_runtime import invoke_opencode
+from engine.validation.memory_ranges import overlap_claim_errors
 from model_config import get_model
 
 
@@ -50,6 +51,8 @@ def validate_answer(answer: dict, evidence: dict) -> list[str]:
         for field in ("assumptions", "alternatives"):
             if not isinstance(claim.get(field), list):
                 errors.append(f"claim {i} {field} must be an array")
+        errors.extend(f"claim {i} {error}" for error in
+                      overlap_claim_errors(claim, evidence))
     dependencies = answer.get("dependencies") if isinstance(answer.get("dependencies"), list) else []
     for i, dependency in enumerate(dependencies):
         if not isinstance(dependency, dict) or not isinstance(dependency.get("target"), str):
