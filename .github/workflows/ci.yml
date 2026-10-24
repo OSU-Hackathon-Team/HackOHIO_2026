@@ -147,6 +147,19 @@ jobs:
           import assert from 'node:assert/strict';
           import { HealthResponse, Pantry, FeatureBlueprint } from './packages/contracts/dist/index.js';
           const base = 'http://127.0.0.1:3001';
+          // Verify the actual image serves the chat/library entry point, not merely any SPA HTML.
+          const page = await fetch(base + '/');
+          assert.equal(page.status, 200);
+          const html = await page.text();
+          const entry = html.match(/<script\b[^>]*\bsrc="(\/assets\/[^" ]+\.js)"/);
+          assert.ok(entry, 'Production HTML must reference the built Vite entry');
+          const asset = await fetch(base + entry[1]);
+          assert.equal(asset.status, 200, 'Built frontend entry must be served');
+          const javascript = await asset.text();
+          for (const label of ['App library', 'Message Splice', 'My app']) {
+            assert.ok(javascript.includes(label), `Production image is missing current workspace: ${label}`);
+          }
+          console.log('Production image serves the current chat/library frontend');
           const health = HealthResponse.parse(await (await fetch(base + '/api/health')).json());
           for (const role of ['spec_writer', 'engine_writer', 'ui_synthesizer', 'refusal_fallback']) {
             assert.ok(health.models[role], `Missing configured model role: ${role}`);
