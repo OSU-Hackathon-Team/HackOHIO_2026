@@ -149,6 +149,14 @@ def main() -> None:
     project_scope.add_argument("--project-artifact", required=True)
     project_scope.add_argument("--request", type=Path, required=True)
     project_scope.add_argument("--state", type=Path, default=ENGINE_STATE)
+    for name, help_text in (
+        ("project-queue-init", "register and enqueue every module in a project scope"),
+        ("project-queue-status", "show durable progress across project scope modules"),
+    ):
+        command = sub.add_parser(name, help=help_text)
+        command.add_argument("--project-scope-artifact", required=True)
+        command.add_argument("--state", type=Path, default=ENGINE_STATE)
+        command.add_argument("--dsn", default=os.environ.get("DECOMP_DATABASE_URL"))
     function = sub.add_parser("function", help="export one indexed function's decompiler evidence")
     function.add_argument("--manifest", type=Path, required=True)
     function.add_argument("--address", required=True)
@@ -354,6 +362,17 @@ def main() -> None:
             "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
         print(json.dumps(persist_project_scope(
             engine, args.project_artifact, json.loads(args.request.read_text())), indent=2))
+    elif args.command in {"project-queue-init", "project-queue-status"}:
+        from engine.artifacts import LocalArtifactStore
+        from engine.project_queue import enqueue_project_scope, project_queue_status
+        from engine.queue import DurableQueue
+
+        if not args.dsn:
+            parser.error("project queue commands require --dsn or DECOMP_DATABASE_URL")
+        queue = DurableQueue(args.dsn, LocalArtifactStore(args.state / "artifacts"))
+        action = (enqueue_project_scope if args.command == "project-queue-init"
+                  else project_queue_status)
+        print(json.dumps(action(queue, args.project_scope_artifact), indent=2))
     elif args.command == "function":
         engine = GhidraAnalysis(args.state, args.headless)
         manifest = json.loads(args.manifest.read_text())

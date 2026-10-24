@@ -42,7 +42,9 @@ Engine layout (some components are still planned):
 ```text
 engine/
   models.py             # internal records and validation (implemented)
-  intake.py             # module inventory and static symbol candidates (implemented; cross-module scope planned)
+  intake.py             # module inventory and static symbol candidates (implemented)
+  project_scope.py      # bounded scopes across candidate module calls (implemented)
+  project_queue.py      # module task registration and project progress (implemented)
   artifacts.py          # immutable local artifacts (implemented)
   analysis/             # Ghidra evidence and local warm pool (implemented; M1 gate open)
   scope.py              # seed discovery and bounded expansion (implemented)
@@ -135,6 +137,7 @@ Deliverables:
 - Scope request/revision records and seed ranking.
 - Project requests that generate bounded module scopes and retain candidate cross-module
   bindings as unresolved questions.
+- Durable registration and status for all module tasks reached by a project scope.
 - Bounded expansion through calls, data, callers, initialization, and callbacks.
 - Behavioral task schema and prompts that require citations, assumptions, and alternatives.
 - Worker output includes contracts and readable pseudocode, with no C compilation gate.
