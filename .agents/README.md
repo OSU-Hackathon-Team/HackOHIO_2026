@@ -79,9 +79,13 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
 - **Decompilation engine:** the `engine/` package runs native evidence export, scopes,
   semantic attempts, independent review, probes, partial dossiers, and a durable queue.
   The telemetry root caller binds all 18 direct calls to active helper contracts and is
-  accepted as `static_only`; the 21-function dossier remains partial with 14 distinct
-  agreeing original cases and unresolved review and probe-link blockers. Scale gates,
-  specification generation, and downstream app integration remain open; see the root
+  accepted as `static_only`. The latest 21-function dossier has 38/38 statically
+  supported claims, 18 current caller dependencies, and 15 distinct agreeing
+  original cases. It remains partial because 26 claims have no original probe link.
+  The reset helper used a narrow deterministic fixed-store reviewer after model
+  reviewers misread its overlapping vector stores. Probe runs and distinct cases
+  are counted separately. The plan stops current engine work before specification
+  generation; scale gates and downstream app integration remain open. See the root
   `README.md` for commands.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
