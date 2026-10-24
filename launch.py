@@ -17,6 +17,8 @@ from engine.analysis.ghidra import GhidraAnalysis
 from engine.models import ScopeRequest
 from engine.scope import persist_scope
 from engine.worker import SemanticWorker
+from engine.validation.review import IndependentReviewer
+from engine.validation.probes import NativeProbeRunner
 
 ROOT = Path(__file__).resolve().parent
 RUNS = ROOT / "runs"
@@ -152,6 +154,19 @@ def main() -> None:
     work.add_argument("--timeout", type=int, default=180)
     work.add_argument("--opencode", type=Path,
                       default=Path(os.environ.get("OPENCODE_BIN", "/home/mitch/.opencode/bin/opencode")))
+    review = sub.add_parser("review", help="independently challenge an unreviewed semantic draft")
+    review.add_argument("--draft-artifact", required=True)
+    review.add_argument("--state", type=Path, default=ENGINE_STATE)
+    review.add_argument("--model-role", default="legal_verification")
+    review.add_argument("--model", default=None)
+    review.add_argument("--timeout", type=int, default=180)
+    review.add_argument("--opencode", type=Path,
+                        default=Path(os.environ.get("OPENCODE_BIN", "/home/mitch/.opencode/bin/opencode")))
+    probe = sub.add_parser("probe", help="run held-out cases against original native targets")
+    probe.add_argument("--fixtures-manifest", type=Path, required=True)
+    probe.add_argument("--suite", type=Path, required=True)
+    probe.add_argument("--adapter", type=Path, default=ROOT / "scripts" / "native_probe_adapter.py")
+    probe.add_argument("--state", type=Path, default=ENGINE_STATE)
     status = sub.add_parser("status", help="show persisted decomp campaign progress")
     status.add_argument("--state", type=Path, default=ENGINE_STATE)
     status.add_argument("--campaign", help="limit output to one campaign hash")
@@ -198,6 +213,23 @@ def main() -> None:
         print(json.dumps(result, indent=2))
         if result["state"] in {"failed", "rejected"}:
             raise SystemExit(1)
+    elif args.command == "review":
+        engine = GhidraAnalysis(args.state, Path(os.environ.get(
+            "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+        reviewer = IndependentReviewer(engine, args.opencode, timeout=args.timeout)
+        result = reviewer.run(args.draft_artifact, model=args.model,
+                              model_role=args.model_role)
+        print(json.dumps(result, indent=2))
+        if result["state"] in {"failed", "rejected"}:
+            raise SystemExit(1)
+    elif args.command == "probe":
+        engine = GhidraAnalysis(args.state, Path(os.environ.get(
+            "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+        runner = NativeProbeRunner(engine, args.adapter)
+        report = runner.run_suite(args.fixtures_manifest, args.suite)
+        print(json.dumps(report, indent=2))
+        if not report["complete"]:
+            raise SystemExit(1)
     elif args.command == "status":
         events_path = args.state / "progress.jsonl"
         events = [json.loads(line) for line in events_path.read_text().splitlines()] if events_path.exists() else []
@@ -209,7 +241,7 @@ def main() -> None:
                                         {"last_stage": None, "function_exports": 0,
                                          "function_failures": 0, "_exported": set(),
                                          "_failed": set(), "_semantic": {},
-                                         "_scopes": {}})
+                                         "_scopes": {}, "_reviews": {}, "_probes": {}})
             item["last_stage"] = event["stage"]
             if event["stage"] == "indexed":
                 item["function_count"] = event["functions"]
@@ -228,6 +260,19 @@ def main() -> None:
                 item["_semantic"][event["attempt_id"]] = "running"
             elif event["stage"] == "semantic_finished":
                 item["_semantic"][event["attempt_id"]] = event["status"]
+            elif event["stage"] == "review_started":
+                item["_reviews"][event["review_id"]] = {"state": "running"}
+            elif event["stage"] == "review_finished":
+                item["_reviews"][event["review_id"]] = {
+                    "state": event["status"], "outcomes": event["outcomes"]}
+            elif event["stage"] == "probe_started":
+                if "probe_key" in event:
+                    item["_probes"].pop(event["case_id"], None)
+                item["_probes"][event.get("probe_key", event["case_id"])] = "running"
+            elif event["stage"] == "probe_finished":
+                if "probe_key" in event:
+                    item["_probes"].pop(event["case_id"], None)
+                item["_probes"][event.get("probe_key", event["case_id"])] = event["outcome"]
         for item in campaigns.values():
             item["function_exports"] = len(item.pop("_exported"))
             item["function_failures"] = len(item.pop("_failed"))
@@ -235,6 +280,14 @@ def main() -> None:
             item["semantic_attempts"] = len(states)
             item["semantic_states"] = {state: states.count(state) for state in sorted(set(states))}
             item["scopes"] = item.pop("_scopes")
+            reviews = item.pop("_reviews")
+            item["review_attempts"] = len(reviews)
+            item["review_states"] = {state: sum(r["state"] == state for r in reviews.values())
+                                     for state in sorted({r["state"] for r in reviews.values()})}
+            probes = list(item.pop("_probes").values())
+            item["probe_cases"] = len(probes)
+            item["probe_outcomes"] = {outcome: probes.count(outcome)
+                                      for outcome in sorted(set(probes))}
         print(json.dumps(campaigns, indent=2))
     elif args.command == "build":
         if not Path("/.dockerenv").exists():

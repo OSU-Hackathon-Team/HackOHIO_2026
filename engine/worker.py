@@ -3,34 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
-import subprocess
 import time
 import uuid
 
 from engine.analysis.ghidra import GhidraAnalysis
+from engine.model_runtime import invoke_opencode
 from model_config import get_model
-
-
-AWS_KEYS = {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
-            "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_PROFILE"}
-
-
-def add_aws_env(env: dict[str, str], env_file: Path) -> None:
-    if not env_file.exists():
-        return
-    for line in env_file.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key, value = key.strip(), value.strip()
-        if key not in AWS_KEYS or not value:
-            continue
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-            value = value[1:-1]
-        env.setdefault(key, value)
 
 
 def parse_answer(text: str) -> dict:
@@ -168,12 +147,6 @@ class SemanticWorker:
         folder = self.engine.root / "attempts" / attempt_id
         folder.mkdir(parents=True)
         resolved_model = get_model(model_role, explicit=model)
-        config = {"$schema": "https://opencode.ai/config.json", "model": resolved_model,
-                  "permission": {"*": "deny"},
-                  "agent": {"decomp": {"mode": "primary", "model": resolved_model,
-                                       "prompt": "Return bounded evidence-backed analysis as JSON only.",
-                                       "permission": {"*": "deny"}}}}
-        (folder / "opencode.json").write_text(json.dumps(config, indent=2) + "\n")
         (folder / "prompt.txt").write_text(prompt)
         checkpoint = {"schema": 1, "attempt_id": attempt_id, "campaign": manifest["campaign"],
                       "scope_artifact": scope_artifact, "task_key": task["deduplication_key"],
@@ -185,48 +158,22 @@ class SemanticWorker:
         checkpoint_path.write_text(json.dumps(checkpoint, indent=2) + "\n")
         self.engine._emit(manifest["campaign"], "semantic_started", attempt_id=attempt_id,
                           subject=subject, task_key=task["deduplication_key"])
-        env = os.environ.copy()
-        add_aws_env(env, self.env_file)
-        env.update(OPENCODE_CONFIG=str(folder / "opencode.json"),
-                   OPENCODE_DISABLE_AUTOUPDATE="true",
-                   OPENCODE_DISABLE_EXTERNAL_SKILLS="true")
         started = time.monotonic()
         events_path = folder / "events.jsonl"
-        stderr_path = folder / "stderr.log"
         try:
-            checkpoint["opencode_version"] = subprocess.run(
-                [str(self.opencode), "--version"], capture_output=True, text=True,
-                check=True, timeout=10).stdout.strip()
+            model_reply = invoke_opencode(
+                self.opencode, folder, prompt, model=resolved_model,
+                timeout=self.timeout, env_file=self.env_file,
+                agent_name="decomp",
+                agent_instruction="Return bounded evidence-backed analysis as JSON only.")
+            checkpoint["opencode_version"] = model_reply["runtime_version"]
             checkpoint_path.write_text(json.dumps(checkpoint, indent=2) + "\n")
-            with events_path.open("w") as events, stderr_path.open("w") as stderr:
-                completed = subprocess.run([str(self.opencode), "run", "--pure",
-                                            "--agent", "decomp", "--model", resolved_model,
-                                            "--format", "json", prompt], cwd=folder, env=env,
-                                           stdout=events, stderr=stderr,
-                                           timeout=self.timeout, check=False)
-            rows = [json.loads(line) for line in events_path.read_text().splitlines()
-                    if line.startswith("{")]
-            if completed.returncode:
-                failures = [row.get("error", {}) for row in rows if row.get("type") == "error"]
-                message = failures[-1].get("data", {}).get("message", "") if failures else ""
-                raise RuntimeError(f"OpenCode exited {completed.returncode}: {message}; see {stderr_path}")
-            texts = [row.get("part", {}).get("text", "") for row in rows
-                     if row.get("type") == "text"]
-            if not texts:
-                raise ValueError("model returned no text")
-            answer = parse_answer(texts[-1])
+            answer = parse_answer(model_reply["text"])
             errors = validate_answer(answer, evidence)
-            usage = {"input": 0, "output": 0, "reasoning": 0, "cost": 0.0}
-            for row in rows:
-                if row.get("type") == "step_finish":
-                    part = row.get("part", {})
-                    tokens = part.get("tokens") or {}
-                    for key in ("input", "output", "reasoning"):
-                        usage[key] += tokens.get(key, 0)
-                    usage["cost"] += part.get("cost", 0)
             result = {**checkpoint, "state": "rejected" if errors else
                       ("partial" if truncated else "unreviewed"),
-                      "answer": answer, "structural_errors": errors, "usage": usage,
+                      "answer": answer, "structural_errors": errors,
+                      "usage": model_reply["usage"],
                       "elapsed_seconds": round(time.monotonic() - started, 3)}
         except Exception as error:
             result = {**checkpoint, "state": "failed", "error": str(error),

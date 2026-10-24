@@ -1,0 +1,142 @@
+"""Independent raw-evidence review of semantic draft claims."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import time
+import uuid
+
+from engine.analysis.ghidra import GhidraAnalysis
+from engine.model_runtime import invoke_opencode
+from engine.worker import parse_answer
+from model_config import get_model
+
+
+def validate_review(answer: dict, evidence: dict, claim_count: int) -> list[str]:
+    errors = []
+    reviews = answer.get("reviews")
+    if not isinstance(reviews, list) or len(reviews) != claim_count:
+        return [f"reviews must contain exactly {claim_count} entries"]
+    addresses = {evidence["entry"]}
+    addresses.update(item["address"] for item in evidence.get("instructions", []))
+    for item in evidence.get("references", []):
+        addresses.update((item["from"], item["to"]))
+    seen = set()
+    for item in reviews:
+        if not isinstance(item, dict):
+            errors.append("review must be an object")
+            continue
+        index = item.get("claim_index")
+        if not isinstance(index, int) or index < 0 or index >= claim_count or index in seen:
+            errors.append(f"invalid or duplicate claim_index {index}")
+        seen.add(index)
+        if item.get("outcome") not in {"supported_static", "contradicted", "uncertain"}:
+            errors.append(f"invalid outcome for claim {index}")
+        if not isinstance(item.get("reason"), str) or not item["reason"].strip():
+            errors.append(f"review {index} needs a reason")
+        refs = item.get("evidence_addresses")
+        if not isinstance(refs, list):
+            errors.append(f"review {index} needs evidence_addresses array")
+        else:
+            if item.get("outcome") in {"supported_static", "contradicted"} and not refs:
+                errors.append(f"review {index} needs cited evidence")
+            for address in refs:
+                if not isinstance(address, str) or address not in addresses:
+                    errors.append(f"review {index} cites unknown address {address}")
+    for field in ("missing_behavior", "unresolved"):
+        values = answer.get(field)
+        if not isinstance(values, list) or not all(isinstance(x, str) for x in values):
+            errors.append(f"{field} must be an array of strings")
+    return errors
+
+
+def review_prompt(draft: dict, evidence: dict) -> str:
+    raw = {"entry": evidence["entry"], "name": evidence.get("name"),
+           "instructions": evidence.get("instructions", []),
+           "references": evidence.get("references", []),
+           "decompilation": evidence.get("decompilation")}
+    claims = [{"claim_index": i, "statement": claim["statement"],
+               "asserted_addresses": claim["evidence_addresses"],
+               "assumptions": claim["assumptions"]}
+              for i, claim in enumerate(draft["answer"]["claims"])]
+    return (
+        "Independently review these behavior claims against raw native evidence. Challenge "
+        "plausible but wrong interpretations. An address citation proves location only. Do not "
+        "assume the draft's pseudocode is correct. For each claim, choose supported_static, "
+        "contradicted, or uncertain. Explain the exact observed instruction/control-flow basis, "
+        "and mention alternative explanations or missing evidence. If a claim is about the "
+        "entire input domain, check boundary paths before supporting it. Return exactly one JSON "
+        "object with reviews array, missing_behavior array of strings, unresolved array of "
+        "strings. Each review object must have claim_index, outcome, reason, "
+        "evidence_addresses array. Return each claim_index exactly once. Use exact addresses "
+        "from the raw evidence. This is static review; do not claim execution agreement. "
+        "No markdown.\n"
+        f"Claims: {json.dumps(claims, separators=(',', ':'))}\n"
+        f"Raw evidence: {json.dumps(raw, separators=(',', ':'))}"
+    )
+
+
+class IndependentReviewer:
+    def __init__(self, engine: GhidraAnalysis, opencode: Path, *, timeout: int = 180,
+                 env_file: Path | None = None):
+        self.engine = engine
+        self.opencode = Path(opencode)
+        self.timeout = timeout
+        self.env_file = env_file or Path(__file__).resolve().parents[2] / ".env"
+
+    def run(self, draft_artifact: str, *, model: str | None = None,
+            model_role: str = "legal_verification") -> dict:
+        draft = json.loads(self.engine.store.get(draft_artifact))
+        if draft["state"] != "unreviewed":
+            raise ValueError("only structurally valid unreviewed drafts can be reviewed")
+        evidence = json.loads(self.engine.store.get(draft["evidence_artifact"]))
+        if evidence["entry"] != draft["subject"]:
+            raise ValueError("draft subject and evidence disagree")
+        prompt = review_prompt(draft, evidence)
+        review_id = uuid.uuid4().hex
+        folder = self.engine.root / "reviews" / review_id
+        folder.mkdir(parents=True)
+        (folder / "prompt.txt").write_text(prompt)
+        resolved_model = get_model(model_role, explicit=model)
+        checkpoint = {"schema": 1, "review_id": review_id,
+                      "campaign": draft["campaign"], "draft_artifact": draft_artifact,
+                      "evidence_artifact": draft["evidence_artifact"],
+                      "subject": draft["subject"], "model": resolved_model,
+                      "model_role": model_role, "state": "running"}
+        checkpoint_path = folder / "checkpoint.json"
+        checkpoint_path.write_text(json.dumps(checkpoint, indent=2) + "\n")
+        self.engine._emit(draft["campaign"], "review_started", review_id=review_id,
+                          subject=draft["subject"], draft_artifact=draft_artifact)
+        started = time.monotonic()
+        try:
+            reply = invoke_opencode(self.opencode, folder, prompt, model=resolved_model,
+                                    timeout=self.timeout, env_file=self.env_file,
+                                    agent_name="review",
+                                    agent_instruction="Challenge semantic claims against raw evidence. Return JSON only.")
+            answer = parse_answer(reply["text"])
+            errors = validate_review(answer, evidence, len(draft["answer"]["claims"]))
+            outcomes = [item["outcome"] for item in answer.get("reviews", [])
+                        if isinstance(item, dict) and item.get("outcome") in
+                        {"supported_static", "contradicted", "uncertain"}]
+            result = {**checkpoint, "state": "rejected" if errors else "reviewed",
+                      "answer": answer, "structural_errors": errors,
+                      "outcomes": {value: outcomes.count(value) for value in sorted(set(outcomes))},
+                      "usage": reply["usage"], "opencode_version": reply["runtime_version"],
+                      "elapsed_seconds": round(time.monotonic() - started, 3)}
+        except Exception as error:
+            result = {**checkpoint, "state": "failed", "error": str(error),
+                      "elapsed_seconds": round(time.monotonic() - started, 3)}
+        result["prompt_artifact"] = self.engine.store.put(prompt.encode())
+        events_path = folder / "events.jsonl"
+        if events_path.exists():
+            result["transcript_artifact"] = self.engine.store.put(events_path.read_bytes())
+        artifact = self.engine.store.put(json.dumps(result, sort_keys=True).encode())
+        result["artifact"] = artifact
+        (folder / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+        checkpoint_path.write_text(json.dumps({**checkpoint, "state": result["state"],
+                                               "result_artifact": artifact}, indent=2) + "\n")
+        self.engine._emit(draft["campaign"], "review_finished", review_id=review_id,
+                          subject=draft["subject"], status=result["state"],
+                          outcomes=result.get("outcomes", {}), artifact=artifact)
+        return result

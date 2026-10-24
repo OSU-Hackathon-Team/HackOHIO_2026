@@ -1,0 +1,41 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "id": "frame_state_sequence",
+      "kind": "shared",
+      "input": {
+        "operation": "parse_sequence",
+        "frames": [
+          {"data": null, "length": 4, "callback": "even"},
+          {"data": [90, 0, 0, 90], "length": 4, "callback": "even"},
+          {"data": [90, 255, 255, 90], "length": 4, "callback": "even"},
+          {"data": [90, 254, 255, 91], "length": 4, "callback": "even"}
+        ]
+      },
+      "expected": {
+        "returns": [-1, 0, -2, 65534],
+        "state": {"total": 3, "accepted": 2, "last": 65534},
+        "callback_values": [0, 65535, 65534]
+      }
+    },
+    {
+      "id": "fold_nonzero",
+      "kind": "shared",
+      "input": {"operation": "fold_depth", "value": 41, "depth": 0},
+      "expected": {"return": 41}
+    },
+    {
+      "id": "exe_even",
+      "kind": "executable",
+      "args": ["42"],
+      "expected": {"stdout": "result=42 total=1 accepted=1 callbacks=1", "exit_code": 0}
+    },
+    {
+      "id": "exe_odd",
+      "kind": "executable",
+      "args": ["43"],
+      "expected": {"stdout": "result=-2 total=1 accepted=0 callbacks=1", "exit_code": 1}
+    }
+  ]
+}

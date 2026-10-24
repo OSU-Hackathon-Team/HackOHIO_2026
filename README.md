@@ -49,6 +49,27 @@ python launch.py work --manifest decomp-state/projects/<campaign>/manifest.json 
 
 The worker resolves its model through `models.json` (`decomp_worker` by default), reads AWS variables from the ignored root `.env` when they are absent from the process environment, and denies OpenCode tools. It records a checkpoint, prompt and transcript artifacts, model/runtime version, token usage, structural citation checks, and a terminal status. A structurally valid draft is `unreviewed`; it cannot make a scope ready without independent semantic review and original-behavior probes. Use `--model` to evaluate a different configured provider/model. `launch.py status` counts attempts by state.
 
+Independently challenge a draft against the raw function evidence:
+
+```sh
+python launch.py review --draft-artifact <draft-artifact-sha256>
+```
+
+The reviewer records an outcome for each claim (`supported_static`, `contradicted`, or `uncertain`) plus missing behavior and unresolved questions. A `reviewed` result means the review record is structurally complete; static support and original-execution agreement remain separate. Review attempts and outcomes are stored as immutable artifacts and counted by `launch.py status`.
+
+`python scripts/check_decomp_review.py` seeds an explicitly false constant-return claim on a real stripped fixture and requires the independent reviewer to flag it. Set `DECOMP_REVIEW_CHECK_MODEL` to use a different configured OpenCode model for that check.
+
+Run independently specified cases against the original stripped fixture binaries:
+
+```sh
+python launch.py probe --fixtures-manifest decomp-state/fixtures/manifest.json \
+  --suite fixtures/decomp/probes.json
+```
+
+The probe runner records binary, runner, and adapter hashes; controlled limits; inputs; expected and observed outputs; and an outcome for each case. It distinguishes `agreement`, `disagreement`, and `execution_error`. Shared-library probes use the evaluator-owned ctypes adapter in `scripts/native_probe_adapter.py`; executable probes invoke the original binary. `launch.py status` includes probe counts under a `probe:<binary-sha256>` progress key. Probe agreement and static review remain separate records.
+
+`python scripts/check_decomp_probes.py` also exercises a regression adapter that calls the original `fold_depth` but discards its return value. The differing observed output must produce `disagreement`.
+
 ## Rename diagnostic
 
 The earlier tool-integration diagnostic dispatches an OpenCode agent that inspects a function through a headless Ghidra MCP server, renames it, and saves the project. A second process reopens the project to verify the name. Each attempt gets its own Ghidra project under `runs/`.
