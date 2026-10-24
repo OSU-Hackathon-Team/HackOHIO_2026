@@ -25,7 +25,7 @@ python scripts/check_decomp_intake.py
 
 The pointer at `decomp-state/intakes/<project-id>/manifest.json` names an immutable inventory artifact. That inventory lists each module's binary hash, analysis campaign, index artifact, and module manifest path. For ELF files, intake reads `DT_NEEDED` and matches supplied shared libraries by filename or SONAME. Unmatched libraries remain explicit external dependencies; ambiguous matches remain unresolved. A request may also declare edges with `"dependencies":[{"from":"app","to":"math"}]`, including for other binary formats. Intake reuses each module's import cache. Its separate `symbol_links_artifact` records imported-function thunk addresses, raw call sites, and matching function entries in supplied dependency modules. Matches are labeled `candidate_static`; dynamic loader binding, symbol interposition, and symbol versions remain unverified. Ambiguous and unmatched imports stay visible. `project-export-all` exports every indexed function in every supplied module, preserving per-module failures and an immutable aggregate under `decomp-state/intakes/<project-id>/exports/latest.json`. It reports unreported functions separately, and its `complete_discovered_exports` flag covers only functions found by Ghidra; executable instructions outside functions, bytes not decoded as instructions, and behavioral validation remain separate gaps. Project events in `progress.jsonl` and `status` show module starts, completions, failures, export counts, symbol-link counts, code gap counts, and artifact IDs. Cross-module contract reconciliation and aggregate dossiers remain open.
 
-For a bounded cross-module question, use a project scope request such as `{"mode":"subsystem","query":"adjust from executable","seeds":[{"module":"app","seed":"00101050"}],"max_functions_per_module":32,"max_depth":2}`. `project-scope` creates a normal scope artifact for each reached module and adds uniquely matched imported functions as *questions for analysis*. Its project artifact lists module scope IDs, task counts, static cross-module candidates, unverified bindings, unmatched imports, and unexplored modules. Use `{"mode":"project","query":"whole project","max_functions_per_module":100}` to inventory every supplied module, subject to the stated per-module limit. The project scope stays `partial`; candidate links do not turn into accepted dependency contracts. Queue and dossier commands still operate on the emitted module scope artifacts, and the current spec generator consumes their module dossiers separately. Those dossiers report unresolved cross-module bindings as blockers in the spec handoff.
+For a bounded cross-module question, use a project scope request such as `{"mode":"subsystem","query":"adjust from executable","seeds":[{"module":"app","seed":"00101050"}],"max_functions_per_module":32,"max_depth":2}`. `project-scope` creates a normal scope artifact for each reached module and adds uniquely matched imported functions as *questions for analysis*. Its project artifact lists module scope IDs, task counts, static cross-module candidates, unverified bindings, unmatched imports, and unexplored modules. Use `{"mode":"project","query":"whole project","max_functions_per_module":100}` to inventory every supplied module, subject to the stated per-module limit. The project scope stays `partial`; candidate links do not turn into accepted dependency contracts. Queue and dossier commands still operate on the emitted module scope artifacts. Unresolved cross-module bindings block a public spec until resolved; the spec writer consumes ready module dossiers separately.
 
 `project-queue-init` validates the project and module scope identities, applies the PostgreSQL migrations, registers each reached module campaign, and enqueues its behavior tasks. Repeating it reuses deduplicated tasks. `project-queue-drain` validates the saved module baselines, exports their indexed functions, then runs only this scope's leased semantic tasks across the reached modules under the shared reasoning pool capacity. `project-queue-status` shows task states for this project's selected work separately from each module campaign's full queue; tasks shared with another scope are counted as shared. These commands need `--dsn` or `DECOMP_DATABASE_URL`. Independent review and dossier assembly still run per module. Check the queue integration with `python scripts/check_decomp_project_queue.py`; the linked binary intake check also uses a disposable PostgreSQL database (`DECOMP_TEST_PG_DSN` if the default test server differs).
 
@@ -186,26 +186,43 @@ Assemble an immutable dossier from explicit artifact IDs with `python launch.py 
 
 The dossier inputs may also include `gap_adjudication_artifacts`. Each adjudication must match a supplied draft, review, and original probe report. Its decisions and reasons remain visible; blocking or uncertain decisions remain dossier blockers. A matching original case with disagreement or execution error prevents gap clearance. `queue-adjudicate-gaps` uses a model different from the claim reviewer and clears review gaps only when all current claims have static support and every gap is independently classified nonblocking. Tasks with dependencies remain in reconciliation until every dependency is reviewed against its active helper contract. Dossier coverage reports distinct original cases and total probe runs separately.
 
-Check a persisted dossier against the existing specification generator's input contract
-without writing a specification artifact:
+Check whether a dossier is eligible for the cleanroom writer without a model call:
 
 ```sh
 python scripts/check_decomp_handoff.py --dossier-artifact <dossier-artifact-sha256>
 ```
 
-The check preserves dossier coverage, original cases, blockers, and evidence links. The
-current execution boundary in `DECOMP_IMPLEMENTATION_PLAN.md` stops before advancing a
-live campaign into specification generation.
-
-The existing generator can produce a native subsystem specification from one immutable
-dossier revision when that phase is resumed:
+A dossier becomes `ready_for_spec` only after its blockers are resolved. The native
+specification command requires that status, static support and agreeing original cases
+for every claim, current dependency contracts, and no unresolved scope edges. The
+sample telemetry dossier at revision 3 is partial (26 claims lack original case links),
+so the command now rejects it instead of publishing a misleading report.
 
 ```sh
 python launch.py spec --dossier-artifact <dossier-artifact-sha256>
 python scripts/check_decomp_spec.py
 ```
 
-The command writes content-addressed JSON and Markdown under `decomp-state/specifications/<scope-id>/`. Supported static claims become numbered requirements with raw addresses, independent reviews, and linked original cases. Function inputs, outputs, state, effects, errors, and pseudocode remain labeled as draft descriptions. Unsupported claims, review gaps, unresolved edges, exclusions, dependency status, and dossier blockers remain explicit. Case agreement applies only to the recorded input, and a `partial` specification is not verified. Repeating the command for the same dossier artifact returns the same spec artifact. Old dossier artifacts missing current handoff fields are rejected with a field list; reassemble them from their persisted inputs before generating a spec. The Node backend exposes the same handoff with `POST /api/native-specs` (`{"dossier_artifact":"<sha256>"}`) and `GET /api/native-specs/<spec-artifact-sha256>`; set `DECOMP_STATE_DIR` if the engine state is outside the repository. The native spec contract is separate from the Electron `FeatureSpec`.
+The command invokes the same configured Step 2 `spec_writer` engine used for source-tree
+features. It supplies reviewed behavioral facts and original input/output examples, then
+checks that every supported fact appears in the draft and that its prose contains no
+source-like text. The public JSON and Markdown under `decomp-state/specifications/<scope-id>/`
+contain an interface described in words, requirements, a high-level behavior outline,
+original examples, and acceptance criteria. They contain no C, assembly, TypeScript,
+executable tests, raw addresses, draft pseudocode, or review report details. An immutable
+`audit_artifact` separately holds evidence links, review and probe records, model identity,
+and claim-to-requirement mappings for the analyst. Never give the audit artifact or dossier
+to an implementer. Repeating the command for the same dossier and writer revision reuses
+the artifact. A new writer revision or dossier produces a new artifact. A human must review
+the result for behavioral completeness and cleanroom containment before implementation;
+`ready_for_review` is not a claim of equivalence or legal cleanroom status.
+
+The Node backend exposes the public artifact through `POST /api/native-specs`
+(`{"dossier_artifact":"<sha256>"}`) and `GET /api/native-specs/<spec-artifact-sha256>`;
+set `DECOMP_STATE_DIR` when engine state is outside the repository. A partial dossier
+returns HTTP 409. Historical schema 1 spec artifacts are rejected by the API.
+The analyst and implementer workflow, review gate, and rights checks are in
+[`docs/NATIVE_CLEANROOM_HANDOFF.md`](docs/NATIVE_CLEANROOM_HANDOFF.md).
 
 ## Rename diagnostic
 

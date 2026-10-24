@@ -6,16 +6,16 @@ Architecture and decision rationale: [DecompPileline.md](DecompPileline.md).
 
 ## Current execution boundary
 
-**Stop before specification generation as a campaign phase.** Completing a dossier or
-reaching `ready_for_spec` does not authorize advancing a live campaign into M5.
+The user resumed the native specification handoff on 2026-10-24 after an end-to-end run
+exposed an unsafe schema 1 report-style artifact. M5 work may now proceed for a bounded,
+ready dossier. Partial dossiers, including the reported telemetry revision, must not
+publish an implementer spec. The downstream implementation and campaign/job API remain
+separate acceptance work.
 
-Work exclusively on the native pre-specification pipeline: intake, analysis, scope,
-semantic work, independent review, original-execution probes, findings, reconciliation,
-dossiers, queue reliability, progress visibility, and their acceptance gates. Verify that
-these outputs remain compatible with the existing spec generator through temporary
-handoff checks. Do not publish campaign specifications, extend M5 generation or API work,
-or proceed to downstream implementation. Those phases require a new explicit user
-instruction to resume.
+The public spec is a behavioral instruction document. The evidence dossier and audit
+artifact stay analyst-side. A separate implementer receives only the public schema 2
+artifact and may not browse the dossier, binary, disassembly, raw source, review notes,
+or audit artifact. This separation is a workflow control, not a legal conclusion.
 
 ## Required outcome
 
@@ -66,7 +66,8 @@ when the corresponding milestone demonstrates its need.
 ## Proposed data records
 
 These are design requirements, not all implemented records. Implement internal schemas
-first. Define a versioned external contract at M5, after the current stop boundary is lifted.
+first. The native public spec has a versioned schema 2 contract; the broader campaign/job
+API records remain planned.
 
 | Record | Required information |
 | --- | --- |
@@ -207,7 +208,7 @@ Acceptance:
 - A missing observable behavior prevents readiness when it blocks writing the specification.
 - Cases unavailable for execution remain explicit limitations; probes do not substitute guessed outputs.
 
-## M5 — Dossier-to-spec handoff and API integration (deferred)
+## M5 — Dossier-to-spec handoff and API integration (in progress)
 
 Depends on M3 and M4.
 
@@ -217,14 +218,18 @@ Deliverables:
   validation status, and coverage fields explicitly.
 - A durable campaign/job API with separate create, status, result, and event-subscription operations.
   Transport disconnects must not silently discard durable work; cancellation is an explicit operation.
-- Spec writer consumes scope, supported claims, uncertainties, and evidence links. Render original
-  pseudocode for analysts; keep downstream implementation isolated from raw source evidence.
+- The regular Step 2 spec writer consumes reviewed behavioral facts and original examples only
+  after readiness gates pass. Render draft pseudocode for analysts in the dossier only.
+  Publish prose requirements, a descriptive interface, high-level steps, acceptance criteria,
+  and original input/output examples as the public implementer artifact.
+- Store citations, claim mappings, model/runtime provenance, reviews, and unresolved work in
+  a separate analyst audit artifact. Reject source-like output and old schema 1 specs.
 - Native probe statuses distinguish executable cases from unavailable ones.
-- Model/runtime/schema provenance and recorded deviations in every exported specification.
+- Model/runtime/schema provenance in the analyst audit; recorded deviations in the public spec.
 
 Acceptance:
 
-- A separate implementer can answer held-out behavior questions using the dossier/spec alone.
+- A separate implementer can answer held-out behavior questions using the public spec alone.
 - Open blockers survive the handoff and cannot be relabeled as verified requirements.
 - Exclusions and pure-function adaptations preserve an audit trail of observable behavior.
 - API consumers can distinguish static support, probe agreement, and unresolved blockers.

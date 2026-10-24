@@ -95,17 +95,17 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   are counted separately. Targeted Ghidra exports now use bounded warm contexts with
   restart events and status counts. Function evidence separates listing types from
   decompiler-inferred parameters and records referenced data; both semantic and review
-  prompts receive that context. A real dossier passes an in-memory compatibility check
-  against the existing generator. The function index now counts executable regions, decoded
+  prompts receive that context. A real dossier exposes missing original-case links at
+  the new handoff gate. The function index now counts executable regions, decoded
   instructions outside functions, and bytes classified as neither instructions nor defined
   data, exposing gaps that `export-all` success alone cannot rule out. Scale and recovery gates
   remain open. Read-only gap exports now preserve raw bytes and reference context for targeted
-  adjudication. Current work
-  stops before advancing a live campaign into specification generation as directed in
-  `DECOMP_IMPLEMENTATION_PLAN.md`.
-  The native spec generator and backend endpoint now consume
-  dossier revisions; specification quality and downstream implementation gates remain
-  open. See the root
+  adjudication. The native spec handoff now refuses partial dossiers and sends reviewed
+  behavioral facts through the regular Step 2 spec writer. It publishes a prose-only
+  schema 2 spec and keeps evidence and review links in a separate analyst audit artifact.
+  The reported telemetry dossier remains partial because 26 claims lack original case
+  links. Spec quality, human containment review, and downstream implementation gates
+  remain open. See the root
   `README.md` for commands.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,

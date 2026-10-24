@@ -137,6 +137,12 @@ or budget is exhausted.
 ### Evidence, findings, and publication
 
 Keep raw tool evidence, semantic interpretation, and downstream specifications separate.
+A ready dossier feeds the regular Step 2 spec writer through a behavioral handoff. The
+public implementer specification contains natural-language interface and requirements,
+high-level steps, original behavior examples, and acceptance criteria. It contains no
+source code, assembly, executable tests, raw addresses, or draft pseudocode. An analyst-only
+audit maps requirements to immutable evidence and reviews. Partial or disputed dossiers
+fail closed; the generated spec is held for human quality and containment review.
 A claim records its subject, statement, evidence references, assumptions, dependency versions,
 review/probe results, and unresolved alternatives. Raw tool output is not automatically a
 correct semantic interpretation.
