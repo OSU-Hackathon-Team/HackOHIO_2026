@@ -23,6 +23,8 @@ export const NativeSubsystemSpec = z.object({
   examples: z.array(z.object({
     name: prose,
     input: z.unknown(),
+    input_description: prose.nullable().optional(),
+    observation_kind: z.enum(["executable", "shared"]).optional(),
     expected_output: z.unknown(),
   })).min(1),
   acceptance_criteria: z.array(prose).min(1),

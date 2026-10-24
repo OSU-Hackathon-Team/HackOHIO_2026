@@ -87,6 +87,9 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
         _require(case.get("outcome") == "agreement", "original case disagreement")
         key = json.dumps([case.get("input"), case.get("observed")], sort_keys=True)
         cases.setdefault(key, {"name": case["case_id"], "input": case["input"],
+                               "input_description": case.get("input_description"),
+                               **({"observation_kind": case["kind"]}
+                                  if case.get("kind") in {"executable", "shared"} else {}),
                                "expected_output": case["observed"]})
     _require(bool(cases), "no original behavior examples")
     handoff = {
@@ -164,7 +167,8 @@ def validate_draft(draft: dict, handoff: dict) -> None:
             r"```|</?(?:source|code)|\b(?:MOVAPS|MOVUPS|PXOR|JBE|CMP|RDI|XMM\d+|param_\d+)\b|"
             r"\b0x[0-9a-f]{6,}\b|\b[0-9a-f]{64}\b|\b(?:decompil|disassembl|review_state|unmapped|artifact|unknown|TODO|dossier|claim|probe|source)\w*\b|\bsrc/|"
             r"\b(?:function|const|let|return|if)\s*\(|=>|[{};`]|"
-            r"(?:^|\s)[A-Za-z_]\w*(?:\[[^\]]+\])?\s*(?:\+=|-=|==|=)\s*\S|\n",
+            r"(?:^|\s)[A-Za-z_]\w*(?:\[[^\]]+\])?\s*(?:\+=|-=|==|=)\s*\S|"
+            r"^\s*[A-Za-z_]\w*\s*:\s*(?:u?int\d+|boolean|number|string|bool)\b|\n",
             value, re.I),
             "spec contains source-like or report-card text")
 
@@ -231,7 +235,10 @@ def render_markdown(spec: dict) -> str:
         lines.append("")
     lines.extend(["## Original behavior examples", ""])
     for case in spec["examples"]:
-        lines.append(f"- {case['name']}: input {json.dumps(case['input'], sort_keys=True)}; "
+        context = case.get("input_description") or (
+            "Original executable arguments" if case.get("observation_kind") == "executable"
+            else "Original shared call input")
+        lines.append(f"- {case['name']} ({context}): input {json.dumps(case['input'], sort_keys=True)}; "
                      f"expected output {json.dumps(case['expected_output'], sort_keys=True)}")
     return "\n".join(lines) + "\n"
 

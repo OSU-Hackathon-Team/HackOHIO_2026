@@ -42,6 +42,7 @@ class NativeProbeRunner:
                     "runner_sha256": file_hash(Path(__file__)),
                     "adapter_sha256": file_hash(self.adapter) if case["kind"] == "shared" else None,
                     "input": case.get("input", case.get("args")),
+                    "input_description": case.get("input_description"),
                     "expected": case["expected"], "timeout_seconds": self.timeout,
                     "environment": {"LANG": "C", "LC_ALL": "C",
                                     "cpu_seconds": 5, "address_space_bytes": 512 * 1024 * 1024}}

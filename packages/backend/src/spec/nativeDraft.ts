@@ -48,19 +48,29 @@ Do not guess. Every factual requirement must cite one or more supplied claim_ids
 Do not invent initial values, thresholds, widths, error behavior, or causal rules from a
 single example. Treat function summaries and examples as context, not as permission to
 add facts absent from claims. If a statement has no claim, remove it.
+Leave deviations and exclusions empty unless the input explicitly supplies their basis.
 Cover every supplied claim_id with a requirement. Combine facts when that improves clarity.
 Number requirements REQ-1 onward without gaps. The interface is a descriptive data contract,
-not a programming-language signature. Acceptance criteria are observable checks in prose.
+not a programming-language signature. Write each interface item as a sentence, without
+field:type shorthand. Acceptance criteria are observable checks in prose.
 If the facts do not define an essential behavior, the input should have been rejected upstream.
 Return only schema-shaped JSON.`;
 
-function fields(d: NativeDraft): string[] {
-  return [d.title, d.purpose, ...d.interface.inputs, ...d.interface.outputs,
-    ...d.interface.state, ...d.requirements.map((r) => r.statement),
-    ...d.behavior_steps, ...d.acceptance_criteria, ...d.deviations, ...d.exclusions];
+function fields(d: NativeDraft): [string, string][] {
+  return [["title", d.title], ["purpose", d.purpose],
+    ...d.interface.inputs.map((value, i): [string, string] => [`interface.inputs[${i}]`, value]),
+    ...d.interface.outputs.map((value, i): [string, string] => [`interface.outputs[${i}]`, value]),
+    ...d.interface.state.map((value, i): [string, string] => [`interface.state[${i}]`, value]),
+    ...d.requirements.map((r, i): [string, string] => [`requirements[${i}].statement`, r.statement]),
+    ...d.behavior_steps.map((value, i): [string, string] => [`behavior_steps[${i}]`, value]),
+    ...d.acceptance_criteria.map((value, i): [string, string] => [`acceptance_criteria[${i}]`, value]),
+    ...d.deviations.map((value, i): [string, string] => [`deviations[${i}]`, value]),
+    ...d.exclusions.map((value, i): [string, string] => [`exclusions[${i}]`, value])];
 }
 
-export function nativeDraftProblems(d: NativeDraft, claimIds: string[]): string[] {
+export function nativeDraftProblems(d: NativeDraft, claimIds: string[], input?: {
+  excluded_behavior?: unknown; deviations?: unknown;
+}): string[] {
   const errors: string[] = [];
   const expected = new Set(claimIds);
   const covered = new Set<string>();
@@ -73,10 +83,13 @@ export function nativeDraftProblems(d: NativeDraft, claimIds: string[]): string[
     }
   });
   for (const id of expected) if (!covered.has(id)) errors.push(`claim ${id} is not specified`);
-  for (const value of fields(d)) {
+  if (input && (!Array.isArray(input.excluded_behavior) || !input.excluded_behavior.length)
+      && d.exclusions.length) errors.push("exclusions have no supplied boundary facts");
+  if (input && (!Array.isArray(input.deviations) || !input.deviations.length)
+      && d.deviations.length) errors.push("deviations have no supplied basis");
+  for (const [field, value] of fields(d)) {
     if (sourceLikeText(value) || value.includes("\n")) {
-      errors.push("source-like or report-card content in implementer text");
-      break;
+      errors.push(`source-like or report-card content in ${field}`);
     }
   }
   return errors;
@@ -98,7 +111,7 @@ export async function writeNativeDraft(input: { claims: { id: string }[]; [key: 
       messages = [{ role: "user", content: `${JSON.stringify(input)}\n\nThe previous draft failed schema validation: ${error.message}. Return every required field with valid types.` }];
       continue;
     }
-    const problems = nativeDraftProblems(result.value, ids);
+    const problems = nativeDraftProblems(result.value, ids, input);
     if (!problems.length) return { draft: result.value, model: result.model };
     if (attempt === 2) throw new Error(`native spec draft failed validation: ${problems.join("; ")}`);
     messages = continueWith(messages, result.assistantContent,
