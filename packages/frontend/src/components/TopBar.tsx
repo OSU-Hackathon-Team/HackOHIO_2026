@@ -44,7 +44,7 @@ export function TopBar() {
             ? `REA · ${health.rea.tool_count} tools`
             : health
             ? "REA disconnected"
-            : "Backend disconnected"}
+            : "Live status unknown"}
         </span>
         <small title={error ?? configuredModel}>
           {developmentMode
@@ -61,13 +61,13 @@ export function TopBar() {
           <>
             <a href="/">Live mode</a>
             <span style={{ color: "#475569", margin: "0 4px" }}>·</span>
-            <a href="?mode=development">Development demo</a>
+            <a href="?mode=development">Open development demo</a>
           </>
         ) : (
           <>
             <a href="?mode=replay">Replay mode</a>
             <span style={{ color: "#475569", margin: "0 4px" }}>·</span>
-            <a href="?mode=development">Development demo</a>
+            <a href="?mode=development">Open development demo</a>
           </>
         )}
       </div>
