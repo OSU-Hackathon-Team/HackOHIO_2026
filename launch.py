@@ -279,7 +279,8 @@ def main() -> None:
         result = persist_dossier(engine, manifest, args.scope_artifact,
                                  inputs.get("draft_artifacts", []),
                                  inputs.get("review_artifacts", []),
-                                 inputs.get("probe_report_artifacts", []))
+                                 inputs.get("probe_report_artifacts", []),
+                                 inputs.get("probe_link_artifacts", []))
         print(json.dumps({"revision": result["revision"],
                           "artifact": result["artifact"],
                           "markdown_artifact": result["markdown_artifact"],

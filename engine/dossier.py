@@ -25,9 +25,24 @@ def _claim_state(reviews: list[dict]) -> str:
     return "unreviewed"
 
 
+def _pointer(value: object, path: str) -> object:
+    if not isinstance(path, str) or not path.startswith("/"):
+        raise ValueError("probe observation pointer must start with /")
+    for component in path[1:].split("/"):
+        key = component.replace("~1", "/").replace("~0", "~")
+        if isinstance(value, dict):
+            value = value[key]
+        elif isinstance(value, list):
+            value = value[int(key)]
+        else:
+            raise ValueError(f"probe observation pointer enters a scalar: {path}")
+    return value
+
+
 def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
              draft_artifacts: list[str], review_artifacts: list[str],
-             probe_report_artifacts: list[str]) -> dict:
+             probe_report_artifacts: list[str],
+             probe_link_artifacts: list[str] = ()) -> dict:
     scope = json.loads(engine.store.get(scope_artifact))
     if scope["campaign"] != manifest["campaign"]:
         raise ValueError("scope and manifest campaign differ")
@@ -47,10 +62,15 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
             raise ValueError(f"review {artifact} does not cover a provided draft")
         reviews.setdefault(review["draft_artifact"], []).append((artifact, review))
     probes = []
+    probe_by_key = {}
     for artifact in probe_report_artifacts:
         report = json.loads(engine.store.get(artifact))
         for result in report["results"]:
             if result["binary_sha256"] == manifest["binary_sha256"]:
+                key = (artifact, result["case_id"])
+                if key in probe_by_key:
+                    raise ValueError(f"duplicate probe case in report {key}")
+                probe_by_key[key] = result
                 probes.append({"report_artifact": artifact, "case_id": result["case_id"],
                                "kind": result["kind"], "input": result["input"],
                                "expected": result["expected"],
@@ -98,6 +118,43 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                                               for address in dependency.get("evidence_addresses", [])],
                                  "assumptions": dependency.get("assumptions", []),
                                  "review_state": "unreviewed"})
+    claim_by_key = {(item["draft_artifact"], item["claim_index"]): item
+                    for item in claims}
+    seen_links = set()
+    for artifact in probe_link_artifacts:
+        document = json.loads(engine.store.get(artifact))
+        if document.get("schema") != 1 or not isinstance(document.get("links"), list):
+            raise ValueError(f"invalid probe link artifact {artifact}")
+        for link in document["links"]:
+            key = (link["draft_artifact"], link["claim_index"])
+            probe_key = (link["probe_report_artifact"], link["case_id"])
+            identity = (*key, *probe_key, link["observed_pointer"])
+            if identity in seen_links:
+                raise ValueError(f"duplicate probe link {identity}")
+            seen_links.add(identity)
+            claim = claim_by_key.get(key)
+            probe = probe_by_key.get(probe_key)
+            if claim is None or probe is None:
+                raise ValueError(f"probe link references unknown claim or case {identity}")
+            if not isinstance(link.get("rationale"), str) or not link["rationale"].strip():
+                raise ValueError(f"probe link needs rationale {identity}")
+            try:
+                observed = _pointer(probe["observed"], link["observed_pointer"])
+            except (KeyError, IndexError, TypeError, ValueError) as error:
+                raise ValueError(f"invalid probe observation pointer {identity}") from error
+            agreement = (probe["outcome"] == "agreement" and
+                         observed == link["expected_observed"])
+            claim.setdefault("probe_links", []).append({"link_artifact": artifact,
+                "report_artifact": probe_key[0], "case_id": probe_key[1],
+                "probe_artifact": probe["artifact"],
+                "observed_pointer": link["observed_pointer"],
+                "observed": observed, "expected_observed": link["expected_observed"],
+                "rationale": link["rationale"], "agreement": agreement})
+    for claim in claims:
+        links = claim.get("probe_links", [])
+        if links:
+            claim["execution_state"] = ("case_disagreement" if any(
+                not link["agreement"] for link in links) else "case_agreement")
     drafted_subjects = {draft["subject"] for draft in drafts.values()}
     missing = sorted(included - drafted_subjects)
     blockers = []
@@ -117,9 +174,15 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
     if uncited_dependencies:
         blockers.append({"kind": "dependency_contracts_missing_citations",
                          "targets": uncited_dependencies})
-    if claims:
+    unmapped = [claim for claim in claims if claim["execution_state"] == "unmapped"]
+    if unmapped:
         blockers.append({"kind": "claims_not_linked_to_original_probes",
-                         "count": len(claims)})
+                         "count": len(unmapped)})
+    disagreements = [claim for claim in claims
+                     if claim["execution_state"] == "case_disagreement"]
+    if disagreements:
+        blockers.append({"kind": "claim_probe_disagreements",
+                         "count": len(disagreements)})
     record = {"schema": 1, "campaign": manifest["campaign"],
               "renderer_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
               "binary_sha256": manifest["binary_sha256"],
@@ -128,6 +191,7 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
               "draft_artifacts": sorted(drafts),
               "review_artifacts": sorted(review_artifacts),
               "probe_report_artifacts": sorted(probe_report_artifacts),
+              "probe_link_artifacts": sorted(probe_link_artifacts),
               "functions": sorted(function_summaries, key=lambda item: item["subject"]),
               "claims": claims, "dependency_contracts": dependencies,
               "probes": probes, "blockers": blockers,
@@ -136,6 +200,9 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                            "claims": len(claims),
                            "static_supported_claims": sum(
                                claim["review_state"] == "supported_static" for claim in claims),
+                           "claims_with_case_agreement": sum(
+                               claim["execution_state"] == "case_agreement" for claim in claims),
+                           "claims_with_case_disagreement": len(disagreements),
                            "original_probe_cases": len(probes),
                            "original_probe_agreements": sum(
                                probe["outcome"] == "agreement" for probe in probes)},
@@ -192,6 +259,11 @@ def render_markdown(dossier: dict) -> str:
             lines.append(f"  - Alternative: {alternative}")
         for review in claim["reviews"]:
             lines.append(f"  - Review `{review['review_artifact']}`: {review['reason']}")
+        for link in claim.get("probe_links", []):
+            lines.append(f"  - Original case `{link['case_id']}` "
+                         f"(`{link['observed_pointer']}` = "
+                         f"`{json.dumps(link['observed'])}`): {link['rationale']} "
+                         f"({'agreement' if link['agreement'] else 'disagreement'})")
     lines += ["", "## Dependency contracts", ""]
     for dependency in dossier["dependency_contracts"]:
         refs = ", ".join(f"`{ref['artifact']}@{ref['address']}`"
@@ -214,9 +286,10 @@ def render_markdown(dossier: dict) -> str:
 
 def persist_dossier(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                     draft_artifacts: list[str], review_artifacts: list[str],
-                    probe_report_artifacts: list[str]) -> dict:
+                    probe_report_artifacts: list[str],
+                    probe_link_artifacts: list[str] = ()) -> dict:
     record = assemble(engine, manifest, scope_artifact, draft_artifacts,
-                      review_artifacts, probe_report_artifacts)
+                      review_artifacts, probe_report_artifacts, probe_link_artifacts)
     scope_id = record["scope_id"]
     folder = engine.root / "dossiers" / scope_id
     folder.mkdir(parents=True, exist_ok=True)
