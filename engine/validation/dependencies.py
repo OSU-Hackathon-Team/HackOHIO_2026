@@ -49,6 +49,32 @@ def uncovered_direct_calls(dependencies: list[dict], caller: dict,
     return uncovered
 
 
+def complete_direct_call_dependencies(dependencies: list[dict], caller: dict,
+                                      scope: dict, contracts: dict[str, dict]
+                                      ) -> tuple[list[dict], list[dict], list[str]]:
+    """Bind uncovered call sites to matching, already reviewed helper contracts."""
+    completed = json.loads(json.dumps(dependencies))
+    additions = []
+    errors = []
+    for call in uncovered_direct_calls(dependencies, caller, scope):
+        name = call["target_name"]
+        contract = contracts.get(name) if name else None
+        if (contract is None or contract.get("contract_key") != name or
+                contract.get("subject") != call["target_entry"] or
+                not isinstance(contract.get("statement"), str) or
+                not contract["statement"].strip()):
+            errors.append(f"no matching reviewed contract for call {call['call_site']} "
+                          f"to {call['target_entry']}")
+            continue
+        completed.append({"target": name, "contract": contract["statement"],
+                          "evidence_addresses": [call["call_site"]],
+                          "assumptions": []})
+        additions.append({"call_site": call["call_site"],
+                          "target_entry": call["target_entry"],
+                          "target_name": name})
+    return completed, additions, errors
+
+
 def repair_dependency_citations(dependencies: list[dict], caller: dict,
                                 scope: dict) -> tuple[list[dict], list[dict], list[str]]:
     """Rebind declared helper names using only unique scoped entry and call evidence."""
@@ -159,7 +185,10 @@ class IndependentDependencyReviewer:
             "claim is static support, not a complete oracle. Decide supported_static, "
             "contradicted, or uncertain. Do not infer behavior absent from the instructions. "
             "Return one JSON object with outcome, reason, evidence_addresses, and "
-            "missing_info (array of strings). Cite exact addresses from either function. "
+            "missing_info (array of strings). For supported_static, cite at least one exact "
+            "caller call-site address and one exact callee instruction address, and return "
+            "missing_info as an empty array. If needed information is genuinely missing, "
+            "choose uncertain and list it in missing_info. "
             "A supported result means this particular dependency statement is compatible "
             "with the pinned helper evidence; it does not prove all subsystem behavior. "
             "No markdown.\n" + encoded)
@@ -176,7 +205,8 @@ class IndependentDependencyReviewer:
                 "contract_artifact": head["artifact"],
                 "caller_evidence_artifact": draft["evidence_artifact"],
                 "callee_evidence_artifact": contract["evidence_artifact"],
-                "model": resolved_model, "model_role": model_role}
+                "model": resolved_model, "model_role": model_role,
+                "prompt_version": 2}
         (folder / "checkpoint.json").write_text(json.dumps({**base, "state": "running"},
                                                            indent=2) + "\n")
         self.engine._emit(task["campaign_id"], "dependency_review_started",

@@ -427,7 +427,9 @@ class DurableQueue:
                     task["review_artifact"] != result.get("review_artifact")):
                 return "stale"
             reasons = set((task["terminal_reason"] or "").split(","))
-            if (not reasons or not reasons <= {"missing_behavior", "review_unresolved"} or
+            if (not reasons or not reasons <= {"missing_behavior", "review_unresolved",
+                                                "dependency_contracts_unreviewed"} or
+                    not reasons.intersection({"missing_behavior", "review_unresolved"}) or
                     result.get("state") != "reviewed" or
                     result.get("structural_errors") != [] or
                     result.get("campaign") != task["campaign_id"] or
@@ -438,8 +440,8 @@ class DurableQueue:
                     review.get("draft_artifact") != task["result_artifact"] or
                     draft.get("campaign") != task["campaign_id"] or
                     draft.get("subject") != task["subject"] or
-                    draft["answer"]["dependencies"] or
-                    uncovered_direct_calls([], evidence, scope) or
+                    uncovered_direct_calls(draft["answer"]["dependencies"],
+                                           evidence, scope) or
                     validate_review(review["answer"], evidence,
                                     len(draft["answer"]["claims"])) or
                     any(item["outcome"] != "supported_static" for item in
@@ -466,15 +468,19 @@ class DurableQueue:
                  artifact)).fetchone()
             if not inserted:
                 return "stale"
-            conn.execute("UPDATE decomp_tasks SET state = 'accepted', "
+            remaining = sorted(reasons - {"missing_behavior", "review_unresolved"})
+            state = "needs_reconciliation" if remaining else "accepted"
+            conn.execute("UPDATE decomp_tasks SET state = %s, "
                          "review_gap_adjudication_artifact = %s, "
-                         "terminal_reason = NULL, updated_at = now() WHERE id = %s",
-                         (artifact, task_id))
+                         "terminal_reason = %s, updated_at = now() WHERE id = %s",
+                         (state, artifact, ",".join(remaining) if remaining else None,
+                          task_id))
             self._event(conn, task["campaign_id"], "gap_adjudication_recorded",
                         {"task_id": task_id, "artifact": artifact,
-                         "state": "accepted", "decisions": decisions,
+                         "state": state, "remaining_reasons": remaining,
+                         "decisions": decisions,
                          "probe_report_artifact": result["probe_report_artifact"]})
-            return "accepted"
+            return state
 
     def record_dependency_review(self, task_id: str, review_artifact: str) -> bool:
         try:
@@ -1146,6 +1152,103 @@ class DurableQueue:
         return {"state": "validated", "source_artifact": source_artifact,
                 "result_artifact": artifact, "changes": changes,
                 "remaining_unbound_calls": len(remaining)}
+
+    def complete_direct_call_dependencies(self, task_id: str) -> dict:
+        from engine.validation.dependencies import (complete_direct_call_dependencies,
+                                                    uncovered_direct_calls)
+
+        with self._connect() as conn:
+            task = conn.execute("SELECT * FROM decomp_tasks WHERE id = %s",
+                                (task_id,)).fetchone()
+        if (task is None or task["state"] != "needs_reconciliation" or
+                not task["review_artifact"] or
+                "direct_calls_unbound" not in (task["terminal_reason"] or "")):
+            return {"state": "invalid"}
+        source_artifact = task["result_artifact"]
+        draft = json.loads(self.store.get(source_artifact))
+        caller = json.loads(self.store.get(draft["evidence_artifact"]))
+        scope = json.loads(self.store.get(task["scope_artifact"]))
+        missing = uncovered_direct_calls(draft["answer"]["dependencies"], caller, scope)
+        names = sorted({item["target_name"] for item in missing if item["target_name"]})
+        if not missing:
+            return {"state": "unchanged"}
+        with self._connect() as conn:
+            heads = conn.execute(
+                "SELECT contract_key, version, artifact, state FROM decomp_contract_heads "
+                "WHERE campaign_id = %s AND contract_key = ANY(%s)",
+                (task["campaign_id"], names)).fetchall()
+        versions = {row["contract_key"]: {"version": row["version"],
+                                            "artifact": row["artifact"]}
+                    for row in heads if row["state"] == "active"}
+        contracts = {}
+        try:
+            for name, source in versions.items():
+                contract = json.loads(self.store.get(source["artifact"]))
+                if (contract.get("schema") != 1 or
+                        contract.get("campaign") != task["campaign_id"] or
+                        contract.get("contract_key") != name):
+                    return {"state": "blocked", "reason":
+                            f"contract {name} has mismatched identity"}
+                contracts[name] = contract
+        except (ValueError, TypeError, KeyError, FileNotFoundError) as error:
+            return {"state": "blocked", "reason": str(error)}
+        dependencies, additions, errors = complete_direct_call_dependencies(
+            draft["answer"]["dependencies"], caller, scope, contracts)
+        if errors:
+            return {"state": "blocked", "errors": errors}
+        answer = json.loads(json.dumps(draft["answer"]))
+        answer["dependencies"] = dependencies
+        if validate_answer(answer, caller) or uncovered_direct_calls(
+                dependencies, caller, scope):
+            return {"state": "invalid"}
+        candidate = {**draft, "answer": answer, "state": "unreviewed",
+                     "structural_errors": [],
+                     "dependency_completion_of": source_artifact,
+                     "source_review_artifact": task["review_artifact"],
+                     "dependency_completion_version": 1,
+                     "dependency_completion_sources": versions,
+                     "dependency_completion_additions": additions}
+        artifact = self.store.put(json.dumps(candidate, sort_keys=True).encode())
+        with self._connect() as conn:
+            current = conn.execute("SELECT * FROM decomp_tasks WHERE id = %s FOR UPDATE",
+                                   (task_id,)).fetchone()
+            if (current is None or current["state"] != "needs_reconciliation" or
+                    current["result_artifact"] != source_artifact or
+                    current["review_artifact"] != task["review_artifact"] or
+                    "direct_calls_unbound" not in (current["terminal_reason"] or "")):
+                return {"state": "stale"}
+            if conn.execute("SELECT 1 FROM decomp_findings WHERE task_id = %s LIMIT 1",
+                            (task_id,)).fetchone():
+                return {"state": "blocked", "reason": "published findings need invalidation"}
+            job = conn.execute("SELECT state FROM decomp_review_jobs WHERE task_id = %s "
+                               "FOR UPDATE", (task_id,)).fetchone()
+            if job is None or job["state"] != "completed":
+                return {"state": "blocked", "reason": "prior review job is not completed"}
+            for name, source in sorted(versions.items()):
+                head = conn.execute(
+                    "SELECT version, artifact, state FROM decomp_contract_heads "
+                    "WHERE campaign_id = %s AND contract_key = %s FOR SHARE",
+                    (task["campaign_id"], name)).fetchone()
+                if (head is None or head["state"] != "active" or
+                        head["version"] != source["version"] or
+                        head["artifact"] != source["artifact"]):
+                    return {"state": "stale", "reason": f"contract {name} changed"}
+            conn.execute("UPDATE decomp_tasks SET state = 'validated', "
+                         "result_artifact = %s, review_artifact = NULL, "
+                         "support_level = 'none', terminal_reason = NULL, "
+                         "updated_at = now() WHERE id = %s", (artifact, task_id))
+            conn.execute("UPDATE decomp_review_jobs SET state = 'queued', "
+                         "attempts_count = 0, review_artifact = NULL, "
+                         "terminal_reason = NULL, available_at = now(), "
+                         "updated_at = now() WHERE task_id = %s", (task_id,))
+            self._event(conn, task["campaign_id"], "direct_call_dependencies_completed",
+                        {"task_id": task_id, "source_artifact": source_artifact,
+                         "source_review_artifact": task["review_artifact"],
+                         "result_artifact": artifact, "additions": additions,
+                         "contract_sources": versions})
+        return {"state": "validated", "source_artifact": source_artifact,
+                "result_artifact": artifact, "additions": additions,
+                "contract_sources": versions}
 
     def reopen_review(self, task_id: str, reason: str) -> bool:
         if not reason.strip():

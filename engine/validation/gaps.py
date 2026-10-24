@@ -68,9 +68,10 @@ def select_original_cases(store, report: dict, binary_sha256: str,
     for item in report["results"]:
         if (item.get("target") != target or
                 item.get("binary_sha256") != binary_sha256 or
-                item.get("execution_mode") != "original" or
-                item.get("outcome") != "agreement"):
+                item.get("execution_mode") != "original"):
             continue
+        if item.get("outcome") != "agreement":
+            return []
         try:
             original = json.loads(store.get(item["artifact"]))
         except (ValueError, KeyError, TypeError, FileNotFoundError):
@@ -136,7 +137,11 @@ class GapAdjudicator:
             "missing observable behavior needed for the declared scope. An unproven path "
             "or consequential uncertainty is blocking or uncertain. Register bookkeeping "
             "is not an observable effect unless it changes an output or state. Do not infer "
-            "untested behavior from probes alone. Return one JSON object with items array; "
+            "untested behavior from probes alone. A called function's internals receive "
+            "separate dependency review. A supposed callee failure is a caller behavior "
+            "gap only if the caller instructions show a possible failure result and a "
+            "distinct observable path for it; do not invent one from the call alone. "
+            "Return one JSON object with items array; "
             "each item has kind, index, decision (nonblocking, blocking, uncertain), reason, "
             "evidence_addresses, probe_case_ids. Classify every listed item once. Cite exact "
             "raw addresses or matching probe case IDs for nonblocking decisions. No markdown.\n" +
@@ -155,7 +160,7 @@ class GapAdjudicator:
                 "probe_report_artifact": probe_report_artifact,
                 "probe_case_ids": [case["case_id"] for case in cases],
                 "model": resolved_model, "model_role": model_role,
-                "prompt_version": 1}
+                "prompt_version": 2}
         (folder / "checkpoint.json").write_text(json.dumps({**base, "state": "running"},
                                                            indent=2) + "\n")
         self.engine._emit(task["campaign_id"], "gap_adjudication_started",
