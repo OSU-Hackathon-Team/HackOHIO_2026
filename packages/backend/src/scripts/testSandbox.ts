@@ -63,4 +63,16 @@ r = await runTests({
 });
 assert.match(r.tests[0].error!, /platform code/);
 
+console.log("[sandbox] 6. assert.throws accepts an error constructor or name, and rejects the wrong type...");
+r = await runTests({
+  kind: "acceptance",
+  subject: { lang: "ts", code: `export function grade(q: number): number { if (q > 5) throw new RangeError("bad grade"); return q; }` },
+  tests: `
+test("constructor", () => { assert.throws(() => grade(6), RangeError); });
+test("name", () => { assert.throws(() => grade(6), "RangeError"); });
+test("wrong type", () => { assert.throws(() => grade(6), TypeError); });`,
+});
+assert.equal(r.fatal, null, `throws check failed: ${r.fatal}`);
+assert.deepEqual(r.tests.map((t) => t.passed), [true, true, false]);
+
 console.log("=== sandbox OK ===");
