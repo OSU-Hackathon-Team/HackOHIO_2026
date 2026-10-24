@@ -16,6 +16,7 @@ from model_config import available_roles, get_model, resolved_table
 from engine.analysis.ghidra import GhidraAnalysis
 from engine.models import ScopeRequest
 from engine.scope import persist_scope
+from engine.worker import SemanticWorker
 
 ROOT = Path(__file__).resolve().parent
 RUNS = ROOT / "runs"
@@ -141,6 +142,16 @@ def main() -> None:
     scope.add_argument("--manifest", type=Path, required=True)
     scope.add_argument("--request", type=Path, required=True)
     scope.add_argument("--state", type=Path, default=ENGINE_STATE)
+    work = sub.add_parser("work", help="run one bounded semantic task on exported evidence")
+    work.add_argument("--manifest", type=Path, required=True)
+    work.add_argument("--scope-artifact", required=True)
+    work.add_argument("--subject", required=True)
+    work.add_argument("--state", type=Path, default=ENGINE_STATE)
+    work.add_argument("--model-role", default="decomp_worker")
+    work.add_argument("--model", default=None)
+    work.add_argument("--timeout", type=int, default=180)
+    work.add_argument("--opencode", type=Path,
+                      default=Path(os.environ.get("OPENCODE_BIN", "/home/mitch/.opencode/bin/opencode")))
     status = sub.add_parser("status", help="show persisted decomp campaign progress")
     status.add_argument("--state", type=Path, default=ENGINE_STATE)
     status.add_argument("--campaign", help="limit output to one campaign hash")
@@ -177,6 +188,16 @@ def main() -> None:
         manifest = json.loads(args.manifest.read_text())
         request = ScopeRequest.from_dict(json.loads(args.request.read_text()))
         print(json.dumps(persist_scope(engine, manifest, request), indent=2))
+    elif args.command == "work":
+        engine = GhidraAnalysis(args.state, Path(os.environ.get(
+            "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+        manifest = json.loads(args.manifest.read_text())
+        worker = SemanticWorker(engine, args.opencode, timeout=args.timeout)
+        result = worker.run(manifest, args.scope_artifact, args.subject,
+                            model=args.model, model_role=args.model_role)
+        print(json.dumps(result, indent=2))
+        if result["state"] in {"failed", "rejected"}:
+            raise SystemExit(1)
     elif args.command == "status":
         events_path = args.state / "progress.jsonl"
         events = [json.loads(line) for line in events_path.read_text().splitlines()] if events_path.exists() else []
@@ -187,7 +208,8 @@ def main() -> None:
             item = campaigns.setdefault(event["campaign"],
                                         {"last_stage": None, "function_exports": 0,
                                          "function_failures": 0, "_exported": set(),
-                                         "_failed": set()})
+                                         "_failed": set(), "_semantic": {},
+                                         "_scopes": {}})
             item["last_stage"] = event["stage"]
             if event["stage"] == "indexed":
                 item["function_count"] = event["functions"]
@@ -199,12 +221,20 @@ def main() -> None:
                 item["coverage"] = event["counts"]
                 item["complete"] = event["complete"]
             elif event["stage"] == "scope_revised":
-                item["scope_revision"] = event["revision"]
-                item["scope_included"] = event["included"]
-                item["scope_unresolved"] = event["unresolved"]
+                item["_scopes"][event["scope_id"]] = {
+                    "revision": event["revision"], "included": event["included"],
+                    "unresolved": event["unresolved"]}
+            elif event["stage"] == "semantic_started":
+                item["_semantic"][event["attempt_id"]] = "running"
+            elif event["stage"] == "semantic_finished":
+                item["_semantic"][event["attempt_id"]] = event["status"]
         for item in campaigns.values():
             item["function_exports"] = len(item.pop("_exported"))
             item["function_failures"] = len(item.pop("_failed"))
+            states = list(item.pop("_semantic").values())
+            item["semantic_attempts"] = len(states)
+            item["semantic_states"] = {state: states.count(state) for state in sorted(set(states))}
+            item["scopes"] = item.pop("_scopes")
         print(json.dumps(campaigns, indent=2))
     elif args.command == "build":
         if not Path("/.dockerenv").exists():
