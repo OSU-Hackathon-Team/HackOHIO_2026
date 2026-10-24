@@ -22,18 +22,23 @@ ROOT = Path(__file__).resolve().parents[1]
 def load_companion_debug_symbols(index: dict, campaign: str | None = None) -> dict[int, str]:
     prog_str = index.get("program")
     candidate_paths = []
+    decomp_state = Path(os.environ.get("DECOMP_STATE", "/home/mitch/Documents/HackOHIO_2026/decomp-state"))
     if prog_str:
         candidate_paths.extend([
             Path(prog_str),
             ROOT / "decomp-state" / "fixtures" / prog_str,
             Path.cwd() / "decomp-state" / "fixtures" / prog_str,
+            decomp_state / "fixtures" / prog_str,
         ])
     if campaign:
-        for base_dir in (ROOT, Path.cwd()):
-            manifest_path = base_dir / "decomp-state" / "projects" / campaign / "manifest.json"
-            if manifest_path.is_file():
+        for mpath in (
+            ROOT / "decomp-state" / "projects" / campaign / "manifest.json",
+            Path.cwd() / "decomp-state" / "projects" / campaign / "manifest.json",
+            decomp_state / "projects" / campaign / "manifest.json",
+        ):
+            if mpath.is_file():
                 try:
-                    b = json.loads(manifest_path.read_text()).get("binary")
+                    b = json.loads(mpath.read_text()).get("binary")
                     if b:
                         candidate_paths.append(Path(b))
                 except Exception:
