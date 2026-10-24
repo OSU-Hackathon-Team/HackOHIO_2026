@@ -65,12 +65,14 @@ Run semantic tasks through the durable queue after installing `python -m pip ins
 python launch.py queue-init --manifest decomp-state/projects/<campaign>/manifest.json
 python launch.py queue-enqueue --scope-artifact <scope-artifact-sha256>
 python launch.py queue-run-one --manifest decomp-state/projects/<campaign>/manifest.json --worker-id worker-1
+python launch.py queue-drain --manifest decomp-state/projects/<campaign>/manifest.json \
+  --workers 4 --max-tasks 4
 python launch.py queue-status --campaign <campaign>
 python launch.py queue-review --task-id <validated-task-uuid>
 python scripts/check_decomp_queue.py
 ```
 
-`queue-run-one` leases one task, renews its lease while the model runs, submits the immutable draft, and checks its scope and evidence structure. The PostgreSQL queue uses epochs to reject expired submissions, deduplicates tasks and submissions, retains checkpoints across retries, caps reasoning leases at 16, and writes progress events in the same transactions as task changes. `queue-review` runs an independent static reviewer and accepts a task only when every claim is supported and no gaps are reported. Accepted tasks record `static_only`; original probe agreement still needs separate reconciliation. The queue check creates and removes its own test database; set `DECOMP_TEST_PG_DSN` if the local PostgreSQL test server is elsewhere. Review pool leasing, larger meaningful concurrent workloads, claim reconciliation, and dependency invalidation remain open M3 work.
+`queue-run-one` leases one task, renews its lease while the model runs, submits the immutable draft, and checks its scope and evidence structure. `queue-drain` first warms the function export cache, then runs up to 32 worker loops while the database enforces its configured reasoning capacity; it prints each task outcome as it finishes. The PostgreSQL queue uses epochs to reject expired submissions, deduplicates tasks and submissions, retains checkpoints and rejected draft artifacts, caps reasoning leases at 16 by default, and writes progress events in the same transactions as task changes. `queue-review` runs an independent static reviewer and accepts a task only when every claim is supported and no gaps are reported. Accepted tasks record `static_only`; original probe agreement still needs separate reconciliation. The queue check creates and removes its own test database; set `DECOMP_TEST_PG_DSN` if the local PostgreSQL test server is elsewhere. Review pool leasing, claim reconciliation, dependency invalidation, and full throughput benchmarking remain open M3/M6 work.
 
 Independently challenge a draft against the raw function evidence:
 
