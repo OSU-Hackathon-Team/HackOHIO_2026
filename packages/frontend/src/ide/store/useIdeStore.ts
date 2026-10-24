@@ -17,7 +17,7 @@ export type ActivityId =
   | "decompiler"
   | "specs"
   | "studio";
-export type WorkspacePage = "chat" | "library" | "app";
+export type WorkspacePage = "chat" | "library" | "app" | "pipeline";
 export type TabKind = "decompiled" | "specs" | "studio";
 export type StudioSubMode = "canvas" | "sandpack" | "engines";
 export type BottomTabId = "terminal" | "tests" | "diagnostics";
