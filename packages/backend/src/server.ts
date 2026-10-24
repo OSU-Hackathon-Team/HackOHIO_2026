@@ -1,4 +1,5 @@
 import express, { Request, Response, NextFunction } from "express";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import cors from "cors";
@@ -54,9 +55,11 @@ app.all("/api/*", (req: Request, res: Response) => {
 // ==============================================================================
 // 4. Production Static Serving & SPA Fallback
 // ==============================================================================
-if (process.env.NODE_ENV === "production") {
-  // In Docker container: /app/packages/backend/dist -> ../../frontend/dist resolves to /app/packages/frontend/dist
-  const frontendDist = path.resolve(__dirname, "../../frontend/dist");
+// In Docker container: /app/packages/backend/dist -> ../../frontend/dist resolves to /app/packages/frontend/dist
+const frontendDist = path.resolve(__dirname, "../../frontend/dist");
+const hasFrontendDist = fs.existsSync(path.join(frontendDist, "index.html"));
+
+if (process.env.NODE_ENV === "production" || hasFrontendDist) {
 
   // Serve static assets (JS, CSS, images, icons)
   app.use(express.static(frontendDist));
