@@ -2,6 +2,22 @@
 
 **Architecture:** [DecompPileline.md](DecompPileline.md) defines the subsystem-oriented engine for 16+ workers. [DECOMP_IMPLEMENTATION_PLAN.md](DECOMP_IMPLEMENTATION_PLAN.md) lists the implementation phases and acceptance gates. Evidence export, bounded scopes, semantic attempts, static review, original probes, partial dossiers, and a PostgreSQL task queue are implemented. The full subsystem pipeline and its acceptance gates remain in progress. The commands below also retain the rename diagnostic. The TypeScript app remains under `packages/`; `fixtures/decomp/` contains native evaluation targets.
 
+## Project intake
+
+Analyze a group of executable and shared-library modules with one request. Paths are relative to the request file unless absolute. ELF dependency discovery requires `readelf`; the fixture check also requires `gcc` and `strip`:
+
+```json
+{"schema":1,"modules":[{"id":"app","kind":"executable","path":"app.bin"},{"id":"math","kind":"shared","path":"libmath.so"}]}
+```
+
+```sh
+python launch.py project-analyze --request /path/to/project.json
+python launch.py status --campaign <project-id>
+python scripts/check_decomp_intake.py
+```
+
+The pointer at `decomp-state/intakes/<project-id>/manifest.json` names an immutable inventory artifact. That inventory lists each module's binary hash, analysis campaign, index artifact, and module manifest path. For ELF files, intake reads `DT_NEEDED` and matches supplied shared libraries by filename or SONAME. Unmatched libraries remain explicit external dependencies; ambiguous matches remain unresolved. A request may also declare edges with `"dependencies":[{"from":"app","to":"math"}]`, including for other binary formats. Intake reuses each module's import cache. Project events in `progress.jsonl` and `status` show module starts, completions, failures, and the final inventory artifact. Project status also joins each module's function export, scope, and dossier progress from its analysis campaign. Existing scope, queue, dossier, and spec commands still consume each module's analysis manifest separately; cross-module semantic scopes are the next integration step.
+
 ## Native evidence export
 
 With Ghidra's `analyzeHeadless` installed, import an executable or shared library once and index its functions, imports, strings, and direct calls:

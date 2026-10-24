@@ -15,6 +15,7 @@ from pathlib import Path
 
 from model_config import available_roles, get_model, resolved_table
 from engine.analysis.ghidra import GhidraAnalysis
+from engine.intake import analyze_project
 from engine.models import ScopeRequest
 from engine.scope import persist_scope
 from engine.worker import SemanticWorker
@@ -132,6 +133,11 @@ def main() -> None:
     analyze.add_argument("--state", type=Path, default=ENGINE_STATE)
     analyze.add_argument("--headless", type=Path,
                          default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+    project_analyze = sub.add_parser("project-analyze", help="import and index a native module set")
+    project_analyze.add_argument("--request", type=Path, required=True)
+    project_analyze.add_argument("--state", type=Path, default=ENGINE_STATE)
+    project_analyze.add_argument("--headless", type=Path,
+                                 default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
     function = sub.add_parser("function", help="export one indexed function's decompiler evidence")
     function.add_argument("--manifest", type=Path, required=True)
     function.add_argument("--address", required=True)
@@ -326,6 +332,9 @@ def main() -> None:
         engine = GhidraAnalysis(args.state, args.headless)
         manifest = engine.analyze(args.binary)
         print(json.dumps(manifest, indent=2))
+    elif args.command == "project-analyze":
+        engine = GhidraAnalysis(args.state, args.headless)
+        print(json.dumps(analyze_project(engine, args.request), indent=2))
     elif args.command == "function":
         engine = GhidraAnalysis(args.state, args.headless)
         manifest = json.loads(args.manifest.read_text())
@@ -643,8 +652,6 @@ def main() -> None:
     elif args.command == "status":
         events_path = args.state / "progress.jsonl"
         events = [json.loads(line) for line in events_path.read_text().splitlines()] if events_path.exists() else []
-        if args.campaign:
-            events = [event for event in events if event["campaign"] == args.campaign]
         campaigns = {}
         for event in events:
             item = campaigns.setdefault(event["campaign"],
@@ -673,7 +680,32 @@ def main() -> None:
             item["last_stage"] = event["stage"]
             baseline = item["_baseline"]
             analysis = item["_analysis"]
-            if event["stage"] == "import_started":
+            if event["stage"] == "project_intake_started":
+                item["project"] = {"state": "running", "module_count": event["modules"],
+                                   "modules": {}}
+            elif event["stage"] in {"project_module_started", "project_module_finished",
+                                     "project_module_failed"}:
+                project = item.setdefault("project", {"state": "running", "modules": {}})
+                project["modules"][event["module_id"]] = {
+                    "state": event["stage"].removeprefix("project_module_")}
+                if event["stage"] == "project_module_finished":
+                    project["modules"][event["module_id"]].update(
+                        {"campaign": event["module_campaign"],
+                         "functions": event["functions"]})
+                elif event["stage"] == "project_module_failed":
+                    project["modules"][event["module_id"]]["error"] = event["error"]
+                    project["state"] = "failed"
+            elif event["stage"] == "project_intake_finished":
+                project = item.setdefault("project", {"modules": {}})
+                project.update({"state": "finished", "artifact": event["artifact"],
+                                "module_count": event["modules"],
+                                "unresolved_dependencies": event["unresolved_dependencies"]})
+            elif event["stage"] == "project_intake_failed":
+                project = item.setdefault("project", {"modules": {}})
+                project.update({"state": "failed", "error": event["error"]})
+            elif event["stage"] == "project_cache_hit":
+                item.setdefault("project", {"modules": {}})["artifact"] = event["artifact"]
+            elif event["stage"] == "import_started":
                 baseline["import_attempts"] += 1
             elif event["stage"] == "import_finished":
                 baseline["imports_finished"] += 1
@@ -766,6 +798,23 @@ def main() -> None:
             item["probe_cases"] = len(probes)
             item["probe_outcomes"] = {outcome: probes.count(outcome)
                                       for outcome in sorted(set(probes))}
+        for item in campaigns.values():
+            for module in item.get("project", {}).get("modules", {}).values():
+                source = campaigns.get(module.get("campaign"))
+                if source is None:
+                    continue
+                module["analysis"] = {
+                    "function_count": source.get("function_count"),
+                    "function_exports": source["function_exports"],
+                    "function_failures": source["function_failures"],
+                    "static_inventory": source.get("static_inventory"),
+                    "export_complete": source.get("complete"),
+                    "scope_count": len(source["scopes"]),
+                    "dossier_readiness": {key: value["readiness"] for key, value in
+                                          source.get("dossiers", {}).items()},
+                }
+        if args.campaign:
+            campaigns = {args.campaign: campaigns[args.campaign]} if args.campaign in campaigns else {}
         print(json.dumps(campaigns, indent=2))
     elif args.command == "build":
         if not Path("/.dockerenv").exists():

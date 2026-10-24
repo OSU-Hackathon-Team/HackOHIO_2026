@@ -33,6 +33,10 @@ immutable function evidence, discovers bounded scopes, and runs semantic and ind
 review work through a durable PostgreSQL queue. Original-binary probes and partial
 dossiers are implemented. The rename-attempt path remains a diagnostic with a private
 Ghidra project per attempt.
+Project intake can group executable and shared-library modules, reuse each module's analyzed
+baseline, and record declared and ELF `DT_NEEDED` dependencies. Semantic scopes and queue
+campaigns still operate on one module at a time; cross-module scope and contract resolution
+remain to be built.
 The static index records executable memory and decoded instruction runs outside discovered
 functions. Project scopes retain those runs as unresolved work; a successful export of all
 discovered functions alone does not establish whole-binary code coverage.
