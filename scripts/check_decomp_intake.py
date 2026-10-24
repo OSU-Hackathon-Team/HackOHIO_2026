@@ -13,6 +13,7 @@ from engine.analysis.ghidra import GhidraAnalysis  # noqa: E402
 from engine.analysis.links import link_modules  # noqa: E402
 from engine.intake import analyze_project  # noqa: E402
 from engine.models import ScopeRequest  # noqa: E402
+from engine.project_export import export_project  # noqa: E402
 from engine.scope import persist_scope  # noqa: E402
 
 
@@ -76,12 +77,27 @@ def main() -> None:
                        for item in contested["candidates"])
         assert any(item["symbol"] == "project_adjust" and len(item["candidates"]) == 2
                    for item in contested["ambiguous"])
+        exported = export_project(engine, project["artifact"])
+        repeated_export = export_project(engine, project["artifact"])
+        assert exported == repeated_export
+        assert exported["complete_discovered_exports"]
+        assert exported["discovered_functions"] == sum(module["function_count"] for module in
+                                                        project["modules"])
+        assert sum(exported["counts"].values()) == exported["discovered_functions"]
+        assert exported["unreported_functions"] == 0
+        assert all(module["inventory_artifact"] for module in exported["modules"])
+        assert exported["unassigned_instructions"] == sum(
+            module["static_inventory"]["unassigned_instructions"]
+            for module in exported["modules"])
         status = subprocess.check_output(
             [sys.executable, str(ROOT / "launch.py"), "status", "--state",
              str(root / "state"), "--campaign", project["project_id"]], text=True)
         progress = json.loads(status)[project["project_id"]]["project"]
         assert progress["state"] == "finished" and progress["module_count"] == 2
         assert progress["symbol_links"]["counts"]["candidates"] >= 1
+        assert progress["export"]["state"] == "finished"
+        assert progress["export"]["complete_discovered_exports"]
+        assert len(progress["export"]["modules"]) == 2
         assert all(module["state"] == "finished" for module in progress["modules"].values())
         assert all(module["analysis"]["function_count"] > 0 and
                    module["analysis"]["scope_count"] >= 1
@@ -91,6 +107,7 @@ def main() -> None:
                                       for module in project["modules"]},
                           "dependencies": project["dependencies"],
                           "symbol_link_counts": project["symbol_link_counts"],
+                          "export_counts": exported["counts"],
                           "unresolved": project["unresolved_dependencies"]}))
 
 

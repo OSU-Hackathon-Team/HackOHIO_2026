@@ -16,6 +16,7 @@ from pathlib import Path
 from model_config import available_roles, get_model, resolved_table
 from engine.analysis.ghidra import GhidraAnalysis
 from engine.intake import analyze_project
+from engine.project_export import export_project
 from engine.models import ScopeRequest
 from engine.scope import persist_scope
 from engine.worker import SemanticWorker
@@ -138,6 +139,11 @@ def main() -> None:
     project_analyze.add_argument("--state", type=Path, default=ENGINE_STATE)
     project_analyze.add_argument("--headless", type=Path,
                                  default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+    project_export = sub.add_parser("project-export-all", help="export every indexed project function")
+    project_export.add_argument("--project-artifact", required=True)
+    project_export.add_argument("--state", type=Path, default=ENGINE_STATE)
+    project_export.add_argument("--headless", type=Path,
+                                default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
     function = sub.add_parser("function", help="export one indexed function's decompiler evidence")
     function.add_argument("--manifest", type=Path, required=True)
     function.add_argument("--address", required=True)
@@ -335,6 +341,9 @@ def main() -> None:
     elif args.command == "project-analyze":
         engine = GhidraAnalysis(args.state, args.headless)
         print(json.dumps(analyze_project(engine, args.request), indent=2))
+    elif args.command == "project-export-all":
+        engine = GhidraAnalysis(args.state, args.headless)
+        print(json.dumps(export_project(engine, args.project_artifact), indent=2))
     elif args.command == "function":
         engine = GhidraAnalysis(args.state, args.headless)
         manifest = json.loads(args.manifest.read_text())
@@ -708,6 +717,33 @@ def main() -> None:
                 project.update({"state": "failed", "error": event["error"]})
             elif event["stage"] == "project_cache_hit":
                 item.setdefault("project", {"modules": {}})["artifact"] = event["artifact"]
+            elif event["stage"] == "project_export_started":
+                item.setdefault("project", {"modules": {}})["export"] = {
+                    "state": "running", "module_count": event["modules"], "modules": {}}
+            elif event["stage"] in {"project_export_module_started",
+                                     "project_export_module_finished",
+                                     "project_export_module_failed"}:
+                export = item.setdefault("project", {"modules": {}}).setdefault(
+                    "export", {"state": "running", "modules": {}})
+                module = {"state": event["stage"].removeprefix("project_export_module_")}
+                if event["stage"] == "project_export_module_finished":
+                    module.update({"artifact": event["artifact"], "counts": event["counts"],
+                                   "complete_discovered_exports": event["complete"]})
+                elif event["stage"] == "project_export_module_failed":
+                    module["error"] = event["error"]
+                export["modules"][event["module_id"]] = module
+            elif event["stage"] == "project_export_finished":
+                item.setdefault("project", {"modules": {}}).setdefault(
+                    "export", {"modules": {}}).update({
+                    "state": "finished", "artifact": event["artifact"],
+                    "counts": event["counts"],
+                    "complete_discovered_exports": event["complete"],
+                    "unassigned_instructions": event["unassigned_instructions"],
+                    "unreported_functions": event.get("unreported_functions")})
+            elif event["stage"] == "project_export_failed":
+                item.setdefault("project", {"modules": {}}).setdefault(
+                    "export", {"modules": {}}).update(
+                        {"state": "failed", "error": event["error"]})
             elif event["stage"] == "import_started":
                 baseline["import_attempts"] += 1
             elif event["stage"] == "import_finished":

@@ -113,6 +113,7 @@ Deliverables:
 - Executable-region and unassigned-instruction inventory, so discovered-function export
   coverage does not conceal decoded instructions outside known function bodies.
 - Immutable evidence exports with native address mappings and explicit omission/error records.
+- Multi-module export inventory with per-module completion and unresolved code regions.
 - Warm analysis service with bounded concurrency, per-operation timeouts, and restart handling.
 - Narrow engine-owned read interfaces: inspect function, references, data/types, and evidence.
   These are wrapper contracts; discover actual backend tools instead of inventing tool names.

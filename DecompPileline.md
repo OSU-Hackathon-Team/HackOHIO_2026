@@ -35,7 +35,9 @@ dossiers are implemented. The rename-attempt path remains a diagnostic with a pr
 Ghidra project per attempt.
 Project intake can group executable and shared-library modules, reuse each module's analyzed
 baseline, record declared and ELF `DT_NEEDED` dependencies, and identify static candidate
-links from imported call thunks to functions in supplied modules. Semantic scopes and queue
+links from imported call thunks to functions in supplied modules. A project export aggregates
+all discovered function evidence and preserves per-module failures and code-discovery gaps.
+Semantic scopes and queue
 campaigns still operate on one module at a time; cross-module scope and contract resolution
 remain to be built.
 The static index records executable memory and decoded instruction runs outside discovered
