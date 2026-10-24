@@ -327,16 +327,16 @@ class DurableQueue:
                         {"task_id": task_id, "verdict": verdict})
             return True
 
-    def accept(self, task_id: str, review_artifact: str) -> bool:
+    def publish_review(self, task_id: str, review_artifact: str) -> str:
         try:
             review = json.loads(self.store.get(review_artifact))
         except (ValueError, TypeError):
-            return False
+            return "invalid"
         with self._connect() as conn:
             task = conn.execute("SELECT * FROM decomp_tasks WHERE id = %s FOR UPDATE",
                                 (task_id,)).fetchone()
             if task is None or task["state"] != "validated":
-                return False
+                return "invalid"
             try:
                 draft = json.loads(self.store.get(task["result_artifact"]))
                 evidence = json.loads(self.store.get(draft["evidence_artifact"]))
@@ -345,7 +345,7 @@ class DurableQueue:
                 outcomes = {kind: sum(item["outcome"] == kind for item in answer["reviews"])
                             for kind in ("supported_static", "contradicted", "uncertain")}
             except (ValueError, KeyError, TypeError):
-                return False
+                return "invalid"
             if (review.get("state") != "reviewed" or
                     review.get("structural_errors") != [] or
                     review.get("draft_artifact") != task["result_artifact"] or
@@ -353,17 +353,50 @@ class DurableQueue:
                     review.get("campaign") != task["campaign_id"] or
                     review.get("subject") != task["subject"] or
                     validate_review(answer, evidence, claim_count) or
-                    answer["missing_behavior"] or answer["unresolved"] or
-                    review.get("outcomes") != {"supported_static": claim_count} or
-                    outcomes["supported_static"] != claim_count or claim_count < 1):
-                return False
-            conn.execute("UPDATE decomp_tasks SET state = 'accepted', "
-                         "review_artifact = %s, support_level = 'static_only', "
-                         "updated_at = now() WHERE id = %s", (review_artifact, task_id))
-            self._event(conn, task["campaign_id"], "task_accepted",
-                        {"task_id": task_id, "support_level": "static_only",
-                         "review_artifact": review_artifact})
-            return True
+                    review.get("outcomes") != {kind: count for kind, count in
+                                                outcomes.items() if count}):
+                return "invalid"
+            reasons = []
+            if claim_count < 1 or outcomes["supported_static"] != claim_count:
+                reasons.append("claims_not_all_supported")
+            if answer["missing_behavior"]:
+                reasons.append("missing_behavior")
+            if answer["unresolved"]:
+                reasons.append("review_unresolved")
+            if draft["answer"]["dependencies"]:
+                reasons.append("dependency_contracts_unreviewed")
+            state = "accepted" if not reasons else "needs_reconciliation"
+            support = "static_only" if outcomes["supported_static"] == claim_count and claim_count else "none"
+            conn.execute("UPDATE decomp_tasks SET state = %s, review_artifact = %s, "
+                         "support_level = %s, terminal_reason = %s, updated_at = now() "
+                         "WHERE id = %s", (state, review_artifact, support,
+                                           ",".join(reasons) if reasons else None, task_id))
+            self._event(conn, task["campaign_id"], "review_recorded",
+                        {"task_id": task_id, "state": state, "support_level": support,
+                         "review_artifact": review_artifact, "reasons": reasons})
+            return state
+
+    def accept(self, task_id: str, review_artifact: str) -> bool:
+        return self.publish_review(task_id, review_artifact) == "accepted"
+
+    def audit_accepted_dependencies(self, campaign: str) -> int:
+        revised = 0
+        with self._connect() as conn:
+            tasks = conn.execute("SELECT id, result_artifact FROM decomp_tasks "
+                                 "WHERE campaign_id = %s AND state = 'accepted' "
+                                 "FOR UPDATE", (campaign,)).fetchall()
+            for task in tasks:
+                draft = json.loads(self.store.get(task["result_artifact"]))
+                if not draft["answer"].get("dependencies"):
+                    continue
+                conn.execute("UPDATE decomp_tasks SET state = 'needs_reconciliation', "
+                             "terminal_reason = 'dependency_contracts_unreviewed', "
+                             "updated_at = now() WHERE id = %s", (task["id"],))
+                self._event(conn, campaign, "acceptance_revised",
+                            {"task_id": str(task["id"]),
+                             "reason": "dependency_contracts_unreviewed"})
+                revised += 1
+        return revised
 
     def status(self, campaign: str) -> dict:
         with self._connect() as conn:
@@ -386,7 +419,7 @@ class DurableQueue:
     def task(self, task_id: str) -> dict | None:
         with self._connect() as conn:
             row = conn.execute("SELECT id, campaign_id, subject, state, result_artifact, "
-                               "review_artifact, support_level FROM decomp_tasks "
+                               "review_artifact, support_level, terminal_reason FROM decomp_tasks "
                                "WHERE id = %s", (task_id,)).fetchone()
             if row is None:
                 return None

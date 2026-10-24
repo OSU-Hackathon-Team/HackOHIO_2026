@@ -145,12 +145,52 @@ def main() -> None:
                 assert queue.accept(recovered["task_id"], put(store, review))
                 assert not queue.accept(recovered["task_id"], put(store, review))
 
+                dependent = active[2]
+                dependent_evidence = put(store, {**evidence, "entry": dependent["subject"]})
+                dependent_claim = {**answer["claims"][0],
+                                   "evidence_addresses": [dependent["subject"]]}
+                dependent_draft = {**draft, "subject": dependent["subject"],
+                                   "task_key": next(t["deduplication_key"] for t in tasks
+                                                    if t["subject"] == dependent["subject"]),
+                                   "evidence_artifact": dependent_evidence,
+                                   "answer": {**answer, "claims": [dependent_claim],
+                                              "dependencies": [{"target": "helper",
+                                                                "contract": "helper result",
+                                                                "evidence_addresses": [dependent["subject"]],
+                                                                "assumptions": []}]}}
+                dependent_artifact = put(store, dependent_draft)
+                assert queue.submit(dependent["task_id"], dependent["worker_id"],
+                                    dependent["epoch"], dependent_artifact,
+                                    "dependent-attempt") == "accepted_for_validation"
+                assert queue.validate_result(dependent["task_id"], dependent_artifact,
+                                             "validated")
+                dependent_review = {**review, "subject": dependent["subject"],
+                                    "draft_artifact": dependent_artifact,
+                                    "evidence_artifact": dependent_evidence,
+                                    "answer": {**review_answer, "reviews": [{
+                                        **review_answer["reviews"][0],
+                                        "evidence_addresses": [dependent["subject"]]}]}}
+                assert queue.publish_review(dependent["task_id"],
+                                            put(store, dependent_review)) == "needs_reconciliation"
+                assert queue.task(dependent["task_id"])["support_level"] == "static_only"
+                assert queue.task(dependent["task_id"])["terminal_reason"] == (
+                    "dependency_contracts_unreviewed")
+                with queue._connect() as conn:
+                    conn.execute("UPDATE decomp_tasks SET state = 'accepted', "
+                                 "terminal_reason = NULL WHERE id = %s",
+                                 (dependent["task_id"],))
+                assert queue.audit_accepted_dependencies(campaign) == 1
+                assert queue.audit_accepted_dependencies(campaign) == 0
+                assert queue.task(dependent["task_id"])["state"] == "needs_reconciliation"
+
                 restarted = DurableQueue(queue.dsn, store)
                 status = restarted.status(campaign)
                 assert status["tasks"]["accepted"] == 1
-                assert status["support_levels"]["static_only"] == 1
+                assert status["tasks"]["needs_reconciliation"] == 1
+                assert status["support_levels"]["static_only"] == 2
                 assert len([e for e in restarted.events(campaign, limit=100)
-                            if e["event_type"] == "task_accepted"]) == 1
+                            if e["event_type"] == "review_recorded" and
+                            e["payload"]["state"] == "accepted"]) == 1
                 parent, child = multiprocessing.Pipe(duplex=False)
                 process = multiprocessing.Process(
                     target=hold_lease,
@@ -183,7 +223,8 @@ def main() -> None:
                 final_status = queue.status(campaign)
                 print(json.dumps({"active_leases": 16, "recovered_epoch": recovered["epoch"],
                                   "killed_worker_recovered_epoch": resumed["epoch"],
-                                  "accepted": 1, "support_level": "static_only",
+                                  "accepted": 1, "needs_reconciliation": 1,
+                                  "static_only": 2,
                                   "rejected_attempt_preserved": True,
                                   "event_cursor": final_status["event_cursor"]}, indent=2))
         finally:

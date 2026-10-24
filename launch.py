@@ -320,7 +320,9 @@ def main() -> None:
             manifest = json.loads(args.manifest.read_text())
             queue.migrate()
             queue.create_campaign(manifest["campaign"], manifest["binary_sha256"])
-            result = queue.status(manifest["campaign"])
+            revised = queue.audit_accepted_dependencies(manifest["campaign"])
+            result = {**queue.status(manifest["campaign"]),
+                      "revised_legacy_acceptances": revised}
         elif args.command == "queue-enqueue":
             ids = queue.enqueue_scope(args.scope_artifact)
             result = {"enqueued": len(ids), "task_ids": ids}
@@ -380,9 +382,9 @@ def main() -> None:
             reviewer = IndependentReviewer(engine, args.opencode, timeout=args.timeout)
             review_result = reviewer.run(task["result_artifact"],
                                          model=args.model, model_role=args.model_role)
-            accepted = (review_result["state"] == "reviewed" and
-                        queue.accept(args.task_id, review_result["artifact"]))
-            result = {"task_id": args.task_id, "accepted_static": accepted,
+            queue_state = (queue.publish_review(args.task_id, review_result["artifact"])
+                           if review_result["state"] == "reviewed" else "invalid")
+            result = {"task_id": args.task_id, "queue_state": queue_state,
                       "review_state": review_result["state"],
                       "review_artifact": review_result["artifact"],
                       "outcomes": review_result.get("outcomes", {})}
