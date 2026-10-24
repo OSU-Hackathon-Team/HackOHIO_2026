@@ -250,8 +250,10 @@ export const FeatureSpec = z.object({
   acceptance_tests: z.string(),
   coverage: z.array(RequirementCoverage),  // computed
   allowed_deviations: z.array(z.string()), // "clock is injected as `today` instead of Date.now()"
+  stripped_glue: z.array(z.string()),      // platform code deliberately left out: "ipcMain.handle('card:answer')", "fs deck storage"
   oracle: OracleCheck,
-  status: z.enum(["verified", "unverified"]), // verified ⇔ oracle passed && every requirement covered
+  status: z.enum(["verified", "unverified"]), // verified ⇔ oracle passed && every requirement covered && no open issues
+  open_issues: z.array(z.string()),        // why it's unverified (shown on the card); empty when verified
   repair_attempts: z.number().int(),
   provenance: SpecProvenance,
 });
@@ -574,6 +576,10 @@ function nextEaseFactor(ease, grade) {
 
 module.exports = { reviewCard, nextEaseFactor };
 ```
+
+`status`: `"verified"`, `open_issues`: `[]`, `coverage`: computed from test names (every REQ covered).
+
+`stripped_glue`: `["Electron IPC handlers in src/main.js (card:answer, stats:streak)", "JSON deck persistence in src/db/deckStore.js"]`
 
 `allowed_deviations`: `["The clock is injected as today (YYYY-MM-DD) instead of epoch milliseconds", "Field names are renamed for readability (reps → repetitions, interval → intervalDays, ease → easeFactor, leech → isLeech)"]`
 

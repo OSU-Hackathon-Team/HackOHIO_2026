@@ -10,7 +10,7 @@ they take, so nobody writes code against guesses.
 | Node.js | **22.19.0+** (REA rejects older) | `node -v` |
 | npm | 10+ | `npm -v` |
 | Git | any | – |
-| Anthropic API key | in `packages/backend/.env` | `ANTHROPIC_API_KEY=...` |
+| AWS credentials with Bedrock access to Claude | `AWS_PROFILE` or session env vars in `packages/backend/.env` | `aws sts get-caller-identity` and `npm run test:llm` (see `2_requirements_extraction/02_llm_client.md`) |
 
 Eng 1 only, and only for the stretch native target: a JDK 21 and Ghidra. **Don't install these
 before CP2.**
@@ -95,8 +95,11 @@ output looks like.
 ## 5. Environment file — `packages/backend/.env.example`
 
 ```bash
-ANTHROPIC_API_KEY=
-SPLICE_MODEL=claude-opus-5-5
+AWS_REGION=us-east-2       # region with Claude model access enabled in Bedrock
+AWS_PROFILE=splice         # or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN
+SPLICE_MODEL=anthropic.claude-opus-5-5
+SPLICE_FALLBACK_MODEL=anthropic.claude-opus-4-8
+LLM_DEBUG=0
 PORT=3001
 REA_MODE=auto              # live | replay | auto
 LLM_MODE=live              # live | replay
@@ -110,7 +113,7 @@ REA_MAX_RESULT_CHARS=60000 # bridge truncates tool text beyond this
 
 | Risk | Mitigation |
 |---|---|
-| Venue wifi dies | REA runs locally; pinned install means no download. Anthropic calls need internet → `LLM_MODE=replay` fallback |
+| Venue wifi dies | REA runs locally; pinned install means no download. Bedrock calls need internet → `LLM_MODE=replay` fallback |
 | REA output shape differs from docs | All shape-dependent code is isolated in `rea/normalize.ts` and `rea/reaArgs.ts` |
 | First REA call is slow (cold worker) | `server.ts` calls `rea.start()` + `binary_session` at boot ("pre-warm") |
 | Windows process cleanup leaves zombie REA workers | `rea.close()` on `SIGINT`/`SIGTERM`; testBridge checks process count before and after |
