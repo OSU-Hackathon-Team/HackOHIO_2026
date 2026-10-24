@@ -91,7 +91,8 @@ Load balancing: Eng 3 has the largest scope. To make that workable:
 ```
 HackOHIO_2026/
 ├── .gitignore                  # MUST include .env, node_modules, dist, targets/build/**/node_modules
-├── .env.example                # AWS_REGION=, AWS_PROFILE=, SPLICE_MODEL=, REA_MODE=, LLM_MODE=
+├── .env.example                # AWS_REGION=, AWS_PROFILE=, MODEL_<ROLE>=, REA_MODE=, LLM_MODE=
+├── models.json                   # global role → model routing (decomp_worker, spec_writer, legal_verification)
 ├── package.json                # npm workspaces
 ├── agents/                     # these docs
 ├── packages/
@@ -202,7 +203,7 @@ evidence drawer tabs (keep the card back only) → refine chat (keep auto-fix on
 - Every backend module ships with a CLI script under `packages/backend/src/scripts/` that runs it
   alone. "It works" means that script passes.
 - Pin exact versions with a committed `package-lock.json`. Never write `"latest"` anywhere (code or prompts).
-- LLM: Claude on **Amazon Bedrock** via `AnthropicBedrockMantle`. Model `anthropic.claude-opus-5-5` (set via `SPLICE_MODEL`). Do not hard-code model IDs; all calls go through `llm/llm.ts`.
+- Models are routed per role in root `models.json` (`decomp_worker` → nova lite, `spec_writer` → nova pro, `legal_verification` → opus 4.6). Override a role with `MODEL_<ROLE>` env (e.g. `MODEL_SPEC_WRITER`); `OPENCODE_MODEL` remains the legacy default override. Do not hard-code model IDs; Python resolves via `model_config.py`, TS via `packages/backend/src/models.ts`, and all Claude calls go through `llm/llm.ts`.
 
 ---
 

@@ -28,7 +28,12 @@ AWS_PROFILE=splice                   # preferred: profile in ~/.aws/credentials 
 # AWS_ACCESS_KEY_ID=...
 # AWS_SECRET_ACCESS_KEY=...
 # AWS_SESSION_TOKEN=...
-SPLICE_MODEL=anthropic.claude-opus-5-5
+# Role routing lives in root models.json (decomp_worker → nova lite,
+# spec_writer → nova pro, legal_verification → opus 4.6). Per-role env
+# overrides win over models.json without editing it:
+# MODEL_DECOMP_WORKER=amazon-bedrock/amazon.nova-lite-v1:0
+# MODEL_SPEC_WRITER=amazon-bedrock/amazon.nova-pro-v1:0
+# MODEL_LEGAL_VERIFICATION=amazon-bedrock/anthropic.claude-opus-4-6-v1
 SPLICE_FALLBACK_MODEL=anthropic.claude-opus-4-8
 ```
 
@@ -42,16 +47,17 @@ SPLICE_FALLBACK_MODEL=anthropic.claude-opus-4-8
    (and the fallback model).
 2. `npm run test:llm` (§6) prints an answer. If you get `AccessDeniedException`, the model isn't
    enabled or the IAM principal lacks `bedrock:InvokeModel*` permissions.
-3. Confirm the exact model IDs your account accepts. Bedrock IDs take an `anthropic.` prefix
-   (`anthropic.claude-opus-5-5`). If the console shows a cross-region inference profile ID instead
-   (for example a `us.`-prefixed one), put that ID in `SPLICE_MODEL`.
+3. Confirm the exact model IDs your account accepts. Put the working ID in that role's
+   entry in root `models.json` (or its `MODEL_<ROLE>` env override). Bedrock IDs take
+   provider prefixes such as `anthropic.` or `amazon.`; if the console shows a cross-region
+   inference profile ID instead (for example a `us.`-prefixed one), use that ID.
 
 ## 2. Decisions (and why)
 
 | Decision | Why |
 |---|---|
 | `AnthropicBedrockMantle` client, region from `AWS_REGION` | Bedrock's Messages-API endpoint. Same request shapes as the first-party SDK |
-| Model `anthropic.claude-opus-5-5` via `SPLICE_MODEL` | Current default Opus, with the Bedrock prefix. One place to change it |
+| Per-role models via root `models.json` (`MODEL_<ROLE>` env wins) | Decomp = cheap/fast, spec + verification = strongest. One file answers "what model does what" |
 | **Structured outputs** (`output_config.format: { type: "json_schema", schema }`) | Supported on Bedrock. Guarantees parseable JSON. Forced `tool_choice` returns a 400 on Opus 5.5, and assistant prefill is gone |
 | **Streaming** + `finalMessage()` | Long outputs (full TS files) would otherwise risk HTTP timeouts. Also gives us `output_chars` progress for the UI |
 | **No `thinking` param** | Opus 5.5 always uses adaptive thinking; `disabled` / `budget_tokens` return a 400. Depth is set with `output_config.effort` |
@@ -67,7 +73,7 @@ SPLICE_FALLBACK_MODEL=anthropic.claude-opus-4-8
 
 ## 3. Config (already in Eng 1's `config.ts`, see `1_reverse_engineering/06_backend_server_shell.md` §2)
 
-`llm.ts` reads `config.awsRegion`, `config.model`, `config.fallbackModel` and `config.llmDebug`.
+`llm.ts` reads `config.awsRegion`, `config.model`, `config.fallbackModel` and `config.llmDebug`. `config.model` is the role-resolved model (same precedence as `packages/backend/src/models.ts` / root `model_config.py`); the decomp worker records its resolved `model` + `model_role` in the attempt manifest.
 There is no API-key setting. The AWS SDK finds credentials through the default chain and
 reports missing or expired ones on the first call.
 

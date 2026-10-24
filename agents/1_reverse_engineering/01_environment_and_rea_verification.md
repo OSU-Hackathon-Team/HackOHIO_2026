@@ -97,6 +97,8 @@ output looks like.
 ```bash
 AWS_REGION=us-east-2       # region with Claude model access enabled in Bedrock
 AWS_PROFILE=splice         # or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN
+# Per-role models come from root models.json (MODEL_<ROLE> env overrides it).
+# SPLICE_MODEL below is only the legacy single-model default kept for config.ts.
 SPLICE_MODEL=anthropic.claude-opus-5-5
 SPLICE_FALLBACK_MODEL=anthropic.claude-opus-4-8
 LLM_DEBUG=0
