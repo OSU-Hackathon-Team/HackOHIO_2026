@@ -1,0 +1,27 @@
+{
+  "name": "splice",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build:contracts": "npm run build --workspace=@splice/contracts",
+    "build:backend": "npm run build --workspace=@splice/backend",
+    "build:frontend": "npm run build --workspace=@splice/frontend",
+    "build": "npm run build:contracts && npm run build:backend && npm run build:frontend",
+    "dev:backend": "npm run dev --workspace=@splice/backend",
+    "dev:frontend": "npm run dev --workspace=@splice/frontend",
+    "dev": "concurrently -n backend,frontend -c green,cyan \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "start": "npm run start --workspace=@splice/backend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  }
+}
