@@ -18,7 +18,28 @@ One row per commit, with the verification that actually ran. Nothing is logged a
 | 2026-10-24 | `feat(backend): add step 3 routes behind an upstream wiring point` | `routes/step3/index.ts` (`createStep3Router(deps)`: `/api/blueprints`, `/api/implement`, `/api/synthesize`, `/api/refine`, with the spec's route bodies) and `routes/step3/deps.ts` (single wiring point for Eng 1/2 helpers, `null` today → 503). Note added to spec 01 §6 | `01` §6, `02` §7, `04` §2 | `step3.test.ts` 9/9 pass against a real Express server: 400 JSON before SSE for malformed, unverified-engine and empty refine requests; 503 listing the missing helpers; blueprints listing skips `.latest` and shadowed seeds; implement streams stage → tests → blueprint → complete → one `done`, writes `.latest.json`, saves the transcript; a model failure ends with a fatal error + `done ok=false`; replay without a recording never calls the model; synthesize streams a bundle; exhausted validation streams no bundle; refine streams revision 1 with the summary as the `complete` message. `tsc` exit 0 |
 | 2026-10-24 | `feat(backend): add test:implement and test:synthesis scripts` | `scripts/testImplement.ts` (every golden/seed spec → engine, prints tests/purity/types/repairs/time/model, writes `blueprints/<id>.latest.json`) and `scripts/testSynthesis.ts` (the 3 recipes from 02 §8 → `bundles/<key>.latest.json`; blueprints loaded golden → latest → seed, with the source printed) | `01` §7, `02` §8 | Both exit 1 today, listing the 6 missing upstream helpers (nothing faked). The golden prompt is byte-identical to `09_demo_runbook.md` §4 (grep match). `npm run test:unit -w @splice/backend`: **51/51 pass**, exit 0 |
 
+| 2026-10-24 | `docs: record step 3 backend status and decisions` | `.agents/README.md` current state, three `agents/JOURNAL.md` rows (AST purity, strict synthesis failure + cumulative refine, injected ports), this summary | n/a | Integration check below |
+
+## Integration check (2026-10-24, after the last code commit)
+
+- `npm run build` (contracts → backend → frontend): exit 0.
+- `NODE_ENV=production PORT=3911 node packages/backend/dist/server.js`: `GET /api/health` 200, `GET /` 200,
+  `GET /api/nonexistent` 404, `GET /api/blueprints` 200, `POST /api/implement {}` 400 (zod error),
+  `POST /api/implement {spec}` 503 listing the missing helpers.
+- `REPO_ROOT` from `dist/routes/step3/deps.js` resolves to the repo root (`targets/manifest.json` exists).
+- `npm run test:unit -w @splice/backend`: 51/51 pass.
+
+## Handoffs / open items for the team
+
+- **Eng 1:** `wikilinks.js` was restored from your spec (it had been truncated since `baa533d`). The
+  `.asar` files are now built and committed. `/api/health` still returns a temporary shape, not `HealthResponse`.
+- **Team:** approve the `HealthResponse.models` contract fix (`db306c4`).
+- **To unblock Step 3 live:** once `llm/llm.ts`, `sandbox/runTests.ts`, `http/sse.ts`, `evidence/recorder.ts`,
+  `evidence/replay.ts` and `config.ts` exist, fill in `step3Deps` in `routes/step3/deps.ts` (the import list is in its header).
+
 ## Pending live gates
 
 - CP1: SM-2 engine passes on Bedrock. Needs Eng 2 `llm/llm.ts` + `sandbox/`.
-- CP2: bundle boots in Sandpack. Needs the above plus Eng 1 `http/sse.ts`, `evidence/recorder.ts`, `evidence/replay.ts`.
+- CP2: bundle boots in Sandpack (3 runs in a row per recipe). Needs the above plus Eng 1 `http/sse.ts`,
+  `evidence/recorder.ts`, `evidence/replay.ts`, and the Studio frontend.
+- Timings (engine < 45 s, synthesis < 75 s, refine < 45 s): not measured; requires live Bedrock.

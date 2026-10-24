@@ -63,13 +63,22 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
 ## Current state (update this section when it changes)
 
 - **Done:** monorepo scaffold, contracts (real schemas), demo target app source + manifest,
-  backend server shell with per-step routers (`/api/health` works), all docs.
-- **Stubs:** every other file under `packages/backend/src/` and `packages/frontend/src/`
-  (`export {};` plus an owner/spec header). Nothing in the pipeline runs yet.
+  backend server shell with per-step routers (`/api/health` works), all docs. Built
+  `targets/build/*/app.asar` + `.sha256` are committed (`inkwell/src/graph/wikilinks.js` was
+  truncated and has been restored from its spec).
+- **Step 3 backend (Eng 3, `feat/step3-backend`):** engine purity/conformance/implement loop,
+  bundle assembly + validator + virtual `tsc`, synthesize, refine, routes and scripts are implemented
+  with 51 unit tests passing. Built against injected ports (`engine/ports.ts`). Valid
+  `/api/implement|synthesize|refine` requests return **503** until Eng 1/2 helpers are wired in
+  `routes/step3/deps.ts`. Log: `docs/archive/implementation_frontend/accomplishments.md`.
+- **Stubs:** every other file under `packages/backend/src/` (including the shared `llm/`, `sandbox/`,
+  `http/sse.ts`, `config.ts`, `evidence/`) and all of `packages/frontend/src/` (`export {};` plus
+  an owner/spec header). Nothing in the pipeline runs end to end yet.
 - **Decompilation engine:** planned (no `engine/` package yet). The runnable piece is the
   Ghidra rename-attempt scaffold (`python launch.py rename|batch` inside Docker).
-- **Not yet installed:** the per-step dependencies (Bedrock SDK, esbuild, `@electron/asar`,
-  `rea-agents`, zustand, jszip, …). Each spec doc lists the ones it needs.
+- **Not yet installed:** the per-step dependencies (Bedrock SDK, esbuild, `rea-agents`, zustand,
+  jszip, …). Each spec doc lists the ones it needs. (`@electron/asar` and the Step 3 type-check
+  deps are installed.)
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
   `trace_application_feature` and `binary_session` (live probe; catalog and samples in `fixtures/rea/`),
   and Sandpack 2.20 error/file types.
