@@ -1,0 +1,20 @@
+services:
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    privileged: true
+    security_opt:
+      - label=disable
+    environment:
+      STORAGE_DRIVER: vfs
+    volumes:
+      - .:/workspace
+      - podman-storage:/var/lib/containers
+      - ${OPENCODE_BIN:-/home/mitch/.opencode/bin/opencode}:/run/opencode-bin:ro
+      - ${OPENCODE_AUTH_FILE:-/home/mitch/.local/share/opencode/auth.json}:/run/opencode-auth.json:ro
+    working_dir: /workspace
+    command: ["python", "launch.py", "--help"]
+
+volumes:
+  podman-storage:
