@@ -7,7 +7,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const FALLBACK_MODEL = "amazon-bedrock/deepseek.v3.2";
 
-export type ModelRole = "decomp_worker" | "spec_writer" | "legal_verification";
+export type ModelRole =
+  | "decomp_worker"
+  | "spec_writer"
+  | "engine_writer"
+  | "ui_synthesizer"
+  | "refusal_fallback"
+  | "legal_verification";
+
+/** Roles called through llm.ts (Anthropic Messages API on Bedrock): must resolve to Claude models. */
+export type SpliceRole = "spec_writer" | "engine_writer" | "ui_synthesizer" | "refusal_fallback";
 
 export interface ModelsConfig {
   default: string;
@@ -78,6 +87,22 @@ export function resolvedModelTable(): Record<string, string> {
     table[role] = getModel(role);
   }
   return table;
+}
+
+const OPENCODE_BEDROCK_PREFIX = "amazon-bedrock/";
+
+/** models.json uses OpenCode's "amazon-bedrock/<id>" form; the Bedrock SDK wants the bare "<id>". */
+export function toBedrockId(model: string): string {
+  return model.startsWith(OPENCODE_BEDROCK_PREFIX) ? model.slice(OPENCODE_BEDROCK_PREFIX.length) : model;
+}
+
+/** Bedrock model ID for a Splice role. Throws early if the role isn't routed to a Claude model. */
+export function bedrockModelId(role: SpliceRole, explicit?: string | null): string {
+  const id = toBedrockId(getModel(role, explicit));
+  if (!/(^|\.)anthropic\.claude-/.test(id)) {
+    throw new Error(`models.json role "${role}" resolves to "${id}", but Splice's llm.ts only supports Claude models on Bedrock`);
+  }
+  return id;
 }
 
 export function availableRoles(): string[] {
