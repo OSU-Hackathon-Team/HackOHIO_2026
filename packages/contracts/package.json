@@ -14,7 +14,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "dev": "tsc --watch --preserveWatchOutput"
   },
   "dependencies": {
     "zod": "^3.24.2"

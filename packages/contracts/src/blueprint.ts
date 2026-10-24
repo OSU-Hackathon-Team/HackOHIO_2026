@@ -1,60 +1,34 @@
+// Source of truth: agents/CONTRACTS.md — change both together (all three engineers approve).
 import { z } from "zod";
+import { FeatureSpec, TestCaseResult } from "./spec.js";
 
-export const BlueprintInputSchema = z.object({
-  name: z.string(),
-  type: z.string(),
-  description: z.string().optional()
+export const EngineImplementation = z.object({
+  module_name: z.string(),                 // === spec.interface.module_name
+  portable_code: z.string(),               // pure TS, zero imports, deterministic
+  notes: z.array(z.string()),              // implementer's notes (shown in evidence drawer)
 });
+export type EngineImplementation = z.infer<typeof EngineImplementation>;
 
-export type BlueprintInput = z.infer<typeof BlueprintInputSchema>;
-
-export const BlueprintOutputSchema = z.object({
-  name: z.string(),
-  type: z.string(),
-  description: z.string().optional()
+export const EngineVerification = z.object({
+  status: z.enum(["passed", "failed"]),
+  tests: z.array(TestCaseResult),          // kind "acceptance"
+  passed: z.number().int(),
+  total: z.number().int(),
+  purity_violations: z.array(z.string()),  // must be empty for "passed"
+  type_errors: z.array(z.string()),        // conformance to spec.interface.types_code; must be empty
+  repair_attempts: z.number().int(),
+  duration_ms: z.number(),
+  implemented_at: z.string(),
+  model: z.string(),
+  mode: z.enum(["live", "replay"]),
 });
+export type EngineVerification = z.infer<typeof EngineVerification>;
 
-export type BlueprintOutput = z.infer<typeof BlueprintOutputSchema>;
-
-export const ReaEvidenceSchema = z.object({
-  artifact_type: z.enum([
-    "electron_asar",
-    "javascript_bundle",
-    "native_pe_dll",
-    "native_elf",
-    "managed_cli",
-    "web_runtime"
-  ]),
-  target_file: z.string(),
-  entry_symbols: z.array(z.string()),
-  decompiled_snippet: z.string(),
-  ipc_or_network_routes: z.array(z.string()).default([]),
-  confidence_score: z.number().min(0).max(1).default(0.95),
-  limitations: z.array(z.string()).default([])
-});
-
-export type ReaEvidence = z.infer<typeof ReaEvidenceSchema>;
-
-export const CleanRoomImplementationSchema = z.object({
-  language: z.literal("typescript"),
-  module_name: z.string(),
-  inputs: z.array(BlueprintInputSchema),
-  outputs: z.array(BlueprintOutputSchema),
-  portable_code: z.string(),
-  unit_test_code: z.string().optional()
-});
-
-export type CleanRoomImplementation = z.infer<typeof CleanRoomImplementationSchema>;
-
-export const FeatureBlueprintSchema = z.object({
+export const FeatureBlueprint = z.object({
+  schema_version: z.literal(1),
   feature_id: z.string(),
-  source_app: z.string(),
-  source_icon: z.string().optional(),
-  consumer_title: z.string(),
-  consumer_description: z.string(),
-  category: z.enum(["graph", "scheduling", "calculator", "parser", "state_engine", "utility"]),
-  rea_evidence: ReaEvidenceSchema,
-  clean_room_implementation: CleanRoomImplementationSchema
+  spec: FeatureSpec,
+  implementation: EngineImplementation,
+  verification: EngineVerification,
 });
-
-export type FeatureBlueprint = z.infer<typeof FeatureBlueprintSchema>;
+export type FeatureBlueprint = z.infer<typeof FeatureBlueprint>;
