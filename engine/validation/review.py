@@ -69,7 +69,14 @@ def review_prompt(draft: dict, evidence: dict, scope: dict | None = None) -> str
         "entire input domain, check boundary paths before supporting it. Independently inventory "
         "the function's major branch outcomes and observable state effects, then list behavior "
         "visible in the raw evidence but omitted from the draft in missing_behavior. In "
-        "particular, check success as well as failure paths and each state update. Scope "
+        "particular, for any contradicted claim, give a concrete input or state that satisfies "
+        "its premise and trace the taken and fall-through instruction addresses to RET. "
+        "Track each write to the return register along that path, including moves, zeroing, "
+        "SETcc, and arithmetic; the last value at RET determines the return. If a concrete "
+        "counterexample path cannot be traced, choose uncertain instead of contradicted. "
+        "Treat unsigned branch conditions as unsigned and check whether a proposed missing "
+        "input is already included in an existing claim's range. "
+        "Check success as well as failure paths and each state update. Scope "
         "observables are coverage questions, not facts to assume true. Do not say there is no "
         "missing behavior merely because the listed claims are individually correct. "
         "List missing_behavior only for an observable path or effect shown by this raw "
@@ -121,7 +128,7 @@ class IndependentReviewer:
                       "campaign": draft["campaign"], "draft_artifact": draft_artifact,
                       "evidence_artifact": draft["evidence_artifact"],
                       "subject": draft["subject"], "model": resolved_model,
-                      "model_role": model_role, "prompt_version": 3,
+                      "model_role": model_role, "prompt_version": 4,
                       "state": "running"}
         checkpoint_path = folder / "checkpoint.json"
         checkpoint_path.write_text(json.dumps(checkpoint, indent=2) + "\n")
