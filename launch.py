@@ -19,6 +19,7 @@ from engine.scope import persist_scope
 from engine.worker import SemanticWorker
 from engine.validation.review import IndependentReviewer
 from engine.validation.probes import NativeProbeRunner
+from engine.dossier import persist_dossier
 
 ROOT = Path(__file__).resolve().parent
 RUNS = ROOT / "runs"
@@ -167,6 +168,12 @@ def main() -> None:
     probe.add_argument("--suite", type=Path, required=True)
     probe.add_argument("--adapter", type=Path, default=ROOT / "scripts" / "native_probe_adapter.py")
     probe.add_argument("--state", type=Path, default=ENGINE_STATE)
+    dossier = sub.add_parser("dossier", help="assemble a versioned subsystem dossier")
+    dossier.add_argument("--manifest", type=Path, required=True)
+    dossier.add_argument("--scope-artifact", required=True)
+    dossier.add_argument("--inputs", type=Path, required=True,
+                         help="JSON arrays: draft_artifacts, review_artifacts, probe_report_artifacts")
+    dossier.add_argument("--state", type=Path, default=ENGINE_STATE)
     status = sub.add_parser("status", help="show persisted decomp campaign progress")
     status.add_argument("--state", type=Path, default=ENGINE_STATE)
     status.add_argument("--campaign", help="limit output to one campaign hash")
@@ -230,6 +237,23 @@ def main() -> None:
         print(json.dumps(report, indent=2))
         if not report["complete"]:
             raise SystemExit(1)
+    elif args.command == "dossier":
+        engine = GhidraAnalysis(args.state, Path(os.environ.get(
+            "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+        manifest = json.loads(args.manifest.read_text())
+        inputs = json.loads(args.inputs.read_text())
+        result = persist_dossier(engine, manifest, args.scope_artifact,
+                                 inputs.get("draft_artifacts", []),
+                                 inputs.get("review_artifacts", []),
+                                 inputs.get("probe_report_artifacts", []))
+        print(json.dumps({"revision": result["revision"],
+                          "artifact": result["artifact"],
+                          "markdown_artifact": result["markdown_artifact"],
+                          "markdown_path": str(args.state / "dossiers" /
+                                               result["scope_id"] / "latest.md"),
+                          "readiness": result["readiness"],
+                          "coverage": result["coverage"],
+                          "blockers": result["blockers"]}, indent=2))
     elif args.command == "status":
         events_path = args.state / "progress.jsonl"
         events = [json.loads(line) for line in events_path.read_text().splitlines()] if events_path.exists() else []
@@ -273,6 +297,10 @@ def main() -> None:
                 if "probe_key" in event:
                     item["_probes"].pop(event["case_id"], None)
                 item["_probes"][event.get("probe_key", event["case_id"])] = event["outcome"]
+            elif event["stage"] == "dossier_assembled":
+                item.setdefault("dossiers", {})[event["scope_id"]] = {
+                    "revision": event["revision"], "readiness": event["readiness"],
+                    "coverage": event["coverage"], "artifact": event["artifact"]}
         for item in campaigns.values():
             item["function_exports"] = len(item.pop("_exported"))
             item["function_failures"] = len(item.pop("_failed"))
