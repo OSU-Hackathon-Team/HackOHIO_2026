@@ -86,8 +86,12 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   The reset helper used a narrow deterministic fixed-store reviewer after model
   reviewers misread its overlapping vector stores. Probe runs and distinct cases
   are counted separately. Targeted Ghidra exports now use bounded warm contexts with
-  restart events and status counts; scale and recovery gates remain open. Current work
-  stops before specification generation as directed in `DECOMP_IMPLEMENTATION_PLAN.md`.
+  restart events and status counts. Function evidence separates listing types from
+  decompiler-inferred parameters and records referenced data; both semantic and review
+  prompts receive that context. A real dossier passes an in-memory compatibility check
+  against the existing generator. Scale and recovery gates remain open. Current work
+  stops before advancing a live campaign into specification generation as directed in
+  `DECOMP_IMPLEMENTATION_PLAN.md`.
   The native spec generator and backend endpoint now consume
   dossier revisions; specification quality and downstream implementation gates remain
   open. See the root
