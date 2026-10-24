@@ -1,4 +1,5 @@
 // Owner: Eng 3 (Implementation) — schema-valid fixtures for Step 3 unit tests (not development data).
+import type Anthropic from "@anthropic-ai/sdk";
 import { FeatureBlueprint, FeatureSpec } from "@splice/contracts";
 import type { ChatMessage, LlmPort, RunTestsInput, RunTestsResult, SandboxPort, StructuredCallOpts } from "./ports.js";
 
@@ -157,9 +158,9 @@ export function fakeLlm(answers: unknown[], model = "test-model") {
       calls.push({ ...o, messages: [...o.messages] } as StructuredCallOpts<unknown>);
       if (calls.length > answers.length) throw new Error(`fakeLlm: unexpected call #${calls.length}`);
       const raw = answers[calls.length - 1];
-      return { value: o.parse(raw), assistantContent: [{ type: "text", text: JSON.stringify(raw) }], model };
+      return { value: o.parse(raw), assistantContent: [{ type: "text", text: JSON.stringify(raw), citations: null }], model };
     },
-    continueWith(messages: ChatMessage[], assistantContent: unknown[], feedback: string): ChatMessage[] {
+    continueWith(messages: ChatMessage[], assistantContent: Anthropic.ContentBlock[], feedback: string): ChatMessage[] {
       return [...messages, { role: "assistant", content: assistantContent }, { role: "user", content: feedback }];
     },
   };

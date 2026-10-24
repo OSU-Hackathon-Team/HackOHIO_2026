@@ -1,16 +1,13 @@
 // Owner: Eng 3 (Implementation) — dependency ports for Step 3.
-// Mirror the spec'd signatures of the shared helpers so Step 3 can be built and tested before they
-// land: structuredCall/continueWith (agents/2_requirements_extraction/02_llm_client.md §4) and
-// runTests (04_sandbox_runner.md §3). Methods (not arrow properties) keep the real modules,
-// typed with Anthropic.MessageParam / ContentBlock, assignable to these ports unchanged.
+// Mirror the spec'd signatures of the shared helpers so Step 3 can be tested with doubles:
+// structuredCall/continueWith (agents/2_requirements_extraction/02_llm_client.md §4) and
+// runTests (04_sandbox_runner.md §3). llm.test.ts checks the real llm.ts satisfies LlmPort.
+import type Anthropic from "@anthropic-ai/sdk";
 import type { TestCaseResult } from "@splice/contracts";
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
-export interface ChatMessage {
-  role: "user" | "assistant";
-  content: unknown;
-}
+export type ChatMessage = Anthropic.MessageParam;
 
 export interface StructuredCallOpts<T> {
   role: "spec_writer" | "engine_writer" | "ui_synthesizer";
@@ -27,14 +24,14 @@ export interface StructuredCallOpts<T> {
 export interface StructuredResult<T> {
   value: T;
   /** Appended unchanged when continuing the conversation (repair loops). */
-  assistantContent: unknown[];
+  assistantContent: Anthropic.ContentBlock[];
   /** The model that actually answered (the refusal_fallback model if the fallback ran). */
   model: string;
 }
 
 export interface LlmPort {
   structuredCall<T>(o: StructuredCallOpts<T>): Promise<StructuredResult<T>>;
-  continueWith(messages: ChatMessage[], assistantContent: unknown[], feedback: string): ChatMessage[];
+  continueWith(messages: ChatMessage[], assistantContent: Anthropic.ContentBlock[], feedback: string): ChatMessage[];
 }
 
 export interface RunTestsInput {

@@ -65,7 +65,7 @@ test("repair history is append-only and carries the failures", async () => {
   assert.equal(second.messages.length, 3);
   assert.deepEqual(second.messages[0], first.messages[0]);
   assert.equal(second.messages[1].role, "assistant");
-  assert.deepEqual(second.messages[1].content, [{ type: "text", text: JSON.stringify(draft(GOOD_ENGINE.replace("0.1", "0.2"))) }]);
+  assert.deepEqual(second.messages[1].content, [{ type: "text", text: JSON.stringify(draft(GOOD_ENGINE.replace("0.1", "0.2"))), citations: null }]);
   assert.match(String(second.messages[2].content), /Test "REQ-1: perfect recall" failed: expected 2\.6, got 2\.5/);
   assert.deepEqual(stages, ["implementing", "testing", "repairing_engine", "testing"]);
 });
