@@ -621,6 +621,18 @@ class DurableQueue:
 
     def enqueue_pending_reviews(self, campaign: str) -> int:
         with self._connect() as conn:
+            completed = conn.execute(
+                "INSERT INTO decomp_review_jobs "
+                "(task_id, campaign_id, state, review_artifact) "
+                "SELECT t.id, t.campaign_id, 'completed', t.review_artifact "
+                "FROM decomp_tasks t WHERE t.campaign_id = %s "
+                "AND t.state IN ('accepted', 'needs_reconciliation') "
+                "AND t.review_artifact IS NOT NULL "
+                "ON CONFLICT (task_id) DO NOTHING RETURNING task_id",
+                (campaign,)).fetchall()
+            for row in completed:
+                self._event(conn, campaign, "review_job_backfilled",
+                            {"task_id": str(row["task_id"]), "state": "completed"})
             rows = conn.execute(
                 "INSERT INTO decomp_review_jobs (task_id, campaign_id) "
                 "SELECT t.id, t.campaign_id FROM decomp_tasks t "
@@ -788,11 +800,19 @@ class DurableQueue:
             reviews = conn.execute("SELECT state, count(*) AS total "
                                    "FROM decomp_review_jobs WHERE campaign_id = %s "
                                    "GROUP BY state", (campaign,)).fetchall()
+            missing_review_jobs = conn.execute(
+                "SELECT count(*) AS total FROM decomp_tasks t "
+                "LEFT JOIN decomp_review_jobs j ON j.task_id = t.id "
+                "WHERE t.campaign_id = %s "
+                "AND t.state IN ('validated', 'accepted', 'needs_reconciliation') "
+                "AND j.task_id IS NULL",
+                (campaign,)).fetchone()["total"]
             cursor = conn.execute("SELECT coalesce(max(id), 0) AS id FROM decomp_outbox "
                                   "WHERE campaign_id = %s", (campaign,)).fetchone()["id"]
             return {"campaign": campaign, "tasks": {r["state"]: r["total"] for r in states},
                     "support_levels": {r["support_level"]: r["total"] for r in support},
                     "reviews": {r["state"]: r["total"] for r in reviews},
+                    "review_jobs_missing": missing_review_jobs,
                     "attempts": attempts, "pools": pools, "event_cursor": cursor}
 
     def metrics(self, campaign: str, *, worker_prefix: str | None = None,
