@@ -39,8 +39,8 @@ def tool_version(headless: Path) -> str:
 class GhidraAnalysis:
     def __init__(self, root: Path, headless: Path, *, timeout: int = 900,
                  warm_workers: int | None = None):
-        self.root = Path(root)
-        self.headless = Path(headless)
+        self.root = Path(root).resolve()
+        self.headless = Path(headless).resolve()
         self.timeout = timeout
         self.store = LocalArtifactStore(self.root / "artifacts")
         self.root.mkdir(parents=True, exist_ok=True)
