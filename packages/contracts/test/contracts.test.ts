@@ -28,11 +28,10 @@ describe("Pantry Manifest Validation", () => {
   it("successfully parses targets/manifest.json through Pantry schema", () => {
     const data = readJson("targets/manifest.json");
     const parsed = Pantry.parse(data);
-    assert.equal(parsed.apps.length, 2);
-    assert.deepEqual(
-      parsed.apps.map((a) => a.app_id),
-      ["inkwell", "recall"]
-    );
+    assert.ok(parsed.apps.length >= 2);
+    const appIds = parsed.apps.map((a) => a.app_id);
+    assert.ok(appIds.includes("inkwell"));
+    assert.ok(appIds.includes("recall"));
   });
 });
 

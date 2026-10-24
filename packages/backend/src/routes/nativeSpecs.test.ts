@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 import express from "express";
+import { FeatureSpec, NativeSubsystemSpec } from "@splice/contracts";
 import { nativeSpecsRouter } from "./nativeSpecs.js";
 
 let state = "";
@@ -82,3 +83,189 @@ test("native API rejects malformed artifact identities", async () => {
   assert.equal(response.status, 400);
   assert.equal((await fetch(`${base}/api/native-specs/bad`)).status, 400);
 });
+
+test("POST /api/native-specs/adapt converts valid native spec to valid FeatureSpec with all guarantees", async () => {
+  const dummyHash = "a".repeat(64);
+  const sampleNativeSpec: NativeSubsystemSpec = {
+    schema: 1,
+    kind: "native_subsystem_spec",
+    campaign: dummyHash,
+    binary_sha256: "b".repeat(64),
+    scope_id: "c".repeat(64),
+    scope_revision: 1,
+    title: "Task Priority Scoring Subsystem",
+    status: "ready_for_review",
+    boundary: {
+      mode: "subsystem",
+      included: [
+        { entry: "004012a0", name: "score_task_priority" },
+      ],
+      boundaries: [],
+      exclusions: [],
+      unresolved_edges: [],
+      expected_observables_to_investigate: ["priority score calculation"],
+    },
+    requirements: [
+      {
+        id: "REQ-1",
+        subject: "004012a0",
+        draft_artifact: dummyHash,
+        claim_index: 0,
+        statement: "Score must be non-negative and capped at 200.",
+        evidence: [{ artifact: dummyHash, address: "004012a0" }],
+        assumptions: [],
+        alternatives: [],
+        review_state: "supported_static",
+        reviews: [{ outcome: "supported_static", model: "independent-reviewer" }],
+        execution_state: "case_agreement",
+        probe_links: [{ case_id: "completed_zero", agreement: true }],
+      },
+      {
+        id: "REQ-2",
+        subject: "004012a0",
+        draft_artifact: dummyHash,
+        claim_index: 1,
+        statement: "Completed tasks must evaluate to priority 0.",
+        evidence: [{ artifact: dummyHash, address: "004012a8" }],
+        assumptions: [],
+        alternatives: [],
+        review_state: "supported_static",
+        reviews: [{ outcome: "supported_static", model: "independent-reviewer" }],
+        execution_state: "case_agreement",
+        probe_links: [{ case_id: "completed_zero", agreement: true }],
+      },
+    ],
+    function_descriptions: [
+      {
+        entry: "004012a0",
+        name: "score_task_priority",
+        draft_artifact: dummyHash,
+        inputs: "TaskView* task, int64_t now_epoch",
+        outputs: "int score",
+        state: "stateless",
+        side_effects: "none",
+        errors: "clamped",
+        draft_pseudocode: "int score_task_priority(TaskView *task) { return task->completed ? 0 : 42; }",
+        unknowns: [],
+        evidence_requests: [],
+      },
+    ],
+    dependency_contracts: [],
+    original_cases: [
+      {
+        case_id: "completed_zero",
+        target: "score_task_priority",
+        input: { completed: 1 },
+        expected: 0,
+        observed: 0,
+        outcome: "agreement",
+      },
+    ],
+    unresolved_claims: [],
+    review_gaps: [],
+    blockers: [],
+    coverage: { claims: 2, supported_static: 2, case_agreements: 2 },
+    provenance: {
+      dossier_artifact: "d".repeat(64),
+      dossier_revision: 1,
+      dossier_readiness: "ready_for_spec",
+      dossier_schema: 1,
+      analysis: null,
+      scope_artifact: "e".repeat(64),
+      draft_artifacts: [dummyHash],
+      review_artifacts: [dummyHash],
+      probe_report_artifacts: [dummyHash],
+      probe_link_artifacts: [dummyHash],
+      dependency_resolution_artifacts: [],
+      gap_adjudication_artifacts: [],
+      generator_sha256: "f".repeat(64),
+    },
+  };
+
+  // 1. Adapt via direct spec payload
+  const res = await fetch(`${base}/api/native-specs/adapt`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ spec: sampleNativeSpec, feature_id: "mockpriority.priority_score" }),
+  });
+  assert.equal(res.status, 200);
+  const data = (await res.json()) as { spec: FeatureSpec };
+  
+  // A. valid native spec -> valid FeatureSpec (validates against Zod schema)
+  const parsed = FeatureSpec.parse(data.spec);
+  assert.equal(parsed.schema_version, 1);
+  assert.equal(parsed.feature_id, "mockpriority.priority_score");
+
+  // B. requirements are preserved
+  assert.equal(parsed.requirements.length, 2);
+  assert.equal(parsed.requirements[0].id, "REQ-1");
+  assert.equal(parsed.requirements[0].statement, "Score must be non-negative and capped at 200.");
+  assert.deepEqual(parsed.requirements[0].source_refs, ["004012a0@004012a0"]);
+  assert.equal(parsed.requirements[0].kind, "invariant");
+  assert.equal(parsed.requirements[1].id, "REQ-2");
+
+  // C. interface is valid
+  assert.ok(parsed.interface.module_name.length > 0);
+  assert.ok(parsed.interface.exports.length > 0);
+  assert.ok(parsed.interface.types_code.includes("score_task_priority"));
+
+  // D. acceptance tests are valid
+  assert.ok(parsed.acceptance_tests.length > 0);
+  assert.ok(parsed.acceptance_tests.includes('test("REQ-1:'));
+  assert.ok(parsed.acceptance_tests.includes('test("REQ-2:'));
+
+  // E. oracle is strictly not_executable
+  assert.equal(parsed.oracle.status, "not_executable");
+  assert.equal(parsed.oracle.adapter_code, null);
+  assert.deepEqual(parsed.oracle.tests, []);
+
+  // F. provenance is preserved
+  assert.equal(parsed.provenance.target.sha256, sampleNativeSpec.binary_sha256);
+  assert.equal(parsed.provenance.target.artifact_type, "native_elf");
+  assert.ok(parsed.provenance.limitations.some((l) => l.includes(sampleNativeSpec.provenance.dossier_artifact)));
+  assert.ok(parsed.provenance.limitations.some((l) => l.includes(sampleNativeSpec.campaign)));
+
+  // G. raw native pseudocode is not included in generated implementation-facing content
+  const promptFacingContent = JSON.stringify({
+    requirements: parsed.requirements,
+    interface: parsed.interface,
+    tests: parsed.acceptance_tests,
+  });
+  assert.equal(promptFacingContent.includes("Ghidra"), false);
+  assert.equal(promptFacingContent.includes("decompiler"), false);
+  assert.equal(promptFacingContent.includes("ptr"), false);
+  assert.equal(promptFacingContent.includes("0x4012A0"), false);
+
+  // 2. Adapt via stored artifact digest
+  const specArtifact = await put(sampleNativeSpec);
+  const res2 = await fetch(`${base}/api/native-specs/adapt`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ artifact: specArtifact }),
+  });
+  assert.equal(res2.status, 200);
+  const data2 = (await res2.json()) as { spec: FeatureSpec };
+  assert.equal(data2.spec.feature_id, "native.taskpriorityscoringsubsystem");
+
+  // 3. GET /api/native-specs lists stored specs
+  const listRes = await fetch(`${base}/api/native-specs`);
+  assert.equal(listRes.status, 200);
+  const listData = (await listRes.json()) as { specs: Array<{ artifact: string; spec: NativeSubsystemSpec }> };
+  assert.ok(listData.specs.some((s) => s.artifact === specArtifact));
+
+  // 4. Error cases
+  const badRes = await fetch(`${base}/api/native-specs/adapt`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ artifact: "0".repeat(64) }), // nonexistent artifact
+  });
+  assert.equal(badRes.status, 404);
+
+  const invalidRes = await fetch(`${base}/api/native-specs/adapt`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ spec: { invalid: true } }),
+  });
+  assert.equal(invalidRes.status, 400);
+});
+

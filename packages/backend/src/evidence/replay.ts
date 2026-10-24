@@ -26,6 +26,9 @@ export async function loadRecordedEvidence(featureId: string): Promise<RawEviden
     path.join(FIX, "evidence", `${featureId}.latest.json`),
     path.join(FIX, "hand-authored", "evidence", `${featureId}.json`),
     path.join(FIX, "evidence", "_seed", `${featureId}.json`),
+    ...(featureId === "mockpriority.priority_score"
+      ? [path.join(FIX, "test-run", "mock_decompiled_evidence.json")]
+      : []),
   ]);
   if (!raw) return null;
   return { ...RawEvidence.parse(raw), mode: "replay" };

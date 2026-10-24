@@ -53,6 +53,25 @@
           "symbols": ["computeStreak"]
         }
       ]
+    },
+    {
+      "app_id": "mockpriority",
+      "display_name": "Mock Task Board (decompilation test)",
+      "icon": "ListTodo",
+      "description": "Synthetic native task-priority subsystem fixture for pipeline handoff testing.",
+      "artifact_type": "native_elf",
+      "target_path": "fixtures/test-run/mock_task_priority.elf",
+      "live_supported": false,
+      "features": [
+        {
+          "feature_id": "mockpriority.priority_score",
+          "title": "Task priority scoring (mock decompilation)",
+          "query": "How the native task-priority subsystem scores due dates, urgency, and task importance",
+          "category": "utility",
+          "seeds": [{ "kind": "symbol", "value": "score_task_priority" }],
+          "symbols": ["score_task_priority", "urgency_bucket"]
+        }
+      ]
     }
   ]
 }

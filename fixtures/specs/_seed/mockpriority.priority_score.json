@@ -1,0 +1,150 @@
+{
+  "schema_version": 1,
+  "feature_id": "mockpriority.priority_score",
+  "app_id": "mockpriority",
+  "source_app": "Mock Task Board (Native ELF)",
+  "source_icon": "ListTodo",
+  "artifact_type": "native_elf",
+  "consumer_title": "Task priority scoring (mock decompilation)",
+  "consumer_description": "Clean-room TypeScript implementation reconstructed from native task-priority subsystem.",
+  "category": "utility",
+  "requirements": [
+    {
+      "id": "REQ-1",
+      "kind": "behavior",
+      "statement": "Completed tasks score 0 regardless of due date or importance.",
+      "source_refs": [
+        "004012a0@004012a0"
+      ]
+    },
+    {
+      "id": "REQ-2",
+      "kind": "invariant",
+      "statement": "Overdue tasks gain 40 points per complete day late, capped at 120.",
+      "source_refs": [
+        "004012a0@004012a8"
+      ]
+    },
+    {
+      "id": "REQ-3",
+      "kind": "behavior",
+      "statement": "Tasks due within 24 hours receive 80 urgency points; tasks due within 7 days receive 35 urgency points.",
+      "source_refs": [
+        "004012a0@004012c0"
+      ]
+    },
+    {
+      "id": "REQ-4",
+      "kind": "invariant",
+      "statement": "Importance is clamped between 0 and 5, adding 30 points per level.",
+      "source_refs": [
+        "004012a0@004012d0"
+      ]
+    },
+    {
+      "id": "REQ-5",
+      "kind": "invariant",
+      "statement": "Total score is non-negative and capped at 200.",
+      "source_refs": [
+        "004012a0@004012e4"
+      ]
+    }
+  ],
+  "interface": {
+    "module_name": "priorityScore",
+    "exports": [
+      {
+        "name": "score_task_priority",
+        "kind": "function",
+        "signature": "(...args: any[]) => any",
+        "description": "Verified native behavior for score_task_priority (004012a0)"
+      }
+    ],
+    "types_code": "export interface TaskView {\n  completed: boolean;\n  importance: number;\n  due_epoch: number;\n}\n\nexport declare function score_task_priority(task: TaskView, now_epoch?: number): number;\nexport declare function urgency_bucket(due_epoch: number, now_epoch: number): number;\n"
+  },
+  "inputs": [
+    {
+      "name": "input",
+      "type": "Record<string, unknown>",
+      "description": "Input parameters for Task Priority Scoring Subsystem"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "result",
+      "type": "Record<string, unknown> | number | string",
+      "description": "Computed outcome for Task Priority Scoring Subsystem"
+    }
+  ],
+  "acceptance_tests": "import { test, expect } from \"vitest\";\nimport { score_task_priority, urgency_bucket } from \"./index.js\";\n\ntest(\"REQ-1: Completed tasks score 0 regardless of due date or importance.\", () => {\n  const score = score_task_priority({ completed: true, importance: 5, due_epoch: 0 }, 100000);\n  expect(score).toBe(0);\n});\n\ntest(\"REQ-2: Overdue tasks gain 40 points per complete day late, capped at 120.\", () => {\n  // 4 days late: 4 * 40 = 160 capped at 120. Importance 0 -> total 120\n  const score = score_task_priority({ completed: false, importance: 0, due_epoch: 0 }, 4 * 86400);\n  expect(score).toBe(120);\n});\n\ntest(\"REQ-3: Tasks due within 24 hours receive 80 urgency points; tasks due within 7 days receive 35 urgency points.\", () => {\n  const score24h = urgency_bucket(50000, 0);\n  expect(score24h).toBe(80);\n  const score7d = urgency_bucket(200000, 0);\n  expect(score7d).toBe(35);\n});\n\ntest(\"REQ-4: Importance is clamped between 0 and 5, adding 30 points per level.\", () => {\n  // due in >7d -> urgency 0; importance 3 -> 90\n  const score = score_task_priority({ completed: false, importance: 3, due_epoch: 1000000 }, 0);\n  expect(score).toBe(90);\n});\n\ntest(\"REQ-5: Total score is non-negative and capped at 200.\", () => {\n  // urgency 120 + 30 * 5 = 270, capped at 200\n  const score = score_task_priority({ completed: false, importance: 5, due_epoch: 0 }, 10 * 86400);\n  expect(score).toBe(200);\n});\n",
+  "coverage": [
+    {
+      "requirement_id": "REQ-1",
+      "test_names": [
+        "REQ-1: Completed tasks score 0 regardless of due date or importance."
+      ]
+    },
+    {
+      "requirement_id": "REQ-2",
+      "test_names": [
+        "REQ-2: Overdue tasks gain 40 points per complete day late, capped at 120."
+      ]
+    },
+    {
+      "requirement_id": "REQ-3",
+      "test_names": [
+        "REQ-3: Tasks due within 24 hours receive 80 urgency points; tasks due within 7 days receive 35 urgency points."
+      ]
+    },
+    {
+      "requirement_id": "REQ-4",
+      "test_names": [
+        "REQ-4: Importance is clamped between 0 and 5, adding 30 points per level."
+      ]
+    },
+    {
+      "requirement_id": "REQ-5",
+      "test_names": [
+        "REQ-5: Total score is non-negative and capped at 200."
+      ]
+    }
+  ],
+  "allowed_deviations": [
+    "Native C pointers, integer widths, and calling conventions mapped to idiomatic TypeScript types."
+  ],
+  "stripped_glue": [
+    "Binary ELF load segments, x86/x64 calling conventions, and raw memory layout omitted."
+  ],
+  "oracle": {
+    "status": "not_executable",
+    "adapter_code": null,
+    "tests": [],
+    "passed": 0,
+    "total": 0
+  },
+  "status": "verified",
+  "open_issues": [],
+  "repair_attempts": 0,
+  "provenance": {
+    "mode": "replay",
+    "target": {
+      "path": "decomp-state/artifacts/00/0000000000000000000000000000000000000000000000000000000000000000",
+      "artifact_type": "native_elf",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "rea_package_version": "ghidra-decomp-engine",
+    "tool_calls": [],
+    "snippets": [],
+    "limitations": [
+      "Derived from native subsystem decompilation and independent static review.",
+      "Dossier artifact: 0000000000000000000000000000000000000000000000000000000000000000",
+      "Campaign: 0000000000000000000000000000000000000000000000000000000000000000",
+      "Binary SHA-256: 0000000000000000000000000000000000000000000000000000000000000000",
+      "Scope artifact: 0000000000000000000000000000000000000000000000000000000000000000"
+    ],
+    "unknowns": [],
+    "collected_at": "2026-10-24T22:45:55.241Z",
+    "specified_at": "2026-10-24T22:45:55.241Z",
+    "model": "decomp-independent-review"
+  }
+}

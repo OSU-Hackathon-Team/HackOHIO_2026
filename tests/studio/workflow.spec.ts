@@ -201,3 +201,38 @@ test("assistant stays in chat on success and failure, cancels safely, and preser
   ).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test("native target is visible, displays native ELF badge, adapts spec and reconstructs engine", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+
+  await navigate(page, "App library");
+  const applications = page.getByRole("region", {
+    name: "Source applications",
+  });
+
+  const mockPriority = applications.getByRole("button", { name: /Mock Task Board/ });
+  await expect(mockPriority).toBeVisible();
+  await expect(mockPriority).toContainText("Native ELF");
+  await mockPriority.click();
+
+  const featureBtn = applications.getByRole("button", { name: /Task Priority Scoring/ });
+  await expect(featureBtn).toBeVisible();
+  await featureBtn.click();
+
+  const details = page.getByRole("region", { name: "Feature details" });
+  await expect(details.getByRole("heading", { name: /Task Priority Scoring/ })).toBeVisible();
+  await expect(details).toContainText("Native Specification View");
+  await expect(details).toContainText("004012a0");
+
+  const reconstructBtn = details.getByRole("button", { name: "Reconstruct Engine", exact: true });
+  await expect(reconstructBtn).toBeVisible();
+  await reconstructBtn.click();
+
+  await expect(details.getByText("Engine Reconstructed")).toBeVisible({ timeout: 10000 });
+  await expect(details.getByRole("button", { name: "Reconstruct Again", exact: true })).toBeVisible();
+
+  expect(errors).toEqual([]);
+});

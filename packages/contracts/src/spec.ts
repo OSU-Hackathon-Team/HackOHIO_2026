@@ -57,6 +57,7 @@ export const RequirementCoverage = z.object({
   requirement_id: z.string(),
   test_names: z.array(z.string()),         // COMPUTED by parsing "REQ-n" out of test names, never LLM-claimed
 });
+export type RequirementCoverage = z.infer<typeof RequirementCoverage>;
 
 export const SpecProvenance = z.object({
   mode: z.enum(["live", "replay"]),        // replay → UI shows REPLAY badge

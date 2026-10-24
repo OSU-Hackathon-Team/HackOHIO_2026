@@ -1,7 +1,7 @@
-// Owner: Eng 3 (Implementation) — spec: agents/3_feature_implementation/06_state_and_api_client.md §2
 import {
   Pantry, PipelineEvent, SynthEvent, HealthResponse, FeatureBlueprint,
-  type FeatureSpec, type RefineRequest,
+  NativeSubsystemSpec, FeatureSpec,
+  type RefineRequest,
 } from "@splice/contracts";
 import { z } from "zod";
 import { streamPost } from "./sse";
@@ -35,6 +35,13 @@ export interface Api {
     signal?: AbortSignal,
   ): Promise<void>;
   blueprints?(signal?: AbortSignal): Promise<FeatureBlueprint[]>;
+  nativeSpec?(dossierArtifact: string, signal?: AbortSignal): Promise<{ artifact: string; spec: NativeSubsystemSpec }>;
+  getNativeSpec?(artifact: string, signal?: AbortSignal): Promise<NativeSubsystemSpec>;
+  listNativeSpecs?(signal?: AbortSignal): Promise<Array<{ artifact: string; spec: NativeSubsystemSpec }>>;
+  adaptNativeSpec?(
+    req: { spec?: NativeSubsystemSpec; artifact?: string; feature_id?: string },
+    signal?: AbortSignal
+  ): Promise<FeatureSpec>;
 }
 
 async function getJson(url: string, signal?: AbortSignal): Promise<unknown> {
@@ -74,6 +81,39 @@ export const liveApi: Api = {
   async blueprints(signal) {
     const value = await getJson("/api/blueprints", signal);
     return z.array(FeatureBlueprint).parse(value);
+  },
+  async nativeSpec(dossierArtifact, signal) {
+    const res = await fetch("/api/native-specs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dossier_artifact: dossierArtifact }),
+      signal,
+    });
+    if (!res.ok) throw new Error(`/api/native-specs: ${res.status} ${await res.text()}`);
+    const data = await res.json();
+    return { artifact: data.artifact, spec: NativeSubsystemSpec.parse(data.spec) };
+  },
+  async getNativeSpec(artifact, signal) {
+    const value = await getJson(`/api/native-specs/${artifact}`, signal);
+    return NativeSubsystemSpec.parse(value);
+  },
+  async listNativeSpecs(signal) {
+    const value = (await getJson("/api/native-specs", signal)) as { specs?: Array<{ artifact: string; spec: any }> };
+    return (value.specs ?? []).map((s) => ({
+      artifact: s.artifact,
+      spec: NativeSubsystemSpec.parse(s.spec),
+    }));
+  },
+  async adaptNativeSpec(req, signal) {
+    const res = await fetch("/api/native-specs/adapt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+      signal,
+    });
+    if (!res.ok) throw new Error(`/api/native-specs/adapt: ${res.status} ${await res.text()}`);
+    const data = await res.json();
+    return FeatureSpec.parse(data.spec ?? data.feature_spec);
   },
 };
 
