@@ -21,16 +21,6 @@ const definitions = [
     types: `export interface CardState { repetitions: number; intervalDays: number; easeFactor: number; lapses: number }
 export interface ReviewResult extends CardState { dueDate: string; isLeech: boolean }
 export declare function reviewCard(state: CardState, grade: number, today: string): ReviewResult;`,
-    code: `export interface CardState { repetitions: number; intervalDays: number; easeFactor: number; lapses: number }
-export interface ReviewResult extends CardState { dueDate: string; isLeech: boolean }
-export function reviewCard(state: CardState, grade: number, today: string): ReviewResult {
-  if (!Number.isInteger(grade) || grade < 0 || grade > 5) throw new RangeError("Grade must be an integer 0–5");
-  const intervalDays = grade < 3 ? 1 : state.repetitions === 0 ? 1 : state.repetitions === 1 ? 6 : Math.round(state.intervalDays * state.easeFactor);
-  const lapses = state.lapses + (grade < 3 ? 1 : 0);
-  const easeFactor = Math.max(1.3, Math.round((state.easeFactor + 0.1 - (5-grade)*(0.08+(5-grade)*0.02))*100)/100);
-  const date = new Date(today + "T00:00:00Z"); date.setUTCDate(date.getUTCDate() + intervalDays);
-  return { repetitions: grade < 3 ? 0 : state.repetitions + 1, intervalDays, easeFactor, lapses, dueDate: date.toISOString().slice(0,10), isLeech: lapses >= 8 };
-}`,
     tests: `const fresh = { repetitions: 0, intervalDays: 0, easeFactor: 2.5, lapses: 0 };
 test("REQ-1: first review is due tomorrow", () => assert.equal(reviewCard(fresh, 5, "2026-10-24").dueDate, "2026-10-25"));
 test("REQ-1: second review uses six days", () => assert.equal(reviewCard({ ...fresh, repetitions: 1 }, 4, "2026-10-24").intervalDays, 6));
@@ -41,13 +31,13 @@ test("REQ-1: invalid grade throws", () => assert.throws(() => reviewCard(fresh, 
     location: "src/graph/wikilinks.js:L1-L36",
     statement: "Extract wiki-link targets, dropping aliases and headings and ignoring fenced and inline code. The UI derives backlinks from these targets.",
     types: `export declare function parseLinks(markdown: string): string[];`,
-    code: 'export function parseLinks(markdown: string): string[] {\n  const clean = markdown.replace(/```[\\s\\S]*?```/g, "").replace(/`[^`]*`/g, "");\n  return Array.from(clean.matchAll(/\\[\\[([^\\]]+)\\]\\]/g), (m) => m[1].split(/[|#]/)[0].trim()).filter(Boolean);\n}',
     tests: 'test("REQ-1: basic target", () => assert.deepEqual(parseLinks("See [[Heart]]"), ["Heart"]));\ntest("REQ-1: aliases and headings", () => assert.deepEqual(parseLinks("[[Heart#Anatomy|Label]]"), ["Heart"]));\ntest("REQ-1: code ignored", () => assert.deepEqual(parseLinks("`[[Hidden]]` and ```[[Hidden]]```"), []));',
   },
 ] as const;
 
 const blueprints: FeatureBlueprint[] = [];
-for (const d of definitions) {
+for (const definition of definitions) {
+  const d = { ...definition, code: await fs.readFile(path.join(root, `fixtures/engines/_seed/${definition.module}.ts`), "utf8") };
   const spec = FeatureSpec.parse({
     schema_version: 1, feature_id: d.id, app_id: d.id.split(".")[0], source_app: d.app, source_icon: d.category === "graph" ? "BookOpen" : "Clock",
     artifact_type: "electron_asar", consumer_title: d.title, consumer_description: "Development seed: " + d.statement, category: d.category,

@@ -1,67 +1,97 @@
 import { test, expect, type Page } from "@playwright/test";
 
-async function harvest(page: Page) {
-  await page.goto("/?mode=development");
-  await page.getByRole("button", { name: "Wiki-link graph & backlinks", exact: true }).click();
-  await page.getByRole("button", { name: "SM-2 spaced repetition", exact: true }).click();
-  await page.getByRole("button", { name: "Harvest 2 features", exact: true }).click();
-  await expect(page.getByText("Engine 3/3 · passed", { exact: true })).toHaveCount(2);
+async function sample(page: Page) {
+  await page.goto("/"); await page.getByRole("button",{ name: "Try the study app" }).click();
 }
-
-test("Studio labels, evidence keyboard behavior, cancellation and mobile layout", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await harvest(page);
-  await expect(page.getByText("Development demo", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Inspect evidence" }).first().click();
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await page.getByRole("button", { name: "Tests", exact: true }).click();
-  await expect(page.getByRole("cell", { name: "Not run", exact: true }).first()).toBeVisible();
-  await page.keyboard.press("Escape"); await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Inspect evidence" }).first()).toBeFocused();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: "test-results/studio-mobile.png", fullPage: true });
-  await page.getByRole("button", { name: "Harvest 2 features", exact: true }).click();
-  await page.getByRole("button", { name: "Cancel work", exact: true }).click();
-  await expect(page.getByText("Cancelled", { exact: true }).first()).toBeVisible();
-});
-
-test("live mode surfaces backend 503 without switching into the development demo", async ({ page }) => {
-  await page.route("**/api/health", route => route.fulfill({ json: { status: "ok" } }));
-  await page.route("**/api/pantry", async route => {
-    const { readFile } = await import("node:fs/promises");
-    await route.fulfill({ contentType: "application/json", body: await readFile("targets/manifest.json", "utf8") });
-  });
-  await page.route("**/api/extract", route => route.fulfill({ status: 503, body: "Missing shared helpers" }));
-  await page.goto("/");
-  await page.getByRole("button", { name: "SM-2 spaced repetition", exact: true }).click();
-  await page.getByRole("button", { name: "Harvest 1 feature", exact: true }).click();
-  await expect(page.getByRole("alert").first()).toContainText("503");
-  await expect(page.getByText("Development demo", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("Live status unknown", { exact: true })).toBeVisible();
-});
-
-for (let run = 1; run <= 3; run++) test(`Sandpack boots and engine interaction survives code tab, run ${run}`, async ({ page }) => {
+async function build(page: Page) {
+  await sample(page);
+  await page.getByRole("region",{ name: "Recall Flashcards" }).getByRole("button",{ name: "Add to app", exact: true }).click();
+  await page.getByRole("button",{ name: "Open app builder" }).click();
+}
+test("maker journey: inspect, select dependencies, edit, try engines and reopen", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
   const errors: string[] = []; page.on("pageerror", e => errors.push(e.message));
-  await harvest(page);
-  await page.getByRole("button", { name: "Fuse 2 engines into an app", exact: true }).click();
-  const preview = page.frameLocator('iframe[title="Sandpack Preview"]');
-  await expect(preview.getByRole("heading", { name: "Study room", exact: true })).toBeVisible({ timeout: 65000 });
-  await preview.getByRole("button", { name: "Review Cardiology · grade 4", exact: true }).click();
-  await expect(preview.getByText("Next review:", { exact: false }).first()).toBeVisible();
-  await preview.getByLabel("Note title", { exact: true }).fill("New case");
-  await preview.getByLabel("Note text", { exact: true }).fill("See [[Cardiology]]");
-  await preview.getByRole("button", { name: "Add note", exact: true }).click();
-  await expect(preview.getByRole("heading", { name: "New case", exact: true })).toBeVisible();
-  await expect(preview.getByRole("article").filter({ has: preview.getByRole("heading", { name: "Cardiology", exact: true }) })).toContainText("New case");
-  await page.getByRole("button", { name: "Code", exact: true }).click();
-  await expect(page.getByText("sm2Scheduler.ts", { exact: false }).first()).toBeVisible();
-  await page.getByRole("button", { name: "Preview", exact: true }).click();
-  await expect(preview.getByRole("heading", { name: "New case", exact: true })).toBeVisible();
-  if (run === 3) {
-    await page.screenshot({ path: "test-results/studio-desktop.png", fullPage: true });
-    await page.setViewportSize({ width: 390, height: 844 });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await expect(preview.getByRole("heading", { name: "New case", exact: true })).toBeVisible();
-  }
+  await sample(page);
+  await expect(page.getByText("Sample results · not live analysis")).toBeVisible();
+  await page.getByRole("button",{ name: "Inspect Cloud sync" }).click();
+  await expect(page.getByRole("region",{ name: "Inspector" })).toContainText("Network and storage dependencies are unresolved");
+  await expect(page.getByRole("region",{ name: "Inspector" }).getByRole("button",{ name: "Add to app" })).toHaveCount(0);
+  await page.getByRole("region",{ name: "Recall Flashcards" }).getByRole("button",{ name: "Add to app", exact: true }).click();
+  await page.getByRole("button",{ name: "Open app builder" }).click();
+  await expect(page.getByRole("grid",{ name: "App layout",exact: true })).toBeVisible();
+  await page.getByRole("button",{ name: "Edit section My notes", exact: true }).click();
+  await page.getByLabel("Section title",{ exact: true }).fill("Learning journal");
+  await page.getByRole("button",{ name: "Apply section changes" }).click();
+  await expect(page.getByRole("heading",{ name: "Learning journal", exact: true })).toBeVisible();
+  await page.getByRole("button",{ name: "Undo", exact: true }).click();
+  await expect(page.getByRole("heading",{ name: "My notes", exact: true })).toBeVisible();
+  await page.getByRole("button",{ name: "Redo", exact: true }).click();
+  await page.getByRole("button",{ name: "Try app", exact: true }).click();
+  await page.getByLabel("Note title",{ exact: true }).fill("New case");
+  await page.getByLabel("Note text",{ exact: true }).fill("See [[Cardiology]]");
+  await page.getByRole("button",{ name: "Add note", exact: true }).click();
+  await expect(page.getByRole("heading",{ name: "New case",exact: true })).toBeVisible();
+  await expect(page.getByRole("article",{ name: "Connected ideas" })).toContainText("New case");
+  await page.getByRole("button",{ name: "Review Cardiology, grade 4",exact: true }).click();
+  await expect(page.getByText("Next review:",{ exact: false }).first()).toBeVisible();
+  await page.getByRole("button",{ name: "Edit layout",exact: true }).click();
+  await page.getByRole("button",{ name: "Try app",exact: true }).click();
+  await expect(page.getByRole("heading",{ name: "New case",exact: true })).toBeVisible();
+  await page.screenshot({ path: "test-results/builder-desktop.png",fullPage: true });
+  await page.reload();
+  await page.getByRole("button",{ name: /My study space.*2 features/ }).click();
+  await page.getByRole("button",{ name: "Try app",exact: true }).click();
+  await expect(page.getByRole("heading",{ name: "New case",exact: true })).toBeVisible();
   expect(errors).toEqual([]);
+});
+test("mobile inspector keyboard, movement alternatives and no overflow", async ({ page }) => {
+  await page.setViewportSize({ width: 390,height: 844 }); await build(page);
+  const edit = page.getByRole("row",{ name: "My notes",exact: true });
+  await edit.focus(); await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog",{ name: "Inspector" }); await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape"); await expect(dialog).toHaveCount(0); await expect(edit).toBeFocused();
+  await page.keyboard.press("Enter"); await expect(dialog).toBeVisible();
+  await dialog.getByRole("button",{ name: "Move down" }).click();
+  await expect(dialog).toBeVisible(); await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole("button",{ name: "Open feature library" }).click();
+  await expect(page.getByRole("dialog",{ name: "Feature library" })).toBeVisible();
+  await page.getByRole("button",{ name: "Add heading / text" }).click();
+  await expect(page.getByRole("heading",{ name: "A little context",exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: "test-results/builder-mobile.png",fullPage: true });
+});
+test("live assistant route: validated edits, cancellation and visible errors", async ({ page }) => {
+  await page.setViewportSize({ width: 1440,height: 1000 }); await build(page);
+  await page.route("**/api/builder/edits",async route => {
+    const request = route.request().postDataJSON();
+    if (request.instruction === "Fail") return route.fulfill({ status: 503,json: { error: "503 Qwen unavailable" } });
+    if (request.instruction === "Malformed") return route.fulfill({ json: { revision: request.revision, summary: "bad",model: "test", operations: [{ type: "execute-code" }] } });
+    if (request.instruction === "Wait") { await new Promise(resolve => setTimeout(resolve,500)); return route.fulfill({ json: { revision: request.revision,summary: "Late change",model: "test",operations: [] } }).catch(() => {}); }
+    return route.fulfill({ json: { revision: request.revision,summary: "Added your introduction",model: "qwen-browser-test",operations: [{ type: "add",blockId: "welcome",index: 0,block: { id: "welcome",kind: "text",title: "Welcome to your study space",description: "A little every day.",visible: true,width: "full" } }] } });
+  });
+  async function ask(text: string) { await page.getByLabel("Ask the assistant").fill(text); await page.getByRole("button",{ name: "Send message",exact: true }).click(); }
+  await ask("Add an introduction");
+  await expect(page.getByRole("heading",{ name: "Welcome to your study space" })).toBeVisible();
+  await expect(page.getByText("Added your introduction",{ exact: true })).toBeVisible();
+  await ask("Fail"); await expect(page.getByRole("alert")).toContainText("503 Qwen unavailable");
+  await expect(page.getByRole("heading",{ name: "Welcome to your study space" })).toBeVisible();
+  await ask("Malformed"); await expect(page.getByRole("alert")).toBeVisible();
+  await ask("Wait"); await page.getByRole("button",{ name: "Cancel",exact: true }).click();
+  await expect(page.getByText("Qwen is preparing your edit…",{ exact: true })).toHaveCount(0);
+  await page.waitForTimeout(700); await expect(page.getByText("Late change",{ exact: true })).toHaveCount(0);
+});
+test("attached files never produce fake analysis; storage failures remain visible", async ({ page }) => {
+  await page.goto("/");
+  await page.locator('input[type="file"]').setInputFiles({ name: "my-app.exe",mimeType: "application/octet-stream",buffer: Buffer.from("Not uploaded") });
+  await page.getByLabel("Describe what you want to find").fill("Reuse search");
+  await page.getByRole("button",{ name: "Create project",exact: true }).click();
+  await expect(page.getByRole("heading",{ name: "Your application has not been analyzed" })).toBeVisible();
+  await expect(page.getByText("Sample results · not live analysis",{ exact: true })).toHaveCount(0);
+  await page.getByRole("button",{ name: "Explore sample analysis instead" }).click();
+  await expect(page.getByText("Your attached files remain unanalyzed.",{ exact: false })).toBeVisible();
+  await page.addInitScript(() => { Storage.prototype.setItem = () => { throw new DOMException("Quota","QuotaExceededError"); }; });
+  await page.reload(); await page.getByRole("button",{ name: /Untitled project.*0 features/ }).click();
+  await page.getByRole("region",{ name: "Recall Flashcards" }).getByRole("button",{ name: "Add to app",exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("could not be saved");
 });
