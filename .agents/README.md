@@ -96,9 +96,10 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   restart events and status counts. Function evidence separates listing types from
   decompiler-inferred parameters and records referenced data; both semantic and review
   prompts receive that context. A real dossier passes an in-memory compatibility check
-  against the existing generator. The function index now counts executable regions and
-  decoded instructions outside discovered functions, exposing a gap that `export-all`
-  success alone cannot rule out. Scale and recovery gates remain open. Current work
+  against the existing generator. The function index now counts executable regions, decoded
+  instructions outside functions, and bytes classified as neither instructions nor defined
+  data, exposing gaps that `export-all` success alone cannot rule out. Scale and recovery gates
+  remain open. Current work
   stops before advancing a live campaign into specification generation as directed in
   `DECOMP_IMPLEMENTATION_PLAN.md`.
   The native spec generator and backend endpoint now consume

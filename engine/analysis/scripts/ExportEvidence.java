@@ -5,6 +5,9 @@ import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressRange;
+import ghidra.program.model.address.AddressRangeIterator;
+import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.Data;
@@ -143,7 +146,20 @@ public class ExportEvidence extends GhidraScript {
             imports.add(record("name", symbol.getName(true),
                                "address", addr(symbol.getAddress())));
         }
+        List<Map<String, Object>> executableRegions = new ArrayList<>();
+        AddressSet executableAddresses = new AddressSet();
+        long executableBytes = 0;
+        for (MemoryBlock block : currentProgram.getMemory().getBlocks()) {
+            if (block.isExecute()) {
+                executableRegions.add(record("name", block.getName(),
+                        "start", addr(block.getStart()), "end", addr(block.getEnd()),
+                        "size", block.getSize(), "initialized", block.isInitialized()));
+                executableBytes += block.getSize();
+                executableAddresses.add(block.getStart(), block.getEnd());
+            }
+        }
         List<Map<String, Object>> strings = new ArrayList<>();
+        AddressSet definedExecutableData = new AddressSet();
         DataIterator data = currentProgram.getListing().getDefinedData(true);
         while (data.hasNext()) {
             monitor.checkCancelled();
@@ -152,18 +168,12 @@ public class ExportEvidence extends GhidraScript {
             if (value instanceof String) {
                 strings.add(record("address", addr(item.getAddress()), "value", value));
             }
-        }
-        List<Map<String, Object>> executableRegions = new ArrayList<>();
-        long executableBytes = 0;
-        for (MemoryBlock block : currentProgram.getMemory().getBlocks()) {
-            if (block.isExecute()) {
-                executableRegions.add(record("name", block.getName(),
-                        "start", addr(block.getStart()), "end", addr(block.getEnd()),
-                        "size", block.getSize(), "initialized", block.isInitialized()));
-                executableBytes += block.getSize();
+            if (executableAddresses.intersects(item.getMinAddress(), item.getMaxAddress())) {
+                definedExecutableData.add(item.getMinAddress(), item.getMaxAddress());
             }
         }
         List<Map<String, Object>> unassignedRegions = new ArrayList<>();
+        AddressSet decodedInstructions = new AddressSet();
         long assignedInstructionBytes = 0;
         long unassignedInstructionBytes = 0;
         int assignedInstructions = 0;
@@ -180,6 +190,7 @@ public class ExportEvidence extends GhidraScript {
             if (block == null || !block.isExecute()) {
                 continue;
             }
+            decodedInstructions.add(instruction.getAddress(), instruction.getMaxAddress());
             if (currentProgram.getFunctionManager().getFunctionContaining(instruction.getAddress()) != null) {
                 assignedInstructions++;
                 assignedInstructionBytes += instruction.getLength();
@@ -205,6 +216,22 @@ public class ExportEvidence extends GhidraScript {
             unassignedRegions.add(record("start", addr(runStart), "end", addr(runEnd),
                     "instructions", runCount, "instruction_bytes", runBytes));
         }
+        AddressSet undecoded = executableAddresses.subtract(decodedInstructions);
+        long definedExecutableDataBytes = undecoded.intersect(definedExecutableData)
+                .getNumAddresses();
+        AddressSet unclassified = undecoded.subtract(definedExecutableData);
+        List<Map<String, Object>> unclassifiedRegions = new ArrayList<>();
+        AddressRangeIterator gaps = unclassified.getAddressRanges();
+        int unclassifiedRegionCount = 0;
+        while (gaps.hasNext()) {
+            monitor.checkCancelled();
+            AddressRange gap = gaps.next();
+            unclassifiedRegionCount++;
+            if (unclassifiedRegions.size() < 4096) {
+                unclassifiedRegions.add(record("start", addr(gap.getMinAddress()),
+                        "end", addr(gap.getMaxAddress()), "bytes", gap.getLength()));
+            }
+        }
         output.put("status", "ok");
         output.put("program", currentProgram.getName());
         output.put("executable_format", currentProgram.getExecutableFormat());
@@ -219,11 +246,17 @@ public class ExportEvidence extends GhidraScript {
         output.put("indirect_calls", indirectCalls);
         output.put("executable_regions", executableRegions);
         output.put("unassigned_instruction_regions", unassignedRegions);
+        output.put("unclassified_executable_regions", unclassifiedRegions);
+        output.put("unclassified_executable_regions_truncated",
+                unclassifiedRegionCount > unclassifiedRegions.size());
         output.put("static_inventory", record("executable_bytes", executableBytes,
                 "assigned_instructions", assignedInstructions,
                 "assigned_instruction_bytes", assignedInstructionBytes,
                 "unassigned_instructions", unassignedInstructions,
-                "unassigned_instruction_bytes", unassignedInstructionBytes));
+                "unassigned_instruction_bytes", unassignedInstructionBytes,
+                "defined_executable_data_bytes", definedExecutableDataBytes,
+                "unclassified_executable_bytes", unclassified.getNumAddresses(),
+                "unclassified_executable_regions", unclassifiedRegionCount));
         output.put("omissions", List.of("indirect call targets and non-function data dependencies may be unresolved"));
     }
 

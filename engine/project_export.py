@@ -29,6 +29,7 @@ def export_project(engine: GhidraAnalysis, project_artifact: str) -> dict:
             results = []
             totals: dict[str, int] = {}
             unassigned_instructions = 0
+            unclassified_executable_bytes = 0
             for module in project["modules"]:
                 module_id = module["id"]
                 engine._emit(project_id, "project_export_module_started", module_id=module_id)
@@ -52,13 +53,19 @@ def export_project(engine: GhidraAnalysis, project_artifact: str) -> dict:
                               "complete_discovered_exports": exported["complete"],
                               "static_inventory": exported["static_inventory"],
                               "unassigned_instruction_regions":
-                                  exported["unassigned_instruction_regions"]}
+                                  exported["unassigned_instruction_regions"],
+                              "unclassified_executable_regions":
+                                  exported["unclassified_executable_regions"],
+                              "unclassified_executable_regions_truncated":
+                                  exported["unclassified_executable_regions_truncated"]}
                     if "bulk_error" in exported:
                         result["bulk_error"] = exported["bulk_error"]
                     for status, count in exported["counts"].items():
                         totals[status] = totals.get(status, 0) + count
                     unassigned_instructions += (exported["static_inventory"] or {}).get(
                         "unassigned_instructions", 0)
+                    unclassified_executable_bytes += (exported["static_inventory"] or {}).get(
+                        "unclassified_executable_bytes", 0)
                     engine._emit(project_id, "project_export_module_finished",
                                  module_id=module_id, artifact=exported["artifact"],
                                  counts=exported["counts"], complete=exported["complete"])
@@ -80,6 +87,9 @@ def export_project(engine: GhidraAnalysis, project_artifact: str) -> dict:
                          "unreported_functions": discovered - sum(totals.values()),
                          "unassigned_instructions": (unassigned_instructions if all(
                              "static_inventory" in item for item in results) else None),
+                         "unclassified_executable_bytes":
+                             (unclassified_executable_bytes if all(
+                                 "static_inventory" in item for item in results) else None),
                          "complete_discovered_exports": all(
                              item["complete_discovered_exports"] for item in results),
                          "symbol_links_artifact": project["symbol_links_artifact"],
@@ -94,6 +104,8 @@ def export_project(engine: GhidraAnalysis, project_artifact: str) -> dict:
                          counts=inventory["counts"],
                          complete=inventory["complete_discovered_exports"],
                          unassigned_instructions=inventory["unassigned_instructions"],
+                         unclassified_executable_bytes=
+                             inventory["unclassified_executable_bytes"],
                          unreported_functions=inventory["unreported_functions"])
             return {**inventory, "artifact": artifact}
         except Exception as error:

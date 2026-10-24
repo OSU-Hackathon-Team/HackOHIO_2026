@@ -98,6 +98,22 @@ def main() -> None:
         assert exported["unassigned_instructions"] == sum(
             module["static_inventory"]["unassigned_instructions"]
             for module in exported["modules"])
+        assert exported["unclassified_executable_bytes"] == sum(
+            module["static_inventory"]["unclassified_executable_bytes"]
+            for module in exported["modules"])
+        for module in exported["modules"]:
+            inventory = module["static_inventory"]
+            assert inventory["executable_bytes"] == (
+                inventory["assigned_instruction_bytes"] +
+                inventory["unassigned_instruction_bytes"] +
+                inventory["defined_executable_data_bytes"] +
+                inventory["unclassified_executable_bytes"])
+            if not module["unclassified_executable_regions_truncated"]:
+                assert len(module["unclassified_executable_regions"]) == (
+                    inventory["unclassified_executable_regions"])
+                assert sum(region["bytes"] for region in
+                           module["unclassified_executable_regions"]) == (
+                               inventory["unclassified_executable_bytes"])
         app_entries = {item["entry"] for item in indexes["app"]["functions"]
                        if not item["external"] and not item["thunk"]}
         caller = next(site["caller"] for site in bound[0]["call_sites"]
@@ -124,6 +140,8 @@ def main() -> None:
                                       {"mode": "project", "query": "entire linked fixture",
                                        "max_functions_per_module": 100})
         assert len(whole["module_scopes"]) == 2
+        assert whole["coverage"]["unclassified_executable_bytes"] == (
+            exported["unclassified_executable_bytes"])
         assert any(json.loads(engine.store.get(item["scope_artifact"]))["unresolved"]
                    for item in whole["module_scopes"])
         admin_dsn = os.environ.get(
@@ -154,6 +172,8 @@ def main() -> None:
         assert progress["symbol_links"]["counts"]["candidates"] >= 1
         assert progress["export"]["state"] == "finished"
         assert progress["export"]["complete_discovered_exports"]
+        assert progress["export"]["unclassified_executable_bytes"] == (
+            exported["unclassified_executable_bytes"])
         assert len(progress["export"]["modules"]) == 2
         assert project_scope["scope_id"] in progress["scopes"]
         assert all(module["state"] == "finished" for module in progress["modules"].values())

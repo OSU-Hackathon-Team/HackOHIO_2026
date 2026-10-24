@@ -75,6 +75,15 @@ def discover(index: dict, request: ScopeRequest, campaign: str, index_artifact: 
             "instruction_bytes": index["static_inventory"]["unassigned_instruction_bytes"],
             "regions": index["unassigned_instruction_regions"],
         })
+    if request.mode == "project" and index.get("static_inventory", {}).get(
+            "unclassified_executable_bytes", 0):
+        unresolved.append({
+            "kind": "unclassified_executable_bytes",
+            "bytes": index["static_inventory"]["unclassified_executable_bytes"],
+            "region_count": index["static_inventory"]["unclassified_executable_regions"],
+            "regions": index["unclassified_executable_regions"],
+            "regions_truncated": index["unclassified_executable_regions_truncated"],
+        })
     frontier = []
     sequence = 0
 

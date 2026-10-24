@@ -31,6 +31,13 @@ def main() -> None:
     assert bool(gaps) == bool(index["unassigned_instruction_regions"])
     if gaps:
         assert gaps[0]["instructions"] == index["static_inventory"]["unassigned_instructions"]
+    undecoded = [edge for edge in project["unresolved"]
+                 if edge["kind"] == "unclassified_executable_bytes"]
+    assert bool(undecoded) == bool(index["static_inventory"].get(
+        "unclassified_executable_bytes", 0))
+    if undecoded:
+        assert undecoded[0]["bytes"] == index["static_inventory"][
+            "unclassified_executable_bytes"]
     repeated = persist_scope(engine, manifest, request)
     assert scope["artifact"] == repeated["artifact"] and scope["revision"] == repeated["revision"]
     names = {item["name"] for item in scope["included"]}

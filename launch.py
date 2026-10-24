@@ -838,6 +838,8 @@ def main() -> None:
                     "counts": event["counts"],
                     "complete_discovered_exports": event["complete"],
                     "unassigned_instructions": event["unassigned_instructions"],
+                    "unclassified_executable_bytes": event.get(
+                        "unclassified_executable_bytes"),
                     "unreported_functions": event.get("unreported_functions")})
             elif event["stage"] == "project_export_failed":
                 item.setdefault("project", {"modules": {}}).setdefault(

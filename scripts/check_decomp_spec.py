@@ -35,7 +35,11 @@ def main() -> None:
                                 {"kind": "unassigned_executable_instructions",
                                  "instructions": 2, "instruction_bytes": 10,
                                  "regions": [{"start": "00100020", "end": "00100029",
-                                              "instructions": 2, "instruction_bytes": 10}]}],
+                                             "instructions": 2, "instruction_bytes": 10}]},
+                                {"kind": "unclassified_executable_bytes",
+                                 "bytes": 4, "region_count": 1,
+                                 "regions": [{"start": "00100030", "end": "00100033",
+                                              "bytes": 4}], "regions_truncated": False}],
                  "request": {"query": "counter", "mode": "subsystem",
                              "seeds": ["count"],
                              "expected_observables": ["counter changes"]},
@@ -98,6 +102,8 @@ def main() -> None:
         assert any(blocker["kind"] == "cross_module_bindings_unresolved" and
                    blocker["edges"][0]["symbol"] == "project_adjust"
                    for blocker in spec["blockers"])
+        assert any(blocker["kind"] == "executable_code_coverage_unresolved" and
+                   len(blocker["gaps"]) == 2 for blocker in spec["blockers"])
         assert spec["provenance"]["analysis"]["reviews"][0]["model"] == "independent-reviewer"
         ambiguous = {**dossier, "draft_artifacts": [draft_artifact, "f" * 64],
                      "functions": [*dossier["functions"],

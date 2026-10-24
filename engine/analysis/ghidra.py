@@ -325,6 +325,10 @@ class GhidraAnalysis:
                      "static_inventory": index.get("static_inventory"),
                      "unassigned_instruction_regions":
                          index.get("unassigned_instruction_regions", []),
+                     "unclassified_executable_regions":
+                         index.get("unclassified_executable_regions", []),
+                     "unclassified_executable_regions_truncated":
+                         index.get("unclassified_executable_regions_truncated", False),
                      "functions": results, "counts": counts,
                      "complete": bulk_error is None and len(results) == len(functions) and
                      all(item["status"] in {"ok", "external"} for item in results)}

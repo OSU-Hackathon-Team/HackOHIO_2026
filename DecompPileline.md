@@ -38,11 +38,13 @@ baseline, record declared and ELF `DT_NEEDED` dependencies, and identify static 
 links from imported call thunks to functions in supplied modules. A project export aggregates
 all discovered function evidence and preserves per-module failures and code-discovery gaps.
 Project scopes now follow static cross-module candidates into bounded module scopes while
-keeping those bindings unresolved. Semantic queue campaigns and dossiers still operate on one
-module at a time; cross-module contract resolution and aggregate dossiers remain to be built.
-The static index records executable memory and decoded instruction runs outside discovered
-functions. Project scopes retain those runs as unresolved work; a successful export of all
-discovered functions alone does not establish whole-binary code coverage.
+keeping those bindings unresolved. A project queue registers and drains their semantic tasks
+through one reasoning pool; dossiers still operate on one module at a time. Cross-module
+contract resolution and aggregate dossiers remain to be built. The static index records
+executable memory, decoded instruction runs outside discovered functions, defined executable
+data, and remaining unclassified bytes. Project scopes retain those gaps as unresolved work;
+a successful export of all discovered functions alone does not establish whole-binary code
+coverage. Unclassified bytes need adjudication because they may be code, padding, or data.
 
 Conflict reconciliation, warm analysis pooling, multi-host recovery, and a durable job
 API remain planned. The implementation plan lists their acceptance gates. Proposed

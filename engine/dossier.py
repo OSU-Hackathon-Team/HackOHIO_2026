@@ -335,6 +335,12 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
     if cross_module_edges:
         blockers.append({"kind": "cross_module_bindings_unresolved",
                          "edges": cross_module_edges})
+    code_gaps = [edge for edge in scope["unresolved"]
+                 if edge.get("kind") in {"unassigned_executable_instructions",
+                                         "unclassified_executable_bytes"}]
+    if code_gaps:
+        blockers.append({"kind": "executable_code_coverage_unresolved",
+                         "gaps": code_gaps})
     unmapped = [claim for claim in claims if claim["execution_state"] == "unmapped"]
     if unmapped:
         blockers.append({"kind": "claims_not_linked_to_original_probes",

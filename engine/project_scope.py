@@ -227,6 +227,10 @@ def persist_project_scope(engine: GhidraAnalysis, project_artifact: str,
                                     "included_functions": sum(item["included"] for item in
                                                               module_scopes),
                                     "tasks": sum(item["tasks"] for item in module_scopes),
+                                    "unclassified_executable_bytes": sum(
+                                        indexes[module_id].get("static_inventory", {}).get(
+                                            "unclassified_executable_bytes", 0)
+                                        for module_id in final_drafts),
                                     "cross_module_candidates": len(cross_candidates)},
                        "readiness": "partial"}
             latest = directory / "latest.json"
