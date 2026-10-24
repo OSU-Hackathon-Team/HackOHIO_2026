@@ -1,0 +1,188 @@
+"""Cache Ghidra imports and export immutable evidence from an isolated project."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import time
+
+from engine.artifacts import LocalArtifactStore
+
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPT_DIR = ROOT / "engine" / "analysis" / "scripts"
+SCHEMA = 1
+
+
+def file_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def tool_version(headless: Path) -> str:
+    # The installation's application.properties is part of the cache identity.
+    properties = headless.resolve().parents[1] / "Ghidra" / "application.properties"
+    return file_hash(properties) if properties.exists() else file_hash(headless)
+
+
+class GhidraAnalysis:
+    def __init__(self, root: Path, headless: Path, *, timeout: int = 900):
+        self.root = Path(root)
+        self.headless = Path(headless)
+        self.timeout = timeout
+        self.store = LocalArtifactStore(self.root / "artifacts")
+        self.root.mkdir(parents=True, exist_ok=True)
+
+    def _emit(self, campaign: str, stage: str, **details: object) -> None:
+        record = {"schema": SCHEMA, "time": time.time(), "campaign": campaign,
+                  "stage": stage, **details}
+        with (self.root / "progress.jsonl").open("a") as stream:
+            stream.write(json.dumps(record, sort_keys=True) + "\n")
+
+    def _run(self, args: list[str], campaign: str, stage: str) -> None:
+        self._emit(campaign, stage + "_started")
+        started = time.monotonic()
+        log = self.root / "logs" / campaign
+        log.mkdir(parents=True, exist_ok=True)
+        with (log / (stage + ".log")).open("w") as output:
+            try:
+                result = subprocess.run([str(self.headless), *args], stdout=output,
+                                        stderr=subprocess.STDOUT, timeout=self.timeout,
+                                        check=False, env=self._environment())
+            except subprocess.TimeoutExpired:
+                self._emit(campaign, stage + "_failed", error="timeout",
+                           elapsed_seconds=round(time.monotonic() - started, 3))
+                raise RuntimeError(f"Ghidra {stage} timed out; see {output.name}") from None
+        if result.returncode:
+            self._emit(campaign, stage + "_failed", exit_code=result.returncode)
+            raise RuntimeError(f"Ghidra {stage} exited {result.returncode}; see {log / (stage + '.log')}")
+        self._emit(campaign, stage + "_finished",
+                   elapsed_seconds=round(time.monotonic() - started, 3))
+
+    def _environment(self) -> dict[str, str]:
+        env = os.environ.copy()
+        env.setdefault("JAVA_HOME", str(Path("/usr/lib/jvm/java-21-openjdk")))
+        # Sandboxed hosts may have an unwritable user config directory.
+        user_dir = self.root / "ghidra-user"
+        user_dir.mkdir(exist_ok=True)
+        env["GHIDRA_USER_DIR"] = str(user_dir)
+        env["JAVA_TOOL_OPTIONS"] = (env.get("JAVA_TOOL_OPTIONS", "") +
+                                    f" -Duser.home={user_dir}").strip()
+        return env
+
+    def analyze(self, binary: Path, *, force: bool = False) -> dict:
+        binary = Path(binary).resolve(strict=True)
+        binary_sha = file_hash(binary)
+        script_sha = file_hash(SCRIPT_DIR / "ExportEvidence.java")
+        identity = {"schema": SCHEMA, "binary_sha256": binary_sha,
+                    "ghidra_version_sha256": tool_version(self.headless),
+                    "exporter_sha256": script_sha, "analysis_options": {}}
+        campaign = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+        project_root = self.root / "projects" / campaign
+        project_root.mkdir(parents=True, exist_ok=True)
+        manifest_path = project_root / "manifest.json"
+        if manifest_path.exists() and not force:
+            manifest = json.loads(manifest_path.read_text())
+            self.store.get(manifest["index_artifact"])
+            self._emit(campaign, "cache_hit", binary=str(binary))
+            return manifest
+        if force and manifest_path.exists():
+            raise ValueError("force rebuild requires a new analysis revision; existing baseline is immutable")
+        project_name = "baseline"
+        program_name = binary.name
+        project = project_root / (project_name + ".gpr")
+        if not project.exists():
+            self._run([str(project_root), project_name, "-import", str(binary),
+                       "-overwrite", "-analysisTimeoutPerFile", str(self.timeout)],
+                      campaign, "import")
+        with tempfile.TemporaryDirectory(dir=self.root) as scratch:
+            export = Path(scratch) / "index.json"
+            self._run([str(project_root), project_name, "-process", program_name,
+                       "-readOnly", "-noanalysis", "-scriptPath", str(SCRIPT_DIR),
+                       "-postScript", "ExportEvidence.java", str(export), "index"],
+                      campaign, "index")
+            if not export.exists():
+                raise RuntimeError("Ghidra index script produced no output; see index.log")
+            index = json.loads(export.read_text())
+            if index.get("status") != "ok":
+                raise RuntimeError("Ghidra index exporter did not finish")
+            index_sha = self.store.put(export.read_bytes())
+        manifest = {**identity, "campaign": campaign, "binary": str(binary),
+                    "project": str(project_root), "program_name": program_name,
+                    "index_artifact": index_sha, "function_count": len(index["functions"])}
+        temporary = manifest_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+        os.replace(temporary, manifest_path)
+        self._emit(campaign, "indexed", functions=len(index["functions"]),
+                   artifact=index_sha)
+        return manifest
+
+    def index(self, manifest: dict) -> dict:
+        return json.loads(self.store.get(manifest["index_artifact"]))
+
+    def function(self, manifest: dict, address: str) -> dict:
+        index = self.index(manifest)
+        matches = [item for item in index["functions"] if item["entry"] == address]
+        if len(matches) != 1:
+            raise ValueError(f"function entry {address} not in index")
+        cache_dir = Path(manifest["project"]) / "functions"
+        cache_dir.mkdir(exist_ok=True)
+        key = address.replace(":", "_")
+        pointer = cache_dir / (key + ".json")
+        if pointer.exists():
+            artifact = json.loads(pointer.read_text())["artifact"]
+            evidence = json.loads(self.store.get(artifact))
+            self._emit(manifest["campaign"], "function_cache_hit", address=address,
+                       artifact=artifact)
+            return evidence
+        with tempfile.TemporaryDirectory(dir=self.root) as scratch:
+            export = Path(scratch) / "function.json"
+            self._run([manifest["project"], "baseline", "-process",
+                       manifest["program_name"], "-readOnly", "-noanalysis", "-scriptPath",
+                       str(SCRIPT_DIR), "-postScript", "ExportEvidence.java",
+                       str(export), "function", address], manifest["campaign"],
+                      "function_" + key)
+            if not export.exists():
+                raise RuntimeError("Ghidra function script produced no output; see function log")
+            evidence = json.loads(export.read_text())
+            if evidence.get("entry") != address:
+                raise RuntimeError("Ghidra returned evidence for a different function")
+            artifact = self.store.put(export.read_bytes())
+        pointer.write_text(json.dumps({"artifact": artifact}) + "\n")
+        self._emit(manifest["campaign"], "function_exported", address=address,
+                   artifact=artifact, status=evidence["status"])
+        return evidence
+
+    def export_all(self, manifest: dict) -> dict:
+        index = self.index(manifest)
+        results = []
+        for item in index["functions"]:
+            address = item["entry"]
+            try:
+                evidence = self.function(manifest, address)
+                pointer = Path(manifest["project"]) / "functions" / (address.replace(":", "_") + ".json")
+                results.append({"entry": address, "name": item["name"],
+                                "status": evidence["status"],
+                                "artifact": json.loads(pointer.read_text())["artifact"]})
+            except Exception as error:
+                results.append({"entry": address, "name": item["name"],
+                                "status": "error", "error": str(error)})
+                self._emit(manifest["campaign"], "function_failed", address=address,
+                           error=str(error))
+        counts = {status: sum(r["status"] == status for r in results)
+                  for status in sorted({r["status"] for r in results})}
+        inventory = {"schema": SCHEMA, "campaign": manifest["campaign"],
+                     "index_artifact": manifest["index_artifact"],
+                     "functions": results, "counts": counts,
+                     "complete": counts.get("error", 0) == 0 and
+                     counts.get("missing", 0) == 0}
+        artifact = self.store.put(json.dumps(inventory, sort_keys=True).encode())
+        self._emit(manifest["campaign"], "export_finished", artifact=artifact,
+                   counts=counts, complete=inventory["complete"])
+        return {**inventory, "artifact": artifact}

@@ -17,6 +17,8 @@ dist/
 
 # Python / Agent artifacts
 runs/
+decomp-state/
+.decomp-state/
 __pycache__/
 *.pyc
 .agents/*

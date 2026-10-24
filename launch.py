@@ -13,9 +13,11 @@ import uuid
 from pathlib import Path
 
 from model_config import available_roles, get_model, resolved_table
+from engine.analysis.ghidra import GhidraAnalysis
 
 ROOT = Path(__file__).resolve().parent
 RUNS = ROOT / "runs"
+ENGINE_STATE = ROOT / "decomp-state"
 IMAGE = "decomp-ghidra-worker:12.1.3"
 
 
@@ -115,10 +117,27 @@ def dispatch_many(assignments: list[dict], max_workers: int = 2) -> list[Path]:
 
 
 def main() -> None:
-    if not Path("/.dockerenv").exists():
-        raise SystemExit("Run this launcher inside the Docker orchestrator: docker compose run --build --rm orchestrator ...")
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+    analyze = sub.add_parser("analyze", help="import a native executable or shared library and index it")
+    analyze.add_argument("--binary", type=Path, required=True)
+    analyze.add_argument("--state", type=Path, default=ENGINE_STATE)
+    analyze.add_argument("--headless", type=Path,
+                         default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+    function = sub.add_parser("function", help="export one indexed function's decompiler evidence")
+    function.add_argument("--manifest", type=Path, required=True)
+    function.add_argument("--address", required=True)
+    function.add_argument("--state", type=Path, default=ENGINE_STATE)
+    function.add_argument("--headless", type=Path,
+                          default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+    export_all = sub.add_parser("export-all", help="decompile every indexed function and report coverage")
+    export_all.add_argument("--manifest", type=Path, required=True)
+    export_all.add_argument("--state", type=Path, default=ENGINE_STATE)
+    export_all.add_argument("--headless", type=Path,
+                            default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+    status = sub.add_parser("status", help="show persisted decomp campaign progress")
+    status.add_argument("--state", type=Path, default=ENGINE_STATE)
+    status.add_argument("--campaign", help="limit output to one campaign hash")
     sub.add_parser("build", help="build the Ghidra worker image with Podman inside Docker")
     rename = sub.add_parser("rename", help="run one autonomous rename attempt")
     rename.add_argument("--binary", type=Path, required=True)
@@ -134,15 +153,58 @@ def main() -> None:
     batch.add_argument("--max-workers", type=int, default=2)
     sub.add_parser("list-models", help="print resolved role -> model table from models.json")
     args = parser.parse_args()
-    if args.command == "build":
+    if args.command == "analyze":
+        engine = GhidraAnalysis(args.state, args.headless)
+        manifest = engine.analyze(args.binary)
+        print(json.dumps(manifest, indent=2))
+    elif args.command == "function":
+        engine = GhidraAnalysis(args.state, args.headless)
+        manifest = json.loads(args.manifest.read_text())
+        print(json.dumps(engine.function(manifest, args.address), indent=2))
+    elif args.command == "export-all":
+        engine = GhidraAnalysis(args.state, args.headless)
+        manifest = json.loads(args.manifest.read_text())
+        print(json.dumps(engine.export_all(manifest), indent=2))
+    elif args.command == "status":
+        events_path = args.state / "progress.jsonl"
+        events = [json.loads(line) for line in events_path.read_text().splitlines()] if events_path.exists() else []
+        if args.campaign:
+            events = [event for event in events if event["campaign"] == args.campaign]
+        campaigns = {}
+        for event in events:
+            item = campaigns.setdefault(event["campaign"],
+                                        {"last_stage": None, "function_exports": 0,
+                                         "function_failures": 0, "_exported": set(),
+                                         "_failed": set()})
+            item["last_stage"] = event["stage"]
+            if event["stage"] == "indexed":
+                item["function_count"] = event["functions"]
+            elif event["stage"] == "function_exported":
+                item["_exported"].add(event["address"])
+            elif event["stage"] == "function_failed":
+                item["_failed"].add(event["address"])
+            elif event["stage"] == "export_finished":
+                item["coverage"] = event["counts"]
+                item["complete"] = event["complete"]
+        for item in campaigns.values():
+            item["function_exports"] = len(item.pop("_exported"))
+            item["function_failures"] = len(item.pop("_failed"))
+        print(json.dumps(campaigns, indent=2))
+    elif args.command == "build":
+        if not Path("/.dockerenv").exists():
+            raise SystemExit("Run rename diagnostic inside the Docker orchestrator")
         build()
     elif args.command == "rename":
+        if not Path("/.dockerenv").exists():
+            raise SystemExit("Run rename diagnostic inside the Docker orchestrator")
         run(args.binary, args.address, args.new_name,
             model=args.model, model_role=args.model_role, timeout=args.timeout)
     elif args.command == "list-models":
         print(json.dumps(resolved_table(), indent=2))
         print(f"roles: {', '.join(available_roles())}")
     else:
+        if not Path("/.dockerenv").exists():
+            raise SystemExit("Run rename diagnostic inside the Docker orchestrator")
         assignments = json.loads(args.assignments.read_text())
         dispatch_many(assignments, args.max_workers)
 
