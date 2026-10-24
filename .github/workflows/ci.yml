@@ -6,11 +6,23 @@ on:
       - dev
       - main
   workflow_dispatch:
+    inputs:
+      sandpack:
+        description: Run the internet-dependent Sandpack boot tests
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
 
 jobs:
   build-and-typecheck:
-    name: Build & Typecheck Workspaces
+    name: Build, Typecheck & Regression Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      REA_MODE: replay
+      LLM_MODE: replay
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -27,9 +39,61 @@ jobs:
       - name: Build all workspaces (contracts, backend, frontend)
         run: npm run build
 
+      - name: Typecheck all workspaces
+        run: npm run typecheck
+
+      - name: Test Step 1 integration and shared contracts
+        run: npm test
+
+      - name: Test backend and frontend units
+        run: npm run test:unit --workspaces --if-present
+
+  studio-tests:
+    name: Studio Browser Tests
+    needs: build-and-typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      REA_MODE: replay
+      LLM_MODE: replay
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install dependencies and build contracts
+        run: |
+          npm ci
+          npm run build:contracts
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Test Studio layout, keyboard navigation and API failures
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.sandpack }}
+        run: npm run test:studio -- --grep-invert "Sandpack boots"
+
+      - name: Test full Studio including external Sandpack boots
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sandpack }}
+        run: npm run test:studio
+
+      - name: Upload browser failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-browser-failures
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
   docker-smoke-test:
     name: Docker Build & Smoke Test
-    needs: build-and-typecheck
+    needs: [build-and-typecheck, studio-tests]
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -78,6 +142,23 @@ jobs:
             exit 1
           fi
           echo "Received expected 404 for /api/nonexistent"
+
+          docker exec -i splice-smoke-test node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { HealthResponse, Pantry, FeatureBlueprint } from './packages/contracts/dist/index.js';
+          const base = 'http://127.0.0.1:3001';
+          const health = HealthResponse.parse(await (await fetch(base + '/api/health')).json());
+          for (const role of ['spec_writer', 'engine_writer', 'ui_synthesizer', 'refusal_fallback']) {
+            assert.ok(health.models[role], `Missing configured model role: ${role}`);
+          }
+          Pantry.parse(await (await fetch(base + '/api/pantry')).json());
+          FeatureBlueprint.array().parse(await (await fetch(base + '/api/blueprints')).json());
+          const invalid = await fetch(base + '/api/implement', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+          });
+          assert.equal(invalid.status, 400, 'Malformed implement request must fail before SSE');
+          console.log('Production health, model routing, pantry, blueprint and request-validation checks passed');
+          NODE
 
       - name: Container teardown
         if: always()

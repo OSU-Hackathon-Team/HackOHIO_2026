@@ -47,6 +47,8 @@ COPY tsconfig*.json ./
 COPY packages/contracts ./packages/contracts
 COPY packages/backend ./packages/backend
 COPY packages/frontend ./packages/frontend
+COPY fixtures ./fixtures
+COPY targets/manifest.json ./targets/manifest.json
 
 # Build in strict topological dependency order:
 # 1. contracts (shared types & Zod schemas)
@@ -105,7 +107,7 @@ ENV PORT=3001
 ENV REA_MODE=mock
 
 # Copy root package.json and pruned root node_modules (preserves workspace symlinks)
-COPY package.json ./
+COPY package.json models.json ./
 COPY --from=builder /app/node_modules ./node_modules
 
 # Copy package.json and compiled dist for contracts
