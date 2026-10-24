@@ -4,6 +4,15 @@ Status: implementation in progress; all milestone acceptance gates remain open.
 Updated: 2026-10-24.
 Architecture and decision rationale: [DecompPileline.md](DecompPileline.md).
 
+## Current execution boundary
+
+Work exclusively on the native pre-specification pipeline: intake, analysis, scope,
+semantic work, independent review, original-execution probes, findings, reconciliation,
+dossiers, queue reliability, progress visibility, and their acceptance gates. Do not start
+M5 specification generation, the dossier-to-spec handoff, shared TypeScript contract
+migration, or downstream implementation/API integration. Those phases remain in this plan
+for future work and require an explicit user instruction to resume.
+
 ## Required outcome
 
 - Support at least 16 concurrently leased reasoning tasks, with a path to multiple hosts.
