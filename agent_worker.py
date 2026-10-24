@@ -8,10 +8,41 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from agents.mcp import MCPServerStdio
+try:
+    from agents.mcp import MCPServerStdio
+except ImportError:
+    MCPServerStdio = None
 
-WORK = Path("/work")
-MANIFEST = json.loads((WORK / "manifest.json").read_text()) if (WORK / "manifest.json").exists() else {}
+def work_dir() -> Path:
+    return Path(os.environ.get("DECOMP_WORK_DIR", "/work"))
+
+
+WORK = work_dir()
+
+
+def load_manifest(target: Path | None = None) -> dict:
+    manifest_file = (target or work_dir()) / "manifest.json"
+    if manifest_file.exists():
+        try:
+            return json.loads(manifest_file.read_text())
+        except Exception:
+            return {}
+    return {}
+
+
+MANIFEST = load_manifest()
+
+
+def sanitize_secrets(value: str) -> str:
+    """Mask credentials matching sensitive environment keys."""
+    if not isinstance(value, str):
+        return str(value)
+    sanitized = value
+    for var in ("AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_ACCESS_KEY_ID"):
+        val = os.environ.get(var)
+        if val and len(val) > 4 and val in sanitized:
+            sanitized = sanitized.replace(val, f"[{var}_REDACTED]")
+    return sanitized
 
 
 def payload(result):
@@ -40,10 +71,18 @@ def names(value):
 
 
 def mcp_server():
+    if MCPServerStdio is None:
+        raise RuntimeError(
+            "The 'openai-agents' package is not installed. "
+            "MCPServerStdio requires openai-agents, which is installed inside worker.Dockerfile."
+        )
+    ghidra_dir = os.environ.get("GHIDRA_INSTALL_DIR")
+    if not ghidra_dir:
+        raise RuntimeError("GHIDRA_INSTALL_DIR environment variable is not set.")
     return MCPServerStdio(
         name="ghidra",
         params={"command": "/opt/venv/bin/ghidra-headless-mcp",
-                "args": ["--ghidra-install-dir", os.environ["GHIDRA_INSTALL_DIR"]]},
+                "args": ["--ghidra-install-dir", ghidra_dir]},
         client_session_timeout_seconds=120,
     )
 
@@ -52,25 +91,28 @@ async def call(server, tool_name, **arguments):
     return payload(await server.call_tool(tool_name, arguments))
 
 
-def opencode_config():
+def opencode_config(manifest: dict | None = None):
+    manifest = manifest or load_manifest() or MANIFEST
+    ghidra_dir = os.environ.get("GHIDRA_INSTALL_DIR", "/opt/ghidra_12.1.3_PUBLIC")
+    model_name = manifest.get("model", "amazon-bedrock/anthropic.claude-3-5-sonnet")
     allowed = ("ghidra_program_open", "ghidra_function_at", "ghidra_function_report",
                "ghidra_decomp_function", "ghidra_function_rename", "ghidra_program_save",
                "ghidra_program_close")
     permissions = {"*": "deny", **{name: "allow" for name in allowed}}
     return {
         "$schema": "https://opencode.ai/config.json",
-        "model": MANIFEST["model"],
+        "model": model_name,
         "mcp": {"ghidra": {
             "type": "local",
             "command": ["/opt/venv/bin/ghidra-headless-mcp", "--ghidra-install-dir",
-                        os.environ["GHIDRA_INSTALL_DIR"]],
+                        ghidra_dir],
             "enabled": True,
             "timeout": 120000,
         }},
         "agent": {"rename": {
             "description": "Inspect and rename one assigned Ghidra function",
             "mode": "primary",
-            "model": MANIFEST["model"],
+            "model": model_name,
             "prompt": (
                 "You are in a private headless Ghidra attempt. Use only the ghidra MCP tools. "
                 "Open the binary in the specified project with read_only=false. Inspect the "
@@ -83,9 +125,16 @@ def opencode_config():
     }
 
 
-def attempt():
-    config_path = WORK / "opencode.json"
-    config_path.write_text(json.dumps(opencode_config(), indent=2) + "\n")
+def attempt(target_work: Path | None = None):
+    work = target_work or work_dir()
+    manifest = load_manifest(work)
+    if not manifest:
+        raise ValueError("manifest.json missing or empty in WORK directory")
+    for key in ("address", "new_name", "model"):
+        if key not in manifest:
+            raise ValueError(f"manifest missing required key '{key}'")
+    config_path = work / "opencode.json"
+    config_path.write_text(json.dumps(opencode_config(manifest), indent=2) + "\n")
     version = subprocess.run(["/usr/local/bin/opencode", "--version"],
                              capture_output=True, text=True, check=True).stdout.strip()
     prompt = (
@@ -93,10 +142,10 @@ def attempt():
         "1. ghidra_program_open with path=/work/input.bin, read_only=false, "
         "project_location=/work/project, project_name=analysis, program_name=input.bin, "
         "update_analysis=true. Keep its session_id.\n"
-        f"2. ghidra_function_at for address={MANIFEST['address']} and that session_id; "
+        f"2. ghidra_function_at for address={manifest['address']} and that session_id; "
         "also inspect with ghidra_function_report.\n"
-        f"3. ghidra_function_rename with function_start={MANIFEST['address']}, "
-        f"name={MANIFEST['new_name']}, and that session_id.\n"
+        f"3. ghidra_function_rename with function_start={manifest['address']}, "
+        f"name={manifest['new_name']}, and that session_id.\n"
         "4. ghidra_program_save and ghidra_program_close with that session_id.\n"
         "Report the observed original name and new name."
     )
@@ -104,13 +153,13 @@ def attempt():
     env.update(OPENCODE_CONFIG=str(config_path), OPENCODE_DISABLE_AUTOUPDATE="true",
                OPENCODE_DISABLE_EXTERNAL_SKILLS="true")
     command = ["/usr/local/bin/opencode", "run", "--pure", "--agent", "rename",
-               "--model", MANIFEST["model"], "--format", "json", prompt]
-    events_path = WORK / "opencode-events.jsonl"
-    log_path = WORK / "opencode-stderr.log"
+               "--model", manifest["model"], "--format", "json", prompt]
+    events_path = work / "opencode-events.jsonl"
+    log_path = work / "opencode-stderr.log"
     with events_path.open("w") as events_file, log_path.open("w") as log_file:
-        completed = subprocess.run(command, cwd=WORK, env=env, text=True,
+        completed = subprocess.run(command, cwd=work, env=env, text=True,
                                    stdout=events_file, stderr=log_file,
-                                   timeout=MANIFEST["timeout_seconds"], check=False)
+                                   timeout=manifest.get("timeout_seconds", 180), check=False)
     if completed.returncode != 0:
         raise RuntimeError(f"OpenCode exited {completed.returncode}; see {log_path}")
     events = [json.loads(line) for line in events_path.read_text().splitlines()
@@ -137,29 +186,34 @@ def attempt():
             usage["cost"] += part.get("cost", 0)
     messages = [event.get("part", {}).get("text") for event in events
                 if event.get("type") == "text"]
-    report = {"status": "saved", "mode": "opencode", "attempt_id": MANIFEST["attempt_id"],
-              "address": MANIFEST["address"], "agent_tool_calls": tool_calls,
-              "model": MANIFEST["model"],
-              "model_role": MANIFEST.get("model_role", "decomp_worker"),
+    report = {"status": "saved", "mode": "opencode", "attempt_id": manifest.get("attempt_id", ""),
+              "address": manifest["address"], "agent_tool_calls": tool_calls,
+              "model": manifest["model"],
+              "model_role": manifest.get("model_role", "decomp_worker"),
               "opencode_version": version,
               "agent_output": messages[-1] if messages else "", "usage": usage,
               "events": events_path.name,
               "saved_at": datetime.now(timezone.utc).isoformat()}
-    (WORK / "result.json").write_text(json.dumps(report, indent=2) + "\n")
+    (work / "result.json").write_text(json.dumps(report, indent=2) + "\n")
 
 
-async def verify():
+async def verify(target_work: Path | None = None):
+    work = target_work or work_dir()
+    manifest = load_manifest(work)
+    if not manifest:
+        raise ValueError("manifest.json missing or empty in WORK directory")
     async with mcp_server() as server:
         opened = await call(server, "project.program.open_existing",
-                            project_location="/work/project", project_name=MANIFEST["project_name"],
-                            program_name=MANIFEST["program_name"], read_only=True)
+                            project_location=str(work / "project"),
+                            project_name=manifest.get("project_name", "analysis"),
+                            program_name=manifest.get("program_name", "input.bin"), read_only=True)
         session = opened["session_id"]
         observed = await call(server, "function.at", session_id=session,
-                              address=MANIFEST["address"])
+                              address=manifest["address"])
         await call(server, "program.close", session_id=session)
-    if MANIFEST["new_name"] not in set(names(observed)):
+    if manifest["new_name"] not in set(names(observed)):
         raise RuntimeError("rename did not survive fresh Ghidra process reopen")
-    result_path = WORK / "result.json"
+    result_path = work / "result.json"
     report = json.loads(result_path.read_text())
     report.update(status="verified", reopened=observed,
                   verified_at=datetime.now(timezone.utc).isoformat())
@@ -175,8 +229,9 @@ def main():
         else:
             asyncio.run(verify())
     except Exception as error:
+        safe_msg = sanitize_secrets(str(error))
         (WORK / "error.json").write_text(json.dumps({"stage": sys.argv[1],
-                                                    "error": str(error)}, indent=2) + "\n")
+                                                     "error": safe_msg}, indent=2) + "\n")
         raise
 
 

@@ -29,13 +29,74 @@ ENGINE_STATE = ROOT / "decomp-state"
 IMAGE = "decomp-ghidra-worker:12.1.3"
 
 
-def podman(*args: str, capture: bool = False, timeout: int | None = None) -> str:
-    completed = subprocess.run(
-        ["podman", *args], check=True, text=True,
-        stdout=subprocess.PIPE if capture else None,
-        timeout=timeout,
+def sanitize_secrets(value: str) -> str:
+    """Mask credentials matching sensitive environment keys."""
+    if not isinstance(value, str):
+        return str(value)
+    sanitized = value
+    for var in ("AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_ACCESS_KEY_ID"):
+        val = os.environ.get(var)
+        if val and len(val) > 4 and val in sanitized:
+            sanitized = sanitized.replace(val, f"[{var}_REDACTED]")
+    return sanitized
+
+
+def sanitize_args(args: list[str]) -> list[str]:
+    """Return a copy of args with sensitive values redacted."""
+    return [sanitize_secrets(arg) for arg in args]
+
+
+def check_container_guard(command_name: str) -> None:
+    """Enforce that isolated agent execution occurs only in container orchestrator."""
+    in_container = (
+        Path("/.dockerenv").exists()
+        or Path("/run/.containerenv").exists()
+        or os.environ.get("CONTAINER_ORCHESTRATOR") == "1"
     )
-    return completed.stdout or ""
+    if not in_container:
+        raise RuntimeError(
+            f"Command '{command_name}' must run inside the isolated Docker/Podman container environment.\n"
+            f"Container guards prevent executing untrusted decompilation agent work directly on host.\n"
+            f"To run inside the intended container orchestrator:\n"
+            f"  docker compose --profile worker up orchestrator\n"
+            f"or run via Podman with container mounts."
+        )
+
+
+def check_headless(headless_path: Path) -> Path:
+    resolved = headless_path.resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(
+            f"Ghidra analyzeHeadless script not found at '{headless_path}'.\n"
+            f"Ensure Ghidra is installed and set GHIDRA_HEADLESS environment variable, "
+            f"or run inside the worker container."
+        )
+    return resolved
+
+
+def check_opencode(opencode_path: Path) -> Path:
+    resolved = opencode_path.resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(
+            f"OpenCode executable not found at '{opencode_path}'.\n"
+            f"Set OPENCODE_BIN environment variable or install OpenCode."
+        )
+    return resolved
+
+
+def podman(*args: str, capture: bool = False, timeout: int | None = None) -> str:
+    try:
+        completed = subprocess.run(
+            ["podman", *args], check=True, text=True,
+            stdout=subprocess.PIPE if capture else None,
+            timeout=timeout,
+        )
+        return completed.stdout or ""
+    except FileNotFoundError as error:
+        raise RuntimeError(
+            "Podman executable 'podman' not found in PATH.\n"
+            "Native containerized decompilation requires Podman/Docker installed."
+        ) from error
 
 
 def build() -> None:
@@ -53,9 +114,14 @@ def worker(workspace: Path, mode: str) -> None:
         if var in os.environ:
             args += ["--env", f"{var}={os.environ[var]}"]
     if mode == "run":
-        for path in ("/run/opencode-bin", "/run/opencode-auth.json"):
-            if not Path(path).is_file():
-                raise RuntimeError(f"OpenCode mount missing in Docker orchestrator: {path}")
+        missing_mounts = [p for p in ("/run/opencode-bin", "/run/opencode-auth.json") if not Path(p).is_file()]
+        if missing_mounts:
+            raise RuntimeError(
+                f"OpenCode mount(s) missing in container orchestrator: {', '.join(missing_mounts)}.\n"
+                f"Verify that OPENCODE_BIN and OPENCODE_AUTH_FILE are mounted in compose.yaml:\n"
+                f"  -v <path_to_opencode_binary>:/run/opencode-bin:ro\n"
+                f"  -v <path_to_auth_json>:/run/opencode-auth.json:ro"
+            )
         args += ["--volume", "/run/opencode-bin:/usr/local/bin/opencode:ro",
                  "--volume", "/run/opencode-auth.json:/root/.local/share/opencode/auth.json:ro"]
     args += [IMAGE, "python", "/app/agent_worker.py", mode]
@@ -69,6 +135,12 @@ def worker(workspace: Path, mode: str) -> None:
         (workspace / "error.json").write_text(json.dumps({
             "stage": mode, "error": f"container timed out after {limit} seconds"}, indent=2) + "\n")
         raise RuntimeError(f"{mode} timed out after {limit} seconds") from error
+    except Exception as error:
+        safe_msg = sanitize_secrets(str(error))
+        (workspace / "error.json").write_text(json.dumps({
+            "stage": mode, "error": safe_msg}, indent=2) + "\n")
+        raise RuntimeError(safe_msg) from error
+
 
 
 DEFAULT_MODEL_ROLE = "decomp_worker"
@@ -90,10 +162,13 @@ def run(binary: Path, address: str, new_name: str,
         raise ValueError("new name must be a simple Ghidra symbol name")
     if not re.fullmatch(r"(?:0x)?[0-9a-fA-F]+", address):
         raise ValueError("address must be hexadecimal, for example 0x401126")
+    resolved_bin = binary.resolve()
+    if not resolved_bin.is_file():
+        raise FileNotFoundError(f"Binary file not found: '{binary}'")
     RUNS.mkdir(exist_ok=True)
     workspace = RUNS / uuid.uuid4().hex
     workspace.mkdir()
-    shutil.copy2(binary.resolve(strict=True), workspace / "input.bin")
+    shutil.copy2(resolved_bin, workspace / "input.bin")
     resolved_model, active_role = resolve_model(model, model_role)
     digest = hashlib.sha256((workspace / "input.bin").read_bytes()).hexdigest()
     manifest = {"attempt_id": workspace.name, "binary_sha256": digest,
@@ -323,15 +398,21 @@ def main() -> None:
     sub.add_parser("list-models", help="print resolved role -> model table from models.json")
     args = parser.parse_args()
     if args.command == "analyze":
-        engine = GhidraAnalysis(args.state, args.headless)
+        if not args.binary.is_file():
+            raise FileNotFoundError(f"Binary file not found: '{args.binary}'")
+        engine = GhidraAnalysis(args.state, check_headless(args.headless))
         manifest = engine.analyze(args.binary)
         print(json.dumps(manifest, indent=2))
     elif args.command == "function":
-        engine = GhidraAnalysis(args.state, args.headless)
+        if not args.manifest.is_file():
+            raise FileNotFoundError(f"Manifest file not found: '{args.manifest}'")
+        engine = GhidraAnalysis(args.state, check_headless(args.headless))
         manifest = json.loads(args.manifest.read_text())
         print(json.dumps(engine.function(manifest, args.address), indent=2))
     elif args.command == "export-all":
-        engine = GhidraAnalysis(args.state, args.headless)
+        if not args.manifest.is_file():
+            raise FileNotFoundError(f"Manifest file not found: '{args.manifest}'")
+        engine = GhidraAnalysis(args.state, check_headless(args.headless))
         manifest = json.loads(args.manifest.read_text())
         print(json.dumps(engine.export_all(manifest), indent=2))
     elif args.command == "scope":
@@ -768,22 +849,21 @@ def main() -> None:
                                       for outcome in sorted(set(probes))}
         print(json.dumps(campaigns, indent=2))
     elif args.command == "build":
-        if not Path("/.dockerenv").exists():
-            raise SystemExit("Run rename diagnostic inside the Docker orchestrator")
+        check_container_guard("build")
         build()
     elif args.command == "rename":
-        if not Path("/.dockerenv").exists():
-            raise SystemExit("Run rename diagnostic inside the Docker orchestrator")
+        check_container_guard("rename")
         run(args.binary, args.address, args.new_name,
             model=args.model, model_role=args.model_role, timeout=args.timeout)
     elif args.command == "list-models":
         print(json.dumps(resolved_table(), indent=2))
         print(f"roles: {', '.join(available_roles())}")
-    else:
-        if not Path("/.dockerenv").exists():
-            raise SystemExit("Run rename diagnostic inside the Docker orchestrator")
+    elif args.command == "batch":
+        check_container_guard("batch")
         assignments = json.loads(args.assignments.read_text())
         dispatch_many(assignments, args.max_workers)
+    else:
+        check_container_guard(args.command)
 
 
 if __name__ == "__main__":
@@ -791,5 +871,6 @@ if __name__ == "__main__":
         main()
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError,
             subprocess.TimeoutExpired) as error:
-        print(f"error: {error}", file=sys.stderr)
+        safe_msg = sanitize_secrets(str(error))
+        print(f"error: {safe_msg}", file=sys.stderr)
         raise SystemExit(1) from error
