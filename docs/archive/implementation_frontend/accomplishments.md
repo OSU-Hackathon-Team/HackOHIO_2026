@@ -33,7 +33,10 @@ One row per commit, with the verification that actually ran. Nothing is logged a
 
 - **Eng 1:** `wikilinks.js` was restored from your spec (it had been truncated since `baa533d`). The
   `.asar` files are now built and committed. `/api/health` still returns a temporary shape, not `HealthResponse`.
-- **Team:** approve the `HealthResponse.models` contract fix (`db306c4`).
+- **Team:** approve the `HealthResponse.models` contract fix (`78362ef`).
+- Note: at 13:58 the branch was rebased onto `origin/dev` (`git pull --rebase`, not run by the agent), which
+  added 4 teammate `docs(spec)` commits (only `spec/**`). All Step 3 commits replayed cleanly with new hashes;
+  typecheck and the 51 unit tests were re-run on the rebased branch and pass.
 - **To unblock Step 3 live:** once `llm/llm.ts`, `sandbox/runTests.ts`, `http/sse.ts`, `evidence/recorder.ts`,
   `evidence/replay.ts` and `config.ts` exist, fill in `step3Deps` in `routes/step3/deps.ts` (the import list is in its header).
 
