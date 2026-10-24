@@ -240,9 +240,10 @@ function assemble(
 Design notes:
 - **Unverified specs are still returned.** The card shows them amber with `open_issues`. Eng 3
   can still implement them, but the UI must never call them "verified".
-- **Coverage is computed from test names, not claimed by the model.**
-- **The call counter** (04) means an adapter that hard-codes answers can't pass. Every test
-  must reach original code.
+- **Test-name coverage is traceability, not behavioral coverage.** It links declared requirements to tests but does not establish that assertions exercise the behavior or that requirements are complete.
+- **The call counter** (04) detects tests that never reach original code. An adapter can still call the original and discard its result. Review delegation and transformations, use varied probe inputs, and preserve independently obtained expected results.
+- **Source-reference checks establish location validity, not semantic support.** Review the cited evidence against each consequential claim.
+- **A passing oracle establishes agreement on tested cases.** Report this separately from static evidence support and unresolved questions; do not claim complete equivalence.
 - **Repairs are append-only** (`continueWith`): the model sees its own previous answer plus
   the failures, which works better than starting over.
 - Cost and latency: one spec call at `high` effort is roughly 20–60 s. A repair is another

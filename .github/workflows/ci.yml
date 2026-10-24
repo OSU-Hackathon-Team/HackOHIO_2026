@@ -1,0 +1,87 @@
+name: CI Verification
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-typecheck:
+    name: Build & Typecheck Workspaces
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build all workspaces (contracts, backend, frontend)
+        run: npm run build
+
+  docker-smoke-test:
+    name: Docker Build & Smoke Test
+    needs: build-and-typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare environment file
+        run: cp .env.example .env
+
+      - name: Build Docker runner image with GHA caching
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: runner
+          load: true
+          tags: splice-runner:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Boot container and verify endpoints
+        run: |
+          docker run -d --name splice-smoke-test -p 3001:3001 --env-file .env splice-runner:test
+          
+          echo "Waiting for server to become ready on http://localhost:3001..."
+          for i in {1..20}; do
+            if curl -s -f http://localhost:3001/api/health > /dev/null; then
+              echo "Server ready after ${i} seconds!"
+              break
+            fi
+            sleep 1
+          done
+
+          echo "--- Testing /api/health ---"
+          curl -i -f http://localhost:3001/api/health
+
+          echo "--- Testing / (SPA root) ---"
+          curl -i -f http://localhost:3001/
+
+          echo "--- Testing /api/nonexistent (API 404 guard) ---"
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/api/nonexistent)
+          if [ "$HTTP_STATUS" != "404" ]; then
+            echo "Expected 404 for /api/nonexistent, got $HTTP_STATUS"
+            exit 1
+          fi
+          echo "Received expected 404 for /api/nonexistent"
+
+      - name: Container teardown
+        if: always()
+        run: |
+          docker logs splice-smoke-test || true
+          docker stop splice-smoke-test || true
+          docker rm splice-smoke-test || true

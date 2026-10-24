@@ -1,5 +1,11 @@
 # 06 — Testing & Acceptance (Step 2)
 
+> **Additional engine quality gate:** For subsystem work, evaluate omitted and incorrect
+> behavior against held-out source-known fixtures, review evidence support independently, and
+> test adapters that call the original but discard its output. Track branch/state cases separately
+> from requirement-to-test links. Native probes and static-only findings have distinct statuses.
+> See [plan milestones M4–M6](../../DECOMP_IMPLEMENTATION_PLAN.md).
+
 ## 1. Scripts (`packages/backend/package.json`)
 
 ```json

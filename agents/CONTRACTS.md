@@ -1,5 +1,13 @@
 # Shared Contracts — single source of truth
 
+> **Migration status:** This file still defines the existing demo contract. The proposed
+> `ScopeRequest`, `EvidenceArtifact`, `BehaviorClaim`, and `SubsystemDossier` records are specified
+> in [the engine plan](../DECOMP_IMPLEMENTATION_PLAN.md) and are not current runtime schemas.
+> Change this document and `packages/contracts` together when implementing that migration.
+> Existing `coverage` is requirement/test traceability; `verified` means the configured checks
+> passed, not proof of complete equivalence. `oracle.not_executable` currently describes the
+> JavaScript runner's capability, not an inherent inability to probe native binaries.
+
 Copy this file's code blocks verbatim into `packages/contracts/src/`. If a doc anywhere else
 disagrees with this file, **this file wins**. Changes need a PR touching both this file and the
 package, approved by all three engineers.

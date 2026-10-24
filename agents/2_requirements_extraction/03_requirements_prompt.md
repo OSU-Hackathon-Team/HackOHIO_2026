@@ -108,7 +108,7 @@ Respond with JSON matching the provided schema.
 - Each is ONE observable behavior of the feature's domain logic that a test can check. kind is one of: behavior, invariant, edge_case, error.
 - Each cites source_refs as "<path>:L<start>-L<end>" using the line numbers shown in the evidence. Cite only the lines that justify the statement.
 - Describe what the code DOES, including quirks: rounding, ordering and tie-breaks, de-duplication, what input is ignored, what throws. Never describe what it "should" do. A surprising behavior in the original IS a requirement.
-- Do not specify platform glue: Electron IPC, windows, file system, databases, timers, network, logging. List what you deliberately left out in stripped_glue (e.g. "ipcMain.handle('card:answer') in src/main.js").
+- Use the declared feature boundary to decide what to include. Preserve externally observable persistence, timing, networking, ordering, errors, and state changes when they belong to the requested behavior. For the pure-function Electron demo, omit transport/UI wiring only when it does not change that behavior; list each exclusion and its reason in stripped_glue. Do not exclude behavior solely because it uses a platform API.
 - Aim for 5 to 12 requirements. Cover every branch of the functions listed under <symbols>.
 
 # interface: module_name, exports, types_code
@@ -217,7 +217,7 @@ const first = await structuredCall({
 | Symptom | Fix in prompt |
 |---|---|
 | Requirements describe "ideal" behaviour, and the oracle fails | Strengthen "describe what it DOES"; add the quirk to the example |
-| Adapter re-implements logic (call counter rejects it) | Already forbidden. Quote the rejection message back in repair (05) |
+| Adapter re-implements logic or discards original results | Review delegation and data transformations; a call counter alone cannot detect this. Feed concrete failures back into repair (05) |
 | Tests use `new Date()` | Already forbidden. The static check catches it and repair quotes it |
-| Glue leaks into the interface (`ipc`, `path`, `deckName`) | Add the offending name to the stripped_glue instruction |
+| Platform concerns appear in the interface | Check the requested boundary. Preserve observable effects; exclude only implementation wiring, with a reason |
 | Titles too technical ("SM-2 Recurrence Engine") | Keep the "non-programmer" wording. Judges read these cards |

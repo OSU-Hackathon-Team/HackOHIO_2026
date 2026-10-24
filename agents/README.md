@@ -1,5 +1,20 @@
 # Splice — Engineering Playbook (start here)
 
+## Current decompilation direction
+
+For native decompilation architecture, scope, concurrency, completion policy, and validation,
+[../DecompPileline.md](../DecompPileline.md) takes precedence over the older demo plan below.
+Implement it using [../DECOMP_IMPLEMENTATION_PLAN.md](../DECOMP_IMPLEMENTATION_PLAN.md).
+The engine must support 16+ parallel reasoning workers, prioritize subsystem requests, and
+produce evidence-backed behavioral dossiers suitable for specification writing. Compilable
+reconstructed C and exhaustive variable renaming are not completion requirements.
+
+The Electron demo instructions below remain a bounded integration path. Their fixed collector,
+replay-only native policy, hour-based cut list, and pure-function restrictions do not constrain
+the new engine. The existing shared contract remains unchanged until the plan's explicit schema
+migration; proposed dossier records are not already implemented API types.
+
+
 This folder is the build spec for Splice. It replaces the high-level plan in
 `hackathon_master_plan_rea_lovable.md` wherever the two disagree. (The older flat files
 `agents/reverse_engineering.md`, `feature_extraction.md` and `implementation_and_frontend.md`
