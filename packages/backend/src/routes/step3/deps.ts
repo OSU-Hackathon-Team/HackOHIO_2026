@@ -41,8 +41,8 @@ export interface Step3Deps {
   replayTranscript(kind: Step3TranscriptKind, key: string, sse: SseWriterPort, opts: { runId: string }): Promise<boolean>;
 }
 
+// llm/llm.ts (structuredCall + continueWith) is implemented; the rest are still stubs.
 export const MISSING_UPSTREAM = [
-  "llm/llm.ts structuredCall + continueWith (Eng 2)",
   "sandbox/runTests.ts (Eng 2)",
   "http/sse.ts openSse + newRunId (Eng 1)",
   "evidence/recorder.ts createTranscript (Eng 1)",

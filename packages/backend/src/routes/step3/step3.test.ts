@@ -99,7 +99,7 @@ test("valid requests get 503 while upstream helpers are missing", async () => {
     for (const [p, body] of [["/api/implement", { spec }], ["/api/synthesize", { blueprints: [sm2], prompt: PROMPT }]] as const) {
       const res = await s.post(p, body);
       assert.equal(res.status, 503, p);
-      assert.ok(((await res.json()) as { missing: string[] }).missing.some((m) => /llm\.ts/.test(m)));
+      assert.ok(((await res.json()) as { missing: string[] }).missing.some((m) => /sandbox\/runTests\.ts/.test(m)));
     }
   } finally { await s.close(); }
 });
