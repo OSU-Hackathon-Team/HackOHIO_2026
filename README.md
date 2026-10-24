@@ -1,8 +1,37 @@
 # Decomp pipeline agent scaffold
 
-**Architecture:** [DecompPileline.md](DecompPileline.md) defines the subsystem-oriented engine for 16+ workers. [DECOMP_IMPLEMENTATION_PLAN.md](DECOMP_IMPLEMENTATION_PLAN.md) lists the implementation phases and acceptance gates. These describe planned work; the commands below currently run isolated rename attempts, not subsystem analysis.
+**Architecture:** [DecompPileline.md](DecompPileline.md) defines the subsystem-oriented engine for 16+ workers. [DECOMP_IMPLEMENTATION_PLAN.md](DECOMP_IMPLEMENTATION_PLAN.md) lists the implementation phases and acceptance gates. The engine now has a Ghidra evidence export foundation; semantic workers, durable queue, review, and dossiers remain planned. The commands below also retain the rename diagnostic.
 
-The current runnable scaffold is a tool-integration milestone: Python dispatches an OpenCode agent that inspects a function through a headless Ghidra MCP server, renames it, and saves the project. A second process reopens the project to verify the name. Each attempt gets its own Ghidra project under `runs/`.
+## Native evidence export
+
+With Ghidra's `analyzeHeadless` installed, import an executable or shared library once and index its functions, imports, strings, and direct calls:
+
+```sh
+python launch.py analyze --binary /absolute/path/to/program
+python launch.py status
+```
+
+`analyze` prints a manifest under `decomp-state/projects/<campaign>/manifest.json`. The campaign key includes the input SHA-256, Ghidra version, exporter revision, and analysis options. Repeating the command reuses the indexed baseline. Export a selected function or every discovered function:
+
+```sh
+python launch.py function --manifest decomp-state/projects/<campaign>/manifest.json --address 00401136
+python launch.py export-all --manifest decomp-state/projects/<campaign>/manifest.json
+```
+
+Each function artifact records its entry address, decompilation status, C rendering, instructions, and references. External functions and decompilation errors have explicit statuses. `export-all` returns a coverage inventory and a `complete` flag only when every indexed function has an accounted-for result. `decomp-state/progress.jsonl` contains append-only JSON events for a future job API/UI; `launch.py status` summarizes them. All artifacts are SHA-256 addressed under `decomp-state/artifacts/`. This is static evidence, not a validated behavioral dossier.
+
+Build source-known stripped executable and shared-library fixtures at `-O0` and `-O2`, then execute held-out cases against the original code:
+
+```sh
+python scripts/build_decomp_fixtures.py
+python scripts/probe_decomp_fixtures.py
+```
+
+The generated manifest, debug companions, and probe report stay in ignored `decomp-state/fixtures/`. Analysis workers should receive only the stripped `analysis_path` entries. The source and debug companions are evaluator material.
+
+## Rename diagnostic
+
+The earlier tool-integration diagnostic dispatches an OpenCode agent that inspects a function through a headless Ghidra MCP server, renames it, and saves the project. A second process reopens the project to verify the name. Each attempt gets its own Ghidra project under `runs/`.
 
 The host starts **Docker Compose only**. The Docker orchestrator runs every `podman build` and `podman run`; no host Podman state or socket is used. The worker image contains Ghidra 12.1.3 and [ghidra-headless-mcp](https://github.com/mrphrazer/ghidra-headless-mcp) at a fixed commit. It mounts the installed [OpenCode](https://opencode.ai/docs/cli/) binary and credentials read-only, then gives the model a small allowlist of Ghidra tools.
 
