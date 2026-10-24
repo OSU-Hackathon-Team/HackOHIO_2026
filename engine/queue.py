@@ -404,6 +404,78 @@ class DurableQueue:
     def accept(self, task_id: str, review_artifact: str) -> bool:
         return self.publish_review(task_id, review_artifact) == "accepted"
 
+    def publish_gap_adjudication(self, task_id: str, artifact: str) -> str:
+        from engine.validation.dependencies import uncovered_direct_calls
+        from engine.validation.gaps import (matching_original_cases,
+                                            validate_gap_answer)
+
+        try:
+            result = json.loads(self.store.get(artifact))
+            draft = json.loads(self.store.get(result["draft_artifact"]))
+            review = json.loads(self.store.get(result["review_artifact"]))
+            evidence = json.loads(self.store.get(draft["evidence_artifact"]))
+            scope = json.loads(self.store.get(draft["scope_artifact"]))
+            report = json.loads(self.store.get(result["probe_report_artifact"]))
+        except (ValueError, KeyError, TypeError, FileNotFoundError):
+            return "invalid"
+        with self._connect() as conn:
+            task = conn.execute("SELECT * FROM decomp_tasks WHERE id = %s FOR UPDATE",
+                                (task_id,)).fetchone()
+            if task is None or task["state"] != "needs_reconciliation":
+                return "invalid"
+            if (task["result_artifact"] != result.get("draft_artifact") or
+                    task["review_artifact"] != result.get("review_artifact")):
+                return "stale"
+            reasons = set((task["terminal_reason"] or "").split(","))
+            if (not reasons or not reasons <= {"missing_behavior", "review_unresolved"} or
+                    result.get("state") != "reviewed" or
+                    result.get("structural_errors") != [] or
+                    result.get("campaign") != task["campaign_id"] or
+                    result.get("task_id") != task_id or
+                    result.get("evidence_artifact") != draft["evidence_artifact"] or
+                    result.get("model") == review.get("model") or
+                    review.get("state") != "reviewed" or
+                    review.get("draft_artifact") != task["result_artifact"] or
+                    draft.get("campaign") != task["campaign_id"] or
+                    draft.get("subject") != task["subject"] or
+                    draft["answer"]["dependencies"] or
+                    uncovered_direct_calls([], evidence, scope) or
+                    validate_review(review["answer"], evidence,
+                                    len(draft["answer"]["claims"])) or
+                    any(item["outcome"] != "supported_static" for item in
+                        review["answer"]["reviews"])):
+                return "invalid"
+            cases = matching_original_cases(self, task, report, scope)
+            if (not cases or result.get("probe_case_ids") !=
+                    [case["case_id"] for case in cases] or
+                    validate_gap_answer(result.get("answer"), review, evidence, cases)):
+                return "invalid"
+            decisions = [item["decision"] for item in result["answer"]["items"]]
+            if any(value != "nonblocking" for value in decisions):
+                self._event(conn, task["campaign_id"], "gap_adjudication_recorded",
+                            {"task_id": task_id, "artifact": artifact,
+                             "state": "blocked", "decisions": decisions})
+                return "blocked"
+            if task["review_gap_adjudication_artifact"]:
+                return "stale"
+            inserted = conn.execute(
+                "INSERT INTO decomp_review_gap_adjudications "
+                "(task_id, draft_artifact, review_artifact, adjudication_artifact) "
+                "VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING RETURNING task_id",
+                (task_id, task["result_artifact"], task["review_artifact"],
+                 artifact)).fetchone()
+            if not inserted:
+                return "stale"
+            conn.execute("UPDATE decomp_tasks SET state = 'accepted', "
+                         "review_gap_adjudication_artifact = %s, "
+                         "terminal_reason = NULL, updated_at = now() WHERE id = %s",
+                         (artifact, task_id))
+            self._event(conn, task["campaign_id"], "gap_adjudication_recorded",
+                        {"task_id": task_id, "artifact": artifact,
+                         "state": "accepted", "decisions": decisions,
+                         "probe_report_artifact": result["probe_report_artifact"]})
+            return "accepted"
+
     def record_dependency_review(self, task_id: str, review_artifact: str) -> bool:
         try:
             review = json.loads(self.store.get(review_artifact))
@@ -819,7 +891,8 @@ class DurableQueue:
             row = conn.execute("SELECT id, campaign_id, subject, state, result_artifact, "
                                "review_artifact, support_level, terminal_reason, "
                                "dependency_versions, dependency_resolution_artifact, "
-                               "coverage_revision_count "
+                               "coverage_revision_count, "
+                               "review_gap_adjudication_artifact "
                                "FROM decomp_tasks "
                                "WHERE id = %s", (task_id,)).fetchone()
             if row is None:

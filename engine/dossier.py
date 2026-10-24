@@ -11,6 +11,7 @@ from engine.analysis.ghidra import GhidraAnalysis
 from engine.validation.dependencies import (dependency_binding_errors,
                                             uncovered_direct_calls,
                                             validate_dependency_review)
+from engine.validation.gaps import (select_original_cases, validate_gap_answer)
 
 
 def canonical(value: object) -> bytes:
@@ -47,7 +48,8 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
              probe_report_artifacts: list[str],
              probe_link_artifacts: list[str] = (),
              dependency_resolution_artifacts: list[str] = (),
-             contract_snapshot: dict | None = None) -> dict:
+             contract_snapshot: dict | None = None,
+             gap_adjudication_artifacts: list[str] = ()) -> dict:
     scope = json.loads(engine.store.get(scope_artifact))
     if scope["campaign"] != manifest["campaign"]:
         raise ValueError("scope and manifest campaign differ")
@@ -68,6 +70,35 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
         if review["draft_artifact"] not in drafts or review["state"] != "reviewed":
             raise ValueError(f"review {artifact} does not cover a provided draft")
         reviews.setdefault(review["draft_artifact"], []).append((artifact, review))
+    gap_adjudications = {}
+    names = {item["entry"]: item["name"] for item in scope["included"]}
+    for artifact in gap_adjudication_artifacts:
+        adjudication = json.loads(engine.store.get(artifact))
+        review_artifact = adjudication.get("review_artifact")
+        matches = [(draft_id, review) for draft_id, items in reviews.items()
+                   for review_id, review in items if review_id == review_artifact]
+        if len(matches) != 1 or review_artifact in gap_adjudications:
+            raise ValueError(f"gap adjudication {artifact} has no unique provided review")
+        draft_artifact, review = matches[0]
+        draft = drafts[draft_artifact]
+        evidence = json.loads(engine.store.get(draft["evidence_artifact"]))
+        report_artifact = adjudication.get("probe_report_artifact")
+        if report_artifact not in probe_report_artifacts:
+            raise ValueError(f"gap adjudication {artifact} has no provided probe report")
+        report = json.loads(engine.store.get(report_artifact))
+        cases = select_original_cases(engine.store, report, manifest["binary_sha256"],
+                                      names.get(draft["subject"]))
+        if (adjudication.get("state") != "reviewed" or
+                adjudication.get("structural_errors") != [] or
+                adjudication.get("campaign") != manifest["campaign"] or
+                adjudication.get("draft_artifact") != draft_artifact or
+                adjudication.get("evidence_artifact") != draft["evidence_artifact"] or
+                adjudication.get("model") == review.get("model") or
+                not cases or adjudication.get("probe_case_ids") !=
+                [case["case_id"] for case in cases] or
+                validate_gap_answer(adjudication.get("answer"), review, evidence, cases)):
+            raise ValueError(f"gap adjudication {artifact} is invalid or stale")
+        gap_adjudications[review_artifact] = (artifact, adjudication)
     resolutions = {}
     for artifact in dependency_resolution_artifacts:
         resolution = json.loads(engine.store.get(artifact))
@@ -242,15 +273,28 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                              "claim_index": claim["claim_index"],
                              "review_state": claim["review_state"]})
     review_gaps = []
+    blocking_review_gaps = []
     for draft_artifact, items in reviews.items():
         for review_artifact, review in items:
+            adjudication = gap_adjudications.get(review_artifact)
+            decisions = ({(item["kind"], item["index"]): item for item in
+                          adjudication[1]["answer"]["items"]} if adjudication else {})
             for field in ("missing_behavior", "unresolved"):
-                for item in review["answer"].get(field, []):
-                    review_gaps.append({"draft_artifact": draft_artifact,
-                                        "review_artifact": review_artifact,
-                                        "kind": field, "description": item})
-    if review_gaps:
-        blockers.append({"kind": "independent_review_gaps", "items": review_gaps})
+                for index, description in enumerate(review["answer"].get(field, [])):
+                    decision = decisions.get((field, index))
+                    gap = {"draft_artifact": draft_artifact,
+                           "review_artifact": review_artifact,
+                           "kind": field, "index": index,
+                           "description": description,
+                           "decision": decision["decision"] if decision else "unadjudicated",
+                           "adjudication_artifact": adjudication[0] if adjudication else None,
+                           "adjudication_reason": decision["reason"] if decision else None}
+                    review_gaps.append(gap)
+                    if gap["decision"] != "nonblocking":
+                        blocking_review_gaps.append(gap)
+    if blocking_review_gaps:
+        blockers.append({"kind": "independent_review_gaps",
+                         "items": blocking_review_gaps})
     unreviewed_dependencies = [item for item in dependencies
                                if item["review_state"] != "supported_static"]
     if unreviewed_dependencies:
@@ -293,6 +337,7 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
               "probe_report_artifacts": sorted(probe_report_artifacts),
               "probe_link_artifacts": sorted(probe_link_artifacts),
               "dependency_resolution_artifacts": sorted(dependency_resolution_artifacts),
+              "gap_adjudication_artifacts": sorted(gap_adjudication_artifacts),
               "contract_snapshot": contract_snapshot,
               "functions": sorted(function_summaries, key=lambda item: item["subject"]),
               "claims": claims, "dependency_contracts": dependencies,
@@ -305,6 +350,7 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                            "static_supported_claims": sum(
                                claim["review_state"] == "supported_static" for claim in claims),
                            "independent_review_gaps": len(review_gaps),
+                           "blocking_review_gaps": len(blocking_review_gaps),
                            "reviewed_dependency_contracts": len(dependencies) -
                                len(unreviewed_dependencies),
                            "current_dependency_contracts": sum(
@@ -395,8 +441,12 @@ def render_markdown(dossier: dict) -> str:
                      f"{', '.join(call['declared_targets']) or 'none'}")
     lines += ["", "## Independent review gaps", ""]
     for gap in dossier["independent_review_gaps"]:
-        lines.append(f"- **{gap['kind']}** · draft `{gap['draft_artifact']}` · "
-                     f"review `{gap['review_artifact']}`: {gap['description']}")
+        lines.append(f"- **{gap['decision']}** {gap['kind']} · draft "
+                     f"`{gap['draft_artifact']}` · review "
+                     f"`{gap['review_artifact']}`: {gap['description']}")
+        if gap["adjudication_artifact"]:
+            lines.append(f"  - Adjudication `{gap['adjudication_artifact']}`: "
+                         f"{gap['adjudication_reason']}")
     lines += ["", "## Original-execution probes", ""]
     for probe in dossier["probes"]:
         lines.append(f"- **{probe['outcome']}** · {probe['case_id']} · "
@@ -416,10 +466,12 @@ def persist_dossier(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                     probe_report_artifacts: list[str],
                     probe_link_artifacts: list[str] = (),
                     dependency_resolution_artifacts: list[str] = (),
-                    contract_snapshot: dict | None = None) -> dict:
+                    contract_snapshot: dict | None = None,
+                    gap_adjudication_artifacts: list[str] = ()) -> dict:
     record = assemble(engine, manifest, scope_artifact, draft_artifacts,
                       review_artifacts, probe_report_artifacts, probe_link_artifacts,
-                      dependency_resolution_artifacts, contract_snapshot)
+                      dependency_resolution_artifacts, contract_snapshot,
+                      gap_adjudication_artifacts)
     scope_id = record["scope_id"]
     folder = engine.root / "dossiers" / scope_id
     folder.mkdir(parents=True, exist_ok=True)

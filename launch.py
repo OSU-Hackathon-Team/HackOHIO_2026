@@ -191,6 +191,7 @@ def main() -> None:
         ("queue-review", "independently review one validated queue task"),
         ("queue-review-drain", "review validated tasks with bounded durable leases"),
         ("queue-review-dependency", "review one caller dependency against a helper contract"),
+        ("queue-adjudicate-gaps", "check review omissions against raw and original evidence"),
         ("queue-resolve-dependencies", "accept a caller after all dependency reviews"),
         ("queue-reassess", "requeue one partial task with its prior draft"),
         ("queue-normalize-partial", "revalidate a partial draft after safe shape normalization"),
@@ -220,7 +221,8 @@ def main() -> None:
                                  help="limit the report to matching worker IDs")
             command.add_argument("--after-event-id", type=int,
                                  help="include attempts leased after this event cursor")
-        if name in {"queue-review", "queue-review-dependency", "queue-review-drain",
+        if name in {"queue-review", "queue-review-dependency", "queue-adjudicate-gaps",
+                    "queue-review-drain",
                     "queue-expand-coverage"}:
             if name != "queue-review-drain":
                 command.add_argument("--task-id", required=True)
@@ -239,6 +241,8 @@ def main() -> None:
             command.add_argument("--lease-seconds", type=int, default=60)
         if name == "queue-review-dependency":
             command.add_argument("--dependency-index", type=int, required=True)
+        if name == "queue-adjudicate-gaps":
+            command.add_argument("--probe-report-artifact", required=True)
         if name == "queue-resolve-dependencies":
             command.add_argument("--task-id", required=True)
             command.add_argument("--reviews", type=Path, required=True,
@@ -376,7 +380,8 @@ def main() -> None:
                                  inputs.get("probe_report_artifacts", []),
                                  inputs.get("probe_link_artifacts", []),
                                  inputs.get("dependency_resolution_artifacts", []),
-                                 contract_snapshot)
+                                 contract_snapshot,
+                                 inputs.get("gap_adjudication_artifacts", []))
         print(json.dumps({"revision": result["revision"],
                           "artifact": result["artifact"],
                           "markdown_artifact": result["markdown_artifact"],
@@ -518,6 +523,22 @@ def main() -> None:
                                                      timeout=args.timeout)
             result = reviewer.run(args.task_id, args.dependency_index,
                                   model=args.model, model_role=args.model_role)
+        elif args.command == "queue-adjudicate-gaps":
+            from engine.validation.gaps import GapAdjudicator
+
+            engine = GhidraAnalysis(args.state, Path(os.environ.get(
+                "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+            adjudicator = GapAdjudicator(engine, queue, args.opencode,
+                                        timeout=args.timeout)
+            attempt = adjudicator.run(args.task_id, args.probe_report_artifact,
+                                      model=args.model, model_role=args.model_role)
+            queue_state = (queue.publish_gap_adjudication(args.task_id, attempt["artifact"])
+                           if attempt["state"] == "reviewed" else "invalid")
+            result = {"task_id": args.task_id, "attempt_state": attempt["state"],
+                      "adjudication_artifact": attempt["artifact"],
+                      "queue_state": queue_state,
+                      "decisions": [item["decision"] for item in
+                                    attempt.get("answer", {}).get("items", [])]}
         elif args.command == "queue-resolve-dependencies":
             reviews = json.loads(args.reviews.read_text())
             if not isinstance(reviews, list) or not all(isinstance(x, str) for x in reviews):

@@ -53,6 +53,7 @@ def main() -> None:
                     ("multi_helper_conflict", "00100040", "second effect differs"),
                     ("unbound_caller", "00100050", "calls helper without a dependency"),
                     ("misbound_caller", "00100060", "cites the wrong direct call"),
+                    ("gap_helper", "00100070", "returns a fixed value"),
                 ]
                 tasks = [{"kind": "behavior", "subject": address,
                           "question": f"Explain {name}: {statement}",
@@ -62,7 +63,9 @@ def main() -> None:
                          for position, (name, address, statement) in enumerate(entries)]
                 scope = {"campaign": campaign, "scope_id": "s" * 64, "revision": 1,
                          "tasks": tasks, "included": [{"entry": "00100030",
-                                                      "name": "dependent"}],
+                                                      "name": "dependent"},
+                                                     {"entry": "00100070",
+                                                      "name": "gap_helper"}],
                          "unresolved": [], "boundaries": [{"entry": "00100000",
                                                             "name": "helper",
                                                             "contract": "returns one"}],
@@ -73,7 +76,8 @@ def main() -> None:
 
                 def complete(position: int, dependencies: list | None = None,
                              statements: list[str] | None = None,
-                             expected_state: str | None = None) -> str:
+                             expected_state: str | None = None,
+                             missing_behavior: list[str] | None = None) -> str:
                     name, address, statement = entries[position]
                     statements = statements or [statement]
                     lease = queue.lease(name, campaign=campaign)
@@ -111,6 +115,7 @@ def main() -> None:
                     assert queue.validate_result(lease["task_id"], draft_artifact,
                                                  "validated")
                     review = {"state": "reviewed", "structural_errors": [],
+                              "model": "independent-model",
                               "draft_artifact": draft_artifact,
                               "evidence_artifact": evidence_artifact,
                               "campaign": campaign, "subject": address,
@@ -119,7 +124,8 @@ def main() -> None:
                                                        "reason": "synthetic queue finding check",
                                                        "evidence_addresses": [address]}
                                                       for index in range(len(statements))],
-                                         "missing_behavior": [], "unresolved": []},
+                                         "missing_behavior": missing_behavior or [],
+                                         "unresolved": []},
                               "outcomes": {"supported_static": len(statements)}}
                     outcome = queue.publish_review(lease["task_id"], put(store, review))
                     assert outcome == (expected_state or
@@ -280,6 +286,45 @@ def main() -> None:
                 assert repaired_draft["answer"]["dependencies"][0][
                     "evidence_addresses"] == ["00100061"]
                 assert queue.repair_dependency_citations(misbound)["state"] == "invalid"
+                gap_task = complete(10, expected_state="needs_reconciliation",
+                                    missing_behavior=["register setup might affect output"])
+                gap_state = queue.task(gap_task)
+                gap_draft = json.loads(store.get(gap_state["result_artifact"]))
+                original_case = {"case_id": "fixed_output", "target": "gap_helper",
+                                 "binary_sha256": "b" * 64,
+                                 "input": {"value": 1}, "observed": {"return": 1},
+                                 "outcome": "agreement", "execution_mode": "original",
+                                 "runner_sha256": "r" * 64,
+                                 "adapter_sha256": "a" * 64}
+                probe_case = put(store, original_case)
+                report_artifact = put(store, {"schema": 1,
+                    "results": [{**original_case, "artifact": probe_case}]})
+                adjudication = {"schema": 1, "state": "reviewed",
+                                "structural_errors": [], "campaign": campaign,
+                                "task_id": gap_task,
+                                "draft_artifact": gap_state["result_artifact"],
+                                "review_artifact": gap_state["review_artifact"],
+                                "evidence_artifact": gap_draft["evidence_artifact"],
+                                "probe_report_artifact": report_artifact,
+                                "probe_case_ids": ["fixed_output"],
+                                "model": "separate-model",
+                                "answer": {"items": [{"kind": "missing_behavior",
+                                                      "index": 0,
+                                                      "decision": "nonblocking",
+                                                      "reason": "register setup is internal",
+                                                      "evidence_addresses": ["00100070"],
+                                                      "probe_case_ids": ["fixed_output"]}]}}
+                assert queue.publish_gap_adjudication(
+                    gap_task, put(store, {**adjudication,
+                                          "model": "independent-model"})) == "invalid"
+                blocked = json.loads(json.dumps(adjudication))
+                blocked["answer"]["items"][0]["decision"] = "uncertain"
+                assert queue.publish_gap_adjudication(
+                    gap_task, put(store, blocked)) == "blocked"
+                adjudication_artifact = put(store, adjudication)
+                assert queue.publish_gap_adjudication(gap_task, adjudication_artifact) == "accepted"
+                assert queue.task(gap_task)["review_gap_adjudication_artifact"] == \
+                    adjudication_artifact
                 print(json.dumps({"findings": len(final_inventory["findings"]),
                                   "open_conflicts": len(final_inventory["conflicts"]),
                                   "contract_version": version2["version"],

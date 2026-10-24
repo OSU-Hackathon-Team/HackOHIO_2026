@@ -45,14 +45,18 @@ def main() -> None:
                                                          "alternatives": []}]}}
         draft_artifact = put(store, draft)
         review = {"draft_artifact": draft_artifact, "state": "reviewed",
+                  "model": "review-model",
                   "answer": {"reviews": [{"claim_index": 0,
                                           "outcome": "supported_static", "reason": "instruction",
                                           "evidence_addresses": ["00100000"]}]}}
         review_artifact = put(store, review)
-        report = {"results": [{"binary_sha256": binary, "case_id": "increment",
-                               "kind": "shared", "input": {}, "expected": {"count": 1},
-                               "observed": {"count": 1}, "outcome": "agreement",
-                               "artifact": "p" * 64}]}
+        probe_record = {"binary_sha256": binary, "case_id": "increment",
+                        "target": "count", "kind": "shared", "input": {},
+                        "expected": {"count": 1}, "observed": {"count": 1},
+                        "outcome": "agreement", "execution_mode": "original",
+                        "runner_sha256": "r" * 64, "adapter_sha256": "a" * 64}
+        report = {"schema": 1, "results": [{**probe_record,
+                   "artifact": put(store, probe_record)}]}
         report_artifact = put(store, report)
         link = {"draft_artifact": draft_artifact, "claim_index": 0,
                 "probe_report_artifact": report_artifact, "case_id": "increment",
@@ -74,6 +78,35 @@ def main() -> None:
         assert flagged["coverage"]["independent_review_gaps"] == 1
         assert any(item["kind"] == "independent_review_gaps"
                    for item in flagged["blockers"])
+        flagged_review_artifact = put(store, flagged_review)
+        adjudication = {"state": "reviewed", "structural_errors": [],
+                        "campaign": campaign, "draft_artifact": draft_artifact,
+                        "review_artifact": flagged_review_artifact,
+                        "evidence_artifact": evidence_artifact,
+                        "probe_report_artifact": report_artifact,
+                        "probe_case_ids": ["increment"], "model": "other-model",
+                        "answer": {"items": [{"kind": "missing_behavior", "index": 0,
+                                              "decision": "nonblocking",
+                                              "reason": "Decrement is outside this function",
+                                              "evidence_addresses": ["00100000"],
+                                              "probe_case_ids": ["increment"]}]}}
+        adjudication_artifact = put(store, adjudication)
+        adjudicated = assemble(
+            engine, manifest, scope_artifact, [draft_artifact],
+            [flagged_review_artifact], [report_artifact],
+            gap_adjudication_artifacts=[adjudication_artifact])
+        assert adjudicated["coverage"]["blocking_review_gaps"] == 0
+        assert not any(item["kind"] == "independent_review_gaps"
+                       for item in adjudicated["blockers"])
+        try:
+            assemble(engine, manifest, scope_artifact, [draft_artifact],
+                     [flagged_review_artifact], [report_artifact],
+                     gap_adjudication_artifacts=[put(store, {**adjudication,
+                         "model": "review-model"})])
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("same-model gap adjudication was accepted")
         disagreed = dossier({**link, "expected_observed": 2})
         assert disagreed["claims"][0]["execution_state"] == "case_disagreement"
         assert any(item["kind"] == "claim_probe_disagreements"
