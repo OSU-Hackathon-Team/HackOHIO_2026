@@ -12,6 +12,8 @@ import sys
 import uuid
 from pathlib import Path
 
+from model_config import available_roles, get_model, resolved_table
+
 ROOT = Path(__file__).resolve().parent
 RUNS = ROOT / "runs"
 IMAGE = "decomp-ghidra-worker:12.1.3"
@@ -59,11 +61,19 @@ def worker(workspace: Path, mode: str) -> None:
         raise RuntimeError(f"{mode} timed out after {limit} seconds") from error
 
 
-DEFAULT_MODEL = os.environ.get("OPENCODE_MODEL", "amazon-bedrock/deepseek.v3.2")
+DEFAULT_MODEL_ROLE = "decomp_worker"
+
+
+def resolve_model(explicit: str | None = None,
+                  role: str | None = None) -> tuple[str, str]:
+    """Resolve (model, role) via models.json + MODEL_<ROLE> env overrides."""
+    active_role = role or DEFAULT_MODEL_ROLE
+    return get_model(active_role, explicit=explicit), active_role
 
 
 def run(binary: Path, address: str, new_name: str,
-        model: str = DEFAULT_MODEL, timeout: int = 180) -> Path:
+        model: str | None = None, model_role: str = DEFAULT_MODEL_ROLE,
+        timeout: int = 180) -> Path:
     if timeout < 1:
         raise ValueError("timeout must be positive")
     if not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", new_name):
@@ -74,9 +84,11 @@ def run(binary: Path, address: str, new_name: str,
     workspace = RUNS / uuid.uuid4().hex
     workspace.mkdir()
     shutil.copy2(binary.resolve(strict=True), workspace / "input.bin")
+    resolved_model, active_role = resolve_model(model, model_role)
     digest = hashlib.sha256((workspace / "input.bin").read_bytes()).hexdigest()
     manifest = {"attempt_id": workspace.name, "binary_sha256": digest,
-                "address": address, "new_name": new_name, "model": model,
+                "address": address, "new_name": new_name, "model": resolved_model,
+                "model_role": active_role,
                 "timeout_seconds": timeout, "project_name": "analysis",
                 "program_name": "input.bin"}
     (workspace / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -96,7 +108,8 @@ def dispatch_many(assignments: list[dict], max_workers: int = 2) -> list[Path]:
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = [pool.submit(
             run, Path(item["binary"]), item["address"], item["new_name"],
-            item.get("model", DEFAULT_MODEL), item.get("timeout", 180))
+            item.get("model"), item.get("model_role", DEFAULT_MODEL_ROLE),
+            item.get("timeout", 180))
             for item in assignments]
         return [future.result() for future in futures]
 
@@ -111,16 +124,24 @@ def main() -> None:
     rename.add_argument("--binary", type=Path, required=True)
     rename.add_argument("--address", required=True)
     rename.add_argument("--new-name", required=True)
-    rename.add_argument("--model", default=DEFAULT_MODEL)
+    rename.add_argument("--model", default=None,
+                        help="explicit OpenCode model (provider/model); overrides models.json role")
+    rename.add_argument("--model-role", default=DEFAULT_MODEL_ROLE,
+                        help=f"role looked up in models.json (default: {DEFAULT_MODEL_ROLE})")
     rename.add_argument("--timeout", type=int, default=180)
     batch = sub.add_parser("batch", help="dispatch independent rename agents from JSON")
     batch.add_argument("--assignments", type=Path, required=True)
     batch.add_argument("--max-workers", type=int, default=2)
+    sub.add_parser("list-models", help="print resolved role -> model table from models.json")
     args = parser.parse_args()
     if args.command == "build":
         build()
     elif args.command == "rename":
-        run(args.binary, args.address, args.new_name, args.model, args.timeout)
+        run(args.binary, args.address, args.new_name,
+            model=args.model, model_role=args.model_role, timeout=args.timeout)
+    elif args.command == "list-models":
+        print(json.dumps(resolved_table(), indent=2))
+        print(f"roles: {', '.join(available_roles())}")
     else:
         assignments = json.loads(args.assignments.read_text())
         dispatch_many(assignments, args.max_workers)

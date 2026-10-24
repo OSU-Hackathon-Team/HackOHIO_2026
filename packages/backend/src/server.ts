@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from "express";
 import path from "path";
 import cors from "cors";
 import compression from "compression";
+import { getModel, resolvedModelTable } from "./models.js";
 
 export const app = express();
 const PORT = process.env.PORT || 3001;
@@ -34,6 +35,8 @@ app.get("/api/health", (_req: Request, res: Response) => {
     service: "splice-backend",
     node_env: process.env.NODE_ENV || "development",
     rea_mode: process.env.REA_MODE || "mock",
+    model: getModel("decomp_worker"),
+    models: resolvedModelTable(),
     timestamp: Date.now()
   });
 });
