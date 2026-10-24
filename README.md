@@ -11,7 +11,7 @@ python launch.py analyze --binary /absolute/path/to/program
 python launch.py status
 ```
 
-`analyze` prints a manifest under `decomp-state/projects/<campaign>/manifest.json`. The campaign key includes the input SHA-256, Ghidra version, exporter revision, and analysis options. Repeating the command reuses the indexed baseline. Export a selected function or every discovered function:
+`analyze` prints a manifest under `decomp-state/projects/<campaign>/manifest.json`. The campaign key includes the input SHA-256, Ghidra version, exporter revision, and analysis options. Concurrent requests for the same campaign share one import and index; an interrupted import is rebuilt before indexing. Repeating the command reuses the indexed baseline. `launch.py status` reports import/index time, recovery attempts, and cache hits. Export a selected function or every discovered function:
 
 ```sh
 python launch.py function --manifest decomp-state/projects/<campaign>/manifest.json --address 00401136
@@ -26,6 +26,7 @@ Build source-known stripped executable and shared-library fixtures at `-O0` and 
 python scripts/build_decomp_fixtures.py
 python scripts/probe_decomp_fixtures.py
 python scripts/check_decomp_export.py
+python scripts/check_decomp_import_cache.py
 python scripts/check_decomp_warm.py
 python scripts/check_decomp_scope.py
 ```
