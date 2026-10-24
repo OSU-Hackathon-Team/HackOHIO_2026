@@ -11,7 +11,13 @@ import {
   IDE_DEFAULT_BUNDLE,
 } from "../data/ideFixtures";
 
-export type ActivityId = "chat" | "explorer" | "decompiler" | "specs" | "studio";
+export type ActivityId =
+  | "chat"
+  | "explorer"
+  | "decompiler"
+  | "specs"
+  | "studio";
+export type WorkspacePage = "chat" | "library" | "app" | "pipeline";
 export type TabKind = "decompiled" | "specs" | "studio";
 export type StudioSubMode = "canvas" | "sandpack" | "engines";
 export type BottomTabId = "terminal" | "tests" | "diagnostics";
@@ -105,6 +111,9 @@ export const PRESET_WINDOWS: EditorTab[] = [
 ];
 
 export interface IdeState {
+  workspacePage: WorkspacePage;
+  setWorkspacePage(page: WorkspacePage): void;
+  cancelCopilotPrompt(): void;
   // Workbench chrome
   projectTitle: string;
   activeActivity: ActivityId;
@@ -168,8 +177,17 @@ export interface IdeState {
 
   selectTarget(targetId: string, filePath?: string): void;
   selectFeature(featureId: string): void;
-  jumpToSourceRef(targetId: string, sourceRef: string, label?: string, split?: boolean): void;
-  jumpToEngineExport(featureId: string, exportName: string, split?: boolean): void;
+  jumpToSourceRef(
+    targetId: string,
+    sourceRef: string,
+    label?: string,
+    split?: boolean,
+  ): void;
+  jumpToEngineExport(
+    featureId: string,
+    exportName: string,
+    split?: boolean,
+  ): void;
   setStudioSubMode(mode: StudioSubMode): void;
   toggleFeatureInBuild(featureId: string): void;
   toggleBlockWidth(blockId: string): void;
@@ -191,13 +209,17 @@ export interface IdeState {
 }
 
 let nextLogId = 1;
+let copilotController: AbortController | undefined;
+let copilotTurn = 0;
+let copilotRevision = 0;
 
 const INITIAL_LAYOUT: BuilderBlock[] = [
   {
     id: "notes-editor",
     kind: "notes",
     title: "My Study Notes",
-    description: "Write notes and type [[Topic]] in double brackets to connect related ideas.",
+    description:
+      "Write notes and type [[Topic]] in double brackets to connect related ideas.",
     visible: true,
     width: "full",
   },
@@ -205,7 +227,8 @@ const INITIAL_LAYOUT: BuilderBlock[] = [
     id: "backlinks-graph",
     kind: "backlinks",
     title: "Connected Ideas & Backlinks",
-    description: "See which notes link to each other and which topics still need a note.",
+    description:
+      "See which notes link to each other and which topics still need a note.",
     visible: true,
     width: "half",
   },
@@ -213,7 +236,8 @@ const INITIAL_LAYOUT: BuilderBlock[] = [
     id: "sm2-reviews",
     kind: "reviews",
     title: "Daily Flashcard Practice",
-    description: "Practice your notes as flashcards and schedule the next review automatically.",
+    description:
+      "Practice your notes as flashcards and schedule the next review automatically.",
     visible: true,
     width: "half",
   },
@@ -243,13 +267,45 @@ const INITIAL_NOTES: NoteItem[] = [
 ];
 
 const INITIAL_REVIEWS: Record<string, CardReviewState> = {
-  cardiology: { reps: 2, interval: 6, ease: 2.5, lapses: 0, due: "Due today", leech: false },
-  anatomy: { reps: 1, interval: 1, ease: 2.36, lapses: 1, due: "Due today", leech: false },
-  physiology: { reps: 3, interval: 15, ease: 2.6, lapses: 0, due: "In 15 days", leech: false },
-  pharmacology: { reps: 0, interval: 1, ease: 1.3, lapses: 7, due: "Due today", leech: false },
+  cardiology: {
+    reps: 2,
+    interval: 6,
+    ease: 2.5,
+    lapses: 0,
+    due: "Due today",
+    leech: false,
+  },
+  anatomy: {
+    reps: 1,
+    interval: 1,
+    ease: 2.36,
+    lapses: 1,
+    due: "Due today",
+    leech: false,
+  },
+  physiology: {
+    reps: 3,
+    interval: 15,
+    ease: 2.6,
+    lapses: 0,
+    due: "In 15 days",
+    leech: false,
+  },
+  pharmacology: {
+    reps: 0,
+    interval: 1,
+    ease: 1.3,
+    lapses: 7,
+    due: "Due today",
+    leech: false,
+  },
 };
 
 export const useIdeStore = create<IdeState>((set, get) => ({
+  workspacePage: "chat",
+  setWorkspacePage(workspacePage) {
+    set({ workspacePage });
+  },
   projectTitle: "My Study Space",
   activeActivity: "chat",
   sidebarOpen: false,
@@ -270,7 +326,7 @@ export const useIdeStore = create<IdeState>((set, get) => ({
     recall: "src/scheduler/sm2.js",
   },
   lineHighlight: null,
-  selectedFeatureId: "inkwell.wikilink_graph",
+  selectedFeatureId: "",
   selectedEngineFeatureId: "inkwell.wikilink_graph",
   highlightedExport: null,
 
@@ -314,8 +370,7 @@ export const useIdeStore = create<IdeState>((set, get) => ({
       role: "assistant",
       ts: Date.now() - 500,
       model: "AI Assistant",
-      badges: ["2 Building Blocks Active", "6/6 Scenarios Verified"],
-      text: "Hi! Tell me what kind of app you'd like to build in plain English, or click any step above to explore discovered apps, inspect building blocks, or try your live app.",
+      text: "What would you like to make?\n\nYour study app starts with connected notes and spaced repetition from two example applications. Describe a change here, or explore their building blocks in the app library.",
     },
   ],
   chatBusy: false,
@@ -324,7 +379,7 @@ export const useIdeStore = create<IdeState>((set, get) => ({
     set({ projectTitle });
   },
   setActiveActivity(activeActivity) {
-    set(s => {
+    set((s) => {
       if (s.tabs.length === 0 && activeActivity === "chat") {
         return { activeActivity: "chat", sidebarOpen: false };
       }
@@ -335,27 +390,30 @@ export const useIdeStore = create<IdeState>((set, get) => ({
     });
   },
   toggleSidebar(open) {
-    set(s => ({ sidebarOpen: open ?? !s.sidebarOpen }));
+    set((s) => ({ sidebarOpen: open ?? !s.sidebarOpen }));
   },
   toggleCopilot(open) {
-    set(s => {
+    set((s) => {
       const next = open ?? !(s.sidebarOpen && s.activeActivity === "chat");
       return { activeActivity: "chat", sidebarOpen: next, copilotOpen: next };
     });
   },
   toggleBottomPanel(open) {
-    set(s => ({ bottomPanelOpen: open ?? !s.bottomPanelOpen }));
+    set((s) => ({ bottomPanelOpen: open ?? !s.bottomPanelOpen }));
   },
   setBottomPanelTab(bottomPanelTab) {
     set({ bottomPanelTab, bottomPanelOpen: true });
   },
   toggleSplitView(split) {
-    set(s => {
+    set((s) => {
       const nextSplit = split ?? !s.splitView;
-      const otherTab = s.tabs.find(t => t.id !== s.activeTabId)?.id ?? s.tabs[0]?.id ?? null;
+      const otherTab =
+        s.tabs.find((t) => t.id !== s.activeTabId)?.id ?? s.tabs[0]?.id ?? null;
       return {
         splitView: nextSplit,
-        secondaryTabId: nextSplit ? s.secondaryTabId ?? otherTab : s.secondaryTabId,
+        secondaryTabId: nextSplit
+          ? (s.secondaryTabId ?? otherTab)
+          : s.secondaryTabId,
       };
     });
   },
@@ -367,14 +425,15 @@ export const useIdeStore = create<IdeState>((set, get) => ({
   },
 
   openTab(tab, inSplit = false) {
-    set(s => {
+    set((s) => {
       const wasEmpty = s.tabs.length === 0;
-      const exists = s.tabs.some(t => t.id === tab.id);
+      const exists = s.tabs.some((t) => t.id === tab.id);
       const tabs = exists
-        ? s.tabs.map(t => (t.id === tab.id ? { ...t, ...tab } : t))
+        ? s.tabs.map((t) => (t.id === tab.id ? { ...t, ...tab } : t))
         : [...s.tabs, tab];
 
       const nextState: Partial<IdeState> = {
+        workspacePage: tab.kind === "studio" ? "app" : "library",
         tabs,
         commandPaletteOpen: false,
         ...(wasEmpty ? { sidebarOpen: true, activeActivity: "chat" } : {}),
@@ -384,15 +443,20 @@ export const useIdeStore = create<IdeState>((set, get) => ({
       };
 
       if (inSplit) {
-        return { ...nextState, splitView: true, secondaryTabId: tab.id, activeTabId: s.activeTabId || tab.id };
+        return {
+          ...nextState,
+          splitView: true,
+          secondaryTabId: tab.id,
+          activeTabId: s.activeTabId || tab.id,
+        };
       }
       return { ...nextState, activeTabId: tab.id };
     });
   },
 
   closeTab(tabId) {
-    set(s => {
-      const tabs = s.tabs.filter(t => t.id !== tabId);
+    set((s) => {
+      const tabs = s.tabs.filter((t) => t.id !== tabId);
       if (tabs.length === 0) {
         return {
           tabs: [],
@@ -402,9 +466,12 @@ export const useIdeStore = create<IdeState>((set, get) => ({
           sidebarOpen: false,
         };
       }
-      const activeTabId = s.activeTabId === tabId ? tabs[tabs.length - 1].id : s.activeTabId;
+      const activeTabId =
+        s.activeTabId === tabId ? tabs[tabs.length - 1].id : s.activeTabId;
       const secondaryTabId =
-        s.secondaryTabId === tabId ? (tabs.find(t => t.id !== activeTabId)?.id ?? null) : s.secondaryTabId;
+        s.secondaryTabId === tabId
+          ? (tabs.find((t) => t.id !== activeTabId)?.id ?? null)
+          : s.secondaryTabId;
       return {
         tabs,
         activeTabId,
@@ -425,7 +492,7 @@ export const useIdeStore = create<IdeState>((set, get) => ({
   },
 
   setActiveTab(activeTabId) {
-    const tab = get().tabs.find(t => t.id === activeTabId);
+    const tab = get().tabs.find((t) => t.id === activeTabId);
     set({
       activeTabId,
       ...(tab?.targetId ? { selectedTargetId: tab.targetId } : {}),
@@ -435,12 +502,18 @@ export const useIdeStore = create<IdeState>((set, get) => ({
   },
 
   selectTarget(targetId, filePath) {
-    const target = IDE_TARGETS.find(t => t.id === targetId);
+    const target = IDE_TARGETS.find((t) => t.id === targetId);
     const resolvedFile =
-      filePath ?? get().selectedFileByTarget[targetId] ?? target?.files[0]?.location ?? "";
-    set(s => ({
+      filePath ??
+      get().selectedFileByTarget[targetId] ??
+      target?.files[0]?.location ??
+      "";
+    set((s) => ({
       selectedTargetId: targetId,
-      selectedFileByTarget: { ...s.selectedFileByTarget, [targetId]: resolvedFile },
+      selectedFileByTarget: {
+        ...s.selectedFileByTarget,
+        [targetId]: resolvedFile,
+      },
     }));
     get().openTab({
       id: `decompiled-${targetId}`,
@@ -452,7 +525,7 @@ export const useIdeStore = create<IdeState>((set, get) => ({
   },
 
   selectFeature(featureId) {
-    const feat = IDE_FEATURES.find(f => f.featureId === featureId);
+    const feat = IDE_FEATURES.find((f) => f.featureId === featureId);
     set({
       selectedFeatureId: featureId,
       ...(feat ? { selectedTargetId: feat.targetId } : {}),
@@ -472,12 +545,18 @@ export const useIdeStore = create<IdeState>((set, get) => ({
     const filePath = match ? match[1] : cleaned;
     const startLine = match ? Number(match[2]) : 1;
     const endLine = match ? Number(match[3] ?? match[2]) : startLine;
-    const target = IDE_TARGETS.find(t => t.id === targetId);
+    const target = IDE_TARGETS.find((t) => t.id === targetId);
 
-    set(s => ({
+    set((s) => ({
       selectedTargetId: targetId,
       selectedFileByTarget: { ...s.selectedFileByTarget, [targetId]: filePath },
-      lineHighlight: { targetId, filePath, startLine, endLine, label: label ?? sourceRef },
+      lineHighlight: {
+        targetId,
+        filePath,
+        startLine,
+        endLine,
+        label: label ?? sourceRef,
+      },
     }));
 
     get().openTab(
@@ -488,7 +567,7 @@ export const useIdeStore = create<IdeState>((set, get) => ({
         subtitle: target?.friendlyCategory,
         targetId,
       },
-      split
+      split,
     );
   },
 
@@ -506,7 +585,7 @@ export const useIdeStore = create<IdeState>((set, get) => ({
         subtitle: "Interactive Preview",
         studioMode: "canvas",
       },
-      split
+      split,
     );
   },
 
@@ -525,9 +604,12 @@ export const useIdeStore = create<IdeState>((set, get) => ({
   },
 
   toggleFeatureInBuild(featureId) {
-    const feature = IDE_FEATURES.find(f => f.featureId === featureId);
+    const feature = IDE_FEATURES.find((f) => f.featureId === featureId);
     if (!feature) return;
-    if (feature.readiness === "blocked" || feature.readiness === "needs_review") {
+    if (
+      feature.readiness === "blocked" ||
+      feature.readiness === "needs_review"
+    ) {
       const msg = `Cannot fuse '${feature.title}': ${feature.limitation}`;
       set({ statusError: msg });
       get().appendLog("oracle", msg);
@@ -538,38 +620,56 @@ export const useIdeStore = create<IdeState>((set, get) => ({
     const isIncluded = current.includes(featureId);
     let next: string[];
     if (isIncluded) {
-      next = current.filter(id => {
+      next = current.filter((id) => {
         if (id === featureId) return false;
-        const f = IDE_FEATURES.find(x => x.featureId === id);
+        const f = IDE_FEATURES.find((x) => x.featureId === id);
         return !f?.dependencies.includes(featureId);
       });
     } else {
-      const deps = feature.dependencies.filter(d => !current.includes(d));
+      const deps = feature.dependencies.filter((d) => !current.includes(d));
       next = [...current, ...deps, featureId];
     }
 
-    set({ includedFeatureIds: next, statusError: null });
+    const enabled = (block: BuilderBlock) =>
+      block.kind === "text" ||
+      next.includes(
+        block.kind === "reviews"
+          ? "recall.sm2_scheduler"
+          : "inkwell.wikilink_graph",
+      );
+    const layout = get().layout.filter(enabled);
+    for (const block of INITIAL_LAYOUT.filter(enabled))
+      if (!layout.some((b) => b.kind === block.kind)) layout.push(block);
+    set({
+      includedFeatureIds: next,
+      layout,
+      pastLayouts: [],
+      futureLayouts: [],
+      statusError: null,
+    });
     get().appendLog(
       "engine",
-      `Updated active building blocks in your app (${next.length} active).`
+      `Updated active building blocks in your app (${next.length} active).`,
     );
   },
 
   toggleBlockWidth(blockId) {
-    set(s => ({
+    set((s) => ({
       pastLayouts: [...s.pastLayouts, s.layout],
       futureLayouts: [],
-      layout: s.layout.map(b =>
-        b.id === blockId ? { ...b, width: b.width === "full" ? "half" : "full" } : b
+      layout: s.layout.map((b) =>
+        b.id === blockId
+          ? { ...b, width: b.width === "full" ? "half" : "full" }
+          : b,
       ),
     }));
   },
 
   removeBlock(blockId) {
-    set(s => ({
+    set((s) => ({
       pastLayouts: [...s.pastLayouts, s.layout],
       futureLayouts: [],
-      layout: s.layout.filter(b => b.id !== blockId),
+      layout: s.layout.filter((b) => b.id !== blockId),
     }));
   },
 
@@ -578,8 +678,8 @@ export const useIdeStore = create<IdeState>((set, get) => ({
   },
 
   updateNote(noteId, title, body) {
-    set(s => ({
-      notes: s.notes.map(n => (n.id === noteId ? { ...n, title, body } : n)),
+    set((s) => ({
+      notes: s.notes.map((n) => (n.id === noteId ? { ...n, title, body } : n)),
     }));
   },
 
@@ -590,12 +690,19 @@ export const useIdeStore = create<IdeState>((set, get) => ({
       title: `New Study Note ${get().notes.length + 1}`,
       body: "Connected to [[Cardiology]] and [[Physiology]].",
     };
-    set(s => ({
+    set((s) => ({
       notes: [...s.notes, newNote],
       selectedNoteId: id,
       reviews: {
         ...s.reviews,
-        [id]: { reps: 0, interval: 1, ease: 2.5, lapses: 0, due: "Due today", leech: false },
+        [id]: {
+          reps: 0,
+          interval: 1,
+          ease: 2.5,
+          lapses: 0,
+          due: "Due today",
+          leech: false,
+        },
       },
     }));
   },
@@ -629,7 +736,7 @@ export const useIdeStore = create<IdeState>((set, get) => ({
     }
     const leech = lapses >= 8;
 
-    set(s => ({
+    set((s) => ({
       reviews: {
         ...s.reviews,
         [noteId]: {
@@ -644,12 +751,12 @@ export const useIdeStore = create<IdeState>((set, get) => ({
     }));
     get().appendLog(
       "engine",
-      `Reviewed flashcard '${noteId}' -> next review in ${interval} day(s)${leech ? " (flagged as Tricky Card)" : ""}.`
+      `Reviewed flashcard '${noteId}' -> next review in ${interval} day(s)${leech ? " (flagged as Tricky Card)" : ""}.`,
     );
   },
 
   undoLayout() {
-    set(s => {
+    set((s) => {
       if (!s.pastLayouts.length) return s;
       const previous = s.pastLayouts[s.pastLayouts.length - 1];
       return {
@@ -661,7 +768,7 @@ export const useIdeStore = create<IdeState>((set, get) => ({
   },
 
   redoLayout() {
-    set(s => {
+    set((s) => {
       if (!s.futureLayouts.length) return s;
       const [next, ...rest] = s.futureLayouts;
       return {
@@ -673,7 +780,7 @@ export const useIdeStore = create<IdeState>((set, get) => ({
   },
 
   appendLog(stage, text) {
-    set(s => ({
+    set((s) => ({
       terminalLogs: [
         ...s.terminalLogs.slice(-199),
         { id: nextLogId++, ts: Date.now(), stage, text },
@@ -683,157 +790,151 @@ export const useIdeStore = create<IdeState>((set, get) => ({
 
   async runAllVerificationTests() {
     if (get().isRunningTests) return;
-    set({ isRunningTests: true, bottomPanelOpen: true, bottomPanelTab: "tests" });
-    get().appendLog("oracle", "Checking all building blocks against original applications...");
-    await new Promise(r => setTimeout(r, 250));
-    get().appendLog("oracle", "✓ Connected Notes & Backlinks matched Inkwell Notes (3 out of 3 scenarios).");
-    get().appendLog("oracle", "✓ Smart Flashcard Scheduler matched Recall Flashcards (4 out of 4 scenarios).");
-    set(s => ({ isRunningTests: false, testRunCount: s.testRunCount + 1 }));
+    set({
+      isRunningTests: true,
+      bottomPanelOpen: true,
+      bottomPanelTab: "tests",
+    });
+    get().appendLog(
+      "oracle",
+      "Checking all building blocks against original applications...",
+    );
+    await new Promise((r) => setTimeout(r, 250));
+    get().appendLog(
+      "oracle",
+      "✓ Connected Notes & Backlinks matched Inkwell Notes (3 out of 3 scenarios).",
+    );
+    get().appendLog(
+      "oracle",
+      "✓ Smart Flashcard Scheduler matched Recall Flashcards (4 out of 4 scenarios).",
+    );
+    set((s) => ({ isRunningTests: false, testRunCount: s.testRunCount + 1 }));
   },
 
+  cancelCopilotPrompt() {
+    copilotTurn++;
+    copilotController?.abort();
+    set({ chatBusy: false });
+  },
   async sendCopilotPrompt(rawPrompt) {
     const prompt = rawPrompt.trim();
     if (!prompt || get().chatBusy) return;
-
-    const userMsg: CopilotMessage = {
-      id: `user-${Date.now()}`,
-      role: "user",
-      text: prompt,
-      ts: Date.now(),
-    };
-    set(s => ({
-      chatMessages: [...s.chatMessages, userMsg],
+    const turn = ++copilotTurn;
+    copilotController = new AbortController();
+    const signal = copilotController.signal;
+    set((s) => ({
+      chatMessages: [
+        ...s.chatMessages,
+        { id: crypto.randomUUID(), role: "user", text: prompt, ts: Date.now() },
+      ],
       chatBusy: true,
       statusError: null,
     }));
-
     const lower = prompt.toLowerCase();
-
-    if (lower.includes("cloud") || lower.includes("sync")) {
-      await new Promise(r => setTimeout(r, 240));
-      const specTab: EditorTab = {
-        id: "specs-inkwell.cloud_sync",
-        kind: "specs",
-        title: "Feature: Cloud Folder Sync",
-        subtitle: "Unavailable",
-        featureId: "inkwell.cloud_sync",
-      };
-      const reply: CopilotMessage = {
-        id: `asst-${Date.now()}`,
-        role: "assistant",
-        ts: Date.now(),
-        model: "AI Assistant",
-        badges: ["Unavailable"],
-        text: "Cloud Folder Sync requires private computer folder access and an external account, so it isn't available to add to your web app. I've opened its feature card so you can see the details.",
-        actions: [{ label: "View Cloud Sync Card", tab: specTab }],
-      };
-      set(s => ({ chatMessages: [...s.chatMessages, reply], chatBusy: false }));
-      get().openTab(specTab);
+    // Library guidance is local navigation help, explicitly labeled separately from model replies.
+    if (
+      lower.includes("cloud") ||
+      lower.includes("sync") ||
+      lower.includes("inkwell") ||
+      lower.includes("recall") ||
+      lower.includes("source")
+    ) {
+      const cloud = lower.includes("cloud") || lower.includes("sync");
+      const target = cloud
+        ? {
+            id: "specs-inkwell.cloud_sync",
+            kind: "specs" as const,
+            title: "Cloud Folder Sync",
+            featureId: "inkwell.cloud_sync",
+          }
+        : lower.includes("recall")
+          ? PRESET_WINDOWS[1]
+          : PRESET_WINDOWS[0];
+      set((s) => ({
+        chatBusy: false,
+        chatMessages: [
+          ...s.chatMessages,
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            ts: Date.now(),
+            model: "Project guide",
+            text: cloud
+              ? "Cloud Folder Sync requires external services and is unavailable for reuse. You can inspect its limitations in the app library."
+              : "You can explore this example application and its building blocks in the app library. Your conversation will stay here.",
+            actions: [
+              {
+                label: cloud
+                  ? "Inspect Cloud Folder Sync"
+                  : "Explore application",
+                tab: target,
+              },
+            ],
+          },
+        ],
+      }));
       return;
     }
-
-    if (lower.includes("inkwell") || lower.includes("recall") || lower.includes("source")) {
-      await new Promise(r => setTimeout(r, 240));
-      const appTab = lower.includes("recall") ? PRESET_WINDOWS[1] : PRESET_WINDOWS[0];
-      const reply: CopilotMessage = {
-        id: `asst-${Date.now()}`,
-        role: "assistant",
-        ts: Date.now(),
-        model: "AI Assistant",
-        badges: ["Source App Opened"],
-        text: `I've opened the ${appTab.title} profile so you can see how it works and which building blocks were discovered inside it.`,
-        actions: [{ label: `Open ${appTab.title}`, tab: appTab }],
-      };
-      set(s => ({ chatMessages: [...s.chatMessages, reply], chatBusy: false }));
-      get().openTab(appTab);
-      return;
-    }
-
+    const currentLayout = get().layout,
+      currentFeatures = get().includedFeatureIds;
+    const featureIds = currentFeatures
+      .map((id) => IDE_FEATURES.find((f) => f.featureId === id)?.builderId)
+      .filter(
+        (id): id is "wiki-links" | "spaced-review" =>
+          id === "wiki-links" || id === "spaced-review",
+      );
+    const revision = ++copilotRevision;
     try {
-      const featureIds = get()
-        .includedFeatureIds.map(id => IDE_FEATURES.find(f => f.featureId === id)?.builderId)
-        .filter((x): x is "wiki-links" | "spaced-review" => x === "wiki-links" || x === "spaced-review");
-
-      const currentLayout = get().layout;
-      const res = await requestBuilderEdits({
-        revision: get().pastLayouts.length + 1,
-        instruction: prompt,
-        selectedBlockId: currentLayout[0]?.id ?? null,
-        featureIds: featureIds.length ? featureIds : ["wiki-links", "spaced-review"],
-        layout: currentLayout,
-      });
-
+      const res = await requestBuilderEdits(
+        {
+          revision,
+          instruction: prompt,
+          selectedBlockId: null,
+          featureIds,
+          layout: currentLayout,
+        },
+        signal,
+      );
+      if (signal.aborted || turn !== copilotTurn) return;
+      if (
+        res.revision !== revision ||
+        get().layout !== currentLayout ||
+        get().includedFeatureIds !== currentFeatures
+      )
+        throw new Error(
+          "Your app changed while the assistant was working. Send the request again; your current app was preserved.",
+        );
       const nextLayout = applyBuilderOperations(
         currentLayout,
         res.operations,
-        featureIds.length ? featureIds : ["wiki-links", "spaced-review"]
+        featureIds,
       );
-
-      const studioTab = PRESET_WINDOWS[4];
-      set(s => ({
+      set((s) => ({
         layout: nextLayout,
-        pastLayouts: [...s.pastLayouts, currentLayout],
-        futureLayouts: [],
+        pastLayouts: res.operations.length
+          ? [...s.pastLayouts, currentLayout]
+          : s.pastLayouts,
+        futureLayouts: res.operations.length ? [] : s.futureLayouts,
         chatMessages: [
           ...s.chatMessages,
           {
-            id: `asst-${Date.now()}`,
+            id: crypto.randomUUID(),
             role: "assistant",
             ts: Date.now(),
-            model: "AI Assistant",
-            badges: ["App Layout Updated"],
+            model: res.model,
             text: res.summary,
-            actions: [{ label: "View My App", tab: studioTab }],
+            actions: [{ label: "Open my app", tab: PRESET_WINDOWS[4] }],
           },
         ],
-        chatBusy: false,
       }));
-      get().openTab(studioTab);
       get().appendLog("copilot", res.summary);
-    } catch (_err) {
-      const currentLayout = get().layout;
-      let nextLayout = [...currentLayout];
-      let summary = "";
-
-      if (lower.includes("add") || lower.includes("banner") || lower.includes("header") || lower.includes("summary") || lower.includes("guide") || lower.includes("goal")) {
-        const newBlock: BuilderBlock = {
-          id: `section-${Date.now()}`,
-          kind: "text",
-          title: prompt.length > 42 ? `${prompt.slice(0, 42)}...` : prompt,
-          description: "Custom section added by your AI Assistant.",
-          visible: true,
-          width: lower.includes("half") ? "half" : "full",
-        };
-        nextLayout = [newBlock, ...currentLayout];
-        summary = `Added "${newBlock.title}" to your app and opened your live preview.`;
-      } else if (lower.includes("side") || lower.includes("half") || lower.includes("compact") || lower.includes("grid")) {
-        nextLayout = currentLayout.map(b => ({ ...b, width: "half" as const }));
-        summary = "Arranged all sections side-by-side in a two-column layout.";
-      } else {
-        summary = `Updated your app for "${prompt}" using Connected Notes and Smart Flashcard Practice.`;
-      }
-
-      const studioTab = PRESET_WINDOWS[4];
-      set(s => ({
-        layout: nextLayout,
-        pastLayouts: [...s.pastLayouts, currentLayout],
-        futureLayouts: [],
-        chatMessages: [
-          ...s.chatMessages,
-          {
-            id: `asst-${Date.now()}`,
-            role: "assistant",
-            ts: Date.now(),
-            model: "AI Assistant",
-            badges: ["My App Updated"],
-            text: summary,
-            actions: [{ label: "Open My App", tab: studioTab }],
-          },
-        ],
-        chatBusy: false,
-      }));
-      get().openTab(studioTab);
-      get().appendLog("copilot", summary);
+    } catch (error) {
+      if (!signal.aborted && turn === copilotTurn)
+        set({
+          statusError: `${error instanceof Error ? error.message : "The assistant request failed"} Your app was not changed.`,
+        });
+    } finally {
+      if (turn === copilotTurn) set({ chatBusy: false });
     }
   },
 }));
