@@ -78,8 +78,11 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
 - **Remaining stubs:** Eng 2 sandbox and requirements extraction. No live pipeline end to end yet; Step 3 deps remain null until the sandbox is available. Its 503 diagnostic now names only the missing sandbox.
 - **Decompilation engine:** the `engine/` package runs native evidence export, scopes,
   semantic attempts, independent review, probes, partial dossiers, and a durable queue.
-  Conflict reconciliation, scale gates, specification generation, and downstream app
-  integration remain open; see the root `README.md` for commands.
+  The telemetry root caller binds all 18 direct calls to active helper contracts and is
+  accepted as `static_only`; the 21-function dossier remains partial with 14 distinct
+  agreeing original cases and unresolved review and probe-link blockers. Scale gates,
+  specification generation, and downstream app integration remain open; see the root
+  `README.md` for commands.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
   `trace_application_feature` and `binary_session` (live probe; catalog and samples in `fixtures/rea/`),
