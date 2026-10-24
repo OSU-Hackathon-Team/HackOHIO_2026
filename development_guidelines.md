@@ -24,3 +24,13 @@
   - `feat(backend): add static SPA fallback excluding /api routes`
   - `infra(docker): add multi-stage Dockerfile with base rea-agents cache`
   - `chore(docker): add .dockerignore and docker-compose profiles`
+  ## 4. Push & Pull Request Protocol
+- **Never Merge Locally into `dev` or `main`:** Do not run `git checkout dev && git merge <branch>`. All changes must go through a Pull Request.
+- **Push Upstream:** Once all atomic commits for the task are complete and verified (build/typecheck passes), push the feature branch to origin using `git push -u origin <branch-name>`.
+- **Target Branch (`dev`):** Always open Pull Requests against `dev` (`--base dev`), NEVER against `main`, unless explicitly instructed for a final release.
+- **Non-Interactive PR Creation (`gh pr create`):** Use the GitHub CLI with explicit flags so the terminal never hangs waiting for interactive input.
+- **PR Title & Body Structure:**
+  - **Title:** Match Conventional Commits format (e.g., `infra(docker): add multi-stage Dockerfile and compose profiles`).
+  - **Body:** Include a concise summary of changes, architectural decisions made, and exact verification/testing steps for teammates.
+  - **Command Pattern:**
+    `gh pr create --base dev --head <branch-name> --title "<type>(<scope>): <summary>" --body "## Summary\n- ...\n\n## Verification\n- ..."`
