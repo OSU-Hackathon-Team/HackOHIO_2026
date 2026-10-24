@@ -1,54 +1,59 @@
 # Agent Specification: Implementation & Frontend Agent (Tracks B & C)
 
 > **Agent Role:** Application Synthesizer & Studio UI/UX Specialist  
-> **System Scope:** Fuses extracted `FeatureBlueprint` modules into cohesive React applications, runs them live inside an embedded `@codesandbox/sandpack-react` container, and delivers the split-screen consumer studio interface.  
-> **Primary Deliverables:** Synthesis & Refinement engines (`POST /api/synthesize`, `POST /api/refine`), interactive 3D X-Ray cards, streaming terminal, and live Sandpack studio UI.
+> **System Scope:** Fuses verified clean-room `FeatureBlueprint` modules into cohesive React applications, embeds them inside an active `@codesandbox/sandpack-react` runner, and provides a consumer studio featuring 3D X-Ray cards with deep evidence dossiers.  
+> **Primary Deliverables:** Synthesis & Refinement engines (`POST /api/synthesize`, `POST /api/refine`), interactive 3D X-Ray cards with verification metrics, deep evidence inspection drawer, streaming terminal, and live Sandpack studio UI.
 
 ---
 
 ## 1. Role & Objective
 
-The **Implementation & Frontend Agent** drives the consumer experience of Splice. It operates on two tightly coordinated layers:
-1. **Track B (The Fusion Engine):** Generates executable React + Tailwind adapter code that wires multiple disparate clean-room engines into a unified application.
-2. **Track C (The Studio UI):** Provides a split-screen workspace where users select ingredient apps, watch real-time extraction logs, inspect decompiled X-Ray evidence on 3D cards, and interact with the live running software.
-
----
-
-## 2. Architecture & Data Flow
+The **Implementation & Frontend Agent** brings reverse-engineered algorithms into production reality:
+1. **Track B (The Fusion Engine):** Generates executable React + Tailwind adapter code that combines disparate, verified clean-room engines into a unified application.
+2. **Track C (The Studio UI):** Provides a split-screen studio where users select ingredients, observe real-time extraction and sandbox verification in an SSE terminal, inspect verified inventories on 3D X-Ray cards, and interact with the live running software.
 
 ```mermaid
 flowchart LR
-    A["Selected FeatureBlueprints<br/>+ User Goal Prompt"] --> B["Synthesizer Agent<br/>(Track B: Codegen)"]
-    B --> C["Sandpack File Bundle<br/>(/App.tsx, /engines/*.ts)"]
-    C --> D["Sandpack Live Preview<br/>(Track C: Studio UI)"]
-    D --> E["Refinement Chat<br/>('Add dark mode & tag filters')"]
-    E --> F["Refiner Agent<br/>(Preserves /engines/*)"]
-    F --> D
+    A["Verified FeatureBlueprints<br/>(Inventory: 100%, Tests: Passing)"] --> B["Track B: Synthesis Engine<br/>(/App.tsx + Immutable /engines/*.ts)"]
+    B --> C["Track C: Sandpack Runner<br/>(Live In-Browser Execution)"]
+    C --> D["Refinement Chat<br/>('Add dark mode & tag filters')"]
+    D --> E["Refiner Agent<br/>(Preserves /engines/*)"]
+    E --> C
+    A --> F["3D Flippable Cards<br/>(Front: I/O, Back: Evidence Dossier)"]
 ```
 
 ---
 
-## 3. Track B: The Synthesis Engine (`synthesizerAgent.ts`)
+## 2. Track B: The Fusion & Synthesis Engine (`synthesizerAgent.ts`)
 
-The Synthesis Engine receives 1–3 `FeatureBlueprint` specifications and a prompt detailing the user's domain goal (e.g., *"Build an interactive medical study dashboard with backlinked notes and spaced repetition intervals"*).
+The Synthesis Engine receives 1–3 verified `FeatureBlueprint` specifications and a prompt detailing the user's domain goal (e.g., *"Build an interactive medical study dashboard with backlinked notes and spaced repetition intervals"*).
 
-### 3.1. Synthesis Rules & Invariants
-- **Engine Immutability:** Each blueprint's `clean_room_implementation.portable_code` MUST be placed untouched into `/engines/<module_name>.ts`. The AI must never rewrite or refactor these reverse-engineered algorithms.
-- **Reactive Glue Layer:** In `/App.tsx`, build a cohesive, stateful UI that imports the engine functions, maps user events to engine inputs, and renders engine outputs.
-- **Seed Data:** Always populate the initial React state with realistic sample records so the app renders a populated, functional state immediately upon loading.
-- **Styling Standards:** Use Tailwind CSS utility classes styled for modern dark/light mode interfaces (clean cards, smooth borders, badge indicators).
+### 2.1. Strict Invariants
+- **Engine Immutability:** Each blueprint's `clean_room_implementation.portable_code` (including all inlined callee helpers) MUST be placed untouched into `/engines/<module_name>.ts`. The AI must never rewrite or refactor these reverse-engineered algorithms.
+- **Reactive State Glue:** `/App.tsx` imports the engine functions, maps user events to engine inputs, and renders engine outputs.
+- **Seed Data:** Initial React state is populated with realistic domain records so the app renders immediately upon loading.
+- **Styling:** Standard Tailwind CSS utility classes styled for clean dark/light mode interfaces.
 
-### 3.2. Output Schema (`SynthesisResponse`)
+### 2.2. Sandpack File Structure
+```
+/App.tsx                     # Generated reactive UI and adapter state
+/engines/wikiGraphEngine.ts  # Verified clean-room Obsidian backlink engine
+/engines/sm2Scheduler.ts     # Verified clean-room Anki SM-2 repetition engine
+/styles.css                  # Custom Tailwind overrides
+/public/index.html           # Tailwind CDN & base HTML template
+```
+
+### 2.3. Output Contract (`SynthesisResponse`)
 ```typescript
 export interface SynthesisResponse {
   app_title: string;
   app_description: string;
-  files: Record<string, string>; // e.g., { "/App.tsx": "...", "/engines/wikiGraphEngine.ts": "..." }
-  dependencies: Record<string, string>; // e.g., { "lucide-react": "latest", "canvas-confetti": "latest" }
+  files: Record<string, string>;
+  dependencies: Record<string, string>;
 }
 ```
 
-### 3.3. Iterative Refinement Loop (`POST /api/refine`)
+### 2.4. Follow-Up Refinement Loop (`POST /api/refine`)
 Allows conversational changes without regenerating the entire project:
 - Receives: `{ current_files, blueprints, refine_prompt }`.
 - Keeps all files under `/engines/*` completely untouched.
@@ -57,9 +62,9 @@ Allows conversational changes without regenerating the entire project:
 
 ---
 
-## 4. Track C: Studio Layout & Component Architecture
+## 3. Track C: Studio Layout & Component Architecture
 
-### 4.1. Split-Screen Layout Structure (`packages/frontend/src/App.tsx`)
+### 3.1. Split-Screen Layout (`packages/frontend/src/App.tsx`)
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
@@ -76,8 +81,8 @@ Allows conversational changes without regenerating the entire project:
 │                                          │ │  • Anki SM-2 Review Buttons             │ │
 │ 3. Streaming REA Terminal:               │ └─────────────────────────────────────────┘ │
 │    ┌───────────────────────────────────┐ │                                             │
-│    │ [15:42:01] analyze_javascript_... │ │ ─────────────────────────────────────────── │
-│    │ [15:42:03] decompile 0x140023B80  │ │ Follow-up Refinement:                       │
+│    │ [15:42:01] Sifting callee...      │ │ ─────────────────────────────────────────── │
+│    │ [15:42:03] Sandbox: 4/4 Passed    │ │ Follow-up Refinement:                       │
 │    └───────────────────────────────────┘ │ [ "Add dark mode toggle and card tags" ]    │
 │                                          │ [ > Refine App ]                            │
 │ 4. Feature Card Tray (Flippable Cards):  │                                             │
@@ -90,135 +95,442 @@ Allows conversational changes without regenerating the entire project:
 └──────────────────────────────────────────┴─────────────────────────────────────────────┘
 ```
 
-### 4.2. Key Frontend Components
+---
 
-1. **App Pantry (`components/pantry/AppPantry.tsx`):**
-   - Quick ingredient badges for pre-indexed targets (Obsidian, Anki, Windows Calculator).
-   - Multi-select toggle state feeding selected app IDs to the harvester.
+## 4. The 3D Flippable "X-Ray" Card with Evidence Dossier
 
-2. **Real-time SSE Terminal (`components/terminal/SseTerminal.tsx`):**
-   - Visual terminal that listens to `POST /api/extract` via `useExtraction`.
-   - Displays real-time status pulses, animated tool badges (`analyze_javascript_application`, `decompile`), and execution timestamps.
+Judges inspect the authenticity of reverse-engineered features via the 3D flippable card and its deep evidence drawer:
 
-3. **3D Flippable "X-Ray" Feature Card (`components/cards/FeatureCard.tsx`):**
-   - Built with CSS 3D transforms (`[perspective:1000px]`, `[transform-style:preserve-3d]`, `[backface-visibility:hidden]`).
-   - **Front Face:** Source app badge, consumer title/description, typed input/output badges, and "Include in Recipe" selection checkbox.
-   - **Back Face (X-Ray Mode):** Decompiled C/C++ or AST snippet extracted by REA, artifact type (`native_pe_dll`, `electron_asar`), resolved entry symbols, and confidence score.
+### Card Front
+- Source application badge & consumer title/description.
+- Typed input/output parameter pills.
+- "Include in Recipe" selection toggle.
 
-4. **Live Sandpack Studio (`components/studio/SandpackPreview.tsx`):**
-   - Uses `@codesandbox/sandpack-react` configured with the `react-ts` template.
-   - Injects Tailwind CSS script CDN in `/public/index.html` for instant styling.
-   - Includes default dependencies (`lucide-react`, `canvas-confetti`).
+### Card Back (X-Ray Mode)
+- **Provenance Badges:**
+  - `Inventory: 100% Covered`
+  - `Body Fingerprint: Verified [0x9f8c...]`
+  - `Sandbox: 4/4 Assertions Passed`
+- Decompiled snippet in syntax-highlighted block.
+- **"Inspect Deep Dossier" button** opening the evidence drawer.
 
-5. **Refinement Chat (`components/chat/RefineChat.tsx`):**
-   - Chat input triggering `POST /api/refine` to iteratively modify the running app without full reload.
+### 4.1. Implementation (`FeatureCard.tsx`)
+
+```tsx
+import React, { useState } from "react";
+import { FeatureBlueprint } from "@splice/contracts";
+import { Cpu, CheckCircle2, ShieldCheck, FileCode, Layers, ExternalLink } from "lucide-react";
+import { EvidenceDossierModal } from "./EvidenceDossierModal";
+
+export const FeatureCard: React.FC<{
+  blueprint: FeatureBlueprint;
+  selected: boolean;
+  onToggle: () => void;
+}> = ({ blueprint, selected, onToggle }) => {
+  const [flipped, setFlipped] = useState(false);
+  const [showDossier, setShowDossier] = useState(false);
+
+  return (
+    <>
+      <div className="relative w-full h-80 [perspective:1000px] select-none">
+        <div
+          className={`w-full h-full duration-500 [transform-style:preserve-3d] transition-transform ${
+            flipped ? "[transform:rotateY(180deg)]" : ""
+          }`}
+        >
+          {/* FRONT OF CARD */}
+          <div className="absolute inset-0 bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between [backface-visibility:hidden] shadow-xl">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800">
+                  {blueprint.source_app}
+                </span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setFlipped(true); }}
+                  className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1 bg-amber-950/40 px-2 py-0.5 rounded border border-amber-800/50"
+                >
+                  <Cpu className="w-3 h-3" /> X-Ray Evidence
+                </button>
+              </div>
+              <h3 className="font-bold text-slate-100 text-sm mb-1">{blueprint.consumer_title}</h3>
+              <p className="text-xs text-slate-400 line-clamp-2">{blueprint.consumer_description}</p>
+
+              <div className="mt-3 space-y-1">
+                <div className="text-[11px] text-slate-400 font-medium">Inputs:</div>
+                <div className="flex flex-wrap gap-1">
+                  {blueprint.clean_room_implementation.inputs.map((inp, i) => (
+                    <span key={i} className="text-[10px] bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700">
+                      {inp.name}: {inp.type}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={onToggle}
+              className={`w-full py-1.5 px-3 rounded text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${
+                selected
+                  ? "bg-emerald-600 text-white hover:bg-emerald-500"
+                  : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+              }`}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              {selected ? "Selected for Fusion" : "Include in Recipe"}
+            </button>
+          </div>
+
+          {/* BACK OF CARD: X-RAY REA EVIDENCE & VERIFICATION BADGES */}
+          <div className="absolute inset-0 bg-slate-950 border border-amber-600/50 rounded-xl p-4 flex flex-col justify-between [transform:rotateY(180deg)] [backface-visibility:hidden] shadow-2xl">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-mono font-bold text-amber-400 flex items-center gap-1">
+                  <Cpu className="w-3.5 h-3.5" /> REA Provenance
+                </span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setFlipped(false); }}
+                  className="text-xs text-slate-400 hover:text-slate-200"
+                >
+                  Back ✕
+                </button>
+              </div>
+
+              {/* RIGOROUS VERIFICATION BADGES */}
+              <div className="grid grid-cols-2 gap-1.5 mb-2">
+                <div className="bg-slate-900 border border-slate-800 px-2 py-1 rounded text-[10px] text-emerald-400 flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                  Inventory: {blueprint.rea_evidence.inventory_coverage.total_percentage}% Covered
+                </div>
+                <div className="bg-slate-900 border border-slate-800 px-2 py-1 rounded text-[10px] text-emerald-400 flex items-center gap-1">
+                  <FileCode className="w-3 h-3 text-emerald-400" />
+                  Sandbox: {blueprint.clean_room_implementation.test_results.passed_tests}/{blueprint.clean_room_implementation.test_results.total_tests} Passed
+                </div>
+              </div>
+
+              <div className="bg-black/80 rounded p-2 border border-slate-800 overflow-x-auto max-h-28 text-[10px] font-mono text-emerald-400 leading-tight">
+                <pre>{blueprint.rea_evidence.decompiled_snippet}</pre>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+              <span className="text-[10px] text-slate-500 font-mono">
+                Fingerprint: {blueprint.rea_evidence.body_fingerprint.slice(0, 10)}...
+              </span>
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowDossier(true); }}
+                className="text-[11px] text-amber-400 hover:text-amber-300 font-medium flex items-center gap-1 underline"
+              >
+                Inspect Deep Dossier <ExternalLink className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {showDossier && (
+        <EvidenceDossierModal
+          blueprint={blueprint}
+          onClose={() => setShowDossier(false)}
+        />
+      )}
+    </>
+  );
+};
+```
 
 ---
 
-## 5. Client State Hooks
+## 5. The Deep Evidence Dossier Modal (`EvidenceDossierModal.tsx`)
 
-### `useExtraction.ts` (SSE Stream Consumer)
+Displays the full audit trail when judges or engineers click **"Inspect Deep Dossier"**:
+1. **Inventory Coverage Matrix:** Table detailing parameters, local variable fingerprints, and referenced globals.
+2. **Function Sifting & Callee Contracts:** Tree of inlined helper routines and callee contracts.
+3. **Automated Verification Sandbox Log:** Real-time log showing each test assertion executed and verified by the test sandbox.
+4. **Decompiled vs Clean-Room Diff:** Side-by-side view comparing raw decompiled C/AST against synthesized portable TypeScript.
+
+---
+
+## 6. Sandpack Runner (`SandpackPreview.tsx`)
+
+Runs the fused micro-app in an active sandbox with responsive Tailwind styling and hot reloading:
+
+```tsx
+import React from "react";
+import { Sandpack } from "@codesandbox/sandpack-react";
+
+export const SandpackPreview: React.FC<{
+  files: Record<string, string>;
+  dependencies?: Record<string, string>;
+}> = ({ files, dependencies = {} }) => {
+  return (
+    <div className="h-full w-full rounded-xl overflow-hidden border border-slate-800 shadow-2xl">
+      <Sandpack
+        template="react-ts"
+        theme="dark"
+        files={{
+          ...files,
+          "/public/index.html": `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen">
+  <div id="root"></div>
+</body>
+</html>`
+        }}
+        customSetup={{
+          dependencies: {
+            "lucide-react": "^0.344.0",
+            "canvas-confetti": "^1.9.2",
+            ...dependencies
+          }
+        }}
+        options={{
+          showNavigator: false,
+          showTabs: true,
+          showLineNumbers: true,
+          editorHeight: "100%",
+          resizablePanels: true
+        }}
+      />
+    </div>
+  );
+};
+```
+
+---
+
+## 7. Parallelization & Decoupled Initial Building (Tracks B & C)
+
+To enable the AI Synthesis Engineer (Worker 2) and the Studio Frontend Engineer (Worker 3) to build and test at full speed without waiting for Track A's live harvester or a running backend, both tracks employ decoupled mock harnesses.
+
+```mermaid
+flowchart TD
+    subgraph TrackB_Isolated ["Track B: Synthesis Isolation (Worker 2)"]
+        MockBP["Static Blueprints<br/>(packages/mocks/*.json)"] --> SynthCLI["scripts/testSynthesizer.ts"]
+        SynthCLI --> SynthesizerAgent["synthesizerAgent.ts"]
+        SynthesizerAgent --> BundleValidator["bundleValidator.ts<br/>(TS Syntax & Engine Immutability Check)"]
+    end
+
+    subgraph TrackC_Isolated ["Track C: Frontend Isolation (Worker 3)"]
+        EnvMock["VITE_USE_MOCK_API=true"] --> MockHooks["In-Browser SSE & Bundle Generator<br/>(useExtraction & useSynthesis)"]
+        MockHooks --> SplitUI["Split-Screen Studio<br/>(Vite Dev Server :5173)"]
+        SplitUI --> CardsPreview["Isolated 3D Card & Dossier Preview"]
+        SplitUI --> SandpackPreviewUI["Embedded Sandpack Live Test"]
+    end
+```
+
+---
+
+### 7.1. Track B: Isolated Synthesis Building & Headless Validation
+
+#### Step 1: Input Fixtures (`packages/mocks/`)
+Worker 2 relies strictly on verified static blueprint fixtures:
+- `packages/mocks/obsidian_graph_parser.json`
+- `packages/mocks/anki_sm2_scheduler.json`
+- `packages/mocks/calc_percentage_engine.json`
+
+#### Step 2: Headless Bundle Validator (`packages/backend/src/synthesis/bundleValidator.ts`)
+Validates that generated Sandpack bundles will compile and run with 0 errors before Sandpack is even mounted:
+
 ```typescript
+import ts from "typescript";
+import { FeatureBlueprint, SynthesisResponse } from "@splice/contracts";
+
+export function validateSandpackBundle(
+  blueprints: FeatureBlueprint[],
+  response: SynthesisResponse
+): { valid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  // 1. Mandatory File Presence Check
+  if (!response.files["/App.tsx"]) errors.push("Missing /App.tsx");
+  if (!response.files["/public/index.html"]) errors.push("Missing /public/index.html");
+
+  // 2. Engine Immutability Check
+  for (const bp of blueprints) {
+    const expectedPath = `/engines/${bp.clean_room_implementation.module_name}.ts`;
+    const actualCode = response.files[expectedPath];
+    if (!actualCode) {
+      errors.push(`Missing immutable engine file: ${expectedPath}`);
+    } else if (actualCode.trim() !== bp.clean_room_implementation.portable_code.trim()) {
+      errors.push(`CRITICAL: Synthesizer modified immutable engine code in ${expectedPath}!`);
+    }
+  }
+
+  // 3. TypeScript Compilation & Syntax Check
+  for (const [filePath, code] of Object.entries(response.files)) {
+    if (filePath.endsWith(".ts") || filePath.endsWith(".tsx")) {
+      const sourceFile = ts.createSourceFile(
+        filePath,
+        code,
+        ts.ScriptTarget.ES2022,
+        true,
+        filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+      );
+      // Scan for structural parse errors
+      const parseDiagnostics = (sourceFile as any).parseDiagnostics || [];
+      if (parseDiagnostics.length > 0) {
+        errors.push(`TypeScript parse error in ${filePath}: ${parseDiagnostics[0].messageText}`);
+      }
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+```
+
+#### Step 3: Standalone CLI Synthesis Test Harness (`packages/backend/src/scripts/testSynthesizer.ts`)
+```typescript
+import fs from "fs/promises";
+import path from "path";
+import { synthesizeApplication } from "../synthesis/synthesizerAgent.js";
+import { validateSandpackBundle } from "../synthesis/bundleValidator.js";
+import { FeatureBlueprint } from "@splice/contracts";
+
+async function runSynthesisTest() {
+  console.log("=== [Track B] Testing Synthesis Engine in Isolation ===");
+
+  // 1. Load mock blueprints
+  const obsidianJson: FeatureBlueprint = JSON.parse(
+    await fs.readFile(path.resolve("../../packages/mocks/obsidian_graph_parser.json"), "utf-8")
+  );
+  const ankiJson: FeatureBlueprint = JSON.parse(
+    await fs.readFile(path.resolve("../../packages/mocks/anki_sm2_scheduler.json"), "utf-8")
+  );
+
+  const prompt = "Build a medical flashcard review suite that parses [[Wiki]] note links and tracks review dates.";
+  console.log(`Fusing 2 blueprints with prompt: "${prompt}"...`);
+
+  // 2. Synthesize bundle
+  const response = await synthesizeApplication([obsidianJson, ankiJson], prompt);
+  console.log("✓ Synthesis completed. App Title:", response.app_title);
+  console.log("Generated files:", Object.keys(response.files));
+
+  // 3. Validate headless bundle
+  const validation = validateSandpackBundle([obsidianJson, ankiJson], response);
+  if (!validation.valid) {
+    console.error("❌ Bundle validation failed with errors:\n", validation.errors.join("\n"));
+    process.exit(1);
+  }
+
+  console.log("✓ Headless bundle validated: 0 syntax errors, engine immutability preserved!");
+  console.log("=== Track B Synthesis Test PASSED ===");
+}
+
+runSynthesisTest();
+```
+
+---
+
+### 7.2. Track C: Studio Frontend Offline Mock Mode
+
+To allow Worker 3 to build and polish the split-screen UI, 3D card animations, and Sandpack preview with **zero backend server running**, the frontend includes an in-browser mock mode.
+
+#### Step 1: Frontend `.env.development`
+```env
+VITE_USE_MOCK_API=true
+```
+
+#### Step 2: Simulated In-Browser SSE Generator (`packages/frontend/src/hooks/useExtraction.ts`)
+```typescript
+import { useState } from "react";
+import { FeatureBlueprint, SseProgressEvent } from "@splice/contracts";
+import obsidianMock from "@splice/mocks/obsidian_graph_parser.json";
+import ankiMock from "@splice/mocks/anki_sm2_scheduler.json";
+
 export function useExtraction() {
   const [logs, setLogs] = useState<SseProgressEvent[]>([]);
   const [blueprints, setBlueprints] = useState<FeatureBlueprint[]>([]);
   const [isExtracting, setIsExtracting] = useState(false);
 
-  const startExtraction = async (appId: string, featureQuery: string, useCache = false) => {
+  const startExtraction = async (appId: string, featureQuery: string) => {
     setIsExtracting(true);
-    const response = await fetch("/api/extract", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ appId, featureQuery, useCache })
-    });
+    setLogs([]);
 
-    const reader = response.body?.getReader();
-    const decoder = new TextDecoder();
+    // Check for offline mock mode
+    if (import.meta.env.VITE_USE_MOCK_API === "true") {
+      const mockBlueprint = appId.includes("anki") ? ankiMock : obsidianMock;
+      const stages: Array<{ stage: any; msg: string; tool?: string; ms: number }> = [
+        { stage: "analyzing", msg: `Attaching REA analyzer to ${appId}...`, ms: 600 },
+        { stage: "inventory_survey", msg: `Surveying exports and building inventory...`, ms: 800 },
+        { stage: "sifting_callees", msg: `Sifting callee call chains and inlining helpers...`, ms: 900 },
+        { stage: "executing_verification_sandbox", msg: `Executing verification sandbox (4 assertions)...`, ms: 700 },
+        { stage: "claim_validated", msg: `Claim Validated: 100% inventory covered, tests passed!`, ms: 500 },
+        { stage: "complete", msg: `Extraction complete! Blueprint ready.`, ms: 400 }
+      ];
 
-    while (reader) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const text = decoder.decode(value);
-      // Parse SSE lines "data: {...}\n\n"
-      for (const line of text.split("\n")) {
-        if (line.startsWith("data: ")) {
-          const event: SseProgressEvent = JSON.parse(line.slice(6));
-          setLogs(prev => [...prev, event]);
-          if (event.stage === "complete" && event.data) {
-            setBlueprints(prev => [...prev, event.data!]);
-          }
+      for (const step of stages) {
+        await new Promise(r => setTimeout(r, step.ms));
+        const evt: SseProgressEvent = {
+          stage: step.stage,
+          message: step.msg,
+          tool_called: step.tool,
+          timestamp: Date.now(),
+          data: step.stage === "complete" ? (mockBlueprint as any) : undefined
+        };
+        setLogs(prev => [...prev, evt]);
+        if (evt.stage === "complete" && evt.data) {
+          setBlueprints(prev => [...prev, evt.data!]);
         }
       }
+      setIsExtracting(false);
+      return;
     }
-    setIsExtracting(false);
+
+    // LIVE HTTP SSE (when backend is available)
+    // ...
   };
 
   return { logs, blueprints, isExtracting, startExtraction };
 }
 ```
 
-### `useSynthesis.ts` (Sandpack Bundle Manager)
-```typescript
-export function useSynthesis() {
-  const [files, setFiles] = useState<Record<string, string>>({});
-  const [isSynthesizing, setIsSynthesizing] = useState(false);
+#### Step 3: Standalone Component Isolation Mounts
+The frontend includes isolated preview routes in development:
+- `http://localhost:5173/?test=card`: Tests 3D card perspective flipping, badge rendering, and the "Inspect Deep Dossier" modal.
+- `http://localhost:5173/?test=terminal`: Simulates continuous SSE progress logs with pulse animations.
+- `http://localhost:5173/?test=sandpack`: Mounts Sandpack with a pre-baked static file bundle to verify dark theme styling and Tailwind compilation.
 
-  const synthesize = async (blueprints: FeatureBlueprint[], prompt: string) => {
-    setIsSynthesizing(true);
-    const res = await fetch("/api/synthesize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ blueprints, specialization_prompt: prompt })
-    });
-    const data: SynthesisResponse = await res.json();
-    setFiles(data.files);
-    setIsSynthesizing(false);
-  };
+---
 
-  const refine = async (blueprints: FeatureBlueprint[], refinePrompt: string) => {
-    setIsSynthesizing(true);
-    const res = await fetch("/api/refine", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ current_files: files, blueprints, refine_prompt: refinePrompt })
-    });
-    const data: SynthesisResponse = await res.json();
-    setFiles(data.files);
-    setIsSynthesizing(false);
-  };
+### 7.3. Step-by-Step CLI Commands for Parallel Teams
 
-  return { files, isSynthesizing, synthesize, refine };
-}
+```bash
+# ==========================================
+# TRACK B: AI SYNTHESIS DEVELOPER (Worker 2)
+# ==========================================
+cd packages/backend
+# Run the synthesis test harness against mock blueprints
+npm run test:synthesis
+
+# Run the follow-up refinement test harness
+npm run test:refine
+
+# ==========================================
+# TRACK C: FRONTEND DEVELOPER (Worker 3)
+# ==========================================
+cd packages/frontend
+# Start Vite in offline mock mode (requires 0 backend processes)
+VITE_USE_MOCK_API=true npm run dev
+# Open http://localhost:5173 in browser
 ```
 
 ---
 
-## 6. Synthesis LLM Prompt Template
+### 7.4. Independent Acceptance Gates (Definition of Done)
 
-```markdown
-You are the Splice Synthesis Engine.
-You receive multiple reverse-engineered TypeScript engines (FeatureBlueprints) and a user's target application specification.
+#### Track B (Synthesis) Acceptance Gate
+- [ ] `npm run test:synthesis` executes cleanly from terminal.
+- [ ] `validateSandpackBundle` asserts 0 TypeScript parse/syntax errors.
+- [ ] `/engines/*.ts` algorithmic code remains 100% byte-for-byte identical to input blueprints.
+- [ ] `/App.tsx` correctly imports all engine symbols and wires them to React state.
 
-Your task is to synthesize these extracted mechanics into a complete, beautiful, working React + Tailwind web application running inside Sandpack.
-
-RULES:
-1. Place each blueprint's portable_code into its own file under `/engines/<moduleName>.ts`. NEVER modify the algorithmic code inside these engines. Treat them as immutable ground truth.
-2. In `/App.tsx`, build a cohesive, interactive UI with sample seed data pre-populated.
-3. Wire user interactions directly to the imported engine functions.
-4. Use Tailwind CSS for modern aesthetics (slate dark theme, clean cards, subtle borders, rounded badges, clean typography).
-5. Output MUST be strictly valid JSON matching this schema:
-{
-  "app_title": "string",
-  "app_description": "string",
-  "files": {
-    "/App.tsx": "code string",
-    "/engines/engine1.ts": "code string",
-    "/engines/engine2.ts": "code string"
-  },
-  "dependencies": {
-    "lucide-react": "latest",
-    "canvas-confetti": "latest"
-  }
-}
-```
+#### Track C (Frontend Studio) Acceptance Gate
+- [ ] Frontend boots in 1 second via `VITE_USE_MOCK_API=true npm run dev`.
+- [ ] Clicking "Harvest Features" plays a smooth, real-time SSE stream in the terminal.
+- [ ] Feature Cards flip smoothly in 3D (`rotateY(180deg)`) and open the Deep Evidence Dossier modal.
+- [ ] Clicking "⚡ Fuse & Specialize Application" loads the embedded Sandpack runner without crashing.
 
