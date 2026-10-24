@@ -1,0 +1,159 @@
+[
+  {
+    "type": "stage",
+    "run_id": "run_ink_001",
+    "feature_id": "inkwell.wikilink_graph",
+    "ts": 1792864800000,
+    "stage": "queued",
+    "message": "Queued extraction task for inkwell.wikilink_graph"
+  },
+  {
+    "type": "stage",
+    "run_id": "run_ink_001",
+    "feature_id": "inkwell.wikilink_graph",
+    "ts": 1792864800080,
+    "stage": "connecting",
+    "message": "Connecting to REA agents MCP bridge"
+  },
+  {
+    "type": "tool_call",
+    "run_id": "run_ink_001",
+    "feature_id": "inkwell.wikilink_graph",
+    "ts": 1792864800150,
+    "seq": 1,
+    "tool": "binary_session",
+    "args_preview": "{}"
+  },
+  {
+    "type": "tool_result",
+    "run_id": "run_ink_001",
+    "feature_id": "inkwell.wikilink_graph",
+    "ts": 1792864800200,
+    "seq": 1,
+    "tool": "binary_session",
+    "ok": true,
+    "duration_ms": 12,
+    "summary": "Initialized REA session and retrieved tool capabilities",
+    "evidence_id": null
+  },
+  {
+    "type": "stage",
+    "run_id": "run_ink_001",
+    "feature_id": "inkwell.wikilink_graph",
+    "ts": 1792864800250,
+    "stage": "analyzing",
+    "message": "Analyzing JavaScript application archive targets/build/inkwell/app.asar"
+  },
+  {
+    "type": "tool_call",
+    "run_id": "run_ink_001",
+    "feature_id": "inkwell.wikilink_graph",
+    "ts": 1792864800300,
+    "seq": 2,
+    "tool": "analyze_javascript_application",
+    "args_preview": "{\"input_path\": \"targets/build/inkwell/app.asar\", \"detail\": \"summary\"}"
+  },
+  {
+    "type": "tool_result",
+    "run_id": "run_ink_001",
+    "feature_id": "inkwell.wikilink_graph",
+    "ts": 1792864800550,
+    "seq": 2,
+    "tool": "analyze_javascript_application",
+    "ok": true,
+    "duration_ms": 245,
+    "summary": "Discovered 5 modules across inkwell archive",
+    "evidence_id": "ev_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  {
+    "type": "stage",
+    "run_id": "run_ink_001",
+    "feature_id": "inkwell.wikilink_graph",
+    "ts": 1792864800600,
+    "stage": "tracing",
+    "message": "Tracing call graph and symbols for seed module src/graph/backlinks.js"
+  },
+  {
+    "type": "tool_call",
+    "run_id": "run_ink_001",
+    "feature_id": "inkwell.wikilink_graph",
+    "ts": 1792864800650,
+    "seq": 3,
+    "tool": "trace_application_feature",
+    "args_preview": "{\"seed\": {\"kind\": \"module\", \"value\": \"src/graph/backlinks.js\"}}"
+  },
+  {
+    "type": "tool_result",
+    "run_id": "run_ink_001",
+    "feature_id": "inkwell.wikilink_graph",
+    "ts": 1792864800850,
+    "seq": 3,
+    "tool": "trace_application_feature",
+    "ok": true,
+    "duration_ms": 190,
+    "summary": "Traced call path from buildLinkGraph to parseWikiLinks and normalizeTitle",
+    "evidence_id": "ev_fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+  },
+  {
+    "type": "stage",
+    "run_id": "run_ink_001",
+    "feature_id": "inkwell.wikilink_graph",
+    "ts": 1792864800900,
+    "stage": "specifying",
+    "message": "Generating formal requirements specification and acceptance tests"
+  },
+  {
+    "type": "llm_progress",
+    "run_id": "run_ink_001",
+    "feature_id": "inkwell.wikilink_graph",
+    "ts": 1792864801400,
+    "phase": "specifying",
+    "output_chars": 920
+  },
+  {
+    "type": "stage",
+    "run_id": "run_ink_001",
+    "feature_id": "inkwell.wikilink_graph",
+    "ts": 1792864801900,
+    "stage": "checking_oracle",
+    "message": "Executing acceptance tests against original module in sandbox adapter"
+  },
+  {
+    "type": "test_result",
+    "run_id": "run_ink_001",
+    "feature_id": "inkwell.wikilink_graph",
+    "ts": 1792864802000,
+    "name": "REQ-1: parses wikilinks while ignoring code spans",
+    "kind": "oracle",
+    "passed": true,
+    "error": null
+  },
+  {
+    "type": "test_result",
+    "run_id": "run_ink_001",
+    "feature_id": "inkwell.wikilink_graph",
+    "ts": 1792864802050,
+    "name": "REQ-2: normalizes titles with whitespace collapsing",
+    "kind": "oracle",
+    "passed": true,
+    "error": null
+  },
+  {
+    "type": "test_result",
+    "run_id": "run_ink_001",
+    "feature_id": "inkwell.wikilink_graph",
+    "ts": 1792864802100,
+    "name": "REQ-3 REQ-4 REQ-5: constructs graph with edges, backlinks, and degree",
+    "kind": "oracle",
+    "passed": true,
+    "error": null
+  },
+  {
+    "type": "done",
+    "run_id": "run_ink_001",
+    "feature_id": "inkwell.wikilink_graph",
+    "ts": 1792864802400,
+    "ok": true,
+    "replayed": true
+  }
+]
