@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT))
 
 from engine.artifacts import LocalArtifactStore  # noqa: E402
 from engine.queue import DurableQueue  # noqa: E402
+from engine.worker import validate_answer  # noqa: E402
 
 
 def put(store: LocalArtifactStore, value: dict) -> str:
@@ -213,13 +214,63 @@ def main() -> None:
                 assert queue.fail(failed["task_id"], failed["worker_id"],
                                   failed["epoch"], "invalid semantic draft",
                                   failure_type="semantic",
-                                  artifact=rejected_artifact) == "partial"
+                                  artifact=rejected_artifact,
+                                  model="test/model", usage={"input": 10,
+                                                               "output": 5,
+                                                               "cost": 0.1}) == "partial"
                 assert queue.task(failed["task_id"])["result_artifact"] == rejected_artifact
+                failure_metrics = queue.metrics(campaign, worker_prefix=failed["worker_id"])
+                assert failure_metrics["usage"]["cost"] == 0.1
+                assert failure_metrics["models"] == {"test/model": 1}
+                assert failure_metrics["attempts_with_timing"] == 1
                 assert queue.reassess(failed["task_id"], "correct missing claim")
                 reassessed = queue.lease("reassessment-worker", campaign=campaign)
                 assert reassessed["task_id"] == failed["task_id"]
                 assert reassessed["epoch"] == failed["epoch"] + 1
                 assert reassessed["checkpoint_artifact"] == rejected_artifact
+                shape_task = active[3]
+                shape_evidence = {**evidence, "entry": shape_task["subject"]}
+                shape_evidence_artifact = put(store, shape_evidence)
+                shape_answer = {**answer,
+                                "claims": [{**answer["claims"][0],
+                                            "evidence_addresses": ["0x" +
+                                                                   shape_task["subject"]]}],
+                                "unknowns": [{"description": "width unclear"}]}
+                shape_draft = {**draft, "state": "rejected",
+                               "subject": shape_task["subject"],
+                               "task_key": next(t["deduplication_key"] for t in tasks
+                                                if t["subject"] == shape_task["subject"]),
+                               "evidence_artifact": shape_evidence_artifact,
+                               "answer": shape_answer,
+                               "structural_errors": validate_answer(
+                                   shape_answer, shape_evidence)}
+                shape_artifact = put(store, shape_draft)
+                assert queue.fail(shape_task["task_id"], shape_task["worker_id"],
+                                  shape_task["epoch"], "shape mismatch",
+                                  failure_type="semantic", artifact=shape_artifact) == "partial"
+                normalized = queue.normalize_partial(shape_task["task_id"])
+                assert normalized["state"] == "validated"
+                assert len(normalized["citation_changes"]) == 1
+                assert len(normalized["text_item_changes"]) == 1
+                assert queue.normalize_partial(shape_task["task_id"])["state"] == "invalid"
+                normalized_draft = json.loads(store.get(normalized["result_artifact"]))
+                assert normalized_draft["source_artifact"] == shape_artifact
+                assert not validate_answer(normalized_draft["answer"], shape_evidence)
+                malformed = active[4]
+                failed_artifact = put(store, {"state": "failed", "error": "malformed JSON"})
+                assert queue.fail(malformed["task_id"], malformed["worker_id"],
+                                  malformed["epoch"], "malformed model output",
+                                  failure_type="semantic", artifact=failed_artifact) == "partial"
+                assert queue.reassess(malformed["task_id"], "retry malformed output")
+                with queue._connect() as conn:
+                    row = conn.execute("SELECT checkpoint_artifact FROM decomp_tasks "
+                                       "WHERE id = %s", (malformed["task_id"],)).fetchone()
+                assert row["checkpoint_artifact"] is None
+                no_artifact = active[5]
+                assert queue.fail(no_artifact["task_id"], no_artifact["worker_id"],
+                                  no_artifact["epoch"], "no model artifact",
+                                  failure_type="semantic") == "partial"
+                assert queue.reassess(no_artifact["task_id"], "retry without prior output")
                 final_status = queue.status(campaign)
                 print(json.dumps({"active_leases": 16, "recovered_epoch": recovered["epoch"],
                                   "killed_worker_recovered_epoch": resumed["epoch"],

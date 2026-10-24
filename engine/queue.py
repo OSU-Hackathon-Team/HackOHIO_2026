@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import statistics
+from datetime import timedelta
 import uuid
 
 import psycopg
@@ -11,7 +13,8 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from engine.artifacts import LocalArtifactStore
-from engine.worker import validate_answer
+from engine.worker import (normalize_answer_citations, normalize_answer_text_items,
+                           validate_answer)
 from engine.validation.review import validate_review
 
 MIGRATIONS = tuple(sorted((Path(__file__).resolve().parents[1] / "migrations").glob(
@@ -207,7 +210,8 @@ class DurableQueue:
                          "WHERE id = %s", (artifact, submission_key, task_id))
             conn.execute("UPDATE decomp_attempts SET state = 'submitted', "
                          "result_artifact = %s, model = %s, runtime_version = %s, "
-                         "usage = %s WHERE task_id = %s AND epoch = %s",
+                         "usage = %s, finished_at = now() "
+                         "WHERE task_id = %s AND epoch = %s",
                          (artifact, model, runtime_version, Jsonb(usage or {}), task_id, epoch))
             conn.execute("UPDATE decomp_pools SET active = active - 1 WHERE name = %s",
                          (task["pool"],))
@@ -217,7 +221,8 @@ class DurableQueue:
 
     def fail(self, task_id: str, worker_id: str, epoch: int, reason: str,
              *, failure_type: str = "infrastructure",
-             artifact: str | None = None) -> str:
+             artifact: str | None = None, model: str | None = None,
+             runtime_version: str | None = None, usage: dict | None = None) -> str:
         if failure_type not in {"infrastructure", "rate_limited", "semantic", "budget"}:
             raise ValueError("invalid failure type")
         if artifact is not None:
@@ -245,10 +250,11 @@ class DurableQueue:
                          "updated_at = now() WHERE id = %s",
                          (state, backoff, reason, state, artifact, task_id))
             conn.execute("UPDATE decomp_attempts SET state = %s, terminal_reason = %s, "
-                         "result_artifact = %s "
+                         "result_artifact = %s, model = %s, runtime_version = %s, "
+                         "usage = %s, finished_at = now() "
                          "WHERE task_id = %s AND epoch = %s",
-                         ("retryable_failed" if retry else "terminal_failed", reason, artifact,
-                          task_id, epoch))
+                         ("retryable_failed" if retry else "terminal_failed", reason,
+                          artifact, model, runtime_version, Jsonb(usage or {}), task_id, epoch))
             conn.execute("UPDATE decomp_pools SET active = active - 1 WHERE name = %s",
                          (task["pool"],))
             self._event(conn, task["campaign_id"], "task_failed",
@@ -268,7 +274,7 @@ class DurableQueue:
                 retry = task["attempts_count"] < task["max_attempts"]
                 state = "queued" if retry else "partial"
                 conn.execute("UPDATE decomp_attempts SET state = 'expired', "
-                             "terminal_reason = 'lease_expired' "
+                             "terminal_reason = 'lease_expired', finished_at = now() "
                              "WHERE task_id = %s AND epoch = %s",
                              (task["id"], task["lease_epoch"]))
                 conn.execute("UPDATE decomp_tasks SET state = %s, leased_by = NULL, "
@@ -521,6 +527,78 @@ class DurableQueue:
                     "support_levels": {r["support_level"]: r["total"] for r in support},
                     "attempts": attempts, "pools": pools, "event_cursor": cursor}
 
+    def metrics(self, campaign: str, *, worker_prefix: str | None = None,
+                after_event_id: int | None = None) -> dict:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT a.id, a.task_id, a.epoch, a.worker_id, a.state, a.started_at, "
+                "a.finished_at, a.usage, a.result_artifact, a.model, "
+                "t.state AS task_state "
+                "FROM decomp_attempts a JOIN decomp_tasks t ON t.id = a.task_id "
+                "WHERE t.campaign_id = %s ORDER BY a.started_at, a.id",
+                (campaign,)).fetchall()
+            events = conn.execute(
+                "SELECT id, event_type, payload, created_at FROM decomp_outbox "
+                "WHERE campaign_id = %s AND event_type IN "
+                "('task_leased', 'result_submitted', 'task_failed', 'lease_expired') "
+                "ORDER BY id", (campaign,)).fetchall()
+        if after_event_id is not None:
+            leased = {event["payload"].get("attempt_id") for event in events
+                      if event["event_type"] == "task_leased" and
+                      event["id"] > after_event_id}
+            rows = [row for row in rows if str(row["id"]) in leased]
+        if worker_prefix is not None:
+            rows = [row for row in rows if row["worker_id"].startswith(worker_prefix)]
+        event_finishes = {(event["payload"].get("task_id"),
+                           event["payload"].get("epoch")): event["created_at"]
+                          for event in events if event["event_type"] != "task_leased"}
+        outcomes = {}
+        task_outcomes = {}
+        usage = {"input": 0, "output": 0, "reasoning": 0, "cost": 0.0}
+        durations = []
+        starts = []
+        finishes = []
+        models = {}
+        missing_artifacts = 0
+        for row in rows:
+            outcomes[row["state"]] = outcomes.get(row["state"], 0) + 1
+            task_outcomes[row["task_state"]] = task_outcomes.get(row["task_state"], 0) + 1
+            artifact_data = None
+            if row["result_artifact"]:
+                try:
+                    artifact_data = json.loads(self.store.get(row["result_artifact"]))
+                except (FileNotFoundError, ValueError):
+                    missing_artifacts += 1
+            model = row["model"] or (artifact_data or {}).get("model")
+            if model:
+                models[model] = models.get(model, 0) + 1
+            recorded_usage = row["usage"] or {}
+            if not recorded_usage and artifact_data:
+                recorded_usage = artifact_data.get("usage") or {}
+            for key in usage:
+                usage[key] += recorded_usage.get(key, 0)
+            finish = row["finished_at"] or event_finishes.get(
+                (str(row["task_id"]), row["epoch"]))
+            if finish is None and artifact_data and isinstance(
+                    artifact_data.get("elapsed_seconds"), (int, float)):
+                finish = row["started_at"] + timedelta(
+                    seconds=artifact_data["elapsed_seconds"])
+            if finish is not None:
+                starts.append(row["started_at"])
+                finishes.append(finish)
+                durations.append((finish - row["started_at"]).total_seconds())
+        wall = (max(finishes) - min(starts)).total_seconds() if finishes else None
+        return {"campaign": campaign, "worker_prefix": worker_prefix,
+                "after_event_id": after_event_id,
+                "attempts": len(rows), "outcomes": outcomes,
+                "current_task_states_of_attempts": task_outcomes,
+                "usage": usage, "models": models,
+                "wall_seconds": round(wall, 3) if wall is not None else None,
+                "median_attempt_seconds": round(statistics.median(durations), 3)
+                if durations else None,
+                "attempts_with_timing": len(durations),
+                "missing_result_artifacts": missing_artifacts}
+
     def task(self, task_id: str) -> dict | None:
         with self._connect() as conn:
             row = conn.execute("SELECT id, campaign_id, subject, state, result_artifact, "
@@ -552,18 +630,80 @@ class DurableQueue:
             task = conn.execute("SELECT * FROM decomp_tasks WHERE id = %s FOR UPDATE",
                                 (task_id,)).fetchone()
             if (task is None or task["state"] != "partial" or
-                    task["result_artifact"] is None or
                     task["attempts_count"] >= task["max_attempts"]):
                 return False
-            self.store.get(task["result_artifact"])
+            prior = None
+            if task["result_artifact"] is not None:
+                result = json.loads(self.store.get(task["result_artifact"]))
+                if result.get("state") in {"partial", "rejected"}:
+                    prior = task["result_artifact"]
             conn.execute("UPDATE decomp_tasks SET state = 'queued', "
-                         "checkpoint_artifact = result_artifact, "
+                         "checkpoint_artifact = %s, "
                          "available_at = now(), terminal_reason = %s, "
-                         "updated_at = now() WHERE id = %s", (reason, task_id))
+                         "updated_at = now() WHERE id = %s", (prior, reason, task_id))
             self._event(conn, task["campaign_id"], "task_reassessment_queued",
                         {"task_id": task_id, "reason": reason,
-                         "prior_artifact": task["result_artifact"]})
+                         "prior_artifact": task["result_artifact"],
+                         "carried_checkpoint": prior})
             return True
+
+    def normalize_partial(self, task_id: str) -> dict:
+        with self._connect() as conn:
+            task = conn.execute("SELECT * FROM decomp_tasks WHERE id = %s",
+                                (task_id,)).fetchone()
+        if task is None or task["state"] != "partial" or not task["result_artifact"]:
+            return {"state": "invalid"}
+        source_artifact = task["result_artifact"]
+        try:
+            draft = json.loads(self.store.get(source_artifact))
+            evidence = json.loads(self.store.get(draft["evidence_artifact"]))
+            scope = json.loads(self.store.get(task["scope_artifact"]))
+            answer = json.loads(json.dumps(draft["answer"]))
+        except (ValueError, KeyError, TypeError, AttributeError, FileNotFoundError):
+            return {"state": "invalid"}
+        matching = [item for item in scope.get("tasks", [])
+                    if isinstance(item, dict) and
+                    item.get("deduplication_key") == draft.get("task_key")]
+        if (draft.get("state") != "rejected" or draft.get("evidence_truncated") or
+                draft.get("campaign") != task["campaign_id"] or
+                draft.get("subject") != task["subject"] or
+                draft.get("scope_artifact") != task["scope_artifact"] or
+                evidence.get("entry") != task["subject"] or
+                scope.get("campaign") != task["campaign_id"] or
+                scope.get("scope_id") != task["scope_id"] or
+                len(matching) != 1 or
+                matching[0].get("subject") != task["subject"] or
+                matching[0].get("kind") != task["kind"] or
+                matching[0].get("question") != task["question"]):
+            return {"state": "invalid"}
+        citation_changes = normalize_answer_citations(answer, evidence)
+        text_changes = normalize_answer_text_items(answer)
+        errors = validate_answer(answer, evidence)
+        if errors or not (citation_changes or text_changes):
+            return {"state": "blocked", "remaining_errors": errors}
+        repaired = {**draft, "state": "unreviewed", "answer": answer,
+                    "structural_errors": [], "source_artifact": source_artifact,
+                    "normalization_version": 1,
+                    "citation_normalizations": citation_changes,
+                    "text_item_normalizations": text_changes}
+        artifact = self.store.put(json.dumps(repaired, sort_keys=True).encode())
+        with self._connect() as conn:
+            current = conn.execute("SELECT state, result_artifact FROM decomp_tasks "
+                                   "WHERE id = %s FOR UPDATE", (task_id,)).fetchone()
+            if (current["state"] != "partial" or
+                    current["result_artifact"] != source_artifact):
+                return {"state": "stale"}
+            conn.execute("UPDATE decomp_tasks SET state = 'validated', "
+                         "result_artifact = %s, terminal_reason = NULL, "
+                         "updated_at = now() WHERE id = %s", (artifact, task_id))
+            self._event(conn, task["campaign_id"], "partial_normalized",
+                        {"task_id": task_id, "source_artifact": source_artifact,
+                         "result_artifact": artifact,
+                         "citation_changes": citation_changes,
+                         "text_item_changes": text_changes})
+        return {"state": "validated", "source_artifact": source_artifact,
+                "result_artifact": artifact, "citation_changes": citation_changes,
+                "text_item_changes": text_changes}
 
     def events(self, campaign: str, after_id: int = 0, limit: int = 100) -> list[dict]:
         with self._connect() as conn:

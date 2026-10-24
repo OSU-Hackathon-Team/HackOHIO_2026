@@ -8,6 +8,7 @@ import time
 import uuid
 
 from engine.analysis.ghidra import GhidraAnalysis
+from engine.citations import evidence_addresses, normalize_references
 from engine.model_runtime import invoke_opencode
 from model_config import get_model
 
@@ -31,10 +32,7 @@ def validate_answer(answer: dict, evidence: dict) -> list[str]:
     for field in ("claims", "dependencies", "unknowns", "evidence_requests"):
         if not isinstance(answer.get(field), list):
             errors.append(f"{field} must be an array")
-    addresses = {evidence["entry"], evidence.get("body_min"), evidence.get("body_max")}
-    addresses.update(item["address"] for item in evidence.get("instructions", []))
-    for item in evidence.get("references", []):
-        addresses.update((item["from"], item["to"]))
+    addresses = evidence_addresses(evidence)
     claims = answer.get("claims") if isinstance(answer.get("claims"), list) else []
     for i, claim in enumerate(claims):
         if not isinstance(claim, dict):
@@ -74,6 +72,38 @@ def validate_answer(answer: dict, evidence: dict) -> list[str]:
             if not isinstance(item, str) or not item.strip():
                 errors.append(f"{field} item {i} must be a nonempty string")
     return errors
+
+
+def normalize_answer_citations(answer: dict, evidence: dict) -> list[dict]:
+    addresses = evidence_addresses(evidence)
+    changes = []
+    for kind in ("claims", "dependencies"):
+        items = answer.get(kind)
+        if not isinstance(items, list):
+            continue
+        for index, item in enumerate(items):
+            if not isinstance(item, dict):
+                continue
+            refs, corrections = normalize_references(item.get("evidence_addresses"), addresses)
+            item["evidence_addresses"] = refs
+            changes.extend({"field": kind, "index": index, **correction}
+                           for correction in corrections)
+    return changes
+
+
+def normalize_answer_text_items(answer: dict) -> list[dict]:
+    changes = []
+    for field in ("unknowns", "evidence_requests"):
+        values = answer.get(field)
+        if not isinstance(values, list):
+            continue
+        for index, item in enumerate(values):
+            if (isinstance(item, dict) and set(item) == {"description"} and
+                    isinstance(item["description"], str) and item["description"].strip()):
+                values[index] = item["description"]
+                changes.append({"field": field, "index": index,
+                                "shape": "description_object_to_string"})
+    return changes
 
 
 def prompt_for(task: dict, scope: dict, evidence: dict, *, max_evidence_bytes: int) -> tuple[str, bool]:
@@ -186,10 +216,14 @@ class SemanticWorker:
             checkpoint["opencode_version"] = model_reply["runtime_version"]
             checkpoint_path.write_text(json.dumps(checkpoint, indent=2) + "\n")
             answer = parse_answer(model_reply["text"])
+            citation_normalizations = normalize_answer_citations(answer, evidence)
+            text_item_normalizations = normalize_answer_text_items(answer)
             errors = validate_answer(answer, evidence)
             result = {**checkpoint, "state": "rejected" if errors else
                       ("partial" if truncated else "unreviewed"),
                       "answer": answer, "structural_errors": errors,
+                      "citation_normalizations": citation_normalizations,
+                      "text_item_normalizations": text_item_normalizations,
                       "usage": model_reply["usage"],
                       "elapsed_seconds": round(time.monotonic() - started, 3)}
         except Exception as error:

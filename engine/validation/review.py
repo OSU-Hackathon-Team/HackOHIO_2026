@@ -8,6 +8,7 @@ import time
 import uuid
 
 from engine.analysis.ghidra import GhidraAnalysis
+from engine.citations import evidence_addresses, normalize_references
 from engine.model_runtime import invoke_opencode
 from engine.worker import parse_answer
 from model_config import get_model
@@ -18,10 +19,7 @@ def validate_review(answer: dict, evidence: dict, claim_count: int) -> list[str]
     reviews = answer.get("reviews")
     if not isinstance(reviews, list) or len(reviews) != claim_count:
         return [f"reviews must contain exactly {claim_count} entries"]
-    addresses = {evidence["entry"]}
-    addresses.update(item["address"] for item in evidence.get("instructions", []))
-    for item in evidence.get("references", []):
-        addresses.update((item["from"], item["to"]))
+    addresses = evidence_addresses(evidence)
     seen = set()
     for item in reviews:
         if not isinstance(item, dict):
@@ -115,12 +113,23 @@ class IndependentReviewer:
                                     agent_name="review",
                                     agent_instruction="Challenge semantic claims against raw evidence. Return JSON only.")
             answer = parse_answer(reply["text"])
+            corrections = []
+            candidate_reviews = answer.get("reviews")
+            for index, item in enumerate(candidate_reviews if isinstance(candidate_reviews, list)
+                                         else []):
+                if not isinstance(item, dict):
+                    continue
+                refs, changes = normalize_references(
+                    item.get("evidence_addresses"), evidence_addresses(evidence))
+                item["evidence_addresses"] = refs
+                corrections.extend({"review_index": index, **change} for change in changes)
             errors = validate_review(answer, evidence, len(draft["answer"]["claims"]))
             outcomes = [item["outcome"] for item in answer.get("reviews", [])
                         if isinstance(item, dict) and item.get("outcome") in
                         {"supported_static", "contradicted", "uncertain"}]
             result = {**checkpoint, "state": "rejected" if errors else "reviewed",
                       "answer": answer, "structural_errors": errors,
+                      "citation_normalizations": corrections,
                       "outcomes": {value: outcomes.count(value) for value in sorted(set(outcomes))},
                       "usage": reply["usage"], "opencode_version": reply["runtime_version"],
                       "elapsed_seconds": round(time.monotonic() - started, 3)}

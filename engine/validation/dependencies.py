@@ -8,18 +8,11 @@ import time
 import uuid
 
 from engine.analysis.ghidra import GhidraAnalysis
+from engine.citations import evidence_addresses, normalize_references
 from engine.model_runtime import invoke_opencode
 from engine.queue import DurableQueue
 from engine.worker import parse_answer
 from model_config import get_model
-
-
-def evidence_addresses(evidence: dict) -> set[str]:
-    addresses = {evidence["entry"]}
-    addresses.update(item["address"] for item in evidence.get("instructions", []))
-    for item in evidence.get("references", []):
-        addresses.update((item["from"], item["to"]))
-    return addresses
 
 
 def validate_dependency_review(answer: dict, caller: dict, callee: dict) -> list[str]:
@@ -127,9 +120,14 @@ class IndependentDependencyReviewer:
                                     agent_name="dependency-review",
                                     agent_instruction="Challenge caller contract against both raw functions. Return JSON only.")
             answer = parse_answer(reply["text"])
+            refs, corrections = normalize_references(
+                answer.get("evidence_addresses"), evidence_addresses(caller) |
+                evidence_addresses(callee))
+            answer["evidence_addresses"] = refs
             errors = validate_dependency_review(answer, caller, callee)
             result = {**base, "state": "reviewed" if not errors else "rejected",
                       "answer": answer, "structural_errors": errors,
+                      "citation_normalizations": corrections,
                       "usage": reply["usage"],
                       "opencode_version": reply["runtime_version"],
                       "elapsed_seconds": round(time.monotonic() - started, 3)}

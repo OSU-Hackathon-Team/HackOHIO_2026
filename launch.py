@@ -185,12 +185,14 @@ def main() -> None:
         ("queue-init", "migrate PostgreSQL and register a native campaign"),
         ("queue-enqueue", "enqueue all deduplicated tasks from a scope revision"),
         ("queue-status", "show durable task states, capacity, and event cursor"),
+        ("queue-metrics", "show attempt throughput, timing, and recorded model usage"),
         ("queue-run-one", "lease and run one semantic task with heartbeats"),
         ("queue-drain", "run bounded parallel semantic workers until idle"),
         ("queue-review", "independently review one validated queue task"),
         ("queue-review-dependency", "review one caller dependency against a helper contract"),
         ("queue-resolve-dependencies", "accept a caller after all dependency reviews"),
         ("queue-reassess", "requeue one partial task with its prior draft"),
+        ("queue-normalize-partial", "revalidate a partial draft after safe shape normalization"),
         ("queue-task", "inspect a durable native task and its blocker"),
         ("queue-events", "read ordered transactional campaign events"),
         ("queue-findings", "inspect published claim and contract versions"),
@@ -205,8 +207,13 @@ def main() -> None:
             command.add_argument("--manifest", type=Path, required=True)
         if name == "queue-enqueue":
             command.add_argument("--scope-artifact", required=True)
-        if name == "queue-status":
+        if name in {"queue-status", "queue-metrics"}:
             command.add_argument("--campaign", required=True)
+        if name == "queue-metrics":
+            command.add_argument("--worker-prefix",
+                                 help="limit the report to matching worker IDs")
+            command.add_argument("--after-event-id", type=int,
+                                 help="include attempts leased after this event cursor")
         if name in {"queue-review", "queue-review-dependency"}:
             command.add_argument("--task-id", required=True)
             command.add_argument("--timeout", type=int, default=180)
@@ -224,6 +231,8 @@ def main() -> None:
         if name == "queue-reassess":
             command.add_argument("--task-id", required=True)
             command.add_argument("--reason", required=True)
+        if name == "queue-normalize-partial":
+            command.add_argument("--task-id", required=True)
         if name in {"queue-task", "queue-publish-claims", "queue-publish-contract"}:
             command.add_argument("--task-id", required=True)
         if name in {"queue-events", "queue-findings"}:
@@ -369,6 +378,9 @@ def main() -> None:
             result = {"enqueued": len(ids), "task_ids": ids}
         elif args.command == "queue-status":
             result = queue.status(args.campaign)
+        elif args.command == "queue-metrics":
+            result = queue.metrics(args.campaign, worker_prefix=args.worker_prefix,
+                                   after_event_id=args.after_event_id)
         elif args.command == "queue-run-one":
             engine = GhidraAnalysis(args.state, Path(os.environ.get(
                 "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
@@ -448,6 +460,8 @@ def main() -> None:
             requeued = queue.reassess(args.task_id, args.reason)
             result = {"task_id": args.task_id, "requeued": requeued,
                       "task": queue.task(args.task_id)}
+        elif args.command == "queue-normalize-partial":
+            result = queue.normalize_partial(args.task_id)
         elif args.command == "queue-task":
             result = queue.task(args.task_id)
         elif args.command == "queue-events":
