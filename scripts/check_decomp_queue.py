@@ -175,6 +175,11 @@ def main() -> None:
                                   failure_type="semantic",
                                   artifact=rejected_artifact) == "partial"
                 assert queue.task(failed["task_id"])["result_artifact"] == rejected_artifact
+                assert queue.reassess(failed["task_id"], "correct missing claim")
+                reassessed = queue.lease("reassessment-worker", campaign=campaign)
+                assert reassessed["task_id"] == failed["task_id"]
+                assert reassessed["epoch"] == failed["epoch"] + 1
+                assert reassessed["checkpoint_artifact"] == rejected_artifact
                 final_status = queue.status(campaign)
                 print(json.dumps({"active_leases": 16, "recovered_epoch": recovered["epoch"],
                                   "killed_worker_recovered_epoch": resumed["epoch"],

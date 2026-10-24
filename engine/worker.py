@@ -128,7 +128,8 @@ class SemanticWorker:
         self.env_file = env_file or Path(__file__).resolve().parents[1] / ".env"
 
     def run(self, manifest: dict, scope_artifact: str, subject: str,
-            *, model: str | None = None, model_role: str = "decomp_worker") -> dict:
+            *, model: str | None = None, model_role: str = "decomp_worker",
+            prior_artifact: str | None = None) -> dict:
         scope = json.loads(self.engine.store.get(scope_artifact))
         if scope["campaign"] != manifest["campaign"]:
             raise ValueError("scope and campaign differ")
@@ -143,6 +144,20 @@ class SemanticWorker:
         evidence_artifact = json.loads(pointer.read_text())["artifact"]
         prompt, truncated = prompt_for(task, scope, evidence,
                                        max_evidence_bytes=self.max_evidence_bytes)
+        if prior_artifact is not None:
+            prior = json.loads(self.engine.store.get(prior_artifact))
+            if (prior.get("campaign") != manifest["campaign"] or
+                    prior.get("subject") != subject or
+                    prior.get("scope_artifact") != scope_artifact or
+                    prior.get("state") not in {"partial", "rejected"}):
+                raise ValueError("prior attempt does not match this semantic task")
+            prior_context = json.dumps({"structural_errors": prior.get("structural_errors", []),
+                                        "answer": prior.get("answer")},
+                                       separators=(",", ":"))
+            prompt += ("\nPrevious attempt is untrusted. Reassess against raw evidence; "
+                       "correct every listed structural error without inventing behavior. "
+                       "Return one complete JSON object. Prior attempt: " +
+                       prior_context[:20000])
         attempt_id = uuid.uuid4().hex
         folder = self.engine.root / "attempts" / attempt_id
         folder.mkdir(parents=True)
@@ -154,6 +169,8 @@ class SemanticWorker:
                       "model": resolved_model, "model_role": model_role,
                       "opencode_version": None, "prompt_version": 1,
                       "evidence_truncated": truncated, "state": "running"}
+        if prior_artifact is not None:
+            checkpoint["reassessment_of"] = prior_artifact
         checkpoint_path = folder / "checkpoint.json"
         checkpoint_path.write_text(json.dumps(checkpoint, indent=2) + "\n")
         self.engine._emit(manifest["campaign"], "semantic_started", attempt_id=attempt_id,

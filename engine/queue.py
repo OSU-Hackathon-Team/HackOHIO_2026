@@ -392,6 +392,26 @@ class DurableQueue:
                 return None
             return {**row, "id": str(row["id"])}
 
+    def reassess(self, task_id: str, reason: str) -> bool:
+        if not reason.strip():
+            raise ValueError("reassessment reason is required")
+        with self._connect() as conn:
+            task = conn.execute("SELECT * FROM decomp_tasks WHERE id = %s FOR UPDATE",
+                                (task_id,)).fetchone()
+            if (task is None or task["state"] != "partial" or
+                    task["result_artifact"] is None or
+                    task["attempts_count"] >= task["max_attempts"]):
+                return False
+            self.store.get(task["result_artifact"])
+            conn.execute("UPDATE decomp_tasks SET state = 'queued', "
+                         "checkpoint_artifact = result_artifact, "
+                         "available_at = now(), terminal_reason = %s, "
+                         "updated_at = now() WHERE id = %s", (reason, task_id))
+            self._event(conn, task["campaign_id"], "task_reassessment_queued",
+                        {"task_id": task_id, "reason": reason,
+                         "prior_artifact": task["result_artifact"]})
+            return True
+
     def events(self, campaign: str, after_id: int = 0, limit: int = 100) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute("SELECT id, event_type, payload, created_at FROM decomp_outbox "

@@ -153,6 +153,7 @@ def main() -> None:
     work.add_argument("--state", type=Path, default=ENGINE_STATE)
     work.add_argument("--model-role", default="decomp_worker")
     work.add_argument("--model", default=None)
+    work.add_argument("--prior-artifact", help="reassess a matching rejected or partial draft")
     work.add_argument("--timeout", type=int, default=180)
     work.add_argument("--opencode", type=Path,
                       default=Path(os.environ.get("OPENCODE_BIN", "/home/mitch/.opencode/bin/opencode")))
@@ -185,6 +186,7 @@ def main() -> None:
         ("queue-run-one", "lease and run one semantic task with heartbeats"),
         ("queue-drain", "run bounded parallel semantic workers until idle"),
         ("queue-review", "independently review one validated queue task"),
+        ("queue-reassess", "requeue one partial task with its prior draft"),
     ):
         command = sub.add_parser(name, help=help_text)
         command.add_argument("--state", type=Path, default=ENGINE_STATE)
@@ -204,6 +206,9 @@ def main() -> None:
             command.add_argument("--opencode", type=Path,
                                  default=Path(os.environ.get(
                                      "OPENCODE_BIN", "/home/mitch/.opencode/bin/opencode")))
+        if name == "queue-reassess":
+            command.add_argument("--task-id", required=True)
+            command.add_argument("--reason", required=True)
         if name == "queue-run-one":
             command.add_argument("--worker-id", required=True)
             command.add_argument("--lease-seconds", type=int, default=60)
@@ -263,7 +268,8 @@ def main() -> None:
         manifest = json.loads(args.manifest.read_text())
         worker = SemanticWorker(engine, args.opencode, timeout=args.timeout)
         result = worker.run(manifest, args.scope_artifact, args.subject,
-                            model=args.model, model_role=args.model_role)
+                            model=args.model, model_role=args.model_role,
+                            prior_artifact=args.prior_artifact)
         print(json.dumps(result, indent=2))
         if result["state"] in {"failed", "rejected"}:
             raise SystemExit(1)
@@ -380,6 +386,10 @@ def main() -> None:
                       "review_state": review_result["state"],
                       "review_artifact": review_result["artifact"],
                       "outcomes": review_result.get("outcomes", {})}
+        elif args.command == "queue-reassess":
+            requeued = queue.reassess(args.task_id, args.reason)
+            result = {"task_id": args.task_id, "requeued": requeued,
+                      "task": queue.task(args.task_id)}
         print(json.dumps(result, indent=2))
     elif args.command == "status":
         events_path = args.state / "progress.jsonl"

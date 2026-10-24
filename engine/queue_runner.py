@@ -38,7 +38,8 @@ def run_one(queue: DurableQueue, worker: SemanticWorker, manifest: dict,
     heartbeat.start()
     try:
         result = worker.run(manifest, lease["scope_artifact"], lease["subject"],
-                            model=model, model_role=model_role)
+                            model=model, model_role=model_role,
+                            prior_artifact=lease["checkpoint_artifact"])
     except Exception as error:
         stop.set()
         heartbeat.join()
