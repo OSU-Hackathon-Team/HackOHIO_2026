@@ -71,7 +71,9 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   with 51 unit tests passing. Built against injected ports (`engine/ports.ts`). Valid
   `/api/implement|synthesize|refine` requests return **503** until Eng 1/2 helpers are wired in
   `routes/step3/deps.ts`. Log: `docs/archive/implementation_frontend/accomplishments.md`.
-- **Stubs:** every other file under `packages/backend/src/` (including the shared `llm/`, `sandbox/`,
+- **Shared LLM client:** `llm/llm.ts` is implemented per `02_llm_client.md` (Bedrock Mantle, structured
+  outputs, refusal fallback) with unit tests; `npm run test:llm` needs `packages/backend/.env` + AWS access.
+- **Stubs:** every other file under `packages/backend/src/` (including the shared `sandbox/`,
   `http/sse.ts`, `config.ts`, `evidence/`) and all of `packages/frontend/src/` (`export {};` plus
   an owner/spec header). Nothing in the pipeline runs end to end yet.
 - **Decompilation engine:** planned (no `engine/` package yet). The runnable piece is the
