@@ -33,9 +33,20 @@ immutable function evidence, discovers bounded scopes, and runs semantic and ind
 review work through a durable PostgreSQL queue. Original-binary probes and partial
 dossiers are implemented. The rename-attempt path remains a diagnostic with a private
 Ghidra project per attempt.
-The static index records executable memory and decoded instruction runs outside discovered
-functions. Project scopes retain those runs as unresolved work; a successful export of all
-discovered functions alone does not establish whole-binary code coverage.
+Project intake can group executable and shared-library modules, reuse each module's analyzed
+baseline, record declared and ELF `DT_NEEDED` dependencies, and identify static candidate
+links from imported call thunks to functions in supplied modules. A project export aggregates
+all discovered function evidence and preserves per-module failures and code-discovery gaps.
+Project scopes now follow static cross-module candidates into bounded module scopes while
+keeping those bindings unresolved. A project queue registers and drains their semantic tasks
+through one reasoning pool; dossiers still operate on one module at a time. Cross-module
+contract resolution and aggregate dossiers remain to be built. The static index records
+executable memory, decoded instruction runs outside discovered functions, defined executable
+data, and remaining unclassified bytes. Project scopes retain those gaps as unresolved work;
+a successful export of all discovered functions alone does not establish whole-binary code
+coverage. Unclassified bytes need adjudication because they may be code, padding, or data.
+Bounded read-only range exports now capture raw bytes, instruction classifications, symbols,
+and incoming references for that adjudication; inspected ranges appear in campaign status.
 
 Conflict reconciliation, warm analysis pooling, multi-host recovery, and a durable job
 API remain planned. The implementation plan lists their acceptance gates. Proposed
@@ -126,6 +137,12 @@ or budget is exhausted.
 ### Evidence, findings, and publication
 
 Keep raw tool evidence, semantic interpretation, and downstream specifications separate.
+A ready dossier feeds the regular Step 2 spec writer through a behavioral handoff. The
+public implementer specification contains natural-language interface and requirements,
+high-level steps, original behavior examples, and acceptance criteria. It contains no
+source code, assembly, executable tests, raw addresses, or draft pseudocode. An analyst-only
+audit maps requirements to immutable evidence and reviews. Partial or disputed dossiers
+fail closed; the generated spec is held for human quality and containment review.
 A claim records its subject, statement, evidence references, assumptions, dependency versions,
 review/probe results, and unresolved alternatives. Raw tool output is not automatically a
 correct semantic interpretation.

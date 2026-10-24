@@ -79,6 +79,13 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
 - **Remaining stubs:** Eng 2 sandbox and requirements extraction. No live pipeline end to end yet; Step 3 deps remain null until the sandbox is available. Its 503 diagnostic now names only the missing sandbox.
 - **Decompilation engine:** the `engine/` package runs native evidence export, scopes,
   semantic attempts, independent review, probes, partial dossiers, and a durable queue.
+  Project intake now groups executable and shared-library modules with per-module analysis
+  manifests, ELF dependency edges, and static candidate import/function links;
+  project export aggregates every discovered function with explicit failures and code gaps.
+  Project scopes now seed bounded module scopes across candidate call links while keeping
+  bindings unresolved. Project queue commands register their module tasks, drain semantic work
+  through a shared pool, and report selected work across module campaigns. Cross-module
+  contract resolution and aggregate dossiers remain planned.
   The telemetry root caller binds all 18 direct calls to active helper contracts and is
   accepted as `static_only`. The latest 21-function dossier has 38/38 statically
   supported claims, 18 current caller dependencies, and 15 distinct agreeing
@@ -88,15 +95,20 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   are counted separately. Targeted Ghidra exports now use bounded warm contexts with
   restart events and status counts. Function evidence separates listing types from
   decompiler-inferred parameters and records referenced data; both semantic and review
-  prompts receive that context. A real dossier passes an in-memory compatibility check
-  against the existing generator. The function index now counts executable regions and
-  decoded instructions outside discovered functions, exposing a gap that `export-all`
-  success alone cannot rule out. Scale and recovery gates remain open. Current work
-  stops before advancing a live campaign into specification generation as directed in
-  `DECOMP_IMPLEMENTATION_PLAN.md`.
-  The native spec generator and backend endpoint now consume
-  dossier revisions; specification quality and downstream implementation gates remain
-  open. See the root
+  prompts receive that context. A real dossier exposes missing original-case links at
+  the new handoff gate. The function index now counts executable regions, decoded
+  instructions outside functions, and bytes classified as neither instructions nor defined
+  data, exposing gaps that `export-all` success alone cannot rule out. Scale and recovery gates
+  remain open. Read-only gap exports now preserve raw bytes and reference context for targeted
+  adjudication. The native spec handoff now refuses partial dossiers and sends reviewed
+  behavioral facts through the regular Step 2 spec writer. It publishes a prose-only
+  schema 2 spec and keeps evidence and review links in a separate analyst audit artifact.
+  The reported telemetry dossier remains partial because 26 claims lack original case
+  links. Spec quality, human containment review, and downstream implementation gates
+  remain open. A bounded O2 executable pilot found that a semantic model and independent
+  reviewer agreed on an incorrect wrapped 32-bit threshold; original boundary cases
+  exposed it. Numeric claims now need explicit operand-width and boundary checks in
+  the prompts, and probe-link rationales still require analyst review. See the root
   `README.md` for commands.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,

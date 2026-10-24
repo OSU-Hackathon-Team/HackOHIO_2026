@@ -161,6 +161,7 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                 probes.append({"report_artifact": artifact, "case_id": result["case_id"],
                                "kind": result["kind"], "target": result.get("target"),
                                "input": result["input"],
+                               "input_description": result.get("input_description"),
                                "expected": result["expected"],
                                "observed": result["observed"],
                                "outcome": result["outcome"],
@@ -327,6 +328,20 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
     if uncovered_calls:
         blockers.append({"kind": "direct_calls_without_bound_dependencies",
                          "calls": uncovered_calls})
+    cross_module_edges = [edge for edge in scope["unresolved"]
+                          if edge.get("kind") in {
+                              "cross_module_binding_unverified",
+                              "cross_module_import_ambiguous",
+                              "cross_module_import_unmatched"}]
+    if cross_module_edges:
+        blockers.append({"kind": "cross_module_bindings_unresolved",
+                         "edges": cross_module_edges})
+    code_gaps = [edge for edge in scope["unresolved"]
+                 if edge.get("kind") in {"unassigned_executable_instructions",
+                                         "unclassified_executable_bytes"}]
+    if code_gaps:
+        blockers.append({"kind": "executable_code_coverage_unresolved",
+                         "gaps": code_gaps})
     unmapped = [claim for claim in claims if claim["execution_state"] == "unmapped"]
     if unmapped:
         blockers.append({"kind": "claims_not_linked_to_original_probes",
@@ -391,7 +406,7 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                            "original_probe_agreements": sum(
                                outcomes == {"agreement"} for outcomes in
                                probe_case_outcomes.values())},
-              "readiness": "partial"}
+              "readiness": "ready_for_spec" if claims and not blockers else "partial"}
     return record
 
 

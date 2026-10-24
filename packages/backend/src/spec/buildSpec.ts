@@ -7,7 +7,8 @@ import {
   type TestCaseResult,
   type OracleCheck,
 } from "@splice/contracts";
-import { structuredCall, continueWith } from "../llm/llm.js";
+import { continueWith } from "../llm/llm.js";
+import { writeDraft } from "./writeDraft.js";
 import { SPEC_DRAFT_SCHEMA } from "../llm/schemas.js";
 import { runTests, type SandboxModule } from "../sandbox/runTests.js";
 import { SPEC_SYSTEM, SpecDraft } from "./prompt.js";
@@ -37,18 +38,15 @@ export async function buildSpec(
     : [];
   const executable = originals.length > 0;
 
-  let messages: Parameters<typeof structuredCall>[0]["messages"] = [
+  let messages: Parameters<typeof writeDraft>[0]["messages"] = [
     { role: "user", content: formatEvidence(ev, app, feature) },
   ];
   const call = (phase: "specifying" | "repairing_spec") =>
-    structuredCall({
-      role: "spec_writer",
+    writeDraft({
       system: SPEC_SYSTEM,
       messages,
       schema: SPEC_DRAFT_SCHEMA,
       parse: (v) => SpecDraft.parse(v),
-      effort: "high",
-      maxTokens: 32_000,
       signal: hooks.signal,
       onProgress: (n) => hooks.onProgress(phase, n),
     });

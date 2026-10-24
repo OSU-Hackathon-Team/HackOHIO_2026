@@ -37,7 +37,7 @@ after(async () => {
   await fs.rm(state, { recursive: true, force: true });
 });
 
-test("native API generates a spec from a dossier and reads its immutable artifact", async () => {
+test("native API rejects a partial dossier and reads only public schema 2 specs", async () => {
   const scopeId = "a".repeat(64);
   const dossier = {
     schema: 1, campaign: "c".repeat(64), binary_sha256: "b".repeat(64),
@@ -56,16 +56,23 @@ test("native API generates a spec from a dossier and reads its immutable artifac
   const response = await fetch(`${base}/api/native-specs`, { method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ dossier_artifact: dossierArtifact }) });
-  assert.equal(response.status, 200);
-  const created = await response.json() as { artifact: string; spec: { status: string; provenance: { dossier_artifact: string } } };
-  assert.equal(created.spec.status, "partial");
-  assert.equal(created.spec.provenance.dossier_artifact, dossierArtifact);
-  const fetched = await fetch(`${base}/api/native-specs/${created.artifact}`);
+  assert.equal(response.status, 409);
+  const publicSpec = { schema: 2, kind: "native_subsystem_spec", status: "ready_for_review",
+    title: "Counter behavior", purpose: "Count events.", boundary: "subsystem",
+    interface: { inputs: ["An event."], outputs: ["The count."], state: ["A count."] },
+    requirements: [{ id: "REQ-1", statement: "Each event increases the count." }],
+    behavior_steps: ["Count each event."],
+    examples: [{ name: "once", input: { value: 1 }, expected_output: { count: 1 } }],
+    acceptance_criteria: ["One event yields one."], deviations: [], exclusions: [] };
+  const artifact = await put(publicSpec);
+  const fetched = await fetch(`${base}/api/native-specs/${artifact}`);
   assert.equal(fetched.status, 200);
-  assert.deepEqual(await fetched.json(), created.spec);
-  const stored = path.join(state, "artifacts", created.artifact.slice(0, 2), created.artifact);
+  assert.deepEqual(await fetched.json(), publicSpec);
+  const unsafeArtifact = await put({ ...publicSpec, behavior_steps: ["MOVAPS XMM0, 0x00100000"] });
+  assert.equal((await fetch(`${base}/api/native-specs/${unsafeArtifact}`)).status, 500);
+  const stored = path.join(state, "artifacts", artifact.slice(0, 2), artifact);
   await fs.writeFile(stored, "tampered");
-  assert.equal((await fetch(`${base}/api/native-specs/${created.artifact}`)).status, 500);
+  assert.equal((await fetch(`${base}/api/native-specs/${artifact}`)).status, 500);
 });
 
 test("native API rejects malformed artifact identities", async () => {

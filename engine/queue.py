@@ -101,7 +101,8 @@ class DurableQueue:
         return inserted
 
     def lease(self, worker_id: str, *, pool: str = "reasoning",
-              campaign: str | None = None, lease_seconds: int = 60) -> dict | None:
+              campaign: str | None = None, lease_seconds: int = 60,
+              deduplication_keys: list[str] | None = None) -> dict | None:
         if not worker_id or lease_seconds < 1:
             raise ValueError("worker_id and positive lease_seconds required")
         with self._connect() as conn:
@@ -115,12 +116,14 @@ class DurableQueue:
                 "SELECT t.* FROM decomp_tasks t JOIN decomp_campaigns c "
                 "ON c.id = t.campaign_id WHERE t.pool = %s AND t.state = 'queued' "
                 "AND (%s::text IS NULL OR t.campaign_id = %s) "
+                "AND (%s::text[] IS NULL OR t.deduplication_key::text = ANY(%s::text[])) "
                 "AND t.available_at <= now() AND t.attempts_count < t.max_attempts "
                 "AND c.state = 'active' "
                 "ORDER BY (t.priority_class - LEAST(3, FLOOR(EXTRACT(EPOCH FROM "
                 "(now() - t.created_at)) / 900))) ASC, t.priority DESC, "
                 "t.created_at ASC FOR UPDATE OF t SKIP LOCKED LIMIT 1",
-                (pool, campaign, campaign)).fetchone()
+                (pool, campaign, campaign, deduplication_keys,
+                 deduplication_keys)).fetchone()
             if task is None:
                 return None
             attempt_id = uuid.uuid4()

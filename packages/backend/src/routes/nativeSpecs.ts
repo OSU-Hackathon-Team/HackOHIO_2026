@@ -7,6 +7,7 @@ import path from "node:path";
 import { Router } from "express";
 import { NativeSubsystemSpec } from "@splice/contracts";
 import { REPO_ROOT } from "../config.js";
+import { publicSpecContainsSource } from "../spec/nativeSafety.js";
 
 export const nativeSpecsRouter = Router();
 const digest = /^[a-f0-9]{64}$/;
@@ -21,7 +22,9 @@ async function readSpec(artifact: string) {
   if (createHash("sha256").update(bytes).digest("hex") !== artifact) {
     throw new Error("spec artifact hash mismatch");
   }
-  return NativeSubsystemSpec.parse(JSON.parse(bytes.toString("utf8")));
+  const spec = NativeSubsystemSpec.parse(JSON.parse(bytes.toString("utf8")));
+  if (publicSpecContainsSource(spec)) throw new Error("spec contains source-like text");
+  return spec;
 }
 
 function generate(dossierArtifact: string): Promise<{ artifact: string; dossier_artifact: string; status: string }> {
@@ -31,7 +34,7 @@ function generate(dossierArtifact: string): Promise<{ artifact: string; dossier_
       { cwd: REPO_ROOT, stdio: ["ignore", "pipe", "pipe"] });
     let output = "";
     let errors = "";
-    const timer = setTimeout(() => child.kill("SIGKILL"), 30_000);
+    const timer = setTimeout(() => child.kill("SIGKILL"), 190_000);
     child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
       output += chunk;
       if (output.length > 2_000_000) child.kill("SIGKILL");
@@ -57,12 +60,14 @@ nativeSpecsRouter.post("/api/native-specs", async (req, res) => {
   try {
     const pointer = await generate(dossierArtifact);
     const spec = await readSpec(pointer.artifact);
-    if (spec.provenance.dossier_artifact !== dossierArtifact) {
+    if (pointer.dossier_artifact !== dossierArtifact) {
       throw new Error("generated specification references a different dossier");
     }
     return res.json({ artifact: pointer.artifact, spec });
   } catch (error) {
-    return res.status(500).json({ error: (error as Error).message });
+    const message = (error as Error).message;
+    return res.status(message.includes("not ready for a cleanroom specification") ? 409 : 500)
+      .json({ error: message });
   }
 });
 

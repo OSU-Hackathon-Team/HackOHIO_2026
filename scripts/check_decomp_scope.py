@@ -3,6 +3,7 @@
 from dataclasses import replace
 import json
 from pathlib import Path
+import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +32,34 @@ def main() -> None:
     assert bool(gaps) == bool(index["unassigned_instruction_regions"])
     if gaps:
         assert gaps[0]["instructions"] == index["static_inventory"]["unassigned_instructions"]
+    undecoded = [edge for edge in project["unresolved"]
+                 if edge["kind"] == "unclassified_executable_bytes"]
+    assert bool(undecoded) == bool(index["static_inventory"].get(
+        "unclassified_executable_bytes", 0))
+    if undecoded:
+        assert undecoded[0]["bytes"] == index["static_inventory"][
+            "unclassified_executable_bytes"]
+        region = undecoded[0]["regions"][0]
+        evidence = engine.executable_range(manifest, region["start"], region["end"])
+        assert evidence["classifications"] == {"unclassified": region["bytes"]}
+        assert len(evidence["bytes_hex"]) == region["bytes"] * 2
+        assert engine.executable_range(manifest, region["start"], region["end"]) == evidence
+        cli_evidence = json.loads(subprocess.check_output([
+            sys.executable, str(ROOT / "launch.py"), "gap", "--manifest",
+            str(ROOT / "decomp-state" / "projects" / manifest["campaign"] / "manifest.json"),
+            "--start", region["start"], "--end", region["end"]], text=True))
+        assert cli_evidence == evidence
+    if gaps:
+        region = gaps[0]["regions"][0]
+        evidence = engine.executable_range(manifest, region["start"], region["end"])
+        assert evidence["classifications"] == {
+            "decoded_outside_function": region["instruction_bytes"]}
+        assert evidence["instructions"]
+    status = json.loads(subprocess.check_output([
+        sys.executable, str(ROOT / "launch.py"), "status", "--state",
+        str(ROOT / "decomp-state"), "--campaign", manifest["campaign"]], text=True))
+    assert len(status[manifest["campaign"]]["gap_ranges"]) >= (
+        int(bool(undecoded)) + int(bool(gaps)))
     repeated = persist_scope(engine, manifest, request)
     assert scope["artifact"] == repeated["artifact"] and scope["revision"] == repeated["revision"]
     names = {item["name"] for item in scope["included"]}

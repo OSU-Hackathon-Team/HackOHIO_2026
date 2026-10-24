@@ -2,6 +2,33 @@
 
 **Architecture:** [DecompPileline.md](DecompPileline.md) defines the subsystem-oriented engine for 16+ workers. [DECOMP_IMPLEMENTATION_PLAN.md](DECOMP_IMPLEMENTATION_PLAN.md) lists the implementation phases and acceptance gates. Evidence export, bounded scopes, semantic attempts, static review, original probes, partial dossiers, and a PostgreSQL task queue are implemented. The full subsystem pipeline and its acceptance gates remain in progress. The commands below also retain the rename diagnostic. The TypeScript app remains under `packages/`; `fixtures/decomp/` contains native evaluation targets.
 
+## Project intake
+
+Analyze a group of executable and shared-library modules with one request. Paths are relative to the request file unless absolute. ELF dependency discovery requires `readelf`; the fixture check also requires `gcc` and `strip`:
+
+```json
+{"schema":1,"modules":[{"id":"app","kind":"executable","path":"app.bin"},{"id":"math","kind":"shared","path":"libmath.so"}]}
+```
+
+```sh
+python launch.py project-analyze --request /path/to/project.json
+python launch.py project-export-all --project-artifact <project-inventory-sha256>
+python launch.py project-scope --project-artifact <project-inventory-sha256> \
+  --request /path/to/project-scope.json
+python launch.py project-queue-init --project-scope-artifact <project-scope-sha256>
+python launch.py project-queue-drain --project-scope-artifact <project-scope-sha256> \
+  --workers 16
+python launch.py project-queue-status --project-scope-artifact <project-scope-sha256>
+python launch.py status --campaign <project-id>
+python scripts/check_decomp_intake.py
+```
+
+The pointer at `decomp-state/intakes/<project-id>/manifest.json` names an immutable inventory artifact. That inventory lists each module's binary hash, analysis campaign, index artifact, and module manifest path. For ELF files, intake reads `DT_NEEDED` and matches supplied shared libraries by filename or SONAME. Unmatched libraries remain explicit external dependencies; ambiguous matches remain unresolved. A request may also declare edges with `"dependencies":[{"from":"app","to":"math"}]`, including for other binary formats. Intake reuses each module's import cache. Its separate `symbol_links_artifact` records imported-function thunk addresses, raw call sites, and matching function entries in supplied dependency modules. Matches are labeled `candidate_static`; dynamic loader binding, symbol interposition, and symbol versions remain unverified. Ambiguous and unmatched imports stay visible. `project-export-all` exports every indexed function in every supplied module, preserving per-module failures and an immutable aggregate under `decomp-state/intakes/<project-id>/exports/latest.json`. It reports unreported functions separately, and its `complete_discovered_exports` flag covers only functions found by Ghidra; executable instructions outside functions, bytes not decoded as instructions, and behavioral validation remain separate gaps. Project events in `progress.jsonl` and `status` show module starts, completions, failures, export counts, symbol-link counts, code gap counts, and artifact IDs. Cross-module contract reconciliation and aggregate dossiers remain open.
+
+For a bounded cross-module question, use a project scope request such as `{"mode":"subsystem","query":"adjust from executable","seeds":[{"module":"app","seed":"00101050"}],"max_functions_per_module":32,"max_depth":2}`. `project-scope` creates a normal scope artifact for each reached module and adds uniquely matched imported functions as *questions for analysis*. Its project artifact lists module scope IDs, task counts, static cross-module candidates, unverified bindings, unmatched imports, and unexplored modules. Use `{"mode":"project","query":"whole project","max_functions_per_module":100}` to inventory every supplied module, subject to the stated per-module limit. The project scope stays `partial`; candidate links do not turn into accepted dependency contracts. Queue and dossier commands still operate on the emitted module scope artifacts. Unresolved cross-module bindings block a public spec until resolved; the spec writer consumes ready module dossiers separately.
+
+`project-queue-init` validates the project and module scope identities, applies the PostgreSQL migrations, registers each reached module campaign, and enqueues its behavior tasks. Repeating it reuses deduplicated tasks. `project-queue-drain` validates the saved module baselines, exports their indexed functions, then runs only this scope's leased semantic tasks across the reached modules under the shared reasoning pool capacity. `project-queue-status` shows task states for this project's selected work separately from each module campaign's full queue; tasks shared with another scope are counted as shared. These commands need `--dsn` or `DECOMP_DATABASE_URL`. Independent review and dossier assembly still run per module. Check the queue integration with `python scripts/check_decomp_project_queue.py`; the linked binary intake check also uses a disposable PostgreSQL database (`DECOMP_TEST_PG_DSN` if the default test server differs).
+
 ## Native evidence export
 
 With Ghidra's `analyzeHeadless` installed, import an executable or shared library once and index its functions, imports, strings, and direct calls:
@@ -16,9 +43,13 @@ python launch.py status
 ```sh
 python launch.py function --manifest decomp-state/projects/<campaign>/manifest.json --address 00401136
 python launch.py export-all --manifest decomp-state/projects/<campaign>/manifest.json
+python launch.py gap --manifest decomp-state/projects/<campaign>/manifest.json \
+  --start 0010102c --end 0010102f
 ```
 
-Each function artifact records its entry address, decompilation status, C rendering, instructions, references, defined data targets, and separate listing and decompiler-inferred type information. Inferred parameters are not confirmed source types; source and lock fields preserve that distinction. External functions and decompilation errors have explicit statuses. Targeted cache misses use two reusable Ghidra contexts by default; set `DECOMP_ANALYSIS_WORKERS` to `0..16` to size the local pool (`0` uses a fresh process per request). Each context opens a separate copy of the closed analyzed project because this Ghidra headless version locks projects even in read-only mode. A failed or timed-out context is stopped and started again on its next request. `export-all` keeps one Ghidra decompiler context open for the full indexed program and returns a coverage inventory. Its `complete` flag means every *discovered* function exported successfully; it does not mean all behavior has been discovered or validated. The index also records executable memory regions and contiguous runs of instructions outside discovered functions, with instruction and byte counts in `static_inventory`. Those runs need inspection; executable bytes without decoded instructions and indirect targets are still possible. `decomp-state/progress.jsonl` contains append-only JSON events, including each completed function and warm-pool activity, for a future job API/UI; `launch.py status` summarizes exports, cache hits, pool waits, completions, failures, worker restarts, and the latest indexed static inventory. All artifacts are SHA-256 addressed under `decomp-state/artifacts/`. This is static evidence, not a validated behavioral dossier.
+Each function artifact records its entry address, decompilation status, C rendering, instructions, references, defined data targets, and separate listing and decompiler-inferred type information. Inferred parameters are not confirmed source types; source and lock fields preserve that distinction. External functions and decompilation errors have explicit statuses. Targeted cache misses use two reusable Ghidra contexts by default; set `DECOMP_ANALYSIS_WORKERS` to `0..16` to size the local pool (`0` uses a fresh process per request). Each context opens a separate copy of the closed analyzed project because this Ghidra headless version locks projects even in read-only mode. A failed or timed-out context is stopped and started again on its next request. `export-all` keeps one Ghidra decompiler context open for the full indexed program and returns a coverage inventory. Its `complete` flag means every *discovered* function exported successfully; it does not mean all behavior has been discovered or validated. The index records executable memory, decoded instructions outside functions, defined data in executable memory, and bytes Ghidra classified as neither instruction nor defined data. It lists up to 4096 unclassified byte regions and reports the full byte and region counts plus whether the list was truncated. These bytes may be code, padding, or other material and require inspection before claiming whole-binary coverage. `decomp-state/progress.jsonl` contains append-only JSON events, including each completed function and warm-pool activity, for a future job API/UI; `launch.py status` summarizes exports, cache hits, pool waits, completions, failures, worker restarts, and the latest indexed static inventory. All artifacts are SHA-256 addressed under `decomp-state/artifacts/`. This is static evidence, not a validated behavioral dossier.
+
+`gap` inspects a selected range of at most 4096 executable bytes in the unchanged Ghidra baseline. Its immutable artifact records raw bytes when available, per-byte classifications, decoded instructions, defined data, symbols, and incoming references. Repeat requests reuse the artifact; `status` lists inspected ranges. The evidence helps distinguish code candidates from padding, but it does not by itself adjudicate a gap or promote bytes to a function.
 
 Build source-known stripped executable and shared-library fixtures at `-O0` and `-O2`, then execute held-out cases against the original code:
 
@@ -155,26 +186,53 @@ Assemble an immutable dossier from explicit artifact IDs with `python launch.py 
 
 The dossier inputs may also include `gap_adjudication_artifacts`. Each adjudication must match a supplied draft, review, and original probe report. Its decisions and reasons remain visible; blocking or uncertain decisions remain dossier blockers. A matching original case with disagreement or execution error prevents gap clearance. `queue-adjudicate-gaps` uses a model different from the claim reviewer and clears review gaps only when all current claims have static support and every gap is independently classified nonblocking. Tasks with dependencies remain in reconciliation until every dependency is reviewed against its active helper contract. Dossier coverage reports distinct original cases and total probe runs separately.
 
-Check a persisted dossier against the existing specification generator's input contract
-without writing a specification artifact:
+Check arithmetic claims against original cases on both sides of each numeric boundary before linking them. An October 2026 executable run found a model draft and its independent reviewer both miscomputed a wrapped 32-bit limit. A probe link only checks an observed field against the recorded expected value; its rationale is not machine-verified proof that the claim follows from that field. Review the claim, rationale, and counterexample cases together before treating a dossier as ready. The semantic and review prompts now call out operand-width wraparound and concrete boundary paths.
+
+Check whether a dossier is eligible for the cleanroom writer without a model call:
 
 ```sh
 python scripts/check_decomp_handoff.py --dossier-artifact <dossier-artifact-sha256>
 ```
 
-The check preserves dossier coverage, original cases, blockers, and evidence links. The
-current execution boundary in `DECOMP_IMPLEMENTATION_PLAN.md` stops before advancing a
-live campaign into specification generation.
-
-The existing generator can produce a native subsystem specification from one immutable
-dossier revision when that phase is resumed:
+A dossier becomes `ready_for_spec` only after its blockers are resolved. The native
+specification command requires that status, static support and agreeing original cases
+for every claim, behavior phrased without raw register/address or vague helper details,
+current dependency contracts, and no unresolved scope edges. The
+sample telemetry dossier at revision 3 is partial (26 claims lack original case links),
+so the command now rejects it instead of publishing a misleading report.
+The handoff check lists unlinked claims by function and claim index. Analysts should
+revise source-level microclaims into observable behavioral claims where appropriate
+(using the reviewed semantic revision path above),
+run targeted original cases, and reassemble a dossier with justified links. Historical
+drafts remain in the analyst audit; unobservable instruction details do not belong in
+the new implementer requirements.
 
 ```sh
 python launch.py spec --dossier-artifact <dossier-artifact-sha256>
 python scripts/check_decomp_spec.py
 ```
 
-The command writes content-addressed JSON and Markdown under `decomp-state/specifications/<scope-id>/`. Supported static claims become numbered requirements with raw addresses, independent reviews, and linked original cases. Function inputs, outputs, state, effects, errors, and pseudocode remain labeled as draft descriptions. Unsupported claims, review gaps, unresolved edges, exclusions, dependency status, and dossier blockers remain explicit. Case agreement applies only to the recorded input, and a `partial` specification is not verified. Repeating the command for the same dossier artifact returns the same spec artifact. Old dossier artifacts missing current handoff fields are rejected with a field list; reassemble them from their persisted inputs before generating a spec. The Node backend exposes the same handoff with `POST /api/native-specs` (`{"dossier_artifact":"<sha256>"}`) and `GET /api/native-specs/<spec-artifact-sha256>`; set `DECOMP_STATE_DIR` if the engine state is outside the repository. The native spec contract is separate from the Electron `FeatureSpec`.
+The command invokes the same configured Step 2 `spec_writer` engine used for source-tree
+features. It supplies reviewed behavioral facts and original input/output examples, then
+checks that every supported fact appears in the draft and that its prose contains no
+source-like text or type-declaration shorthand. It rejects deviations and exclusions
+without a supplied basis. The public JSON and Markdown under `decomp-state/specifications/<scope-id>/`
+contain an interface described in words, requirements, a high-level behavior outline,
+original examples, and acceptance criteria. They contain no C, assembly, TypeScript,
+executable tests, raw addresses, draft pseudocode, or review report details. An immutable
+`audit_artifact` separately holds evidence links, review and probe records, model identity,
+and claim-to-requirement mappings for the analyst. Never give the audit artifact or dossier
+to an implementer. Repeating the command for the same dossier and writer revision reuses
+the artifact. A new writer revision or dossier produces a new artifact. A human must review
+the result for behavioral completeness and cleanroom containment before implementation;
+`ready_for_review` is not a claim of equivalence or legal cleanroom status.
+
+The Node backend exposes the public artifact through `POST /api/native-specs`
+(`{"dossier_artifact":"<sha256>"}`) and `GET /api/native-specs/<spec-artifact-sha256>`;
+set `DECOMP_STATE_DIR` when engine state is outside the repository. A partial dossier
+returns HTTP 409. Historical schema 1 spec artifacts are rejected by the API.
+The analyst and implementer workflow, review gate, and rights checks are in
+[`docs/NATIVE_CLEANROOM_HANDOFF.md`](docs/NATIVE_CLEANROOM_HANDOFF.md).
 
 ## Rename diagnostic
 

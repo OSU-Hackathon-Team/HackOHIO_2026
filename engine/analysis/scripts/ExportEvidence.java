@@ -1,10 +1,14 @@
 // Export a Ghidra program index or a selected function as JSON.
-// Arguments: output-path index | output-path function address | directory all | directory serve
+// Arguments: output-path index | output-path function address | output-path gap start end
+//            directory all | directory serve
 import com.google.gson.Gson;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressRange;
+import ghidra.program.model.address.AddressRangeIterator;
+import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.Data;
@@ -18,6 +22,7 @@ import ghidra.program.model.pcode.FunctionPrototype;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.HighSymbol;
 import ghidra.program.model.symbol.Reference;
+import ghidra.program.model.symbol.ReferenceIterator;
 import ghidra.program.model.symbol.Symbol;
 
 import java.io.FileWriter;
@@ -26,9 +31,12 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class ExportEvidence extends GhidraScript {
     private Map<String, Object> record(Object... fields) {
@@ -143,7 +151,20 @@ public class ExportEvidence extends GhidraScript {
             imports.add(record("name", symbol.getName(true),
                                "address", addr(symbol.getAddress())));
         }
+        List<Map<String, Object>> executableRegions = new ArrayList<>();
+        AddressSet executableAddresses = new AddressSet();
+        long executableBytes = 0;
+        for (MemoryBlock block : currentProgram.getMemory().getBlocks()) {
+            if (block.isExecute()) {
+                executableRegions.add(record("name", block.getName(),
+                        "start", addr(block.getStart()), "end", addr(block.getEnd()),
+                        "size", block.getSize(), "initialized", block.isInitialized()));
+                executableBytes += block.getSize();
+                executableAddresses.add(block.getStart(), block.getEnd());
+            }
+        }
         List<Map<String, Object>> strings = new ArrayList<>();
+        AddressSet definedExecutableData = new AddressSet();
         DataIterator data = currentProgram.getListing().getDefinedData(true);
         while (data.hasNext()) {
             monitor.checkCancelled();
@@ -152,18 +173,12 @@ public class ExportEvidence extends GhidraScript {
             if (value instanceof String) {
                 strings.add(record("address", addr(item.getAddress()), "value", value));
             }
-        }
-        List<Map<String, Object>> executableRegions = new ArrayList<>();
-        long executableBytes = 0;
-        for (MemoryBlock block : currentProgram.getMemory().getBlocks()) {
-            if (block.isExecute()) {
-                executableRegions.add(record("name", block.getName(),
-                        "start", addr(block.getStart()), "end", addr(block.getEnd()),
-                        "size", block.getSize(), "initialized", block.isInitialized()));
-                executableBytes += block.getSize();
+            if (executableAddresses.intersects(item.getMinAddress(), item.getMaxAddress())) {
+                definedExecutableData.add(item.getMinAddress(), item.getMaxAddress());
             }
         }
         List<Map<String, Object>> unassignedRegions = new ArrayList<>();
+        AddressSet decodedInstructions = new AddressSet();
         long assignedInstructionBytes = 0;
         long unassignedInstructionBytes = 0;
         int assignedInstructions = 0;
@@ -180,6 +195,7 @@ public class ExportEvidence extends GhidraScript {
             if (block == null || !block.isExecute()) {
                 continue;
             }
+            decodedInstructions.add(instruction.getAddress(), instruction.getMaxAddress());
             if (currentProgram.getFunctionManager().getFunctionContaining(instruction.getAddress()) != null) {
                 assignedInstructions++;
                 assignedInstructionBytes += instruction.getLength();
@@ -205,6 +221,22 @@ public class ExportEvidence extends GhidraScript {
             unassignedRegions.add(record("start", addr(runStart), "end", addr(runEnd),
                     "instructions", runCount, "instruction_bytes", runBytes));
         }
+        AddressSet undecoded = executableAddresses.subtract(decodedInstructions);
+        long definedExecutableDataBytes = undecoded.intersect(definedExecutableData)
+                .getNumAddresses();
+        AddressSet unclassified = undecoded.subtract(definedExecutableData);
+        List<Map<String, Object>> unclassifiedRegions = new ArrayList<>();
+        AddressRangeIterator gaps = unclassified.getAddressRanges();
+        int unclassifiedRegionCount = 0;
+        while (gaps.hasNext()) {
+            monitor.checkCancelled();
+            AddressRange gap = gaps.next();
+            unclassifiedRegionCount++;
+            if (unclassifiedRegions.size() < 4096) {
+                unclassifiedRegions.add(record("start", addr(gap.getMinAddress()),
+                        "end", addr(gap.getMaxAddress()), "bytes", gap.getLength()));
+            }
+        }
         output.put("status", "ok");
         output.put("program", currentProgram.getName());
         output.put("executable_format", currentProgram.getExecutableFormat());
@@ -219,11 +251,17 @@ public class ExportEvidence extends GhidraScript {
         output.put("indirect_calls", indirectCalls);
         output.put("executable_regions", executableRegions);
         output.put("unassigned_instruction_regions", unassignedRegions);
+        output.put("unclassified_executable_regions", unclassifiedRegions);
+        output.put("unclassified_executable_regions_truncated",
+                unclassifiedRegionCount > unclassifiedRegions.size());
         output.put("static_inventory", record("executable_bytes", executableBytes,
                 "assigned_instructions", assignedInstructions,
                 "assigned_instruction_bytes", assignedInstructionBytes,
                 "unassigned_instructions", unassignedInstructions,
-                "unassigned_instruction_bytes", unassignedInstructionBytes));
+                "unassigned_instruction_bytes", unassignedInstructionBytes,
+                "defined_executable_data_bytes", definedExecutableDataBytes,
+                "unclassified_executable_bytes", unclassified.getNumAddresses(),
+                "unclassified_executable_regions", unclassifiedRegionCount));
         output.put("omissions", List.of("indirect call targets and non-function data dependencies may be unresolved"));
     }
 
@@ -331,6 +369,110 @@ public class ExportEvidence extends GhidraScript {
         }
     }
 
+    private void runGap(Map<String, Object> output, String startText, String endText)
+            throws Exception {
+        Address start = currentProgram.getAddressFactory().getAddress(startText);
+        Address end = currentProgram.getAddressFactory().getAddress(endText);
+        if (start == null || end == null || !start.getAddressSpace().equals(end.getAddressSpace()) ||
+                start.compareTo(end) > 0) {
+            throw new IllegalArgumentException("invalid executable evidence range");
+        }
+        long length = end.subtract(start) + 1;
+        if (length < 1 || length > 4096) {
+            throw new IllegalArgumentException("executable evidence range needs 1..4096 bytes");
+        }
+        Map<String, Integer> classifications = new LinkedHashMap<>();
+        List<Map<String, Object>> instructions = new ArrayList<>();
+        List<Map<String, Object>> definedData = new ArrayList<>();
+        List<Map<String, Object>> symbols = new ArrayList<>();
+        List<Map<String, Object>> references = new ArrayList<>();
+        Set<String> seenInstructions = new HashSet<>();
+        Set<String> seenData = new HashSet<>();
+        int referenceCount = 0;
+        int symbolCount = 0;
+        Address at = start;
+        for (int offset = 0; offset < length; offset++) {
+            monitor.checkCancelled();
+            MemoryBlock block = currentProgram.getMemory().getBlock(at);
+            if (block == null || !block.isExecute()) {
+                throw new IllegalArgumentException("range contains a non-executable byte");
+            }
+            Instruction instruction = currentProgram.getListing().getInstructionContaining(at);
+            Data data = instruction == null ?
+                    currentProgram.getListing().getDefinedDataContaining(at) : null;
+            String classification;
+            if (instruction != null) {
+                Function function = currentProgram.getFunctionManager().getFunctionContaining(at);
+                classification = function == null ? "decoded_outside_function" : "known_function";
+                if (seenInstructions.add(addr(instruction.getAddress()))) {
+                    instructions.add(record("address", addr(instruction.getAddress()),
+                            "end", addr(instruction.getMaxAddress()),
+                            "text", instruction.toString(),
+                            "function_entry", function == null ? null :
+                                addr(function.getEntryPoint())));
+                }
+            } else if (data != null) {
+                classification = "defined_data";
+                if (seenData.add(addr(data.getAddress()))) {
+                    definedData.add(record("address", addr(data.getAddress()),
+                            "end", addr(data.getMaxAddress()),
+                            "type", data.getDataType().getDisplayName()));
+                }
+            } else {
+                classification = "unclassified";
+            }
+            classifications.put(classification,
+                    classifications.getOrDefault(classification, 0) + 1);
+            for (Symbol symbol : currentProgram.getSymbolTable().getSymbols(at)) {
+                symbolCount++;
+                if (symbols.size() < 512) {
+                    symbols.add(record("address", addr(at), "name", symbol.getName(true),
+                            "type", symbol.getSymbolType().toString()));
+                }
+            }
+            ReferenceIterator incoming = currentProgram.getReferenceManager().getReferencesTo(at);
+            while (incoming.hasNext()) {
+                Reference reference = incoming.next();
+                referenceCount++;
+                if (references.size() < 512) {
+                    references.add(record("from", addr(reference.getFromAddress()),
+                            "to", addr(at), "type", reference.getReferenceType().toString(),
+                            "external", reference.isExternalReference()));
+                }
+            }
+            if (offset + 1 < length) {
+                at = at.next();
+            }
+        }
+        output.put("status", "ok");
+        output.put("kind", "executable_range_evidence");
+        output.put("start", addr(start));
+        output.put("end", addr(end));
+        output.put("length", length);
+        output.put("classifications", classifications);
+        output.put("instructions", instructions);
+        output.put("defined_data", definedData);
+        output.put("symbols", symbols);
+        output.put("symbol_count", symbolCount);
+        output.put("symbols_truncated", symbolCount > symbols.size());
+        output.put("incoming_references", references);
+        output.put("incoming_reference_count", referenceCount);
+        output.put("incoming_references_truncated", referenceCount > references.size());
+        byte[] bytes = new byte[(int) length];
+        try {
+            int read = currentProgram.getMemory().getBytes(start, bytes);
+            if (read != length) {
+                throw new IllegalStateException("only " + read + " bytes available");
+            }
+            output.put("bytes_hex", HexFormat.of().formatHex(bytes));
+            output.put("bytes_status", "available");
+        } catch (Exception error) {
+            output.put("bytes_hex", null);
+            output.put("bytes_status", "unavailable");
+            output.put("bytes_error", error.toString());
+        }
+    }
+
     private void writeAtomic(Path destination, Map<String, Object> value) throws Exception {
         Path temporary = destination.resolveSibling(destination.getFileName() + ".tmp");
         try (FileWriter writer = new FileWriter(temporary.toFile())) {
@@ -404,6 +546,8 @@ public class ExportEvidence extends GhidraScript {
         Map<String, Object> output = record("schema", 1);
         if (args[1].equals("index")) {
             runIndex(output);
+        } else if (args[1].equals("gap") && args.length == 4) {
+            runGap(output, args[2], args[3]);
         } else if (args[1].equals("function") || args[1].equals("all") || args[1].equals("serve")) {
             DecompInterface decompiler = new DecompInterface();
             try {

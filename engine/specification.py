@@ -1,4 +1,4 @@
-"""Generate an auditable native subsystem specification from a dossier revision."""
+"""Publish behavioral native specs through the regular Step 2 spec writer."""
 
 from __future__ import annotations
 
@@ -6,9 +6,29 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import subprocess
 
 from engine.artifacts import LocalArtifactStore
 from engine.dossier import canonical
+
+ROOT = Path(__file__).resolve().parents[1]
+WRITER = ROOT / "node_modules" / ".bin" / "tsx"
+SCRIPT = ROOT / "packages/backend/src/scripts/writeNativeSpec.ts"
+WRITER_INPUTS = (SCRIPT, ROOT / "packages/backend/src/spec/nativeDraft.ts",
+                 ROOT / "packages/backend/src/spec/writeDraft.ts",
+                 ROOT / "packages/backend/src/spec/nativeSafety.ts",
+                 ROOT / "packages/contracts/src/nativeSpec.ts",
+                 ROOT / "models.json", Path(__file__))
+
+
+def writer_revision() -> str:
+    digest = hashlib.sha256()
+    for path in WRITER_INPUTS:
+        digest.update(str(path.relative_to(ROOT)).encode())
+        digest.update(path.read_bytes())
+    digest.update(os.environ.get("MODEL_SPEC_WRITER", "").encode())
+    return digest.hexdigest()
 
 
 def _require(condition: bool, message: str) -> None:
@@ -16,217 +36,248 @@ def _require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
-def generate_spec(dossier: dict, dossier_artifact: str) -> dict:
-    """Project reviewed dossier content without upgrading its evidence status."""
+def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
+    """Pass supported behavior to the writer and retain source references for audit."""
     _require(dossier.get("schema") == 1, "unsupported dossier schema")
-    _require(dossier.get("readiness") in {"partial", "ready_for_spec", "blocked"},
-             "invalid dossier readiness")
-    scope = dossier.get("scope")
-    _require(isinstance(scope, dict) and scope.get("campaign") == dossier.get("campaign") and
+    _require(dossier.get("readiness") == "ready_for_spec" and not dossier.get("blockers"),
+             "dossier is not ready for a cleanroom specification; resolve blockers first")
+    scope = dossier.get("scope", {})
+    _require(scope.get("campaign") == dossier.get("campaign") and
              scope.get("scope_id") == dossier.get("scope_id") and
              scope.get("revision") == dossier.get("scope_revision"),
              "dossier scope identity is inconsistent")
-    _require(isinstance(dossier.get("claims"), list) and
-             isinstance(dossier.get("blockers"), list) and
-             isinstance(dossier.get("functions"), list), "incomplete dossier")
-    required_lists = ("draft_artifacts", "review_artifacts", "probe_report_artifacts",
-                      "probe_link_artifacts", "dependency_resolution_artifacts",
-                      "gap_adjudication_artifacts", "independent_review_gaps",
-                      "dependency_contracts", "probes")
-    missing = [field for field in required_lists if not isinstance(dossier.get(field), list)]
-    _require(not missing, f"dossier lacks current handoff fields: {', '.join(missing)}")
-    names = {item["entry"]: item["name"] for item in scope["included"]}
-    drafts_by_subject: dict[str, set[str]] = {}
-    for function in dossier["functions"]:
-        drafts_by_subject.setdefault(function["subject"], set()).add(
-            function["draft_artifact"])
-    requirements = []
-    unresolved_claims = []
-    for claim in dossier["claims"]:
-        _require(claim["subject"] in names and
-                 claim["draft_artifact"] in dossier["draft_artifacts"],
-                 "claim is outside dossier inputs")
-        identity = {"subject": claim["subject"],
-                    "draft_artifact": claim["draft_artifact"],
-                    "claim_index": claim["claim_index"]}
-        if claim["review_state"] != "supported_static" or len(
-                drafts_by_subject.get(claim["subject"], set())) != 1:
-            unresolved_claims.append({**identity, "statement": claim["statement"],
-                                      "review_state": claim["review_state"],
-                                      "reason": ("multiple_drafts_for_subject" if len(
-                                          drafts_by_subject.get(claim["subject"], set())) != 1
-                                          else "claim_not_supported_static"),
-                                      "reviews": claim["reviews"]})
-            continue
-        _require(bool(claim["evidence"]) and bool(claim["reviews"]),
-                 "supported claim lacks evidence or independent review")
-        _require(all(isinstance(item.get("artifact"), str) and
-                     isinstance(item.get("address"), str) for item in claim["evidence"]),
-                 "invalid claim evidence")
-        requirements.append({**identity, "id": f"REQ-{len(requirements) + 1}",
-                             "statement": claim["statement"],
-                             "evidence": claim["evidence"],
-                             "assumptions": claim["assumptions"],
-                             "alternatives": claim["alternatives"],
-                             "review_state": "supported_static",
-                             "reviews": claim["reviews"],
-                             "execution_state": claim["execution_state"],
-                             "probe_links": claim.get("probe_links", [])})
-    descriptions = []
-    for function in dossier["functions"]:
-        _require(function["subject"] in names and
-                 function["draft_artifact"] in dossier["draft_artifacts"],
-                 "function summary is outside dossier inputs")
-        descriptions.append({"entry": function["subject"],
-                             "name": names[function["subject"]],
-                             "draft_artifact": function["draft_artifact"],
-                             "inputs": function["inputs"], "outputs": function["outputs"],
-                             "state": function["state"],
-                             "side_effects": function["side_effects"],
-                             "errors": function["errors"],
-                             "draft_pseudocode": function["pseudocode"],
-                             "unknowns": function["unknowns"],
-                             "evidence_requests": function["evidence_requests"]})
-    blockers = list(dossier["blockers"])
-    if unresolved_claims:
-        blockers.append({"kind": "claims_excluded_from_requirements",
-                         "count": len(unresolved_claims)})
-    return {"schema": 1, "kind": "native_subsystem_spec",
-            "campaign": dossier["campaign"],
-            "binary_sha256": dossier["binary_sha256"],
-            "scope_id": dossier["scope_id"],
-            "scope_revision": dossier["scope_revision"],
-            "title": scope["request"]["query"],
-            "status": "partial" if blockers or dossier["readiness"] != "ready_for_spec"
-                      else "ready_for_review",
-            "boundary": {"mode": scope["request"]["mode"],
-                         "included": scope["included"],
-                         "boundaries": scope["boundaries"],
-                         "exclusions": scope.get("exclusions", []),
-                         "unresolved_edges": scope["unresolved"],
-                         "expected_observables_to_investigate":
-                             scope["request"].get("expected_observables", [])},
-            "requirements": requirements,
-            "function_descriptions": descriptions,
-            "dependency_contracts": dossier["dependency_contracts"],
-            "original_cases": dossier["probes"],
-            "unresolved_claims": unresolved_claims,
-            "review_gaps": dossier["independent_review_gaps"],
-            "blockers": blockers,
-            "coverage": dossier["coverage"],
-            "provenance": {"dossier_artifact": dossier_artifact,
-                           "dossier_revision": dossier["revision"],
-                           "dossier_readiness": dossier["readiness"],
-                           "dossier_schema": dossier["schema"],
-                           "analysis": dossier.get("analysis_provenance"),
-                           "scope_artifact": dossier["scope_artifact"],
-                           "draft_artifacts": dossier["draft_artifacts"],
-                           "review_artifacts": dossier["review_artifacts"],
-                           "probe_report_artifacts": dossier["probe_report_artifacts"],
-                           "probe_link_artifacts": dossier["probe_link_artifacts"],
-                           "dependency_resolution_artifacts":
-                               dossier["dependency_resolution_artifacts"],
-                           "gap_adjudication_artifacts":
-                               dossier["gap_adjudication_artifacts"],
-                           "generator_sha256": hashlib.sha256(
-                               Path(__file__).read_bytes()).hexdigest()}}
+    claims = dossier.get("claims", [])
+    _require(bool(claims) and all(c.get("review_state") == "supported_static" and
+                                     c.get("execution_state") == "case_agreement" and
+                                     c.get("evidence") and c.get("reviews") and
+                                     c.get("probe_links") and
+                                     all(link.get("agreement") is True
+                                         for link in c["probe_links"])
+                                     for c in claims),
+             "all claims need static support and agreeing original cases")
+    source_shaped = [c for c in claims if re.search(
+        r"\b(?:param_\d+|_?DAT_[0-9a-f]+|RDI|RAX|EAX|XMM\d+|MOVAPS|MOVUPS|PXOR)\b|"
+        r"\b0x[0-9a-f]{6,}\b|\bat address\s+[0-9a-f]{6,}\b|"
+        r"\b(?:reads a value from memory|specific memory location|calculated value based on|"
+        r"result of the comparison|several bytes and a constant|predefined global variables)\b",
+        c.get("statement", ""), re.I)]
+    _require(not source_shaped,
+             f"{len(source_shaped)} claims are source-shaped or underspecified; revise them as observable behavior")
+    functions = dossier.get("functions", [])
+    included = scope.get("included", [])
+    _require({f.get("subject") for f in functions} == {f.get("entry") for f in included} and
+             len(functions) == len(included),
+             "included functions lack unique behavioral descriptions")
+    _require(not scope.get("unresolved") and not dossier.get("uncovered_direct_calls"),
+             "scope or direct-call behavior remains unresolved")
+    _require(all(isinstance(item.get("contract"), str) and item["contract"].strip()
+                 for item in scope.get("boundaries", [])),
+             "boundary contract is missing")
+    _require(all(d.get("review_state") == "supported_static" and
+                 d.get("current_at_snapshot") is True
+                 for d in dossier.get("dependency_contracts", [])),
+             "dependency contracts are not current and reviewed")
+    _require(not any(g.get("decision") != "nonblocking"
+                     for g in dossier.get("independent_review_gaps", [])),
+             "independent review gaps remain unresolved")
+    names = {f["entry"]: f["name"] for f in included}
+    claim_ids = {id(c): f"C{i}" for i, c in enumerate(claims, 1)}
+    cases = {}
+    for case in dossier.get("probes", []):
+        _require(case.get("outcome") == "agreement", "original case disagreement")
+        key = json.dumps([case.get("input"), case.get("observed")], sort_keys=True)
+        cases.setdefault(key, {"name": case["case_id"], "input": case["input"],
+                               "input_description": case.get("input_description"),
+                               **({"observation_kind": case["kind"]}
+                                  if case.get("kind") in {"executable", "shared"} else {}),
+                               "expected_output": case["observed"]})
+    _require(bool(cases), "no original behavior examples")
+    handoff = {
+        "feature": scope["request"]["query"],
+        "boundary": scope["request"]["mode"],
+        "observables": scope["request"].get("expected_observables", []),
+        "functions": [{"name": names[f["subject"]], "inputs": f["inputs"],
+                       "outputs": f["outputs"], "state": f["state"],
+                       "side_effects": f["side_effects"], "errors": f["errors"]}
+                      for f in functions],
+        "claims": [{"id": claim_ids[id(c)], "statement": c["statement"],
+                    "function": names[c["subject"]]} for c in claims],
+        "dependency_contracts": [d["contract"] for d in dossier["dependency_contracts"]],
+        "boundary_contracts": [item["contract"] for item in scope.get("boundaries", [])],
+        "original_examples": list(cases.values()),
+        "excluded_behavior": [{"name": e.get("name"), "reason": e.get("reason")}
+                              for e in scope.get("exclusions", [])],
+    }
+    audit = {
+        "dossier_artifact": dossier_artifact, "dossier_revision": dossier["revision"],
+        "campaign": dossier["campaign"], "binary_sha256": dossier["binary_sha256"],
+        "scope_artifact": dossier["scope_artifact"],
+        "claim_sources": {claim_ids[id(c)]: {
+            "subject": c["subject"], "draft_artifact": c["draft_artifact"],
+            "claim_index": c["claim_index"], "evidence": c["evidence"],
+            "reviews": c["reviews"], "probe_links": c.get("probe_links", [])}
+            for c in claims},
+        "analysis_provenance": dossier.get("analysis_provenance"),
+        "coverage": dossier.get("coverage"),
+        "writer_revision": writer_revision(),
+    }
+    return handoff, audit
+
+
+def _write_with_regular_engine(handoff: dict) -> dict:
+    _require(WRITER.exists(), "install workspace dependencies before writing a spec")
+    result = subprocess.run([str(WRITER), str(SCRIPT)], cwd=ROOT,
+                            input=json.dumps(handoff), text=True, capture_output=True,
+                            timeout=180, check=False)
+    if result.returncode:
+        raise RuntimeError(f"regular spec writer failed: {result.stderr[-4000:]}")
+    return json.loads(result.stdout)
+
+
+def validate_draft(draft: dict, handoff: dict) -> None:
+    _require(isinstance(draft, dict), "spec writer returned no draft")
+    expected = {c["id"] for c in handoff["claims"]}
+    requirements = draft.get("requirements", [])
+    _require(isinstance(requirements, list) and requirements, "spec lacks requirements")
+    covered = set()
+    for index, requirement in enumerate(requirements, 1):
+        _require(requirement.get("id") == f"REQ-{index}" and
+                 isinstance(requirement.get("statement"), str) and
+                 requirement["statement"].strip(), "invalid requirement")
+        refs = requirement.get("claim_ids", [])
+        _require(bool(refs) and set(refs) <= expected, "invented or missing claim reference")
+        covered.update(refs)
+    _require(covered == expected, "spec omits supported behavioral facts")
+    interface = draft.get("interface", {})
+    _require(isinstance(interface, dict) and
+             all(isinstance(interface.get(k), list) for k in ("inputs", "outputs", "state")) and
+             all(isinstance(draft.get(k), list) for k in
+                 ("behavior_steps", "acceptance_criteria", "deviations", "exclusions")),
+             "spec lacks interface or checks")
+    _require(bool(interface["inputs"]) and bool(interface["outputs"]) and
+             bool(draft["behavior_steps"]) and bool(draft["acceptance_criteria"]),
+             "spec lacks implementation guidance")
+    text = ([draft["title"], draft["purpose"]] + interface["inputs"] +
+            interface["outputs"] + interface["state"] +
+            [r["statement"] for r in requirements] + draft["behavior_steps"] +
+            draft["acceptance_criteria"] + draft["deviations"] + draft["exclusions"])
+    for value in text:
+        _require(isinstance(value, str) and bool(value.strip()), "empty spec text")
+        _require(not re.search(
+            r"```|</?(?:source|code)|\b(?:MOVAPS|MOVUPS|PXOR|JBE|CMP|RDI|XMM\d+|param_\d+)\b|"
+            r"\b0x[0-9a-f]{6,}\b|\b[0-9a-f]{64}\b|\b(?:decompil|disassembl|review_state|unmapped|artifact|unknown|TODO|dossier|claim|probe|source)\w*\b|\bsrc/|"
+            r"\b(?:function|const|let|return|if)\s*\(|=>|[{};`]|"
+            r"(?:^|\s)[A-Za-z_]\w*(?:\[[^\]]+\])?\s*(?:\+=|-=|==|=)\s*\S|"
+            r"^\s*[A-Za-z_]\w*\s*:\s*(?:u?int\d+|boolean|number|string|bool)\b|\n",
+            value, re.I),
+            "spec contains source-like or report-card text")
+
+
+def _validate_examples(examples: list[dict]) -> None:
+    """Original test data may itself contain source; keep that out of the public artifact."""
+    def inspect(value) -> None:
+        if isinstance(value, str):
+            _require(len(value) <= 256 and not re.search(
+                r"```|/\*|\*/|//|\b(?:function|class|const|import|export)\s+\w+|"
+                r"\b(?:MOVAPS|MOVUPS|PXOR|JBE|CMP)\b|\b0x[0-9a-f]{6,}\b|"
+                r"\b(?:return|const|let|import|export)\s+\w+|=>|\{\s*\w+\s*[:=]|\n",
+                value, re.I), "original example contains source-like or oversized text")
+        elif isinstance(value, list):
+            for item in value:
+                inspect(item)
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                inspect(key)
+                inspect(item)
+        else:
+            _require(value is None or isinstance(value, (int, float, bool)),
+                     "invalid original example data")
+    for example in examples:
+        inspect(example)
+
+
+def generate_spec(dossier: dict, dossier_artifact: str, *, writer=None) -> tuple[dict, dict]:
+    handoff, audit = prepare_handoff(dossier, dossier_artifact)
+    result = (writer or _write_with_regular_engine)(handoff)
+    draft = result["draft"]
+    validate_draft(draft, handoff)
+    spec = {
+        "schema": 2, "kind": "native_subsystem_spec", "status": "ready_for_review",
+        "title": draft["title"], "purpose": draft["purpose"],
+        "boundary": handoff["boundary"], "interface": draft["interface"],
+        "requirements": [{"id": r["id"], "statement": r["statement"]}
+                         for r in draft["requirements"]],
+        "behavior_steps": draft["behavior_steps"],
+        "examples": handoff["original_examples"],
+        "acceptance_criteria": draft["acceptance_criteria"],
+        "deviations": draft["deviations"], "exclusions": draft["exclusions"],
+    }
+    _validate_examples(spec["examples"])
+    audit["requirement_sources"] = {r["id"]: r["claim_ids"] for r in draft["requirements"]}
+    audit["model"] = result.get("model")
+    return spec, audit
 
 
 def render_markdown(spec: dict) -> str:
-    lines = [f"# Native subsystem specification: {spec['title']}", "",
-             f"Status: **{spec['status']}**  ",
-             f"Dossier: `{spec['provenance']['dossier_artifact']}` revision "
-             f"{spec['provenance']['dossier_revision']}  ",
-             f"Binary SHA-256: `{spec['binary_sha256']}`", "",
-             "## Boundary", "",
-             f"Mode: {spec['boundary']['mode']}", "",
-             "Included functions:", ""]
-    for item in spec["boundary"]["included"]:
-        lines.append(f"- `{item['entry']}` {item['name']}")
-    for heading, key in (("Boundary contracts", "boundaries"),
-                         ("Exclusions", "exclusions"),
-                         ("Unresolved edges", "unresolved_edges"),
-                         ("Observables to investigate", "expected_observables_to_investigate")):
-        lines += ["", f"### {heading}", ""]
-        for item in spec["boundary"][key]:
-            lines.append(f"- {json.dumps(item, sort_keys=True) if isinstance(item, dict) else item}")
-    lines += ["", "## Evidence-backed requirements", "",
-              "Static support and original case agreement are separate. A case covers only its recorded input.", ""]
-    for req in spec["requirements"]:
-        lines.append(f"### {req['id']} · `{req['subject']}`")
-        lines += ["", req["statement"], "",
-                  f"Static review: {req['review_state']}; original execution: {req['execution_state']}.", "",
-                  "Evidence: " + ", ".join(
-                      f"`{ref['artifact']}@{ref['address']}`" for ref in req["evidence"]), ""]
-        for key, label in (("assumptions", "Assumption"), ("alternatives", "Alternative")):
-            for item in req[key]:
-                lines.append(f"- {label}: {json.dumps(item, sort_keys=True) if isinstance(item, dict) else item}")
-        for link in req["probe_links"]:
-            lines.append(f"- Original case `{link['case_id']}`: "
-                         f"{'agreement' if link['agreement'] else 'disagreement'}; "
-                         f"observed `{json.dumps(link['observed'], sort_keys=True)}` "
-                         f"at `{link['observed_pointer']}`.")
+    lines = [f"# {spec['title']}", "", spec["purpose"], "", "## Interface", ""]
+    for key in ("inputs", "outputs", "state"):
+        lines.extend([f"### {key.title()}", ""])
+        lines.extend(f"- {item}" for item in spec["interface"][key])
         lines.append("")
-    lines += ["## Function notes and draft pseudocode", "",
-              "These descriptions come from semantic drafts; read supported requirements and open issues before implementing.", ""]
-    for function in spec["function_descriptions"]:
-        lines += [f"### {function['name']} (`{function['entry']}`)", ""]
-        for key in ("inputs", "outputs", "state", "side_effects", "errors"):
-            lines.append(f"- {key.replace('_', ' ').title()}: {function[key]}")
-        lines += ["", "```text", function["draft_pseudocode"], "```", ""]
-        for item in function["unknowns"]:
-            lines.append(f"- Unknown: {item}")
-        for item in function["evidence_requests"]:
-            lines.append(f"- Evidence requested: {item}")
+    for title, key in (("Requirements", "requirements"),
+                       ("Behavior outline", "behavior_steps"),
+                       ("Acceptance criteria", "acceptance_criteria"),
+                       ("Allowed deviations", "deviations"),
+                       ("Excluded behavior", "exclusions")):
+        lines.extend([f"## {title}", ""])
+        lines.extend(f"- {item['id']}: {item['statement']}" if key == "requirements"
+                     else f"- {item}" for item in spec[key])
         lines.append("")
-    for heading, key in (("Dependency contracts", "dependency_contracts"),
-                         ("Original cases", "original_cases"),
-                         ("Claims withheld from requirements", "unresolved_claims"),
-                         ("Independent review gaps", "review_gaps"),
-                         ("Open blockers", "blockers")):
-        lines += [f"## {heading}", ""]
-        for item in spec[key]:
-            lines.append(f"- {json.dumps(item, sort_keys=True)}")
-        lines.append("")
-    lines += ["## Coverage inventory", "", "```json",
-              json.dumps(spec["coverage"], sort_keys=True, indent=2), "```", ""]
-    return "\n".join(lines)
+    lines.extend(["## Original behavior examples", ""])
+    for case in spec["examples"]:
+        context = case.get("input_description") or (
+            "Original executable arguments" if case.get("observation_kind") == "executable"
+            else "Original shared call input")
+        lines.append(f"- {case['name']} ({context}): input {json.dumps(case['input'], sort_keys=True)}; "
+                     f"expected output {json.dumps(case['expected_output'], sort_keys=True)}")
+    return "\n".join(lines) + "\n"
 
 
-def persist_spec(state: Path, dossier_artifact: str) -> dict:
+def persist_spec(state: Path, dossier_artifact: str, *, writer=None) -> dict:
     state = Path(state)
     store = LocalArtifactStore(state / "artifacts")
     dossier = json.loads(store.get(dossier_artifact))
-    spec = generate_spec(dossier, dossier_artifact)
-    folder = state / "specifications" / spec["scope_id"]
+    handoff, _ = prepare_handoff(dossier, dossier_artifact)
+    folder = state / "specifications" / dossier["scope_id"]
     folder.mkdir(parents=True, exist_ok=True)
-    artifact = store.put(canonical(spec))
-    markdown = render_markdown(spec)
-    markdown_artifact = store.put(markdown.encode())
-    pointer = {"artifact": artifact, "markdown_artifact": markdown_artifact,
-               "dossier_artifact": dossier_artifact, "status": spec["status"]}
-    pointer_path = folder / (f"dossier-{dossier_artifact}-generator-"
-                             f"{spec['provenance']['generator_sha256']}.json")
+    writer_hash = writer_revision()
+    pointer_path = folder / f"dossier-{dossier_artifact}-writer-{writer_hash}.json"
     if pointer_path.exists():
-        _require(json.loads(pointer_path.read_text()) == pointer,
-                 "specification pointer conflicts with immutable dossier revision")
+        pointer = json.loads(pointer_path.read_text())
+        store.get(pointer["artifact"])
+        store.get(pointer["audit_artifact"])
     else:
+        spec, audit = generate_spec(dossier, dossier_artifact, writer=writer)
+        artifact = store.put(canonical(spec))
+        audit["spec_artifact"] = artifact
+        audit["handoff_sha256"] = hashlib.sha256(canonical(handoff)).hexdigest()
+        audit_artifact = store.put(canonical(audit))
+        pointer = {"artifact": artifact, "audit_artifact": audit_artifact,
+                   "dossier_artifact": dossier_artifact, "status": spec["status"],
+                   "dossier_revision": dossier["revision"]}
         pointer_path.write_text(json.dumps(pointer, sort_keys=True) + "\n")
-    markdown_path = folder / f"spec-{artifact}.md"
+    spec = json.loads(store.get(pointer["artifact"]))
+    markdown = render_markdown(spec)
+    markdown_path = folder / f"spec-{pointer['artifact']}.md"
     if not markdown_path.exists():
         markdown_path.write_text(markdown)
     latest = folder / "latest.json"
-    latest_revision = -1
-    if latest.exists():
-        latest_pointer = json.loads(latest.read_text())
-        latest_spec = json.loads(store.get(latest_pointer["artifact"]))
-        latest_revision = latest_spec["provenance"]["dossier_revision"]
-    if latest_revision <= spec["provenance"]["dossier_revision"]:
+    previous = json.loads(latest.read_text()) if latest.exists() else None
+    if previous is None or previous["dossier_revision"] <= dossier["revision"]:
         temporary = folder / "latest.tmp"
         temporary.write_text(json.dumps(pointer, sort_keys=True) + "\n")
         os.replace(temporary, latest)
         (folder / "latest.md").write_text(markdown)
     return {**pointer, "json_path": str(pointer_path),
             "markdown_path": str(markdown_path),
-            "requirements": len(spec["requirements"]),
-            "blockers": spec["blockers"]}
+            "requirements": len(spec["requirements"])}

@@ -15,6 +15,9 @@ from pathlib import Path
 
 from model_config import available_roles, get_model, resolved_table
 from engine.analysis.ghidra import GhidraAnalysis
+from engine.intake import analyze_project
+from engine.project_export import export_project
+from engine.project_scope import persist_project_scope
 from engine.models import ScopeRequest
 from engine.scope import persist_scope
 from engine.worker import SemanticWorker
@@ -207,12 +210,53 @@ def main() -> None:
     analyze.add_argument("--state", type=Path, default=ENGINE_STATE)
     analyze.add_argument("--headless", type=Path,
                          default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+    project_analyze = sub.add_parser("project-analyze", help="import and index a native module set")
+    project_analyze.add_argument("--request", type=Path, required=True)
+    project_analyze.add_argument("--state", type=Path, default=ENGINE_STATE)
+    project_analyze.add_argument("--headless", type=Path,
+                                 default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+    project_export = sub.add_parser("project-export-all", help="export every indexed project function")
+    project_export.add_argument("--project-artifact", required=True)
+    project_export.add_argument("--state", type=Path, default=ENGINE_STATE)
+    project_export.add_argument("--headless", type=Path,
+                                default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+    project_scope = sub.add_parser("project-scope", help="discover bounded work across native modules")
+    project_scope.add_argument("--project-artifact", required=True)
+    project_scope.add_argument("--request", type=Path, required=True)
+    project_scope.add_argument("--state", type=Path, default=ENGINE_STATE)
+    for name, help_text in (
+        ("project-queue-init", "register and enqueue every module in a project scope"),
+        ("project-queue-status", "show durable progress across project scope modules"),
+        ("project-queue-drain", "run leased semantic tasks across project modules"),
+    ):
+        command = sub.add_parser(name, help=help_text)
+        command.add_argument("--project-scope-artifact", required=True)
+        command.add_argument("--state", type=Path, default=ENGINE_STATE)
+        command.add_argument("--dsn", default=os.environ.get("DECOMP_DATABASE_URL"))
+        if name == "project-queue-drain":
+            command.add_argument("--workers", type=int, default=4)
+            command.add_argument("--max-tasks", type=int)
+            command.add_argument("--worker-prefix", default="decomp-project-worker")
+            command.add_argument("--lease-seconds", type=int, default=60)
+            command.add_argument("--timeout", type=int, default=180)
+            command.add_argument("--model-role", default="decomp_worker")
+            command.add_argument("--model")
+            command.add_argument("--opencode", type=Path,
+                                 default=Path(os.environ.get(
+                                     "OPENCODE_BIN", "/home/mitch/.opencode/bin/opencode")))
     function = sub.add_parser("function", help="export one indexed function's decompiler evidence")
     function.add_argument("--manifest", type=Path, required=True)
     function.add_argument("--address", required=True)
     function.add_argument("--state", type=Path, default=ENGINE_STATE)
     function.add_argument("--headless", type=Path,
                           default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+    gap = sub.add_parser("gap", help="export raw evidence for a bounded executable range")
+    gap.add_argument("--manifest", type=Path, required=True)
+    gap.add_argument("--start", required=True)
+    gap.add_argument("--end", required=True)
+    gap.add_argument("--state", type=Path, default=ENGINE_STATE)
+    gap.add_argument("--headless", type=Path,
+                     default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
     export_all = sub.add_parser("export-all", help="decompile every indexed function and report coverage")
     export_all.add_argument("--manifest", type=Path, required=True)
     export_all.add_argument("--state", type=Path, default=ENGINE_STATE)
@@ -403,12 +447,96 @@ def main() -> None:
         engine = GhidraAnalysis(args.state, check_headless(args.headless))
         manifest = engine.analyze(args.binary)
         print(json.dumps(manifest, indent=2))
+    elif args.command == "project-analyze":
+        engine = GhidraAnalysis(args.state, args.headless)
+        print(json.dumps(analyze_project(engine, args.request), indent=2))
+    elif args.command == "project-export-all":
+        engine = GhidraAnalysis(args.state, args.headless)
+        print(json.dumps(export_project(engine, args.project_artifact), indent=2))
+    elif args.command == "project-scope":
+        engine = GhidraAnalysis(args.state, Path(os.environ.get(
+            "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+        print(json.dumps(persist_project_scope(
+            engine, args.project_artifact, json.loads(args.request.read_text())), indent=2))
+    elif args.command in {"project-queue-init", "project-queue-status",
+                          "project-queue-drain"}:
+        from engine.artifacts import LocalArtifactStore
+        from engine.project_queue import (enqueue_project_scope, project_manifests,
+                                          project_queue_status)
+        from engine.queue import DurableQueue
+
+        if not args.dsn:
+            parser.error("project queue commands require --dsn or DECOMP_DATABASE_URL")
+        queue = DurableQueue(args.dsn, LocalArtifactStore(args.state / "artifacts"))
+        if args.command == "project-queue-drain":
+            from engine.queue_runner import run_one as run_queued_one
+
+            if not 1 <= args.workers <= 32 or (args.max_tasks is not None and
+                                                 args.max_tasks < 1):
+                parser.error("project-queue-drain needs 1..32 workers and positive max-tasks")
+            if args.lease_seconds < 1:
+                parser.error("project-queue-drain needs a positive lease")
+            modules = project_manifests(queue, args.project_scope_artifact, args.state)
+            engine = GhidraAnalysis(args.state, Path(os.environ.get(
+                "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+            exports = {module["module_id"]: engine.export_all(manifest)["counts"]
+                       for module, manifest in modules}
+            lock = threading.Lock()
+            reserved = 0
+
+            def project_worker(number: int) -> list[dict]:
+                nonlocal reserved
+                semantic = SemanticWorker(engine, args.opencode, timeout=args.timeout)
+                completed = []
+                turn = 0
+                while True:
+                    with lock:
+                        if args.max_tasks is not None and reserved >= args.max_tasks:
+                            return completed
+                        reserved += 1
+                    selected = None
+                    for offset in range(len(modules)):
+                        module, manifest = modules[(number + turn + offset) % len(modules)]
+                        outcome = run_queued_one(
+                            queue, semantic, manifest, f"{args.worker_prefix}-{number}",
+                            lease_seconds=args.lease_seconds,
+                            model=args.model, model_role=args.model_role,
+                            allowed_keys=module["task_keys"])
+                        if outcome["state"] != "idle":
+                            selected = {"module_id": module["module_id"], **outcome}
+                            break
+                    if selected is None:
+                        with lock:
+                            reserved -= 1
+                        return completed
+                    completed.append(selected)
+                    turn += 1
+                    print(json.dumps({"project_queue_progress": selected}), flush=True)
+
+            with ThreadPoolExecutor(max_workers=args.workers) as executor:
+                futures = [executor.submit(project_worker, i) for i in range(args.workers)]
+                completed = [item for future in futures for item in future.result()]
+            result = {"workers": args.workers, "completed_attempts": len(completed),
+                      "outcomes": {state: sum(item["state"] == state for item in completed)
+                                   for state in sorted({item["state"] for item in completed})},
+                      "exported_functions": exports,
+                      "project_queue": project_queue_status(
+                          queue, args.project_scope_artifact)}
+            print(json.dumps(result, indent=2))
+        else:
+            action = (enqueue_project_scope if args.command == "project-queue-init"
+                      else project_queue_status)
+            print(json.dumps(action(queue, args.project_scope_artifact), indent=2))
     elif args.command == "function":
         if not args.manifest.is_file():
             raise FileNotFoundError(f"Manifest file not found: '{args.manifest}'")
         engine = GhidraAnalysis(args.state, check_headless(args.headless))
         manifest = json.loads(args.manifest.read_text())
         print(json.dumps(engine.function(manifest, args.address), indent=2))
+    elif args.command == "gap":
+        engine = GhidraAnalysis(args.state, args.headless)
+        manifest = json.loads(args.manifest.read_text())
+        print(json.dumps(engine.executable_range(manifest, args.start, args.end), indent=2))
     elif args.command == "export-all":
         if not args.manifest.is_file():
             raise FileNotFoundError(f"Manifest file not found: '{args.manifest}'")
@@ -479,7 +607,10 @@ def main() -> None:
                           "coverage": result["coverage"],
                           "blockers": result["blockers"]}, indent=2))
     elif args.command == "spec":
-        print(json.dumps(persist_spec(args.state, args.dossier_artifact), indent=2))
+        try:
+            print(json.dumps(persist_spec(args.state, args.dossier_artifact), indent=2))
+        except ValueError as error:
+            parser.error(str(error))
     elif args.command.startswith("queue-"):
         from engine.artifacts import LocalArtifactStore
         from engine.queue import DurableQueue
@@ -724,14 +855,12 @@ def main() -> None:
     elif args.command == "status":
         events_path = args.state / "progress.jsonl"
         events = [json.loads(line) for line in events_path.read_text().splitlines()] if events_path.exists() else []
-        if args.campaign:
-            events = [event for event in events if event["campaign"] == args.campaign]
         campaigns = {}
         for event in events:
             item = campaigns.setdefault(event["campaign"],
                                         {"last_stage": None, "function_exports": 0,
                                          "function_failures": 0, "_exported": set(),
-                                         "_failed": set(), "_semantic": {},
+                                         "_failed": set(), "_gaps": {}, "_semantic": {},
                                          "_scopes": {}, "_reviews": {}, "_probes": {},
                                          "_baseline": {"import_attempts": 0,
                                                        "imports_finished": 0,
@@ -754,7 +883,71 @@ def main() -> None:
             item["last_stage"] = event["stage"]
             baseline = item["_baseline"]
             analysis = item["_analysis"]
-            if event["stage"] == "import_started":
+            if event["stage"] == "project_intake_started":
+                item["project"] = {"state": "running", "module_count": event["modules"],
+                                   "modules": {}}
+            elif event["stage"] in {"project_module_started", "project_module_finished",
+                                     "project_module_failed"}:
+                project = item.setdefault("project", {"state": "running", "modules": {}})
+                project["modules"][event["module_id"]] = {
+                    "state": event["stage"].removeprefix("project_module_")}
+                if event["stage"] == "project_module_finished":
+                    project["modules"][event["module_id"]].update(
+                        {"campaign": event["module_campaign"],
+                         "functions": event["functions"]})
+                elif event["stage"] == "project_module_failed":
+                    project["modules"][event["module_id"]]["error"] = event["error"]
+                    project["state"] = "failed"
+            elif event["stage"] == "project_intake_finished":
+                project = item.setdefault("project", {"modules": {}})
+                project.update({"state": "finished", "artifact": event["artifact"],
+                                "module_count": event["modules"],
+                                "unresolved_dependencies": event["unresolved_dependencies"]})
+            elif event["stage"] == "project_links_indexed":
+                item.setdefault("project", {"modules": {}})["symbol_links"] = {
+                    "artifact": event["artifact"], "counts": event["counts"]}
+            elif event["stage"] == "project_intake_failed":
+                project = item.setdefault("project", {"modules": {}})
+                project.update({"state": "failed", "error": event["error"]})
+            elif event["stage"] == "project_cache_hit":
+                item.setdefault("project", {"modules": {}})["artifact"] = event["artifact"]
+            elif event["stage"] == "project_export_started":
+                item.setdefault("project", {"modules": {}})["export"] = {
+                    "state": "running", "module_count": event["modules"], "modules": {}}
+            elif event["stage"] in {"project_export_module_started",
+                                     "project_export_module_finished",
+                                     "project_export_module_failed"}:
+                export = item.setdefault("project", {"modules": {}}).setdefault(
+                    "export", {"state": "running", "modules": {}})
+                module = {"state": event["stage"].removeprefix("project_export_module_")}
+                if event["stage"] == "project_export_module_finished":
+                    module.update({"artifact": event["artifact"], "counts": event["counts"],
+                                   "complete_discovered_exports": event["complete"]})
+                elif event["stage"] == "project_export_module_failed":
+                    module["error"] = event["error"]
+                export["modules"][event["module_id"]] = module
+            elif event["stage"] == "project_export_finished":
+                item.setdefault("project", {"modules": {}}).setdefault(
+                    "export", {"modules": {}}).update({
+                    "state": "finished", "artifact": event["artifact"],
+                    "counts": event["counts"],
+                    "complete_discovered_exports": event["complete"],
+                    "unassigned_instructions": event["unassigned_instructions"],
+                    "unclassified_executable_bytes": event.get(
+                        "unclassified_executable_bytes"),
+                    "unreported_functions": event.get("unreported_functions")})
+            elif event["stage"] == "project_export_failed":
+                item.setdefault("project", {"modules": {}}).setdefault(
+                    "export", {"modules": {}}).update(
+                        {"state": "failed", "error": event["error"]})
+            elif event["stage"] == "project_scope_revised":
+                item.setdefault("project", {"modules": {}}).setdefault("scopes", {})[
+                    event["scope_id"]] = {"revision": event["revision"],
+                                          "artifact": event["artifact"],
+                                          "modules": event["modules"],
+                                          "included": event["included"],
+                                          "unresolved": event["unresolved"]}
+            elif event["stage"] == "import_started":
                 baseline["import_attempts"] += 1
             elif event["stage"] == "import_finished":
                 baseline["imports_finished"] += 1
@@ -786,6 +979,10 @@ def main() -> None:
                         item.get("unattributed_function_failures", 0) + 1)
             elif event["stage"] == "function_cache_hit":
                 analysis["cache_hits"] += 1
+            elif event["stage"] == "gap_exported":
+                item["_gaps"][event["start"] + ":" + event["end"]] = {
+                    "artifact": event["artifact"],
+                    "classifications": event["classifications"]}
             elif event["stage"] in {"warm_worker_started", "warm_worker_ready",
                                      "warm_worker_stopped"}:
                 field = {"warm_worker_started": "worker_starts",
@@ -817,7 +1014,7 @@ def main() -> None:
                 item["_reviews"][event["review_id"]] = {"state": "running"}
             elif event["stage"] == "review_finished":
                 item["_reviews"][event["review_id"]] = {
-                    "state": event["status"], "outcomes": event["outcomes"]}
+                    "state": event["status"], "outcomes": event.get("outcomes", {})}
             elif event["stage"] == "probe_started":
                 if "probe_key" in event:
                     item["_probes"].pop(event["case_id"], None)
@@ -833,6 +1030,7 @@ def main() -> None:
         for item in campaigns.values():
             item["function_exports"] = len(item.pop("_exported"))
             item["function_failures"] = len(item.pop("_failed"))
+            item["gap_ranges"] = item.pop("_gaps")
             item["analysis_baseline"] = item.pop("_baseline")
             item["analysis_pool"] = item.pop("_analysis")
             states = list(item.pop("_semantic").values())
@@ -847,6 +1045,23 @@ def main() -> None:
             item["probe_cases"] = len(probes)
             item["probe_outcomes"] = {outcome: probes.count(outcome)
                                       for outcome in sorted(set(probes))}
+        for item in campaigns.values():
+            for module in item.get("project", {}).get("modules", {}).values():
+                source = campaigns.get(module.get("campaign"))
+                if source is None:
+                    continue
+                module["analysis"] = {
+                    "function_count": source.get("function_count"),
+                    "function_exports": source["function_exports"],
+                    "function_failures": source["function_failures"],
+                    "static_inventory": source.get("static_inventory"),
+                    "export_complete": source.get("complete"),
+                    "scope_count": len(source["scopes"]),
+                    "dossier_readiness": {key: value["readiness"] for key, value in
+                                          source.get("dossiers", {}).items()},
+                }
+        if args.campaign:
+            campaigns = {args.campaign: campaigns[args.campaign]} if args.campaign in campaigns else {}
         print(json.dumps(campaigns, indent=2))
     elif args.command == "build":
         check_container_guard("build")
