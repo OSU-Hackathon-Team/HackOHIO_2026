@@ -8,9 +8,15 @@ import statistics
 from datetime import timedelta
 import uuid
 
-import psycopg
-from psycopg.rows import dict_row
-from psycopg.types.json import Jsonb
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+    from psycopg.types.json import Jsonb
+except ImportError:
+    psycopg = None
+    dict_row = None
+    Jsonb = None
+
 
 from engine.artifacts import LocalArtifactStore
 from engine.worker import (normalize_answer_citations, normalize_answer_text_items,
@@ -27,6 +33,12 @@ class DurableQueue:
         self.store = store
 
     def _connect(self):
+        if psycopg is None:
+            raise RuntimeError(
+                "PostgreSQL driver 'psycopg' is not installed. "
+                "Install via 'pip install -r requirements-decomp.txt' or 'pip install psycopg[binary]' "
+                "to use durable queue commands."
+            )
         return psycopg.connect(self.dsn, row_factory=dict_row)
 
     def migrate(self) -> None:
