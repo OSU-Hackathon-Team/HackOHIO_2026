@@ -26,7 +26,11 @@ def main() -> None:
         manifest = {"campaign": campaign, "binary_sha256": binary}
         scope = {"campaign": campaign, "scope_id": "a" * 64, "revision": 2,
                  "included": [{"entry": "00100000", "name": "count"}],
-                 "unresolved": [{"kind": "indirect_call", "site": "00100003"}],
+                 "unresolved": [{"kind": "indirect_call", "site": "00100003"},
+                                {"kind": "unassigned_executable_instructions",
+                                 "instructions": 2, "instruction_bytes": 10,
+                                 "regions": [{"start": "00100020", "end": "00100029",
+                                              "instructions": 2, "instruction_bytes": 10}]}],
                  "request": {"query": "counter", "mode": "subsystem",
                              "seeds": ["count"],
                              "expected_observables": ["counter changes"]},
@@ -82,6 +86,8 @@ def main() -> None:
         assert [c["statement"] for c in spec["unresolved_claims"]] == ["never overflows"]
         assert any(b["kind"] == "independent_review_gaps" for b in spec["blockers"])
         assert spec["boundary"]["expected_observables_to_investigate"] == ["counter changes"]
+        assert any(edge["kind"] == "unassigned_executable_instructions"
+                   for edge in spec["boundary"]["unresolved_edges"])
         assert spec["provenance"]["analysis"]["reviews"][0]["model"] == "independent-reviewer"
         ambiguous = {**dossier, "draft_artifacts": [draft_artifact, "f" * 64],
                      "functions": [*dossier["functions"],
@@ -105,6 +111,13 @@ def main() -> None:
             pass
         else:
             raise AssertionError("unsupported dossier schema accepted")
+        try:
+            generate_spec({key: value for key, value in dossier.items()
+                           if key != "independent_review_gaps"}, dossier_artifact)
+        except ValueError as error:
+            assert "independent_review_gaps" in str(error)
+        else:
+            raise AssertionError("legacy dossier with missing review gaps accepted")
         print(json.dumps({"status": spec["status"], "requirements": 1,
                           "withheld_claims": 1, "artifact": first["artifact"]}))
 

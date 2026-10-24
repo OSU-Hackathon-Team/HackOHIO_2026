@@ -651,14 +651,76 @@ def main() -> None:
                                         {"last_stage": None, "function_exports": 0,
                                          "function_failures": 0, "_exported": set(),
                                          "_failed": set(), "_semantic": {},
-                                         "_scopes": {}, "_reviews": {}, "_probes": {}})
+                                         "_scopes": {}, "_reviews": {}, "_probes": {},
+                                         "_baseline": {"import_attempts": 0,
+                                                       "imports_finished": 0,
+                                                       "import_failures": 0,
+                                                       "recovery_imports": 0,
+                                                       "import_seconds": 0.0,
+                                                       "index_attempts": 0,
+                                                       "indexes_finished": 0,
+                                                       "index_failures": 0,
+                                                       "index_seconds": 0.0,
+                                                       "cache_hits": 0},
+                                         "_analysis": {"worker_starts": 0, "worker_ready": 0,
+                                                       "worker_stops": 0, "requests_started": 0,
+                                                       "requests_finished": 0,
+                                                       "request_failures": 0,
+                                                       "pool_timeouts": 0,
+                                                       "cache_hits": 0,
+                                                       "wait_seconds": 0.0,
+                                                       "run_seconds": 0.0}})
             item["last_stage"] = event["stage"]
-            if event["stage"] == "indexed":
+            baseline = item["_baseline"]
+            analysis = item["_analysis"]
+            if event["stage"] == "import_started":
+                baseline["import_attempts"] += 1
+            elif event["stage"] == "import_finished":
+                baseline["imports_finished"] += 1
+                baseline["import_seconds"] += event.get("elapsed_seconds", 0)
+            elif event["stage"] == "import_failed":
+                baseline["import_failures"] += 1
+            elif event["stage"] == "import_recovery":
+                baseline["recovery_imports"] += 1
+            elif event["stage"] == "index_started":
+                baseline["index_attempts"] += 1
+            elif event["stage"] == "index_finished":
+                baseline["indexes_finished"] += 1
+                baseline["index_seconds"] += event.get("elapsed_seconds", 0)
+            elif event["stage"] == "index_failed":
+                baseline["index_failures"] += 1
+            elif event["stage"] == "cache_hit":
+                baseline["cache_hits"] += 1
+            elif event["stage"] == "indexed":
                 item["function_count"] = event["functions"]
+                if "static_inventory" in event:
+                    item["static_inventory"] = event["static_inventory"]
             elif event["stage"] == "function_exported":
                 item["_exported"].add(event["address"])
             elif event["stage"] == "function_failed":
-                item["_failed"].add(event["address"])
+                if "address" in event:
+                    item["_failed"].add(event["address"])
+                else:
+                    item["unattributed_function_failures"] = (
+                        item.get("unattributed_function_failures", 0) + 1)
+            elif event["stage"] == "function_cache_hit":
+                analysis["cache_hits"] += 1
+            elif event["stage"] in {"warm_worker_started", "warm_worker_ready",
+                                     "warm_worker_stopped"}:
+                field = {"warm_worker_started": "worker_starts",
+                         "warm_worker_ready": "worker_ready",
+                         "warm_worker_stopped": "worker_stops"}[event["stage"]]
+                analysis[field] += 1
+            elif event["stage"] == "warm_function_started":
+                analysis["requests_started"] += 1
+                analysis["wait_seconds"] += event.get("wait_seconds", 0)
+            elif event["stage"] == "warm_function_finished":
+                analysis["requests_finished"] += 1
+                analysis["run_seconds"] += event.get("elapsed_seconds", 0)
+            elif event["stage"] == "warm_function_failed":
+                analysis["request_failures"] += 1
+            elif event["stage"] == "warm_pool_timeout":
+                analysis["pool_timeouts"] += 1
             elif event["stage"] == "export_finished":
                 item["coverage"] = event["counts"]
                 item["complete"] = event["complete"]
@@ -690,6 +752,8 @@ def main() -> None:
         for item in campaigns.values():
             item["function_exports"] = len(item.pop("_exported"))
             item["function_failures"] = len(item.pop("_failed"))
+            item["analysis_baseline"] = item.pop("_baseline")
+            item["analysis_pool"] = item.pop("_analysis")
             states = list(item.pop("_semantic").values())
             item["semantic_attempts"] = len(states)
             item["semantic_states"] = {state: states.count(state) for state in sorted(set(states))}

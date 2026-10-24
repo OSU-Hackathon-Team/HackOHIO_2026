@@ -6,16 +6,16 @@ Architecture and decision rationale: [DecompPileline.md](DecompPileline.md).
 
 ## Current execution boundary
 
-**Stop before specification generation.** This instruction governs the current work even
-if the pre-specification acceptance gates pass. Completing a dossier or reaching
-`ready_for_spec` does not authorize starting the next phase.
+**Stop before specification generation as a campaign phase.** Completing a dossier or
+reaching `ready_for_spec` does not authorize advancing a live campaign into M5.
 
 Work exclusively on the native pre-specification pipeline: intake, analysis, scope,
 semantic work, independent review, original-execution probes, findings, reconciliation,
-dossiers, queue reliability, progress visibility, and their acceptance gates. Do not start
-or continue M5 specification generation, the dossier-to-spec handoff, or downstream API
-integration. Existing M5 draft code is outside the current work and does not change this
-boundary. Those phases require a new explicit user instruction to resume.
+dossiers, queue reliability, progress visibility, and their acceptance gates. Verify that
+these outputs remain compatible with the existing spec generator through temporary
+handoff checks. Do not publish campaign specifications, extend M5 generation or API work,
+or proceed to downstream implementation. Those phases require a new explicit user
+instruction to resume.
 
 ## Required outcome
 
@@ -44,7 +44,7 @@ engine/
   models.py             # internal records and validation (implemented)
   intake.py             # campaign intake (planned)
   artifacts.py          # immutable local artifacts (implemented)
-  analysis/             # Ghidra import and evidence export (implemented); warm pool (planned)
+  analysis/             # Ghidra evidence and local warm pool (implemented; M1 gate open)
   scope.py              # seed discovery and bounded expansion (implemented)
   queue.py              # leases, retries, fencing, deduplication (implemented)
   worker.py             # bounded semantic analysis and checkpoints (implemented)
@@ -110,6 +110,8 @@ Deliverables:
 
 - Campaign/module identity and configuration-aware import cache.
 - Function/string/import/reference index and scoped decompilation requests.
+- Executable-region and unassigned-instruction inventory, so discovered-function export
+  coverage does not conceal decoded instructions outside known function bodies.
 - Immutable evidence exports with native address mappings and explicit omission/error records.
 - Warm analysis service with bounded concurrency, per-operation timeouts, and restart handling.
 - Narrow engine-owned read interfaces: inspect function, references, data/types, and evidence.
@@ -141,6 +143,8 @@ Acceptance:
 - A worker explains one subsystem's inputs, outputs, state, errors, and relevant dependencies.
 - A shared helper's contract can terminate expansion without analyzing its entire implementation.
 - Unresolved indirect dispatch appears as a potential blocker, not a fabricated target.
+- Project-wide scopes retain decoded executable instructions outside discovered functions as
+  unresolved regions until their role is established.
 - Relevant persistence/timing effects survive extraction.
 - Exhausted budgets return partial findings with a concrete unresolved question.
 

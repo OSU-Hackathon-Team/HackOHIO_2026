@@ -68,6 +68,13 @@ def discover(index: dict, request: ScopeRequest, campaign: str, index_artifact: 
 
     seed_results = []
     unresolved = []
+    if request.mode == "project" and index.get("unassigned_instruction_regions"):
+        unresolved.append({
+            "kind": "unassigned_executable_instructions",
+            "instructions": index["static_inventory"]["unassigned_instructions"],
+            "instruction_bytes": index["static_inventory"]["unassigned_instruction_bytes"],
+            "regions": index["unassigned_instruction_regions"],
+        })
     frontier = []
     sequence = 0
 

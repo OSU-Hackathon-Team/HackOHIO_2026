@@ -85,7 +85,16 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   original cases. It remains partial because 26 claims have no original probe link.
   The reset helper used a narrow deterministic fixed-store reviewer after model
   reviewers misread its overlapping vector stores. Probe runs and distinct cases
-  are counted separately. The native spec generator and backend endpoint now consume
+  are counted separately. Targeted Ghidra exports now use bounded warm contexts with
+  restart events and status counts. Function evidence separates listing types from
+  decompiler-inferred parameters and records referenced data; both semantic and review
+  prompts receive that context. A real dossier passes an in-memory compatibility check
+  against the existing generator. The function index now counts executable regions and
+  decoded instructions outside discovered functions, exposing a gap that `export-all`
+  success alone cannot rule out. Scale and recovery gates remain open. Current work
+  stops before advancing a live campaign into specification generation as directed in
+  `DECOMP_IMPLEMENTATION_PLAN.md`.
+  The native spec generator and backend endpoint now consume
   dossier revisions; specification quality and downstream implementation gates remain
   open. See the root
   `README.md` for commands.

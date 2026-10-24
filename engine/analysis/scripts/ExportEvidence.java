@@ -1,5 +1,5 @@
 // Export a Ghidra program index or a selected function as JSON.
-// Arguments: output-path index | output-path function address
+// Arguments: output-path index | output-path function address | directory all | directory serve
 import com.google.gson.Gson;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
@@ -11,6 +11,12 @@ import ghidra.program.model.listing.Data;
 import ghidra.program.model.listing.DataIterator;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.InstructionIterator;
+import ghidra.program.model.listing.Parameter;
+import ghidra.program.model.listing.Variable;
+import ghidra.program.model.mem.MemoryBlock;
+import ghidra.program.model.pcode.FunctionPrototype;
+import ghidra.program.model.pcode.HighFunction;
+import ghidra.program.model.pcode.HighSymbol;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.Symbol;
 
@@ -19,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,7 +53,53 @@ public class ExportEvidence extends GhidraScript {
                       "thunk_target", target == null ? null : addr(target.getEntryPoint()),
                       "body_min", addr(function.getBody().getMinAddress()),
                       "body_max", addr(function.getBody().getMaxAddress()),
-                      "signature", function.getSignature().getPrototypeString());
+                      "signature", function.getSignature().getPrototypeString(),
+                      "signature_source", function.getSignatureSource().toString(),
+                      "calling_convention", function.getCallingConventionName(),
+                      "varargs", function.hasVarArgs(),
+                      "noreturn", function.hasNoReturn());
+    }
+
+    private Map<String, Object> describeVariable(Variable variable) {
+        return record("name", variable.getName(),
+                      "type", variable.getDataType() == null ? null :
+                          variable.getDataType().getDisplayName(),
+                      "length", variable.getLength(),
+                      "storage", variable.getVariableStorage() == null ? null :
+                          variable.getVariableStorage().toString(),
+                      "source", variable.getSource().toString());
+    }
+
+    private Map<String, Object> describeHighSymbol(HighSymbol symbol) {
+        return record("name", symbol.getName(),
+                      "type", symbol.getDataType() == null ? null :
+                          symbol.getDataType().getDisplayName(),
+                      "size", symbol.getSize(),
+                      "storage", symbol.getStorage() == null ? null :
+                          symbol.getStorage().toString(),
+                      "type_locked", symbol.isTypeLocked(),
+                      "name_locked", symbol.isNameLocked(),
+                      "hidden_return", symbol.isHiddenReturn());
+    }
+
+    private Map<String, Object> describeData(Address target) {
+        Data data = currentProgram.getListing().getDefinedDataContaining(target);
+        if (data == null) {
+            return record("target", addr(target), "status", "undefined");
+        }
+        Map<String, Object> description = record("target", addr(target), "status", "defined",
+                "defined_at", addr(data.getAddress()),
+                "type", data.getDataType().getDisplayName(), "length", data.getLength());
+        try {
+            String value = data.getDefaultValueRepresentation();
+            if (value != null) {
+                description.put("value_preview", value.substring(0, Math.min(value.length(), 256)));
+                description.put("value_truncated", value.length() > 256);
+            }
+        } catch (Exception error) {
+            description.put("value_error", error.toString());
+        }
+        return description;
     }
 
     private void runIndex(Map<String, Object> output) throws Exception {
@@ -100,6 +153,58 @@ public class ExportEvidence extends GhidraScript {
                 strings.add(record("address", addr(item.getAddress()), "value", value));
             }
         }
+        List<Map<String, Object>> executableRegions = new ArrayList<>();
+        long executableBytes = 0;
+        for (MemoryBlock block : currentProgram.getMemory().getBlocks()) {
+            if (block.isExecute()) {
+                executableRegions.add(record("name", block.getName(),
+                        "start", addr(block.getStart()), "end", addr(block.getEnd()),
+                        "size", block.getSize(), "initialized", block.isInitialized()));
+                executableBytes += block.getSize();
+            }
+        }
+        List<Map<String, Object>> unassignedRegions = new ArrayList<>();
+        long assignedInstructionBytes = 0;
+        long unassignedInstructionBytes = 0;
+        int assignedInstructions = 0;
+        int unassignedInstructions = 0;
+        Address runStart = null;
+        Address runEnd = null;
+        int runCount = 0;
+        long runBytes = 0;
+        InstructionIterator allInstructions = currentProgram.getListing().getInstructions(true);
+        while (allInstructions.hasNext()) {
+            monitor.checkCancelled();
+            Instruction instruction = allInstructions.next();
+            MemoryBlock block = currentProgram.getMemory().getBlock(instruction.getAddress());
+            if (block == null || !block.isExecute()) {
+                continue;
+            }
+            if (currentProgram.getFunctionManager().getFunctionContaining(instruction.getAddress()) != null) {
+                assignedInstructions++;
+                assignedInstructionBytes += instruction.getLength();
+                continue;
+            }
+            unassignedInstructions++;
+            unassignedInstructionBytes += instruction.getLength();
+            if (runStart != null && !instruction.getAddress().equals(runEnd.next())) {
+                unassignedRegions.add(record("start", addr(runStart), "end", addr(runEnd),
+                        "instructions", runCount, "instruction_bytes", runBytes));
+                runStart = null;
+            }
+            if (runStart == null) {
+                runStart = instruction.getAddress();
+                runCount = 0;
+                runBytes = 0;
+            }
+            runEnd = instruction.getMaxAddress();
+            runCount++;
+            runBytes += instruction.getLength();
+        }
+        if (runStart != null) {
+            unassignedRegions.add(record("start", addr(runStart), "end", addr(runEnd),
+                    "instructions", runCount, "instruction_bytes", runBytes));
+        }
         output.put("status", "ok");
         output.put("program", currentProgram.getName());
         output.put("executable_format", currentProgram.getExecutableFormat());
@@ -112,6 +217,13 @@ public class ExportEvidence extends GhidraScript {
         output.put("calls", calls);
         output.put("data_references", dataReferences);
         output.put("indirect_calls", indirectCalls);
+        output.put("executable_regions", executableRegions);
+        output.put("unassigned_instruction_regions", unassignedRegions);
+        output.put("static_inventory", record("executable_bytes", executableBytes,
+                "assigned_instructions", assignedInstructions,
+                "assigned_instruction_bytes", assignedInstructionBytes,
+                "unassigned_instructions", unassignedInstructions,
+                "unassigned_instruction_bytes", unassignedInstructionBytes));
         output.put("omissions", List.of("indirect call targets and non-function data dependencies may be unresolved"));
     }
 
@@ -125,8 +237,23 @@ public class ExportEvidence extends GhidraScript {
             return;
         }
         output.putAll(describe(function));
+        List<Map<String, Object>> parameters = new ArrayList<>();
+        for (Parameter parameter : function.getParameters()) {
+            Map<String, Object> described = describeVariable(parameter);
+            described.put("ordinal", parameter.getOrdinal());
+            described.put("auto", parameter.isAutoParameter());
+            parameters.add(described);
+        }
+        List<Map<String, Object>> locals = new ArrayList<>();
+        for (Variable variable : function.getLocalVariables()) {
+            locals.add(describeVariable(variable));
+        }
+        output.put("listing_parameters", parameters);
+        output.put("listing_locals", locals);
+        output.put("listing_return", describeVariable(function.getReturn()));
         List<Map<String, Object>> instructions = new ArrayList<>();
         List<Map<String, Object>> references = new ArrayList<>();
+        Map<String, Map<String, Object>> referencedData = new LinkedHashMap<>();
         InstructionIterator iterator = currentProgram.getListing().getInstructions(function.getBody(), true);
         while (iterator.hasNext()) {
             monitor.checkCancelled();
@@ -137,10 +264,17 @@ public class ExportEvidence extends GhidraScript {
                 references.add(record("from", addr(at), "to", addr(reference.getToAddress()),
                                       "type", reference.getReferenceType().toString(),
                                       "external", reference.isExternalReference()));
+                if (reference.getReferenceType().isData()) {
+                    String target = addr(reference.getToAddress());
+                    if (!referencedData.containsKey(target)) {
+                        referencedData.put(target, describeData(reference.getToAddress()));
+                    }
+                }
             }
         }
         output.put("instructions", instructions);
         output.put("references", references);
+        output.put("referenced_data", new ArrayList<>(referencedData.values()));
         if (function.isExternal()) {
             output.put("status", "external");
             output.put("decompilation", null);
@@ -154,6 +288,47 @@ public class ExportEvidence extends GhidraScript {
         }
         output.put("status", "ok");
         output.put("decompilation", result.getDecompiledFunction().getC());
+        output.put("decompiler_signature", result.getDecompiledFunction().getSignature());
+        HighFunction high = result.getHighFunction();
+        if (high != null) {
+            FunctionPrototype prototype = high.getFunctionPrototype();
+            List<Map<String, Object>> inferredParameters = new ArrayList<>();
+            for (int i = 0; i < prototype.getNumParams(); i++) {
+                HighSymbol symbol = prototype.getParam(i);
+                if (symbol == null) {
+                    inferredParameters.add(record("ordinal", i, "status", "unmapped"));
+                } else {
+                    Map<String, Object> described = describeHighSymbol(symbol);
+                    described.put("ordinal", i);
+                    inferredParameters.add(described);
+                }
+            }
+            output.put("decompiler_prototype", record(
+                    "parameters", inferredParameters,
+                    "return_type", prototype.getReturnType() == null ? null :
+                        prototype.getReturnType().getDisplayName(),
+                    "return_storage", prototype.getReturnStorage() == null ? null :
+                        prototype.getReturnStorage().toString(),
+                    "model", prototype.getModelName(),
+                    "varargs", prototype.isVarArg(),
+                    "noreturn", prototype.hasNoReturn(),
+                    "has_this", prototype.hasThisPointer()));
+            Map<String, HighSymbol> symbolMap = high.getLocalSymbolMap().getNameToSymbolMap();
+            List<String> names = new ArrayList<>(symbolMap.keySet());
+            Collections.sort(names);
+            List<Map<String, Object>> inferredLocals = new ArrayList<>();
+            for (String name : names) {
+                HighSymbol symbol = symbolMap.get(name);
+                if (!symbol.isParameter() && !symbol.isGlobal()) {
+                    inferredLocals.add(describeHighSymbol(symbol));
+                }
+            }
+            output.put("decompiler_locals", inferredLocals);
+        } else {
+            output.put("decompiler_prototype", null);
+            output.put("decompiler_locals", null);
+            output.put("type_omission", "decompiler high function unavailable");
+        }
     }
 
     private void writeAtomic(Path destination, Map<String, Object> value) throws Exception {
@@ -187,6 +362,39 @@ public class ExportEvidence extends GhidraScript {
         writeAtomic(directory.resolve("all_done.json"), record("schema", 1, "count", count));
     }
 
+    private void runServe(String workDirectory, DecompInterface decompiler) throws Exception {
+        Path directory = Path.of(workDirectory);
+        Files.createDirectories(directory);
+        Path request = directory.resolve("request.json");
+        Path response = directory.resolve("response.json");
+        writeAtomic(directory.resolve("ready.json"), record("schema", 1, "status", "ready"));
+        Gson gson = new Gson();
+        while (!Files.exists(directory.resolve("stop"))) {
+            monitor.checkCancelled();
+            if (!Files.exists(request)) {
+                Thread.sleep(50);
+                continue;
+            }
+            Map<?, ?> command = gson.fromJson(Files.readString(request), Map.class);
+            Files.delete(request);
+            Object entry = command == null ? null : command.get("entry");
+            Map<String, Object> output = record("schema", 1);
+            if (!(entry instanceof String)) {
+                output.put("status", "error");
+                output.put("error", "request has no function entry");
+            } else {
+                try {
+                    runFunction(output, (String) entry, decompiler);
+                } catch (Exception error) {
+                    output.put("entry", entry);
+                    output.put("status", "error");
+                    output.put("error", error.toString());
+                }
+            }
+            writeAtomic(response, output);
+        }
+    }
+
     @Override
     protected void run() throws Exception {
         String[] args = getScriptArgs();
@@ -196,7 +404,7 @@ public class ExportEvidence extends GhidraScript {
         Map<String, Object> output = record("schema", 1);
         if (args[1].equals("index")) {
             runIndex(output);
-        } else if (args[1].equals("function") || args[1].equals("all")) {
+        } else if (args[1].equals("function") || args[1].equals("all") || args[1].equals("serve")) {
             DecompInterface decompiler = new DecompInterface();
             try {
                 decompiler.toggleCCode(true);
@@ -205,6 +413,10 @@ public class ExportEvidence extends GhidraScript {
                 }
                 if (args[1].equals("all") && args.length == 2) {
                     runAll(args[0], decompiler);
+                    return;
+                }
+                if (args[1].equals("serve") && args.length == 2) {
+                    runServe(args[0], decompiler);
                     return;
                 }
                 if (args[1].equals("function") && args.length == 3) {
