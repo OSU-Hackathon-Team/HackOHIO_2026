@@ -1,30 +1,23 @@
-# Gotchas (read before writing code in these areas)
+# Native-engine gotchas
 
-## REA (`rea-agents`)
-- The MCP server is the **`mcp` subcommand**: `rea-agents mcp`. **Not `--mcp`.** On Windows,
-  launch through `cmd.exe /d /c …` or run `node <rea-agents>/scripts/rea.mjs mcp`.
-- Real tool names include `binary_session`, `analyze_javascript_application`,
-  `trace_application_feature`, `trace_javascript_semantics` and `inspect_analysis_view`.
-  `survey_program`, `function_inventory`, `trace_callees` and `decompile` **do not exist**.
-- Verified arguments: `analyze_javascript_application { input_path, format, detail }`,
-  `trace_application_feature { application, seed, direction? }`. Catalog: `fixtures/rea/tools.json`;
-  real replies: `fixtures/rea/sample_*.json`. All argument building lives in `rea/reaArgs.ts`.
-- **With `detail: "summary"`, analyze returns a summary record.** Pass
-  `structuredContent.normalized_result.parent_evidence_id` to trace tools. Its own `evidence_id`
-  is rejected with `invalid_request` ("Expected authenticated JavaScript analysis…").
-- Cold start via `npx` takes ~30 s (warm ~5 s). Install `rea-agents` locally and pre-warm at boot.
-- Errors arrive as `isError: true` with a JSON text block `{error:{code, message, details.issues[]}}`,
-  not as thrown exceptions.
-- `evidence_id` references (`ev_<64 hex>`) only work on the **same MCP connection**. Keep one
-  long-lived connection; a restart invalidates them.
-- REA wants **absolute** paths. Use `detail: "summary"` on the first analyze call, since a full
-  graph can be megabytes.
-- Through REA, native targets need Ghidra/IDA/Hopper, and REA's Windows Ghidra support is
-  experimental. So the **Electron demo's** live path is `.asar` only, and REA native targets are
-  replay-only there. **Native subsystem analysis is a primary goal of the Python engine**, which
-  runs Ghidra headless in a Linux Podman worker (no Windows Ghidra involved). Follow
-  `DecompPileline.md` for that work, not this file.
-- Requires Node 22.19+. Pin `rea-agents@6.7.0` everywhere; never `@latest`.
+- Ghidra's indexed function count is discovery coverage for that analysis revision,
+  not behavioral completeness. Export errors and unresolved edges remain visible.
+- Scopes are bounded and versioned. Boundary or evidence changes create a new revision;
+  do not silently rewrite evidence attached to earlier attempts.
+- Workers use stripped analysis inputs. Fixture source and debug companions belong to
+  the evaluator. Model claims need citations into immutable exported evidence.
+- `static_only` means an independent reviewer supported a claim from static evidence.
+  Original execution needs a separately linked probe; one case proves only that case.
+- A helper dependency must bind to the caller's actual direct-call target and the
+  active contract version. A supported helper claim does not resolve a misbound call.
+- Queue lease epochs fence expired workers. Keep checkpoint and rejected draft artifacts;
+  retries and reassessment have different meanings.
+- Publish claims into explicit semantic slots. Conflicts stay open and contract revisions
+  invalidate indexed consumers.
+- `queue-init` applies migrations and backfills review jobs. Run it after upgrading an
+  existing queue; do not assume earlier accepted tasks are dependency-complete.
+- Compose and `worker.Dockerfile` run the rename diagnostic using nested Podman. They
+  do not deploy the PostgreSQL reasoning queue.
 
 ## Models on Amazon Bedrock
 - Client: `AnthropicBedrockMantle` from `@anthropic-ai/bedrock-sdk`. No Anthropic API key exists.

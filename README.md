@@ -1,6 +1,6 @@
-# Decomp pipeline agent scaffold
+# Splice native decompilation engine
 
-**Architecture:** [DecompPileline.md](DecompPileline.md) defines the subsystem-oriented engine for 16+ workers. [DECOMP_IMPLEMENTATION_PLAN.md](DECOMP_IMPLEMENTATION_PLAN.md) lists the implementation phases and acceptance gates. Evidence export, bounded scopes, semantic attempts, static review, original probes, partial dossiers, and a PostgreSQL task queue are implemented. The full subsystem pipeline and its acceptance gates remain in progress. The commands below also retain the rename diagnostic.
+**Architecture:** [DecompPileline.md](DecompPileline.md) defines the subsystem-oriented engine for 16+ workers. [DECOMP_IMPLEMENTATION_PLAN.md](DECOMP_IMPLEMENTATION_PLAN.md) lists the implementation phases and acceptance gates. Evidence export, bounded scopes, semantic attempts, static review, original probes, partial dossiers, and a PostgreSQL task queue are implemented. The full subsystem pipeline and its acceptance gates remain in progress. The commands below also retain the rename diagnostic. The earlier Electron/REA demo scaffold has been retired; `fixtures/decomp/` contains the active evaluation targets.
 
 ## Native evidence export
 
@@ -160,7 +160,6 @@ Compose defaults to `/home/mitch/.opencode/bin/opencode` and `/home/mitch/.local
 | Role | Default | Override |
 |---|---|---|
 | `decomp_worker` | `amazon-bedrock/amazon.nova-lite-v1:0` | `MODEL_DECOMP_WORKER` |
-| `spec_writer` | `amazon-bedrock/amazon.nova-pro-v1:0` | `MODEL_SPEC_WRITER` |
 | `legal_verification` | `amazon-bedrock/amazon.nova-pro-v1:0` | `MODEL_LEGAL_VERIFICATION` |
 
 Resolution order: `--model` (or assignment `"model"`) > `MODEL_<ROLE>` env > `models.json` role > `OPENCODE_MODEL` (legacy default override) > `models.json` `default`. Inspect the resolved table with:
@@ -169,7 +168,7 @@ Resolution order: `--model` (or assignment `"model"`) > `MODEL_<ROLE>` env > `mo
 docker compose run --rm orchestrator python launch.py list-models
 ```
 
-`launch.py rename` accepts `--model-role <role>` (default `decomp_worker`); `--model provider/model` overrides the role for that run. Batch assignments accept optional `"model"` and `"model_role"` fields. The backend mirrors this via `packages/backend/src/models.ts`; `GET /api/health` reports the resolved `models` table.
+`launch.py rename` accepts `--model-role <role>` (default `decomp_worker`); `--model provider/model` overrides the role for that run. Batch assignments accept optional `"model"` and `"model_role"` fields. `python launch.py list-models` shows the resolved table.
 
 Use the function's Ghidra entry address:
 

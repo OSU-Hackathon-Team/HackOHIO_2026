@@ -1,6 +1,6 @@
 # Decompilation engine architecture
 
-Status: approved direction, implementation pending. Updated 2026-10-24.
+Status: implementation in progress. Updated 2026-10-24.
 
 Implementation sequence: [DECOMP_IMPLEMENTATION_PLAN.md](DECOMP_IMPLEMENTATION_PLAN.md).
 The earlier review of the separate Rev checkout is preserved as
@@ -26,20 +26,17 @@ visible. Budget exhaustion produces a partial dossier, never a successful comple
 Readiness is relative to the declared boundary and evidence revision; it is not proof that
 all possible runtime behavior was discovered.
 
-## Current repository versus target design
+## Current implementation and remaining design
 
-| Current scaffold | Target engine |
-| --- | --- |
-| `launch.py` copies a binary for each rename assignment | Import/index once per binary and analysis configuration |
-| `agent_worker.py` asks an agent to perform a predetermined rename | Workers answer bounded behavioral questions |
-| Each attempt starts its own Ghidra project | Most workers read immutable exported evidence |
-| A fresh process verifies rename persistence | Validation checks evidence support and observable behavior |
-| `ThreadPoolExecutor` dispatches an in-memory batch | Durable leases, retries, fencing, budgets, and recovery |
-| Backend extraction route is a skeleton | Explicit dossier-to-spec integration after schema migration |
+The Python engine now imports and indexes each binary by analysis identity, exports
+immutable function evidence, discovers bounded scopes, and runs semantic and independent
+review work through a durable PostgreSQL queue. Original-binary probes and partial
+dossiers are implemented. The rename-attempt path remains a diagnostic with a private
+Ghidra project per attempt.
 
-The Electron examples under `agents/` remain useful demo integrations. Their replay-only
-native policy and fixed file limits are not engine requirements. The plan introduces proposed
-records; it does not claim the existing runtime already implements them.
+Conflict reconciliation, warm analysis pooling, multi-host recovery, and a durable job
+API remain planned. The implementation plan lists their acceptance gates. Proposed
+records there are design requirements, not proof of an implemented runtime interface.
 
 ## Architecture
 
@@ -61,10 +58,10 @@ flowchart TD
     J --> E
 ```
 
-Use Python for the first engine implementation alongside the current launcher, PostgreSQL
+Use Python for the engine implementation alongside the launcher, PostgreSQL
 for durable control state, and content-addressed files for immutable artifacts. Preserve
-an artifact-store interface for later shared object storage. Keep the TypeScript backend as
-an integration client; do not build a second scheduler there. Logical components may run
+an artifact-store interface for later shared object storage. A future API or client should
+consume engine job state rather than build a second scheduler. Logical components may run
 in one service initially, while worker processes remain independently deployable.
 
 ### Import and evidence extraction
