@@ -3,6 +3,7 @@
 //            directory all | directory serve
 import com.google.gson.Gson;
 import ghidra.app.decompiler.DecompInterface;
+import ghidra.app.decompiler.DecompileOptions;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
@@ -318,7 +319,7 @@ public class ExportEvidence extends GhidraScript {
             output.put("decompilation", null);
             return;
         }
-        DecompileResults result = decompiler.decompileFunction(function, 120, monitor);
+        DecompileResults result = decompiler.decompileFunction(function, 30, monitor);
         if (!result.decompileCompleted() || result.getDecompiledFunction() == null) {
             output.put("status", "error");
             output.put("error", result.getErrorMessage());
@@ -551,6 +552,9 @@ public class ExportEvidence extends GhidraScript {
         } else if (args[1].equals("function") || args[1].equals("all") || args[1].equals("serve")) {
             DecompInterface decompiler = new DecompInterface();
             try {
+                DecompileOptions opts = new DecompileOptions();
+                opts.grabFromProgram(currentProgram);
+                decompiler.setOptions(opts);
                 decompiler.toggleCCode(true);
                 if (!decompiler.openProgram(currentProgram)) {
                     throw new IllegalStateException("decompiler failed to open program");

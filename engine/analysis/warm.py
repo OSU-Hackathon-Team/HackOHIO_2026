@@ -46,7 +46,12 @@ class WarmGhidraPool:
         if worker is None:
             return
         if worker.process.poll() is None:
-            (Path(worker.directory.name) / "requests" / "stop").touch()
+            stop_file = Path(worker.directory.name) / "requests" / "stop"
+            if stop_file.parent.exists():
+                try:
+                    stop_file.touch()
+                except OSError:
+                    pass
             try:
                 worker.process.wait(timeout=2)
             except subprocess.TimeoutExpired:
