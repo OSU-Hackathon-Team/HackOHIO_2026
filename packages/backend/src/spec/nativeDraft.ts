@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { continueWith, LlmSchemaError } from "../llm/llm.js";
 import { writeDraft } from "./writeDraft.js";
-import { sourceLikeText } from "./nativeSafety.js";
+import { sourceLikeMatch } from "./nativeSafety.js";
 
 const text = z.string().min(1);
 export const NativeDraft = z.object({
@@ -53,6 +53,8 @@ Cover every supplied claim_id with a requirement. Combine facts when that improv
 Number requirements REQ-1 onward without gaps. The interface is a descriptive data contract,
 not a programming-language signature. Write each interface item as a sentence, without
 field:type shorthand. Acceptance criteria are observable checks in prose.
+Describe labeled output by naming each field in words; do not write key=value
+examples or mathematical assignment in prose. Describe bit narrowing in words.
 If the facts do not define an essential behavior, the input should have been rejected upstream.
 Return only schema-shaped JSON.`;
 
@@ -88,8 +90,9 @@ export function nativeDraftProblems(d: NativeDraft, claimIds: string[], input?: 
   if (input && (!Array.isArray(input.deviations) || !input.deviations.length)
       && d.deviations.length) errors.push("deviations have no supplied basis");
   for (const [field, value] of fields(d)) {
-    if (sourceLikeText(value) || value.includes("\n")) {
-      errors.push(`source-like or report-card content in ${field}`);
+    const match = sourceLikeMatch(value) ?? (value.includes("\n") ? "newline" : null);
+    if (match) {
+      errors.push(`source-like or report-card content in ${field}: ${JSON.stringify(match.slice(0, 60))}`);
     }
   }
   return errors;
@@ -115,7 +118,7 @@ export async function writeNativeDraft(input: { claims: { id: string }[]; [key: 
     if (!problems.length) return { draft: result.value, model: result.model };
     if (attempt === 2) throw new Error(`native spec draft failed validation: ${problems.join("; ")}`);
     messages = continueWith(messages, result.assistantContent,
-      `Repair the complete draft: ${problems.join("; ")}. Keep all established behavior and use prose only.`);
+      `Repair the complete draft: ${problems.join("; ")}. Rewrite every listed field as ordinary sentences. Avoid equals signs, code punctuation, key=value examples, type declarations, and report language. Keep all established behavior and use prose only.`);
   }
   throw new Error("native spec draft failed validation");
 }

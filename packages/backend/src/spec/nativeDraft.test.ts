@@ -18,6 +18,7 @@ test("native spec draft gate requires all facts and excludes code and report tex
   assert.match(nativeDraftProblems({ ...draft, behavior_steps: ["MOVAPS XMM0, 0x00100000"] }, ["C1"]).join(), /source-like/);
   assert.match(nativeDraftProblems({ ...draft, behavior_steps: ["MOVAPS XMM0, 0x00100000"] }, ["C1"]).join(), /behavior_steps\[0\]/);
   assert.match(nativeDraftProblems({ ...draft, behavior_steps: ["counter += 1"] }, ["C1"]).join(), /source-like/);
+  assert.match(nativeDraftProblems({ ...draft, behavior_steps: ["counter += 1"] }, ["C1"]).join(), /counter \+=/);
   assert.match(nativeDraftProblems({ ...draft, interface: { ...draft.interface, inputs: ["value: uint32"] } }, ["C1"]).join(), /interface.inputs\[0\]/);
   assert.match(nativeDraftProblems({ ...draft, exclusions: ["No input validation."] }, ["C1"], { excluded_behavior: [] }).join(), /no supplied boundary facts/);
   assert.match(nativeDraftProblems({ ...draft, behavior_steps: ["Unknown whether it changes state."] }, ["C1"]).join(), /report-card/);
