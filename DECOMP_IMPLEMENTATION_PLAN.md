@@ -6,6 +6,10 @@ Architecture and decision rationale: [DecompPileline.md](DecompPileline.md).
 
 ## Current execution boundary
 
+**Stop before specification generation.** This instruction governs the current work even
+if the pre-specification acceptance gates pass. Completing a dossier or reaching
+`ready_for_spec` does not authorize starting the next phase.
+
 Work exclusively on the native pre-specification pipeline: intake, analysis, scope,
 semantic work, independent review, original-execution probes, findings, reconciliation,
 dossiers, queue reliability, progress visibility, and their acceptance gates. Do not start
@@ -191,7 +195,7 @@ Acceptance:
 - A missing observable behavior prevents readiness when it blocks writing the specification.
 - Cases unavailable for execution remain explicit limitations; probes do not substitute guessed outputs.
 
-## M5 — Dossier-to-spec handoff and API integration
+## M5 — Dossier-to-spec handoff and API integration (deferred; do not start)
 
 Depends on M3 and M4.
 
@@ -267,7 +271,8 @@ Ghidra changes use their own isolated revision path.
 - [ ] M2 first subsystem dossier produced with explicit boundaries and unknowns.
 - [ ] M3 sixteen-worker recovery and concurrency gates pass.
 - [ ] M4 semantic and original-behavior checks pass.
-- [ ] M5 shared contracts and specification handoff integrated.
+- [ ] M5 shared contracts and specification handoff integrated. **Deferred: do not start
+  without an explicit new user instruction.**
 - [ ] M6 measured scaling and two-host recovery demonstrated.
 
 Do not mark these complete based on documentation, worker counts, rename persistence,
