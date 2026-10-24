@@ -230,6 +230,8 @@ Deliverables:
 Acceptance:
 
 - A separate implementer can answer held-out behavior questions using the public spec alone.
+- Numeric conditions survive boundary cases and operand-width arithmetic checks; a claim and
+  its reviewer sharing the same arithmetic mistake cannot pass on citation agreement alone.
 - Open blockers survive the handoff and cannot be relabeled as verified requirements.
 - Exclusions and pure-function adaptations preserve an audit trail of observable behavior.
 - API consumers can distinguish static support, probe agreement, and unresolved blockers.

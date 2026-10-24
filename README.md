@@ -186,6 +186,8 @@ Assemble an immutable dossier from explicit artifact IDs with `python launch.py 
 
 The dossier inputs may also include `gap_adjudication_artifacts`. Each adjudication must match a supplied draft, review, and original probe report. Its decisions and reasons remain visible; blocking or uncertain decisions remain dossier blockers. A matching original case with disagreement or execution error prevents gap clearance. `queue-adjudicate-gaps` uses a model different from the claim reviewer and clears review gaps only when all current claims have static support and every gap is independently classified nonblocking. Tasks with dependencies remain in reconciliation until every dependency is reviewed against its active helper contract. Dossier coverage reports distinct original cases and total probe runs separately.
 
+Check arithmetic claims against original cases on both sides of each numeric boundary before linking them. An October 2026 executable run found a model draft and its independent reviewer both miscomputed a wrapped 32-bit limit. A probe link only checks an observed field against the recorded expected value; its rationale is not machine-verified proof that the claim follows from that field. Review the claim, rationale, and counterexample cases together before treating a dossier as ready. The semantic and review prompts now call out operand-width wraparound and concrete boundary paths.
+
 Check whether a dossier is eligible for the cleanroom writer without a model call:
 
 ```sh
@@ -213,7 +215,8 @@ python scripts/check_decomp_spec.py
 The command invokes the same configured Step 2 `spec_writer` engine used for source-tree
 features. It supplies reviewed behavioral facts and original input/output examples, then
 checks that every supported fact appears in the draft and that its prose contains no
-source-like text. The public JSON and Markdown under `decomp-state/specifications/<scope-id>/`
+source-like text or type-declaration shorthand. It rejects deviations and exclusions
+without a supplied basis. The public JSON and Markdown under `decomp-state/specifications/<scope-id>/`
 contain an interface described in words, requirements, a high-level behavior outline,
 original examples, and acceptance criteria. They contain no C, assembly, TypeScript,
 executable tests, raw addresses, draft pseudocode, or review report details. An immutable

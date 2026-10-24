@@ -105,7 +105,10 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   schema 2 spec and keeps evidence and review links in a separate analyst audit artifact.
   The reported telemetry dossier remains partial because 26 claims lack original case
   links. Spec quality, human containment review, and downstream implementation gates
-  remain open. See the root
+  remain open. A bounded O2 executable pilot found that a semantic model and independent
+  reviewer agreed on an incorrect wrapped 32-bit threshold; original boundary cases
+  exposed it. Numeric claims now need explicit operand-width and boundary checks in
+  the prompts, and probe-link rationales still require analyst review. See the root
   `README.md` for commands.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
