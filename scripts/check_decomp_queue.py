@@ -2,10 +2,12 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import json
+import multiprocessing
 import os
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
+import time
 import uuid
 
 import psycopg
@@ -20,6 +22,19 @@ from engine.queue import DurableQueue  # noqa: E402
 
 def put(store: LocalArtifactStore, value: dict) -> str:
     return store.put(json.dumps(value, sort_keys=True).encode())
+
+
+def hold_lease(dsn: str, store_root: str, campaign: str,
+               checkpoint: str, connection) -> None:
+    queue = DurableQueue(dsn, LocalArtifactStore(Path(store_root)))
+    lease = queue.lease("killed-worker", campaign=campaign, lease_seconds=1)
+    if lease is None:
+        connection.send(None)
+        return
+    queue.checkpoint(lease["task_id"], lease["worker_id"], lease["epoch"], checkpoint)
+    connection.send(lease)
+    while True:
+        time.sleep(60)
 
 
 def main() -> None:
@@ -94,6 +109,13 @@ def main() -> None:
                          "evidence_artifact": evidence_artifact,
                          "evidence_truncated": False, "answer": answer}
                 draft_artifact = put(store, draft)
+                try:
+                    queue.submit(recovered["task_id"], recovered["worker_id"],
+                                 recovered["epoch"], "0" * 64, "missing-artifact")
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise AssertionError("missing artifact was published")
                 assert queue.submit(lost["task_id"], lost["worker_id"], lost["epoch"],
                                     draft_artifact, "old-attempt") == "stale"
                 assert queue.submit(recovered["task_id"], recovered["worker_id"],
@@ -129,9 +151,27 @@ def main() -> None:
                 assert status["support_levels"]["static_only"] == 1
                 assert len([e for e in restarted.events(campaign, limit=100)
                             if e["event_type"] == "task_accepted"]) == 1
+                parent, child = multiprocessing.Pipe(duplex=False)
+                process = multiprocessing.Process(
+                    target=hold_lease,
+                    args=(queue.dsn, temporary, campaign, checkpoint, child))
+                process.start()
+                killed = parent.recv()
+                assert killed is not None
+                process.terminate()
+                process.join(timeout=5)
+                assert process.exitcode is not None
+                time.sleep(1.1)
+                assert queue.reclaim_expired() == 1
+                resumed = queue.lease("after-kill", campaign=campaign)
+                assert resumed["task_id"] == killed["task_id"]
+                assert resumed["epoch"] == killed["epoch"] + 1
+                assert resumed["checkpoint_artifact"] == checkpoint
+                final_status = queue.status(campaign)
                 print(json.dumps({"active_leases": 16, "recovered_epoch": recovered["epoch"],
+                                  "killed_worker_recovered_epoch": resumed["epoch"],
                                   "accepted": 1, "support_level": "static_only",
-                                  "event_cursor": status["event_cursor"]}, indent=2))
+                                  "event_cursor": final_status["event_cursor"]}, indent=2))
         finally:
             admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(
                 sql.Identifier(dbname)))
