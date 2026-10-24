@@ -71,6 +71,20 @@ def main() -> None:
         agreed = dossier(link)
         assert agreed["claims"][0]["execution_state"] == "case_agreement"
         assert agreed["coverage"]["claims_with_case_agreement"] == 1
+        repeat_report = put(store, {**report, "repeat": True})
+        repeated = assemble(engine, manifest, scope_artifact, [draft_artifact],
+                            [review_artifact], [report_artifact, repeat_report])
+        assert repeated["coverage"]["original_probe_runs"] == 2
+        assert repeated["coverage"]["original_probe_cases"] == 1
+        assert repeated["coverage"]["original_probe_agreements"] == 1
+        disputed_case = {**probe_record, "observed": {"count": 2},
+                         "outcome": "disagreement"}
+        disputed_report = put(store, {"schema": 1, "results": [
+            {**disputed_case, "artifact": put(store, disputed_case)}]})
+        disputed = assemble(engine, manifest, scope_artifact, [draft_artifact],
+                            [review_artifact], [report_artifact, disputed_report])
+        assert disputed["coverage"]["original_probe_cases"] == 1
+        assert disputed["coverage"]["original_probe_agreements"] == 0
         flagged_review = {**review, "answer": {**review["answer"],
                            "missing_behavior": ["check decrement path"]}}
         flagged = assemble(engine, manifest, scope_artifact, [draft_artifact],

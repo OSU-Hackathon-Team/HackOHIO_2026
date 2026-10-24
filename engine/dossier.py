@@ -159,11 +159,17 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                     raise ValueError(f"duplicate probe case in report {key}")
                 probe_by_key[key] = result
                 probes.append({"report_artifact": artifact, "case_id": result["case_id"],
-                               "kind": result["kind"], "input": result["input"],
+                               "kind": result["kind"], "target": result.get("target"),
+                               "input": result["input"],
                                "expected": result["expected"],
                                "observed": result["observed"],
                                "outcome": result["outcome"],
                                "probe_artifact": result["artifact"]})
+    probe_case_outcomes = {}
+    for probe in probes:
+        key = (probe["kind"], probe["target"], probe["case_id"],
+               json.dumps(probe["input"], sort_keys=True))
+        probe_case_outcomes.setdefault(key, set()).add(probe["outcome"])
     claims = []
     dependencies = []
     uncovered_calls = []
@@ -359,9 +365,11 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                            "claims_with_case_agreement": sum(
                                claim["execution_state"] == "case_agreement" for claim in claims),
                            "claims_with_case_disagreement": len(disagreements),
-                           "original_probe_cases": len(probes),
+                           "original_probe_runs": len(probes),
+                           "original_probe_cases": len(probe_case_outcomes),
                            "original_probe_agreements": sum(
-                               probe["outcome"] == "agreement" for probe in probes)},
+                               outcomes == {"agreement"} for outcomes in
+                               probe_case_outcomes.values())},
               "readiness": "partial"}
     return record
 

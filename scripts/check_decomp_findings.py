@@ -18,7 +18,8 @@ from engine.artifacts import LocalArtifactStore  # noqa: E402
 from engine.dossier import assemble  # noqa: E402
 from engine.findings import FindingsStore  # noqa: E402
 from engine.queue import DurableQueue  # noqa: E402
-from engine.validation.dependencies import (dependency_binding_errors,  # noqa: E402
+from engine.validation.dependencies import (complete_direct_call_dependencies,  # noqa: E402
+                                            dependency_binding_errors,
                                             uncovered_direct_calls)
 
 
@@ -147,7 +148,8 @@ def main() -> None:
                     consumer, {0: "return_value"}, dependency_versions={"helper": 1})[0]
                 dependent = complete(2, [{"target": "helper", "contract": "helper returns one",
                                           "evidence_addresses": ["00100030"],
-                                          "assumptions": []}])
+                                          "assumptions": []}],
+                                     missing_behavior=["callee might fail"])
                 assert queue.task(dependent)["state"] == "needs_reconciliation"
                 try:
                     findings.publish_claims(dependent, {0: "return_value"})
@@ -156,8 +158,34 @@ def main() -> None:
                 else:
                     raise AssertionError("unresolved dependent claim was published")
                 dependent_task = queue.task(dependent)
-                contract = json.loads(store.get(version1["artifact"]))
                 dependent_draft = json.loads(store.get(dependent_task["result_artifact"]))
+                dependent_case = {"case_id": "dependent_one", "target": "dependent",
+                                  "binary_sha256": "b" * 64, "input": {"value": 1},
+                                  "observed": {"return": 1}, "outcome": "agreement",
+                                  "execution_mode": "original",
+                                  "runner_sha256": "r" * 64,
+                                  "adapter_sha256": "a" * 64}
+                dependent_probe = put(store, dependent_case)
+                dependent_report = put(store, {"schema": 1, "results": [
+                    {**dependent_case, "artifact": dependent_probe}]})
+                dependent_gap = put(store, {
+                    "schema": 1, "state": "reviewed", "structural_errors": [],
+                    "campaign": campaign, "task_id": dependent,
+                    "draft_artifact": dependent_task["result_artifact"],
+                    "review_artifact": dependent_task["review_artifact"],
+                    "evidence_artifact": dependent_draft["evidence_artifact"],
+                    "probe_report_artifact": dependent_report,
+                    "probe_case_ids": ["dependent_one"], "model": "other-model",
+                    "answer": {"items": [{"kind": "missing_behavior", "index": 0,
+                                          "decision": "nonblocking",
+                                          "reason": "caller has no separate failure path",
+                                          "evidence_addresses": ["00100030"],
+                                          "probe_case_ids": ["dependent_one"]}]}})
+                assert queue.publish_gap_adjudication(
+                    dependent, dependent_gap) == "needs_reconciliation"
+                assert queue.task(dependent)["terminal_reason"] == \
+                    "dependency_contracts_unreviewed"
+                contract = json.loads(store.get(version1["artifact"]))
                 caller = json.loads(store.get(dependent_draft["evidence_artifact"]))
                 callee = json.loads(store.get(contract["evidence_artifact"]))
                 assert not dependency_binding_errors(
@@ -171,6 +199,18 @@ def main() -> None:
                 assert uncovered_direct_calls(
                     [{"target": "wrong_helper", "evidence_addresses": ["00100030"]}],
                     caller, call_scope)[0]["target_name"] == "helper"
+                completed, additions, completion_errors = complete_direct_call_dependencies(
+                    [], caller, call_scope,
+                    {"helper": {"contract_key": "helper", "subject": "00100000",
+                                "statement": "helper returns one"}})
+                assert not completion_errors and len(additions) == 1
+                assert completed == [{"target": "helper", "contract": "helper returns one",
+                                      "evidence_addresses": ["00100030"],
+                                      "assumptions": []}]
+                assert complete_direct_call_dependencies(
+                    [], caller, call_scope,
+                    {"helper": {"contract_key": "helper", "subject": "00100020",
+                                "statement": "wrong target"}})[2]
                 dependency_review = {"schema": 1, "state": "reviewed", "structural_errors": [],
                                      "campaign": campaign, "task_id": dependent,
                                      "draft_artifact": dependent_task["result_artifact"],
@@ -321,6 +361,17 @@ def main() -> None:
                 blocked["answer"]["items"][0]["decision"] = "uncertain"
                 assert queue.publish_gap_adjudication(
                     gap_task, put(store, blocked)) == "blocked"
+                disagreeing_case = {**original_case, "case_id": "contrary_output",
+                                    "observed": {"return": 2},
+                                    "outcome": "disagreement"}
+                disagreeing_report = put(store, {"schema": 1, "results": [
+                    {**original_case, "artifact": probe_case},
+                    {**disagreeing_case,
+                     "artifact": put(store, disagreeing_case)}]})
+                assert queue.publish_gap_adjudication(
+                    gap_task, put(store, {**adjudication,
+                                          "probe_report_artifact": disagreeing_report})) \
+                    == "invalid"
                 adjudication_artifact = put(store, adjudication)
                 assert queue.publish_gap_adjudication(gap_task, adjudication_artifact) == "accepted"
                 assert queue.task(gap_task)["review_gap_adjudication_artifact"] == \
