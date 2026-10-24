@@ -6,13 +6,16 @@ Architecture and decision rationale: [DecompPileline.md](DecompPileline.md).
 
 ## Current execution boundary
 
-**Specification handoff resumed by explicit user request.** The native dossier-to-spec
-artifact path is now in scope. Completing a dossier or reaching `ready_for_spec` alone does
-not establish a verified specification or authorize downstream implementation.
+**Stop before specification generation.** This instruction governs the current work even
+if the pre-specification acceptance gates pass. Completing a dossier or reaching
+`ready_for_spec` does not authorize starting the next phase.
 
-Keep the native evidence pipeline and its acceptance gates separate from the specification
-handoff. The initial generator consumes immutable dossiers and carries validation gaps through
-to partial specs. M5 API and downstream implementation acceptance gates remain open.
+Work exclusively on the native pre-specification pipeline: intake, analysis, scope,
+semantic work, independent review, original-execution probes, findings, reconciliation,
+dossiers, queue reliability, progress visibility, and their acceptance gates. Do not start
+or continue M5 specification generation, the dossier-to-spec handoff, or downstream API
+integration. Existing M5 draft code is outside the current work and does not change this
+boundary. Those phases require a new explicit user instruction to resume.
 
 ## Required outcome
 
@@ -191,7 +194,7 @@ Acceptance:
 - A missing observable behavior prevents readiness when it blocks writing the specification.
 - Cases unavailable for execution remain explicit limitations; probes do not substitute guessed outputs.
 
-## M5 — Dossier-to-spec handoff and API integration (in progress)
+## M5 — Dossier-to-spec handoff and API integration (deferred)
 
 Depends on M3 and M4.
 
