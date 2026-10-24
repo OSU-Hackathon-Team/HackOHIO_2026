@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -52,7 +53,7 @@ def main() -> None:
         headless.write_text("fake Ghidra version")
         binary = root / "fixture.bin"
         binary.write_bytes(b"fixture program")
-        state = root / "concurrent"
+        state = Path(os.path.relpath(root / "concurrent", Path.cwd()))
         barrier = threading.Barrier(6)
 
         def analyze(_: int) -> dict:
@@ -62,6 +63,9 @@ def main() -> None:
         with ThreadPoolExecutor(max_workers=6) as pool:
             manifests = list(pool.map(analyze, range(6)))
         assert all(manifest == manifests[0] for manifest in manifests)
+        assert Path(manifests[0]["project"]).is_absolute()
+        assert Path(FakeAnalysis(state, headless, warm_workers=0)
+                    ._environment()["GHIDRA_USER_DIR"]).is_absolute()
         assert FakeAnalysis.imports == 1, FakeAnalysis.imports
         assert FakeAnalysis.indexes == 1, FakeAnalysis.indexes
         assert (Path(manifests[0]["project"]) / "import.done").exists()
