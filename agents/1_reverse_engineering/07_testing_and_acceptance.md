@@ -26,10 +26,10 @@ console.log("✓ binary_session:", session.summary);
 const target = path.join(REPO_ROOT, "targets/build/inkwell/app.asar");
 const a = await rea.call("analyze_javascript_application", reaArgs.analyzeApp(target));
 assert.ok(a.ok, `analyze failed: ${a.summary}`);
-assert.match(a.evidenceId ?? "", /^ev_[0-9a-f]{64}$/, "evidence_id format");
-console.log("✓ analyze:", a.summary, a.evidenceId);
+assert.match(a.parentEvidenceId ?? "", /^ev_[0-9a-f]{64}$/, "summary reply must name the retained analysis");
+console.log("✓ analyze:", a.summary, a.parentEvidenceId);
 
-const t = await rea.call("trace_application_feature", reaArgs.traceFeature(a.evidenceId!, { kind: "module", value: "src/graph/backlinks.js" }));
+const t = await rea.call("trace_application_feature", reaArgs.traceFeature(a.parentEvidenceId!, { kind: "module", value: "src/graph/backlinks.js" }));
 assert.ok(t.ok, `trace failed: ${t.summary}`);
 console.log("✓ trace:", t.summary);
 
@@ -99,7 +99,8 @@ backslash paths, leading slashes, `./` relative requires, and `../` relative req
 
 ## 4. Step 1 acceptance gate (CP1 at H8, re-checked at CP2)
 
-- [ ] `npm run rea:catalog` writes `fixtures/rea/tools.json`; the verified-arguments table in 03 is filled in; no `// VERIFY` left in `reaArgs.ts`
+- [x] Catalog dumped to `fixtures/rea/tools.json` and the verified-arguments table in 03 filled in (2026-10-24)
+- [ ] No `// VERIFY` left in `reaArgs.ts` (only `traceSemantics` / `inspectView` remain)
 - [ ] `npm run test:bridge` passes; no orphaned REA/node processes afterwards (check on Windows)
 - [ ] `npm run test:collector` passes for all 4 features; every `symbols` entry is located
 - [ ] Warm collection takes < 15 s per feature

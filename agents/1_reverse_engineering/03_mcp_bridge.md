@@ -173,6 +173,8 @@ export interface NormalizedResult {
   tool: string;
   ok: boolean;
   evidenceId: string | null;
+  /** For summary replies: the retained full record's id. Pass THIS to trace/inspect tools. */
+  parentEvidenceId: string | null;
   /** structuredContent.normalized_result (falls back to the whole structured payload / parsed text) */
   result: unknown;
   limitations: string[];
@@ -193,13 +195,17 @@ export function normalize(tool: string, r: CallToolResult): NormalizedResult {
 
   const result = sc?.normalized_result ?? sc ?? tryJson(text);
   const evidenceId = typeof sc?.evidence_id === "string" ? sc.evidence_id : null;
+  // Summary replies (detail:"summary") point at the retained full record; follow-up tools need that one.
+  const parent = (sc?.normalized_result as any)?.parent_evidence_id;
+  const parentEvidenceId = typeof parent === "string" ? parent : null;
 
   return {
     tool,
     ok: !r.isError,
     evidenceId,
+    parentEvidenceId,
     result,
-    limitations: collectNamed(sc, "limitations"),   // VERIFY location against fixtures/rea/sample_*.json
+    limitations: collectNamed(sc, "limitations"),   // verified: structuredContent.limitations (string[])
     unknowns: collectNamed(sc, "unknowns"),         // VERIFY
     text,
     summary: summarize(tool, !r.isError, result, text),
@@ -255,7 +261,9 @@ judges read in the terminal, so make it specific.
 
 ## 4. `src/rea/reaArgs.ts` — every tool argument in one place
 
-Fill in the verified names from `fixtures/rea/tools.json`, then remove each `// VERIFY`.
+Verified live against `rea-agents@6.7.0` on 2026-10-24. The raw catalog is in
+`fixtures/rea/tools.json`, and real results are in `fixtures/rea/sample_*.json`. The only
+remaining `// VERIFY` markers are the two tools nobody has called yet.
 
 ```ts
 import type { ReaSeed } from "@splice/contracts";
@@ -263,28 +271,33 @@ import type { ReaSeed } from "@splice/contracts";
 export const reaArgs = {
   session: () => ({}),
 
-  /** analyze_javascript_application — target is an ABSOLUTE path to a dir or .asar */
+  /** analyze_javascript_application — VERIFIED. input_path is ABSOLUTE (dir or .asar).
+   *  With detail "summary" the reply is a SUMMARY record: pass its normalized_result.parent_evidence_id
+   *  (the retained full analysis) to follow-up tools, NOT its own evidence_id (trace rejects that). */
   analyzeApp: (absPath: string) => ({
-    path: absPath,          // VERIFY: could be "target_path" / "application_path" / "root"
-    detail: "summary",      // documented: keep the first reply small; full graph can be MBs
+    input_path: absPath,
+    format: absPath.endsWith(".asar") ? "asar" : "directory",   // enum: auto | asar | directory
+    detail: "summary",                                           // enum: complete | summary
   }),
 
-  /** trace_application_feature — shape from docs/mcp-contracts.md (documented example) */
-  traceFeature: (evidenceId: string, seed: ReaSeed) => ({
-    application: { kind: "retained-evidence", evidence_id: evidenceId },
+  /** trace_application_feature — VERIFIED live (module seed "src/graph/backlinks.js" -> 491 KB graph naming
+   *  wikilinks.js + main.js). Optional `direction` (defaults to "both"). */
+  traceFeature: (applicationEvidenceId: string, seed: ReaSeed) => ({
+    application: { kind: "retained-evidence", evidence_id: applicationEvidenceId },
     seed: { kind: seed.kind, value: seed.value, match: "exact" },
   }),
 
-  /** trace_javascript_semantics — optional deeper trace when available */
-  traceSemantics: (evidenceId: string, symbol: string) => ({
-    application: { kind: "retained-evidence", evidence_id: evidenceId },
-    seed: { kind: "symbol", value: symbol, match: "exact" }, // VERIFY
+  /** trace_javascript_semantics — required: application, query (object: "Non-empty feature or text query").
+   *  VERIFY the query object's fields with one live call before using. */
+  traceSemantics: (applicationEvidenceId: string, symbol: string) => ({
+    application: { kind: "retained-evidence", evidence_id: applicationEvidenceId },
+    query: { kind: "text", value: symbol }, // VERIFY
   }),
 
-  /** inspect_analysis_view — page a retained dossier */
-  inspectView: (parentEvidenceId: string, cursor?: string) => ({
-    evidence_id: parentEvidenceId, // VERIFY
-    ...(cursor ? { cursor } : {}), // VERIFY: "cursor" / "page" / "offset"
+  /** inspect_analysis_view — required: source, view (both objects). VERIFY shapes before using. */
+  inspectView: (parentEvidenceId: string, view: Record<string, unknown> = { kind: "summary" }) => ({
+    source: { kind: "retained-evidence", evidence_id: parentEvidenceId }, // VERIFY
+    view,
   }),
 } as const;
 
@@ -311,11 +324,15 @@ export function checkArgsAgainstCatalog(tools: { name: string; inputSchema: any 
 
 | Tool | Required args | Optional args we use | Verified by / time |
 |---|---|---|---|
-| `analyze_javascript_application` | | | |
-| `trace_application_feature` | | | |
-| `trace_javascript_semantics` | | | |
-| `inspect_analysis_view` | | | |
-| `binary_session` | – | – | |
+| `analyze_javascript_application` | `input_path` | `format` (auto/asar/directory), `detail` (complete/summary), `source_paths`, `analysis_timeout_ms`, `max_heap_mb` | live, 2026-10-24: 2.2 s on `targets/src/inkwell` |
+| `trace_application_feature` | `application`, `seed` | `direction`, `native_observations` | live, 2026-10-24: 115 ms, seed `{kind:"module", value, match:"exact"}` + **parent** evidence id |
+| `trace_javascript_semantics` | `application`, `query` (object) | – | catalog only, not called yet |
+| `inspect_analysis_view` | `source`, `view` (objects) | – | catalog only, not called yet |
+| `binary_session` | – | `expected_package_version`, `expected_catalog_digest`, `expected_server_path` | live: 1.0 s |
+
+Other verified facts: 207 tools; cold `npx` start ≈ 30 s and warm ≈ 5 s (so pre-warm at boot and
+install REA locally); results carry `structuredContent.{evidence_id, normalized_result, limitations, locations, …}`;
+errors come back as `isError: true` with a JSON `{error:{code, message, details.issues[]}}` text block.
 
 ## 5. Shutdown hygiene
 

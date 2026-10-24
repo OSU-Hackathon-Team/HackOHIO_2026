@@ -100,7 +100,11 @@ Notes:
   tab switches.
 - Give the right column a real height (`lg:h-[calc(100vh-88px)]`). Sandpack collapses to
   ~300 px if its parent has no height.
+- ⚠️ Sandpack 2.20's `react-ts` template defaults to **React 19**. Our bundles must keep sending
+  `react`/`react-dom` `18.3.1` in `customSetup.dependencies` (they do, via `ALLOWED_DEPENDENCIES`),
+  because the validator type-checks against `@types/react` 18.
 - Tailwind arrives through `/public/index.html` (server-owned, includes the Play CDN script).
+  Verified: the `react-ts` template has `/public/index.html`, and our file replaces it.
   The first load needs internet for the CDN and Sandpack's bundler. That's another reason the
   backup video (09) exists.
 
@@ -136,10 +140,10 @@ export function RuntimeErrorWatcher({ bundleId, revision }: { bundleId: string; 
 }
 ```
 
-> Check `sandpack.error`'s fields (`title`, `message`, `path`, `line`) against the installed
-> Sandpack version's `SandpackError` type and adjust. If compile errors don't show up in
-> `sandpack.error` in your version, also subscribe with `listen((msg) => …)` and handle
-> `msg.type === "action" && msg.action === "show-error"`.
+> ✅ Verified against the installed `@codesandbox/sandpack-react@2.20.0`: `sandpack.error` is
+> `SandpackError | null` with `message`, `title?`, `path?`, `line?` and `column?`. Files accept
+> `{ code, readOnly, hidden, active }`. If compile errors ever don't surface in `sandpack.error`,
+> also subscribe with `listen((msg) => …)` for `msg.type === "action" && msg.action === "show-error"`.
 
 When an auto-fix is already used for this bundle and another error appears, the panel shows a
 rose banner: *"Runtime error: … [Fix with AI]"*, and the button calls `refine("fix", text)`.

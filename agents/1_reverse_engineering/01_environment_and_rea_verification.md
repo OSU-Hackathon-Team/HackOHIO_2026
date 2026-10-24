@@ -79,14 +79,16 @@ Fill this table from `tools.json` / `session.json` and paste it into `03_mcp_bri
 
 | Question | Where to look | Answer |
 |---|---|---|
-| Arg name for the target path in `analyze_javascript_application` | `inputSchema.properties` | `________` |
-| Does `analyze_javascript_application` accept `detail: "summary"`? | same | yes / no |
-| Arg names for `trace_application_feature` (`application`, `seed`?) | same | `________` |
-| Valid `seed.kind` values | enum in schema | `________` |
-| Does `inspect_analysis_view` take `evidence_id` + a page/cursor? | same | `________` |
-| Is `trace_javascript_semantics` available? | `session.json → tool_availability` | yes / no |
-| Where does `limitations` live in the result? | run one call, inspect `structuredContent` | `________` |
-| Where are module paths in the trace result? | same | `________` |
+| Arg name for the target path in `analyze_javascript_application` | `inputSchema.properties` | **`input_path`** (+ `format`: auto/asar/directory) ✅ |
+| Does `analyze_javascript_application` accept `detail: "summary"`? | same | **yes**, but the reply is a summary record. Use `normalized_result.parent_evidence_id` for follow-ups ✅ |
+| Arg names for `trace_application_feature` (`application`, `seed`?) | same | **`application`, `seed`** required; `direction` optional ✅ |
+| Valid `seed.kind` values | enum in schema | `module` works (compact schema hides the enum); `symbol` untested |
+| Does `inspect_analysis_view` take `evidence_id` + a page/cursor? | same | **no**: required `source` + `view` (objects), shapes unverified |
+| Is `trace_javascript_semantics` available? | `fixtures/rea/sample_binary_session.json` | in catalog; required `application` + `query` (object) |
+| Where does `limitations` live in the result? | run one call, inspect `structuredContent` | **`structuredContent.limitations`** (string[]) ✅ |
+| Where are module paths in the trace result? | same | inside `normalized_result.graph` / `paths`; the trace on backlinks.js names `wikilinks.js` and `main.js` ✅ |
+
+Checked live on 2026-10-24 by probing `rea-agents@6.7.0` over MCP (results in `fixtures/rea/`).
 
 Then do **one manual live call per tool** using `testBridge.ts` (07) against Inkwell and save
 the raw results as `fixtures/rea/sample_<tool>.json`. Eng 2 reads these to see what real REA
