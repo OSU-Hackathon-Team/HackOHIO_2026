@@ -405,7 +405,7 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                            "original_probe_agreements": sum(
                                outcomes == {"agreement"} for outcomes in
                                probe_case_outcomes.values())},
-              "readiness": "partial"}
+              "readiness": "ready_for_spec" if claims and not blockers else "partial"}
     return record
 
 

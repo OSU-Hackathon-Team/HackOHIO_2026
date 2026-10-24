@@ -526,7 +526,10 @@ def main() -> None:
                           "coverage": result["coverage"],
                           "blockers": result["blockers"]}, indent=2))
     elif args.command == "spec":
-        print(json.dumps(persist_spec(args.state, args.dossier_artifact), indent=2))
+        try:
+            print(json.dumps(persist_spec(args.state, args.dossier_artifact), indent=2))
+        except ValueError as error:
+            parser.error(str(error))
     elif args.command.startswith("queue-"):
         from engine.artifacts import LocalArtifactStore
         from engine.queue import DurableQueue
