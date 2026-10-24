@@ -161,18 +161,89 @@ class GhidraAnalysis:
 
     def export_all(self, manifest: dict) -> dict:
         index = self.index(manifest)
+        functions = index["functions"]
+        cache_dir = Path(manifest["project"]) / "functions"
+        cache_dir.mkdir(exist_ok=True)
+        uncached = [item for item in functions if not
+                    (cache_dir / (item["entry"].replace(":", "_") + ".json")).exists()]
+        expected_entries = {item["entry"] for item in functions}
+        bulk_error = None
+        if uncached:
+            with tempfile.TemporaryDirectory(dir=self.root) as scratch:
+                output_dir = Path(scratch) / "bulk"
+                output_dir.mkdir()
+                stage = "bulk_export"
+                campaign = manifest["campaign"]
+                self._emit(campaign, stage + "_started", count=len(functions))
+                command = [str(self.headless), manifest["project"], "baseline",
+                           "-process", manifest["program_name"], "-readOnly",
+                           "-noanalysis", "-scriptPath", str(SCRIPT_DIR),
+                           "-postScript", "ExportEvidence.java", str(output_dir), "all"]
+                log_dir = self.root / "logs" / campaign
+                log_dir.mkdir(parents=True, exist_ok=True)
+                started = time.monotonic()
+                seen: set[Path] = set()
+                with (log_dir / "bulk_export.log").open("w") as output:
+                    process = subprocess.Popen(command, stdout=output,
+                                               stderr=subprocess.STDOUT,
+                                               env=self._environment())
+                    try:
+                        while True:
+                            for path in sorted(output_dir.glob("[0-9]*.json")):
+                                if path in seen:
+                                    continue
+                                seen.add(path)
+                                try:
+                                    evidence = json.loads(path.read_text())
+                                    address = evidence["entry"]
+                                    if address not in expected_entries:
+                                        raise ValueError(f"unexpected function address {address}")
+                                    artifact = self.store.put(path.read_bytes())
+                                    pointer = cache_dir / (address.replace(":", "_") + ".json")
+                                    temporary = pointer.with_suffix(".tmp")
+                                    temporary.write_text(json.dumps({"artifact": artifact}) + "\n")
+                                    os.replace(temporary, pointer)
+                                    self._emit(campaign, "function_exported", address=address,
+                                               artifact=artifact, status=evidence["status"])
+                                except Exception as error:
+                                    self._emit(campaign, "function_failed", error=str(error),
+                                               output=str(path))
+                            if process.poll() is not None:
+                                break
+                            if time.monotonic() - started > max(self.timeout, len(functions) * 130):
+                                process.terminate()
+                                try:
+                                    process.wait(timeout=5)
+                                except subprocess.TimeoutExpired:
+                                    process.kill()
+                                    process.wait()
+                                bulk_error = "bulk export timed out"
+                                break
+                            time.sleep(0.2)
+                    finally:
+                        if process.poll() is None:
+                            process.terminate()
+                            process.wait()
+                if process.returncode and bulk_error is None:
+                    bulk_error = f"Ghidra exited {process.returncode}; see {log_dir / 'bulk_export.log'}"
+                if not (output_dir / "all_done.json").exists() and bulk_error is None:
+                    bulk_error = "Ghidra bulk exporter did not finish; see bulk_export.log"
+                self._emit(campaign, stage + ("_failed" if bulk_error else "_finished"),
+                           elapsed_seconds=round(time.monotonic() - started, 3),
+                           error=bulk_error)
         results = []
-        for item in index["functions"]:
+        for item in functions:
             address = item["entry"]
             try:
-                evidence = self.function(manifest, address)
-                pointer = Path(manifest["project"]) / "functions" / (address.replace(":", "_") + ".json")
+                pointer = cache_dir / (address.replace(":", "_") + ".json")
+                artifact = json.loads(pointer.read_text())["artifact"]
+                evidence = json.loads(self.store.get(artifact))
                 results.append({"entry": address, "name": item["name"],
                                 "status": evidence["status"],
-                                "artifact": json.loads(pointer.read_text())["artifact"]})
+                                "artifact": artifact})
             except Exception as error:
                 results.append({"entry": address, "name": item["name"],
-                                "status": "error", "error": str(error)})
+                                "status": "error", "error": bulk_error or str(error)})
                 self._emit(manifest["campaign"], "function_failed", address=address,
                            error=str(error))
         counts = {status: sum(r["status"] == status for r in results)
@@ -180,8 +251,10 @@ class GhidraAnalysis:
         inventory = {"schema": SCHEMA, "campaign": manifest["campaign"],
                      "index_artifact": manifest["index_artifact"],
                      "functions": results, "counts": counts,
-                     "complete": counts.get("error", 0) == 0 and
-                     counts.get("missing", 0) == 0}
+                     "complete": bulk_error is None and len(results) == len(functions) and
+                     all(item["status"] in {"ok", "external"} for item in results)}
+        if bulk_error:
+            inventory["bulk_error"] = bulk_error
         artifact = self.store.put(json.dumps(inventory, sort_keys=True).encode())
         self._emit(manifest["campaign"], "export_finished", artifact=artifact,
                    counts=counts, complete=inventory["complete"])

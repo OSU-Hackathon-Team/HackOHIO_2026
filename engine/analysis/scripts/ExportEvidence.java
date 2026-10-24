@@ -15,6 +15,9 @@ import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.Symbol;
 
 import java.io.FileWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -94,7 +97,8 @@ public class ExportEvidence extends GhidraScript {
         output.put("omissions", List.of("indirect call targets and non-function data dependencies may be unresolved"));
     }
 
-    private void runFunction(Map<String, Object> output, String entry) throws Exception {
+    private void runFunction(Map<String, Object> output, String entry,
+                             DecompInterface decompiler) throws Exception {
         Address address = currentProgram.getAddressFactory().getAddress(entry);
         Function function = address == null ? null : currentProgram.getFunctionManager().getFunctionAt(address);
         if (function == null) {
@@ -124,25 +128,45 @@ public class ExportEvidence extends GhidraScript {
             output.put("decompilation", null);
             return;
         }
-        DecompInterface decompiler = new DecompInterface();
-        try {
-            decompiler.toggleCCode(true);
-            if (!decompiler.openProgram(currentProgram)) {
-                output.put("status", "error");
-                output.put("error", "decompiler failed to open program");
-                return;
-            }
-            DecompileResults result = decompiler.decompileFunction(function, 120, monitor);
-            if (!result.decompileCompleted() || result.getDecompiledFunction() == null) {
-                output.put("status", "error");
-                output.put("error", result.getErrorMessage());
-                return;
-            }
-            output.put("status", "ok");
-            output.put("decompilation", result.getDecompiledFunction().getC());
-        } finally {
-            decompiler.dispose();
+        DecompileResults result = decompiler.decompileFunction(function, 120, monitor);
+        if (!result.decompileCompleted() || result.getDecompiledFunction() == null) {
+            output.put("status", "error");
+            output.put("error", result.getErrorMessage());
+            return;
         }
+        output.put("status", "ok");
+        output.put("decompilation", result.getDecompiledFunction().getC());
+    }
+
+    private void writeAtomic(Path destination, Map<String, Object> value) throws Exception {
+        Path temporary = destination.resolveSibling(destination.getFileName() + ".tmp");
+        try (FileWriter writer = new FileWriter(temporary.toFile())) {
+            new Gson().toJson(value, writer);
+        }
+        Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE,
+                   StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    private void runAll(String outputDirectory, DecompInterface decompiler) throws Exception {
+        Path directory = Path.of(outputDirectory);
+        Files.createDirectories(directory);
+        FunctionIterator iterator = currentProgram.getFunctionManager().getFunctions(true);
+        int count = 0;
+        while (iterator.hasNext()) {
+            monitor.checkCancelled();
+            Function function = iterator.next();
+            Map<String, Object> output = record("schema", 1);
+            try {
+                runFunction(output, addr(function.getEntryPoint()), decompiler);
+            } catch (Exception error) {
+                output.put("entry", addr(function.getEntryPoint()));
+                output.put("status", "error");
+                output.put("error", error.toString());
+            }
+            writeAtomic(directory.resolve(String.format("%08d.json", count)), output);
+            count++;
+        }
+        writeAtomic(directory.resolve("all_done.json"), record("schema", 1, "count", count));
     }
 
     @Override
@@ -154,8 +178,25 @@ public class ExportEvidence extends GhidraScript {
         Map<String, Object> output = record("schema", 1);
         if (args[1].equals("index")) {
             runIndex(output);
-        } else if (args[1].equals("function") && args.length == 3) {
-            runFunction(output, args[2]);
+        } else if (args[1].equals("function") || args[1].equals("all")) {
+            DecompInterface decompiler = new DecompInterface();
+            try {
+                decompiler.toggleCCode(true);
+                if (!decompiler.openProgram(currentProgram)) {
+                    throw new IllegalStateException("decompiler failed to open program");
+                }
+                if (args[1].equals("all") && args.length == 2) {
+                    runAll(args[0], decompiler);
+                    return;
+                }
+                if (args[1].equals("function") && args.length == 3) {
+                    runFunction(output, args[2], decompiler);
+                } else {
+                    throw new IllegalArgumentException("invalid function export arguments");
+                }
+            } finally {
+                decompiler.dispose();
+            }
         } else {
             throw new IllegalArgumentException("unknown export mode");
         }

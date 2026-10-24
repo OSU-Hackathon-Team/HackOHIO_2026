@@ -18,13 +18,14 @@ python launch.py function --manifest decomp-state/projects/<campaign>/manifest.j
 python launch.py export-all --manifest decomp-state/projects/<campaign>/manifest.json
 ```
 
-Each function artifact records its entry address, decompilation status, C rendering, instructions, and references. External functions and decompilation errors have explicit statuses. `export-all` returns a coverage inventory and a `complete` flag only when every indexed function has an accounted-for result. `decomp-state/progress.jsonl` contains append-only JSON events for a future job API/UI; `launch.py status` summarizes them. All artifacts are SHA-256 addressed under `decomp-state/artifacts/`. This is static evidence, not a validated behavioral dossier.
+Each function artifact records its entry address, decompilation status, C rendering, instructions, and references. External functions and decompilation errors have explicit statuses. `export-all` keeps one Ghidra decompiler context open for the full indexed program and returns a coverage inventory. Its `complete` flag means every *discovered* function exported successfully; it does not mean all behavior has been discovered or validated. `decomp-state/progress.jsonl` contains append-only JSON events, including each completed function, for a future job API/UI; `launch.py status` summarizes them. All artifacts are SHA-256 addressed under `decomp-state/artifacts/`. This is static evidence, not a validated behavioral dossier.
 
 Build source-known stripped executable and shared-library fixtures at `-O0` and `-O2`, then execute held-out cases against the original code:
 
 ```sh
 python scripts/build_decomp_fixtures.py
 python scripts/probe_decomp_fixtures.py
+python scripts/check_decomp_export.py
 ```
 
 The generated manifest, debug companions, and probe report stay in ignored `decomp-state/fixtures/`. Analysis workers should receive only the stripped `analysis_path` entries. The source and debug companions are evaluator material.
