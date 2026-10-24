@@ -83,8 +83,9 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   manifests, ELF dependency edges, and static candidate import/function links;
   project export aggregates every discovered function with explicit failures and code gaps.
   Project scopes now seed bounded module scopes across candidate call links while keeping
-  bindings unresolved. Project queue commands register their module tasks and report selected
-  work across module campaigns. Cross-module contract resolution and aggregate dossiers remain planned.
+  bindings unresolved. Project queue commands register their module tasks, drain semantic work
+  through a shared pool, and report selected work across module campaigns. Cross-module
+  contract resolution and aggregate dossiers remain planned.
   The telemetry root caller binds all 18 direct calls to active helper contracts and is
   accepted as `static_only`. The latest 21-function dossier has 38/38 statically
   supported claims, 18 current caller dependencies, and 15 distinct agreeing

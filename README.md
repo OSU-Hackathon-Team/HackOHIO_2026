@@ -16,6 +16,8 @@ python launch.py project-export-all --project-artifact <project-inventory-sha256
 python launch.py project-scope --project-artifact <project-inventory-sha256> \
   --request /path/to/project-scope.json
 python launch.py project-queue-init --project-scope-artifact <project-scope-sha256>
+python launch.py project-queue-drain --project-scope-artifact <project-scope-sha256> \
+  --workers 16
 python launch.py project-queue-status --project-scope-artifact <project-scope-sha256>
 python launch.py status --campaign <project-id>
 python scripts/check_decomp_intake.py
@@ -25,7 +27,7 @@ The pointer at `decomp-state/intakes/<project-id>/manifest.json` names an immuta
 
 For a bounded cross-module question, use a project scope request such as `{"mode":"subsystem","query":"adjust from executable","seeds":[{"module":"app","seed":"00101050"}],"max_functions_per_module":32,"max_depth":2}`. `project-scope` creates a normal scope artifact for each reached module and adds uniquely matched imported functions as *questions for analysis*. Its project artifact lists module scope IDs, task counts, static cross-module candidates, unverified bindings, unmatched imports, and unexplored modules. Use `{"mode":"project","query":"whole project","max_functions_per_module":100}` to inventory every supplied module, subject to the stated per-module limit. The project scope stays `partial`; candidate links do not turn into accepted dependency contracts. Queue and dossier commands still operate on the emitted module scope artifacts, and the current spec generator consumes their module dossiers separately. Those dossiers report unresolved cross-module bindings as blockers in the spec handoff.
 
-`project-queue-init` validates the project and module scope identities, applies the PostgreSQL migrations, registers each reached module campaign, and enqueues its behavior tasks. Repeating it reuses deduplicated tasks. `project-queue-status` shows task states for this project's selected work separately from each module campaign's full queue; tasks shared with another scope are counted as shared. Both commands need `--dsn` or `DECOMP_DATABASE_URL`. Run module workers and reviewers using the emitted module campaign and manifest identities. Check the queue integration with `python scripts/check_decomp_project_queue.py`.
+`project-queue-init` validates the project and module scope identities, applies the PostgreSQL migrations, registers each reached module campaign, and enqueues its behavior tasks. Repeating it reuses deduplicated tasks. `project-queue-drain` validates the saved module baselines, exports their indexed functions, then runs only this scope's leased semantic tasks across the reached modules under the shared reasoning pool capacity. `project-queue-status` shows task states for this project's selected work separately from each module campaign's full queue; tasks shared with another scope are counted as shared. These commands need `--dsn` or `DECOMP_DATABASE_URL`. Independent review and dossier assembly still run per module. Check the queue integration with `python scripts/check_decomp_project_queue.py`.
 
 ## Native evidence export
 

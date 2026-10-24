@@ -10,9 +10,11 @@ from engine.worker import SemanticWorker
 
 def run_one(queue: DurableQueue, worker: SemanticWorker, manifest: dict,
             worker_id: str, *, lease_seconds: int = 60,
-            model: str | None = None, model_role: str = "decomp_worker") -> dict:
+            model: str | None = None, model_role: str = "decomp_worker",
+            allowed_keys: list[str] | None = None) -> dict:
     lease = queue.lease(worker_id, campaign=manifest["campaign"],
-                        lease_seconds=lease_seconds)
+                        lease_seconds=lease_seconds,
+                        deduplication_keys=allowed_keys)
     if lease is None:
         return {"state": "idle"}
     if lease["campaign"] != manifest["campaign"]:

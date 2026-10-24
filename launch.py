@@ -152,11 +152,23 @@ def main() -> None:
     for name, help_text in (
         ("project-queue-init", "register and enqueue every module in a project scope"),
         ("project-queue-status", "show durable progress across project scope modules"),
+        ("project-queue-drain", "run leased semantic tasks across project modules"),
     ):
         command = sub.add_parser(name, help=help_text)
         command.add_argument("--project-scope-artifact", required=True)
         command.add_argument("--state", type=Path, default=ENGINE_STATE)
         command.add_argument("--dsn", default=os.environ.get("DECOMP_DATABASE_URL"))
+        if name == "project-queue-drain":
+            command.add_argument("--workers", type=int, default=4)
+            command.add_argument("--max-tasks", type=int)
+            command.add_argument("--worker-prefix", default="decomp-project-worker")
+            command.add_argument("--lease-seconds", type=int, default=60)
+            command.add_argument("--timeout", type=int, default=180)
+            command.add_argument("--model-role", default="decomp_worker")
+            command.add_argument("--model")
+            command.add_argument("--opencode", type=Path,
+                                 default=Path(os.environ.get(
+                                     "OPENCODE_BIN", "/home/mitch/.opencode/bin/opencode")))
     function = sub.add_parser("function", help="export one indexed function's decompiler evidence")
     function.add_argument("--manifest", type=Path, required=True)
     function.add_argument("--address", required=True)
@@ -362,17 +374,75 @@ def main() -> None:
             "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
         print(json.dumps(persist_project_scope(
             engine, args.project_artifact, json.loads(args.request.read_text())), indent=2))
-    elif args.command in {"project-queue-init", "project-queue-status"}:
+    elif args.command in {"project-queue-init", "project-queue-status",
+                          "project-queue-drain"}:
         from engine.artifacts import LocalArtifactStore
-        from engine.project_queue import enqueue_project_scope, project_queue_status
+        from engine.project_queue import (enqueue_project_scope, project_manifests,
+                                          project_queue_status)
         from engine.queue import DurableQueue
 
         if not args.dsn:
             parser.error("project queue commands require --dsn or DECOMP_DATABASE_URL")
         queue = DurableQueue(args.dsn, LocalArtifactStore(args.state / "artifacts"))
-        action = (enqueue_project_scope if args.command == "project-queue-init"
-                  else project_queue_status)
-        print(json.dumps(action(queue, args.project_scope_artifact), indent=2))
+        if args.command == "project-queue-drain":
+            from engine.queue_runner import run_one as run_queued_one
+
+            if not 1 <= args.workers <= 32 or (args.max_tasks is not None and
+                                                 args.max_tasks < 1):
+                parser.error("project-queue-drain needs 1..32 workers and positive max-tasks")
+            if args.lease_seconds < 1:
+                parser.error("project-queue-drain needs a positive lease")
+            modules = project_manifests(queue, args.project_scope_artifact, args.state)
+            engine = GhidraAnalysis(args.state, Path(os.environ.get(
+                "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+            exports = {module["module_id"]: engine.export_all(manifest)["counts"]
+                       for module, manifest in modules}
+            lock = threading.Lock()
+            reserved = 0
+
+            def project_worker(number: int) -> list[dict]:
+                nonlocal reserved
+                semantic = SemanticWorker(engine, args.opencode, timeout=args.timeout)
+                completed = []
+                turn = 0
+                while True:
+                    with lock:
+                        if args.max_tasks is not None and reserved >= args.max_tasks:
+                            return completed
+                        reserved += 1
+                    selected = None
+                    for offset in range(len(modules)):
+                        module, manifest = modules[(number + turn + offset) % len(modules)]
+                        outcome = run_queued_one(
+                            queue, semantic, manifest, f"{args.worker_prefix}-{number}",
+                            lease_seconds=args.lease_seconds,
+                            model=args.model, model_role=args.model_role,
+                            allowed_keys=module["task_keys"])
+                        if outcome["state"] != "idle":
+                            selected = {"module_id": module["module_id"], **outcome}
+                            break
+                    if selected is None:
+                        with lock:
+                            reserved -= 1
+                        return completed
+                    completed.append(selected)
+                    turn += 1
+                    print(json.dumps({"project_queue_progress": selected}), flush=True)
+
+            with ThreadPoolExecutor(max_workers=args.workers) as executor:
+                futures = [executor.submit(project_worker, i) for i in range(args.workers)]
+                completed = [item for future in futures for item in future.result()]
+            result = {"workers": args.workers, "completed_attempts": len(completed),
+                      "outcomes": {state: sum(item["state"] == state for item in completed)
+                                   for state in sorted({item["state"] for item in completed})},
+                      "exported_functions": exports,
+                      "project_queue": project_queue_status(
+                          queue, args.project_scope_artifact)}
+            print(json.dumps(result, indent=2))
+        else:
+            action = (enqueue_project_scope if args.command == "project-queue-init"
+                      else project_queue_status)
+            print(json.dumps(action(queue, args.project_scope_artifact), indent=2))
     elif args.command == "function":
         engine = GhidraAnalysis(args.state, args.headless)
         manifest = json.loads(args.manifest.read_text())

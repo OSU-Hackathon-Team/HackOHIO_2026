@@ -15,7 +15,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from engine.artifacts import LocalArtifactStore  # noqa: E402
-from engine.project_queue import enqueue_project_scope, project_queue_status  # noqa: E402
+from engine.project_queue import (enqueue_project_scope, project_manifests,  # noqa: E402
+                                  project_queue_status)
 from engine.queue import DurableQueue  # noqa: E402
 
 
@@ -43,7 +44,18 @@ def main() -> None:
                             "binary_sha256": "2" * 64}]
                 for module in modules:
                     module["index_artifact"] = put(store, {"schema": 1,
-                                                            "module": module["id"]})
+                                                            "module": module["id"],
+                                                            "functions": []})
+                    baseline = Path(temporary) / "projects" / module["analysis_campaign"]
+                    baseline.mkdir(parents=True)
+                    (baseline / "baseline.gpr").write_text("fixture\n")
+                    (baseline / "baseline.rep").mkdir()
+                    module["analysis_manifest"] = str(baseline / "manifest.json")
+                    (baseline / "manifest.json").write_text(json.dumps({
+                        "campaign": module["analysis_campaign"],
+                        "binary_sha256": module["binary_sha256"],
+                        "index_artifact": module["index_artifact"],
+                        "project": str(baseline)}) + "\n")
                 project_artifact = put(store, {"schema": 2, "project_id": project_id,
                                                "modules": modules})
                 entries = []
@@ -79,6 +91,13 @@ def main() -> None:
                 else:
                     raise AssertionError("mutated project scope was accepted")
                 artifact = put(store, project_scope)
+                assert len(project_manifests(queue, artifact, Path(temporary))) == 2
+                try:
+                    project_manifests(queue, artifact, Path(temporary) / "other")
+                except ValueError as error:
+                    assert "manifest path changed" in str(error)
+                else:
+                    raise AssertionError("wrong analysis root was accepted")
                 first = enqueue_project_scope(queue, artifact)
                 second = enqueue_project_scope(queue, artifact)
                 assert first["enqueued"] == 2 and second["enqueued"] == 0
@@ -111,10 +130,30 @@ def main() -> None:
                     "--project-scope-artifact", artifact, "--state", temporary,
                     "--dsn", dsn], text=True)
                 assert json.loads(cli)["modules"][0]["scope_tasks"]["present"] == 1
+                extra_scope = put(store, {"campaign": modules[0]["analysis_campaign"],
+                                          "scope_id": "9" * 64,
+                                          "tasks": [{"kind": "behavior",
+                                                     "subject": "00009000",
+                                                     "question": "Unrelated work",
+                                                     "deduplication_key": "8" * 64,
+                                                     "priority": 99,
+                                                     "index_artifact":
+                                                         modules[0]["index_artifact"]}]})
+                assert len(queue.enqueue_scope(extra_scope)) == 1
                 for module in modules:
+                    entry = next(item for item in entries
+                                 if item["campaign"] == module["analysis_campaign"])
+                    task_key = json.loads(store.get(entry["scope_artifact"]))[
+                        "tasks"][0]["deduplication_key"]
                     lease = queue.lease(f"check-{module['id']}",
-                                        campaign=module["analysis_campaign"])
+                                        campaign=module["analysis_campaign"],
+                                        deduplication_keys=[task_key])
                     assert lease and lease["campaign"] == module["analysis_campaign"]
+                drained = subprocess.check_output([
+                    sys.executable, str(ROOT / "launch.py"), "project-queue-drain",
+                    "--project-scope-artifact", artifact, "--state", temporary,
+                    "--dsn", dsn, "--workers", "2", "--max-tasks", "1"], text=True)
+                assert json.loads(drained)["completed_attempts"] == 0
                 print(json.dumps({"project_id": project_id,
                                   "enqueued": first["enqueued"],
                                   "modules": len(status["modules"])}))

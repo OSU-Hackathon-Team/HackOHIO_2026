@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import re
 
 from engine.queue import DurableQueue
@@ -65,10 +66,14 @@ def enqueue_project_scope(queue: DurableQueue, project_scope_artifact: str) -> d
     result = []
     for module in modules:
         queue.create_campaign(module["campaign"], module["binary_sha256"])
+        revised = queue.audit_accepted_dependencies(module["campaign"])
+        reviews = queue.enqueue_pending_reviews(module["campaign"])
         inserted = queue.enqueue_scope(module["scope_artifact"])
         result.append({**{key: value for key, value in module.items()
                           if key != "task_keys"},
-                       "enqueued": len(inserted), "task_ids": inserted})
+                       "enqueued": len(inserted), "task_ids": inserted,
+                       "revised_legacy_acceptances": revised,
+                       "queued_reviews": reviews})
     return {"project_id": scope["project_id"], "project_scope_id": scope["scope_id"],
             "project_scope_artifact": project_scope_artifact,
             "modules": result, "enqueued": sum(item["enqueued"] for item in result),
@@ -110,3 +115,28 @@ def project_queue_status(queue: DurableQueue, project_scope_artifact: str) -> di
             "modules": result, "planned_tasks": sum(item["tasks"] for item in result),
             "unresolved": len(scope["unresolved"]),
             "unexplored_modules": scope["unexplored_modules"]}
+
+
+def project_manifests(queue: DurableQueue, project_scope_artifact: str,
+                      state: Path) -> list[tuple[dict, dict]]:
+    """Resolve project modules to their unchanged analyzed baselines for workers."""
+    scope, modules = _project_modules(queue, project_scope_artifact)
+    project = json.loads(queue.store.get(scope["project_artifact"]))
+    sources = {item["id"]: item for item in project["modules"]}
+    result = []
+    for module in modules:
+        source = sources[module["module_id"]]
+        expected = (Path(state).resolve() / "projects" / module["campaign"]).resolve()
+        manifest_path = Path(source["analysis_manifest"]).resolve()
+        if manifest_path != expected / "manifest.json":
+            raise ValueError(f"module manifest path changed for {module['module_id']}")
+        manifest = json.loads(manifest_path.read_text())
+        if (manifest.get("campaign") != module["campaign"] or
+                manifest.get("binary_sha256") != module["binary_sha256"] or
+                manifest.get("index_artifact") != source["index_artifact"] or
+                Path(manifest.get("project", "")).resolve() != expected or
+                not (expected / "baseline.gpr").exists() or
+                not (expected / "baseline.rep").is_dir()):
+            raise ValueError(f"module analysis identity changed for {module['module_id']}")
+        result.append((module, manifest))
+    return result
