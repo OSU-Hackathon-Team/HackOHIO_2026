@@ -43,7 +43,7 @@ export class ReaMcpManager {
 
     this.client = new Client(
       { name: "splice-orchestrator", version: "1.0.0" },
-      { capabilities: { tools: {} } }
+      { capabilities: {} }
     );
 
     await this.client.connect(this.transport);
