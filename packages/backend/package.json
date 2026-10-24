@@ -5,8 +5,22 @@
   "main": "dist/server.js",
   "scripts": {
     "build": "tsc",
-    "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js"
+    "dev": "tsx watch --clear-screen=false src/server.ts",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "rea:catalog": "tsx src/scripts/reaCatalog.ts",
+    "seed:evidence": "tsx src/scripts/makeSeedEvidence.ts",
+    "record:evidence": "tsx src/scripts/recordAll.ts",
+    "fixtures:promote": "tsx src/scripts/promoteFixtures.ts",
+    "test:bridge": "tsx src/scripts/testBridge.ts",
+    "test:collector": "tsx src/scripts/testCollector.ts",
+    "test:llm": "tsx src/scripts/testLlm.ts",
+    "test:sandbox": "tsx src/scripts/testSandbox.ts",
+    "test:spec": "tsx src/scripts/testSpec.ts",
+    "spec:all": "tsx src/scripts/specAll.ts",
+    "test:implement": "tsx src/scripts/testImplement.ts",
+    "test:synthesis": "tsx src/scripts/testSynthesis.ts",
+    "test:unit": "node --import tsx --test src/**/*.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.6.1",
@@ -23,5 +37,6 @@
     "@types/node": "^20.17.19",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
-  }
+  },
+  "type": "module"
 }
