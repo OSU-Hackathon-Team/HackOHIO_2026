@@ -1,21 +1,8 @@
 # Project map
 
-| Path | Purpose |
-|---|---|
-| `README.md` | Current native-engine commands and behavior |
-| `DecompPileline.md` | Architecture and completion policy |
-| `DECOMP_IMPLEMENTATION_PLAN.md` | Milestones, acceptance gates, active stop boundary |
-| `launch.py` | CLI for analysis, scopes, queues, review, probes, dossiers, rename diagnostic |
-| `engine/analysis/` | Ghidra headless import, index, and evidence export |
-| `engine/artifacts.py`, `engine/models.py`, `engine/citations.py` | Artifacts, records, citations |
-| `engine/scope.py`, `engine/worker.py`, `engine/model_runtime.py` | Scopes and semantic attempts |
-| `engine/queue.py`, `engine/queue_runner.py`, `engine/review_runner.py` | Durable dispatch and review |
-| `engine/findings.py`, `engine/validation/`, `engine/dossier.py` | Claims, checks, dossiers |
-| `migrations/` | PostgreSQL schema changes applied by `queue-init` |
-| `fixtures/decomp/`, `scripts/` | Source-known evaluation inputs and executable checks |
-| `model_config.py`, `models.json` | OpenCode model role resolution |
-| `agent_worker.py`, `worker.Dockerfile`, `compose.yaml` | Rename diagnostic and nested Podman worker |
-| `docs/archive/` | Historical context, not policy |
+Every stub file starts with a header like:
+`// Owner: Eng 2 (Requirements) — spec: agents/2_requirements_extraction/04_sandbox_runner.md §3`.
+Open that section before writing code. It usually contains the complete implementation.
 
 ## Top level
 

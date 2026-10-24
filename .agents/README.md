@@ -1,37 +1,29 @@
-# Agent onboarding: Splice
+# Agent onboarding: Splice (start here)
 
-Splice is a native subsystem decompilation engine in progress. It imports binaries with
-Ghidra, discovers bounded scopes, runs evidence-backed semantic work through a durable
-PostgreSQL queue, independently reviews claims, probes original behavior, and assembles
-versioned dossiers. A dossier is not yet a specification or proof of complete behavior.
+You are working in **Splice**, a HackOHIO 2026 project built by a team of three. Read this file
+first, then whichever of the files below your task needs.
 
-## Read first
+| File | Read it when |
+|---|---|
+| `project-map.md` | You need to find where something lives, or which doc specifies it |
+| `build-and-run.md` | You need to install, build, run, typecheck or test anything |
+| `working-on-a-task.md` | You're about to change code: implementing a stub, changing a contract, git workflow |
+| `gotchas.md` | Before writing REA, Bedrock, SSE, contracts or target-app code. Each entry cost someone time |
 
-1. [Root README](../README.md): current capabilities and CLI commands.
-2. [Architecture](../DecompPileline.md): intended design and completion policy.
-3. [Implementation plan](../DECOMP_IMPLEMENTATION_PLAN.md): milestones and acceptance
-   gates. Its **stop before specification generation** boundary is active.
-4. [Project map](project-map.md), [build and run](build-and-run.md), and
-   [gotchas](gotchas.md): find code and verify changes.
-5. [Git rules](../development_guidelines.md) and [working on a task](working-on-a-task.md).
+## Two tracks in this repo (know which one your task is in)
 
 | Track | Language | Status | Source of truth |
 |---|---|---|---|
 | **Splice app (Electron demo pipeline)** | TypeScript (`packages/`) | Step 3 backend + Studio core implemented; upstream integration pending | `agents/` (README, CONTRACTS, step folders) |
-| **Subsystem decompilation engine** (native binaries, 16+ parallel workers, behavioral dossiers) | Python (`launch.py`, `agent_worker.py`, `model_config.py`; planned `engine/`) | Planned; today only a Ghidra rename-attempt scaffold runs (Docker + Podman) | `DecompPileline.md` (architecture, wins for native work), then `DECOMP_IMPLEMENTATION_PLAN.md` (phases, acceptance gates) |
+| **Subsystem decompilation engine** (native binaries, 16+ parallel workers, behavioral dossiers) | Python (`launch.py`, `engine/`) | Evidence export, bounded scopes, semantic attempts, review, probes, partial dossiers, and a PostgreSQL queue run; readiness and scale gates remain open | `DecompPileline.md` (architecture), `DECOMP_IMPLEMENTATION_PLAN.md` (acceptance gates), root `README.md` (commands) |
 
-## Current state (2026-10-24)
+They meet later: the TypeScript backend will consume the engine's job state and dossiers, after
+an explicit contract migration (`ScopeRequest`, `EvidenceArtifact`, `BehaviorClaim`,
+`SubsystemDossier` in the plan). Until then those records are proposals, not runtime types.
+The Electron demo's limits (fixed REA collector, replay-only native targets, the hour-based cut
+list) do **not** constrain the engine.
 
-- Ghidra import, index, evidence export, scope discovery, and immutable artifacts run.
-- Bounded semantic attempts, structural citation checks, independent static review,
-  original-binary probes, and partial dossiers run on source-known fixtures.
-- PostgreSQL queues semantic and review jobs with leases, retries, fencing, durable events,
-  and bounded worker pools. Findings and helper contracts support versioned publication.
-- Dependency review checks caller-to-callee binding. Unresolved or misbound direct calls
-  remain dossier blockers. A telemetry fixture reached 16 concurrent leases and 21 scoped
-  functions; this does not establish readiness or multi-host throughput.
-- Conflict reconciliation, scale gates, specification generation, and downstream API
-  integration remain open. The rename-attempt diagnostic remains available.
+## What Splice does (30 seconds)
 
 The user picks features from a pantry of desktop apps. The pipeline then runs three steps:
 
@@ -84,8 +76,10 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
 - **Studio core:** typed POST-SSE client, Zustand orchestration, development adapter, pantry, activity terminal, cards/X-Ray, evidence drawer, fusion, and Sandpack preview/code are implemented. Use `?mode=development` or `VITE_API_MODE=mock`. Authored `_seed` fixtures have real local engine checks and unrun original-code oracle; simulated activity is labeled development data. Refinement/auto-fix/export remain next milestone.
 - **Eng 1 helpers landed:** configuration, SSE, archive/REA bridge and collector, record/replay, pantry and schema-shaped health are implemented. Existing Step 1 tests cover these modules; live REA acceptance is separate.
 - **Remaining stubs:** Eng 2 sandbox and requirements extraction. No live pipeline end to end yet; Step 3 deps remain null until the sandbox is available. Its 503 diagnostic now names only the missing sandbox.
-- **Decompilation engine:** planned (no `engine/` package yet). The runnable piece is the
-  Ghidra rename-attempt scaffold (`python launch.py rename|batch` inside Docker).
+- **Decompilation engine:** the `engine/` package runs native evidence export, scopes,
+  semantic attempts, independent review, probes, partial dossiers, and a durable queue.
+  Conflict reconciliation, scale gates, specification generation, and downstream app
+  integration remain open; see the root `README.md` for commands.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
   `trace_application_feature` and `binary_session` (live probe; catalog and samples in `fixtures/rea/`),

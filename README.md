@@ -1,6 +1,6 @@
 # Splice native decompilation engine
 
-**Architecture:** [DecompPileline.md](DecompPileline.md) defines the subsystem-oriented engine for 16+ workers. [DECOMP_IMPLEMENTATION_PLAN.md](DECOMP_IMPLEMENTATION_PLAN.md) lists the implementation phases and acceptance gates. Evidence export, bounded scopes, semantic attempts, static review, original probes, partial dossiers, and a PostgreSQL task queue are implemented. The full subsystem pipeline and its acceptance gates remain in progress. The commands below also retain the rename diagnostic. The earlier Electron/REA demo scaffold has been retired; `fixtures/decomp/` contains the active evaluation targets.
+**Architecture:** [DecompPileline.md](DecompPileline.md) defines the subsystem-oriented engine for 16+ workers. [DECOMP_IMPLEMENTATION_PLAN.md](DECOMP_IMPLEMENTATION_PLAN.md) lists the implementation phases and acceptance gates. Evidence export, bounded scopes, semantic attempts, static review, original probes, partial dossiers, and a PostgreSQL task queue are implemented. The full subsystem pipeline and its acceptance gates remain in progress. The commands below also retain the rename diagnostic. The TypeScript app remains under `packages/`; `fixtures/decomp/` contains native evaluation targets.
 
 ## Native evidence export
 
