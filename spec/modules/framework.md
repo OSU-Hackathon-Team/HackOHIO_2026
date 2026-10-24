@@ -1,6 +1,6 @@
 # Module Specification: Application Framework & Document Shell
 
-> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No `sfx2`, `framework`, `cui`, `desktop` sources (e.g. `sfx2/source/control/dispatch.cxx`, `framework/source/layoutmanager/layoutmanager.cxx`, `desktop/source/app/app.cxx`) exist here. All `SfxObjectShell`/`SfxDispatcher`/`LayoutManager` definitions, slot-routing/docking pseudocode, `--headless`/`--convert-to` startup claims, and recovery behaviors below are **UNVERIFIED**.
+> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** `sfx2/source/control/dispatch.cxx` exists with `SfxDispatcher_Impl { SfxShellStack_Impl aStack; ... }`, `SfxDispatcher::Push/Pop/Flush/IsActive` — supports shell-stack routing; `desktop/source/app/app.cxx` exists (includes `cmdlineargs.hxx`, `lockfile.hxx`, `officeipcthread.hxx`, `framework/desktop.hxx`, `theAutoRecovery`, `Office/Recovery` — supports startup/lockfile/IPC/crash-recovery claims at existence level); `cui`, `desktop` dirs verified via trees API. **Still UNVERIFIED in this pass:** `SfxObjectShell`/`LayoutManager` field lists, slot invalidation groups, `--headless`/`--convert-to` handling details — `objstor.cxx`, `layoutmanager.cxx` not yet fetched.
 
 ## 1. Overview & Purpose (UNVERIFIED)
 

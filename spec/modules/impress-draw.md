@@ -1,6 +1,6 @@
 # Module Specification: Impress & Draw (Presentations & Graphics)
 
-> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No `sd/`, `slideshow/`, `animations/` or `sdext/source/presenter/` sources (e.g. `sd/source/core/drawdoc.cxx`, `slideshow/source/engine/eventqueue.cxx`) exist here. All `SdDrawDocument`/`SdPage`/`SlideShow`/`AnimationNode` definitions, master-inheritance/tick-scheduling pseudocode, SMIL/presenter-console/transition claims below are **UNVERIFIED**.
+> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** `animations/` dir exists (trees API); `sd/source/core/drawdoc.cxx` exists (HTTP 200, includes `drawdoc.hxx`, `sdpage.hxx`, `com/sun/star/animations/XAnimationNode.hpp`, `customshowlist.hxx` — supports `SdDrawDocument`/slide/animation claims at existence level). **Still UNVERIFIED in this pass:** `slideshow/source/engine/eventqueue.cxx` contents, `SdPage`/`AnimationNode` field lists, SMIL/tick-scheduling pseudocode step order — not yet fetched.
 
 ## 1. Overview & Purpose (UNVERIFIED)
 

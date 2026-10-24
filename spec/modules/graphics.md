@@ -1,6 +1,6 @@
 # Module Specification: Visual Class Library & Graphical Subsystems
 
-> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No `vcl`, `drawinglayer`, `canvas`, `cppcanvas`, `svtools`, `toolkit`, `fpicker` sources (e.g. `vcl/source/app/svapp.cxx`, `vcl/skia/gdiimpl.cxx`, `drawinglayer/source/processor2d/baseprocessor2d.cxx`) exist here. All `OutputDevice`/`VclWindow`/`BasePrimitive2D` definitions, event-loop/repaint/decomposition pseudocode, MapMode claims, and Skia/GPU-fallback claims below are **UNVERIFIED**.
+> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** `vcl/source/app/svapp.cxx` exists (Application event loop, includes `comphelper/solarmutex.hxx`, `vcl/svapp.hxx`, timers/scheduler) — supports VCL event-loop + SolarMutex-via-comphelper claims; `canvas`, `cppcanvas` dirs verified via trees API. **Still UNVERIFIED in this pass:** `OutputDevice`/`VclWindow`/`BasePrimitive2D` field lists, `MapMode`/Twips decomposition pseudocode, Skia GPU-blacklist/fallback details — `outdev.cxx`, `window.cxx`, `baseprocessor2d.cxx` not yet fetched.
 
 ## 1. Overview & Purpose (UNVERIFIED)
 

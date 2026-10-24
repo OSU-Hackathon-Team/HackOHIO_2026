@@ -1,6 +1,6 @@
 # Module Specification: Calc (Spreadsheet)
 
-> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No `sc/` or `formula/` sources (e.g. `sc/source/core/data/document.cxx`, `sc/source/core/tool/compiler.cxx`, `sc/source/core/tool/interpre.cxx`) exist here. All `ScDocument`/`ScTable`/`ScColumn`/`ScFormulaCell`/`mdds` definitions, RPN/dirty-propagation pseudocode, sheet/column/row limits (e.g. 10,000 sheets; 16,384 columns), OpenCL/SIMD, error-code (522/503) and `#REF!` claims below are **UNVERIFIED**.
+> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** `sc/source/core/data/document.cxx` exists and references `document.hxx`, `table.hxx`, `column.hxx`, `formulacell.hxx`, `formulagroup.hxx`, `brdcst.hxx` with `ScDocument::MakeTable`, `maTabs` (`ScTable` per sheet) — supports `ScDocument`/`ScTable`/broadcaster claims. **Still UNVERIFIED in this pass:** `sc/source/core/tool/compiler.cxx`/`interpre.cxx` contents, `mdds` block types, RPN opcodes (`ocAdd`, `ocSUM`), 10,000-sheet / 16,384-col / 16M-row limits, OpenCL/SIMD grouping, error codes 522/503 — formula/dirty-propagation sources not yet fetched.
 
 ## 1. Overview & Purpose (UNVERIFIED)
 

@@ -1,6 +1,6 @@
 # Module Specification: Shared Document & Formatting Engines
 
-> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No `editeng`, `svx`, `xmloff`, `oox`, `filter`, `linguistic`, `chart2`, `forms` sources (e.g. `editeng/source/editeng/editeng.cxx`, `xmloff/source/core/xmlimp.cxx`, `filter/source/config/cache/typedetection.cxx`) exist here. All `EditEngine`/`SdrModel`/`TypeDetection` definitions, magic-byte sniffing and ODF-export pseudocode, spell-check/hyphenation and placeholder claims below are **UNVERIFIED**.
+> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** `chart2`, `xmloff` dirs exist (trees/API contents); `sc/.../document.cxx` includes `editeng/*` + `svx/svditer.hxx` (supports editeng/svx as dependencies); `sd/.../drawdoc.cxx` includes `xmloff/SoundReference.hxx` (supports xmloff integration). **Still UNVERIFIED in this pass:** `editeng/.../editeng.cxx`, `xmloff/source/core/xmlimp.cxx`, `filter/.../typedetection.cxx` contents, magic-byte/sniffing order, ODF export order, Hunspell/Libhyphen wiring — not yet fetched.
 
 ## 1. Overview & Purpose (UNVERIFIED)
 

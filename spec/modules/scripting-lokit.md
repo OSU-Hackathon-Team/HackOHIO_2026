@@ -1,6 +1,6 @@
 # Module Specification: Scripting & Headless Embedding Subsystems
 
-> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No `basic/`, `basctl/`, `vbahelper/`, `oovbaapi/`, `pyuno/`, `scripting/`, `libreofficekit/` sources (e.g. `basic/source/comp/parser.cxx`, `pyuno/source/module/pyuno_runtime.cxx`, `libreofficekit/source/gtk/lokdocview.c`) exist here. All P-code/LOKit-tile/PyUNO claims, `paintTile`/`postMouseEvent`/`createView` signatures, rendering-pipeline/conversion pseudocode, and callback names below are **UNVERIFIED**.
+> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** `basic`, `basctl`, `libreofficekit` dirs exist; `basic/source/comp/parser.cxx` exists (HTTP 200, `SbiParser`, `StmntTable` with `SUB/FUNCTION/IF/FOR/SELECT` — supports StarBasic parser claims); `libreofficekit/` has `Library_libreofficekitgtk.mk`, tiled-rendering tests (supports LOKit existence). **Still UNVERIFIED in this pass:** `pyuno/.../pyuno_runtime.cxx`, `libreofficekit/source/gtk/lokdocview.c` exact signatures, P-code opcodes, `LOK_CALLBACK_INVALIDATE_TILES` — not yet fetched.
 
 ## 1. Overview & Purpose (UNVERIFIED)
 

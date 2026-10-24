@@ -1,6 +1,6 @@
 # LibreOffice System Architecture
 
-> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No LibreOffice source directories (`sal`, `sw`, `sc`, `sd`, `sfx2`, `vcl`, etc.) exist in this repository (197 tracked files, Splice/HackOHIO project). All module names, class names (`SwDoc`, `ScDocument`, `SdDrawDocument`, `SfxObjectShell`, `SfxDispatcher`, etc.), layer claims, UNO behavioral claims, command URIs, lifecycle claims, and pseudocode below are **UNVERIFIED**. Checked representative paths and code_search for `SwDoc|ScDocument|SdDrawDocument|SfxDispatcher` — matches only in `spec/` itself.
+> **Verification Status (2026-10-24, rev.2 — LibreOffice core remote, master).** Local `~/libreoffice-core` absent; verified against `https://github.com/LibreOffice/core`. **Verified:** `sal/`, `sfx2/` (`sfx2/source/control/dispatch.cxx` with `SfxDispatcher`, `SfxShellStack_Impl aStack`, `Push/Pop/Flush`), `sw/` (`sw/source/core/doc/doc.cxx` with `SwDoc::acquire/release`), `vcl/` (`vcl/source/app/svapp.cxx` includes `comphelper/solarmutex.hxx`) exist. **Partially verified:** Document-View-Frame and shell-stack routing concepts match `SfxDispatcher_Impl` structure. **Still UNVERIFIED:** seven-layer strictness, SolarMutex global rules, `.uno:` URI list, full lifecycle diagrams, and pseudocode step-for-step unless cited. See per-section notes.
 
 ## 1. Architectural Overview & Design Philosophy
 

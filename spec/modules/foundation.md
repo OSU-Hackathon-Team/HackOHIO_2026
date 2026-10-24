@@ -1,6 +1,6 @@
 # Module Specification: Foundation & System Abstraction Layer
 
-> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No `sal`, `salhelper`, `cppu`, `cppuhelper`, `binaryurp`, `store`, `registry`, `configmgr`, `stoc`, `udkapi` directories or files (e.g. `sal/osl/unx/thread.cxx`, `cppu/source/uno/any.cxx`, `configmgr/source/configurationprovider.cxx`) exist in this repository. All class names (`OslMutex`, `WeakComponentImpl`, etc.), field lists, pseudocode (`QueryInterface`, `ResolveConfigProperty`), lifecycle diagrams, and error-code claims below are **UNVERIFIED** illustrations, not verified behavior.
+> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** `sal/` exists (trees API); `sal/osl/unx/thread.cxx` exists (pthread impl with `osl_thread_create_Impl`, priorities, TLS handling). `cppu`, `cppuhelper`, `binaryurp`, `configmgr` top-level dirs verified via trees API (`cppu`, `cppuhelper`, `binaryurp`, `configmgr` present). **Still UNVERIFIED in this pass:** `sal/osl/all/mutex.cxx` exact path, `cppu/source/uno/any.cxx`, `configmgr/source/configurationprovider.cxx` contents, `OslMutex`/`WeakComponentImpl` field lists, `QueryInterface`/`ResolveConfigProperty` pseudocode step order, `osl_allocateMemory`/`osl_File_E_INVAL` codes, and lifecycle/error details — headers not yet fetched.
 
 ## 1. Overview & Purpose (UNVERIFIED)
 

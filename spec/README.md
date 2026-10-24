@@ -1,8 +1,8 @@
 # LibreOffice Behavioral Specification
 
-> **Verification Status (2026-10-24): UNVERIFIED against this repository.**
-> This repository (`HackOHIO_2026` / Splice, 197 tracked files) contains no LibreOffice source code.
-> Checked: top-level directories `sal`, `sw`, `sc`, `sd`, `sfx2`, `vcl`, `xmloff`, `oox`, `starmath`, `dbaccess`, `basic`, `pyuno`, `libreofficekit`, `udkapi`, `offapi` — all absent; representative source paths (e.g. `sal/osl/unx/thread.cxx`, `sw/source/core/doc/doc.cxx`, `sc/source/core/data/document.cxx`) — all absent; identifiers `SwDoc`, `ScDocument`, `SdDrawDocument`, `SfxDispatcher`, `B2DHomMatrix` occur only in `spec/` itself, not in implementation code. Per strict-verification rules, **every LibreOffice-specific claim below is UNVERIFIED** and must not be treated as verified. Do not use this spec as evidence for its own correctness.
+> **Verification Status (2026-10-24, rev.2 — against LibreOffice core remote `https://github.com/LibreOffice/core` / `https://git.libreoffice.org/core`, master).**
+> Local `~/libreoffice-core` does **not** exist; audit uses the remote core as source of truth (per user override). Prior rev.1 banners claiming "no LibreOffice source" referred to the Splice project repo and are superseded.
+> **Verified so far:** remote core exists; top-level modules `sal`, `basic`, `basctl`, `basegfx`, `binaryurp`, `canvas`, `chart2`, `comphelper`, `configmgr`, `connectivity`, `cppu`, `cppuhelper`, `cui`, `dbaccess`, `desktop`, `animations`, `avmedia` exist (via `git/trees/master` API); files `sal/osl/unx/thread.cxx` (osl thread impl), `sw/source/core/doc/doc.cxx` (`SwDoc::acquire/release`, `GetUndoManager`, `IDocument*` managers), `sfx2/source/control/dispatch.cxx` (`SfxDispatcher`, `SfxShellStack_Impl`), `vcl/source/app/svapp.cxx` (includes `comphelper/solarmutex.hxx`) exist (HTTP 200 + content checked). **Still UNVERIFIED:** exact file-entry counts, per-module production-file counts, and detailed behavioral/pseudocode claims unless individually cited below. Do not use this spec as evidence for its own correctness.
 
 ## 1. Purpose of the Specification
 

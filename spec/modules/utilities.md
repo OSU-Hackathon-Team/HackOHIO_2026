@@ -1,6 +1,6 @@
 # Module Specification: Core Utilities, Geometry & Internationalization
 
-> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No `basegfx`, `tools`, `comphelper`, `i18npool`, `ucb`, `sax`, `unoxml`, `package`, `sot`, `svl` sources (e.g. `basegfx/matrix/b2dhommatrix.cxx`, `ucb/source/core/ucb.cxx`, `svl/source/items/itempool.cxx`) exist here. All matrix math, `B2DHomMatrix`/`SfxItemPool`/`SfxItemSet` definitions, UCB resolution and copy-on-write pseudocode, break-iterator and ZIP-manifest claims below are **UNVERIFIED**.
+> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** top-level dirs `basegfx`, `comphelper` exist (trees API); `vcl/source/app/svapp.cxx` includes `svl/poolitem.hxx/itemset.hxx/itempool.hxx` (supports `svl` pool claims indirectly). **Still UNVERIFIED in this pass:** `basegfx/matrix/b2dhommatrix.cxx`, `ucb/source/core/ucb.cxx`, `svl/source/items/itempool.cxx` contents, `B2DHomMatrix` 3x3 layout, `SfxItemPool`/`WhichId` mechanics, UCB scheme list, break-iterator and ZIP-manifest fallback details — those sources not yet fetched.
 
 ## 1. Overview & Purpose (UNVERIFIED)
 

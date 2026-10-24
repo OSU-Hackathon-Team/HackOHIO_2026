@@ -1,6 +1,6 @@
 # Module Specification: Writer (Word Processor)
 
-> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No `sw/` or `writerfilter/` sources (e.g. `sw/source/core/doc/doc.cxx`, `sw/source/core/layout/flowfrm.cxx`, `writerfilter/source/dmapper/DomainMapper.cxx`) exist here. All `SwDoc`/`SwNodes`/`SwTextNode`/`SwFrame`/`SwpHintsArray` definitions, flat-array partitioning, paragraph-flow and hint-merging pseudocode, widow/orphan and loop-counter claims below are **UNVERIFIED**.
+> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** `sw/source/core/doc/doc.cxx` exists and defines `SwDoc::acquire/release` (atomic refcount), `GetUndoManager`/`GetIDocumentUndoRedo`, `IDocumentDrawModelAccess/SettingAccess` managers (supports `SwDoc` + `IDocument*` + undo claims). `sw/` module existence verified. **Still UNVERIFIED in this pass:** `sw/source/core/layout/flowfrm.cxx`, `writerfilter/source/dmapper/DomainMapper.cxx` contents, `SwNodes`/`SwpHintsArray` flat-array partitioning, widow/orphan rules, follow-frame and hint-merging pseudocode step order — layout/filter sources not yet fetched.
 
 ## 1. Overview & Purpose (UNVERIFIED)
 

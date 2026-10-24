@@ -1,6 +1,6 @@
 # LibreOffice Subsystem Dependencies & Interactions
 
-> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No `sw`, `sc`, `sd`, `sfx2`, `vcl`, `sal`, `ucb`, `xmloff`, `desktop`, `libreofficekit` modules exist here; linkage types, interaction mechanisms, criticality/fallback claims, UNO discovery sequence, and third-party integration claims below are **UNVERIFIED**. `code_search` for `SwDoc|ScDocument|SfxDispatcher|libreofficekit` finds matches only in `spec/` itself.
+> **Verification Status (2026-10-24, rev.2 — LibreOffice core remote, master).** **Verified:** `sal`, `sfx2` (`SfxDispatcher` stack impl), `sw` (`SwDoc`), `vcl` (`svapp.cxx`), `desktop`, `comphelper`, `configmgr`, `connectivity`, `cppu/cppuhelper`, `binaryurp` top-level dirs exist; `sal/osl/unx/thread.cxx`, `sfx2/source/control/dispatch.cxx`, `sw/source/core/doc/doc.cxx`, `vcl/source/app/svapp.cxx` return HTTP 200. Linkage-type/fallback-severity labels (Fatal/Graceful), UNO discovery step order, and third-party version claims below remain **UNVERIFIED** — build files (`.mk`, `Repository.mk`) and service manifests not yet checked in this pass.
 
 ## 1. Dependency Philosophy & Layering Rules (UNVERIFIED)
 

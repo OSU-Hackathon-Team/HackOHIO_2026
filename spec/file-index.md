@@ -1,6 +1,6 @@
 # LibreOffice Repository File Index & Inventory
 
-> **Verification Status (2026-10-24): UNVERIFIED against this repository — inventory does not match.** This repository has 197 tracked files and no LibreOffice top-level directories (`sal`, `sw`, `sc`, `sd`, `sfx2`, `vcl`, `xmloff`, `oox`, etc. all absent; verified via directory listing). Representative source paths listed below (e.g. `sal/osl/unx/thread.cxx`, `sw/source/core/doc/doc.cxx`, `libreofficekit/source/gtk/lokdocview.c`) were all checked and **do not exist**. All entry counts, production-file counts, role descriptions, file paths, and identifier claims below are **UNVERIFIED** and must not be cited as verified. The `spec/` directory is `spec/`, not `specs/`.
+> **Verification Status (2026-10-24, rev.2 — LibreOffice core remote, master).** Prior rev.1 (Splice repo, 197 files) is superseded. **Verified:** top-level dirs `sal`, `basctl`, `basegfx`, `basic`, `binaryurp`, `canvas`, `chart2`, `comphelper`, `configmgr`, `connectivity`, `cppu`, `cppuhelper`, `cui`, `dbaccess`, `desktop`, `animations`, `avmedia` exist (via `git/trees/master`); files `sal/osl/unx/thread.cxx`, `sw/source/core/doc/doc.cxx`, `sfx2/source/control/dispatch.cxx`, `vcl/source/app/svapp.cxx` exist (HTTP 200). `sw/`, `sfx2/`, `vcl/` existence thus verified; `sc/sd/xmloff/oox/starmath/connectivity/reportdesign/pyuno/libreofficekit` paths not yet individually fetched in this pass — **UNVERIFIED for those rows until checked**. **Still UNVERIFIED:** all numeric counts (149,761 total, per-module totals/production counts) — would require full clone + cloc; do not cite as verified. Note: `spec/` directory is `spec/`, not `specs/`.
 
 ## 1. System-Wide Module Directory Catalog (UNVERIFIED)
 
@@ -59,13 +59,13 @@ The spec claims this inventory accounts for all top-level repository modules and
 
 ---
 
-## 2. Key Production Source File Inventory (UNVERIFIED — none of these paths exist in this repository)
+## 2. Key Production Source File Inventory (partially verified against LO core remote, master)
 
-The following index *claims to* categorize critical production source files. **UNVERIFIED: every path below was checked (`sal/osl/unx/thread.cxx`, `cppu/source/uno/any.cxx`, `sfx2/source/control/dispatch.cxx`, `sw/source/core/doc/doc.cxx`, `sc/source/core/data/document.cxx`, `sd/source/core/drawdoc.cxx`, `starmath/source/parse.cxx`, `basic/source/comp/parser.cxx`, etc.) and none exists in this repository. File responsibilities, function/class names, and spec links are UNVERIFIED:**
+The following index categorizes critical production source files. **Verification (2026-10-24, rev.2): `sal/osl/unx/thread.cxx` VERIFIED (200, pthread impl); `sw/source/core/doc/doc.cxx` VERIFIED (`SwDoc::acquire/release`, undo/IDocument managers); `sfx2/source/control/dispatch.cxx` VERIFIED (`SfxDispatcher_Impl` stack); `vcl/source/app/svapp.cxx` VERIFIED; `sc/source/core/data/document.cxx` VERIFIED (`ScDocument::MakeTable`, `formulacell/group` includes); `basegfx/source/matrix/b2dhommatrix.cxx` VERIFIED (`B2DHomMatrix::invert/rotate/translate`, determinant check) — see corrections below. Remaining paths in this list are UNVERIFIED in this pass until individually fetched. Numeric counts in §1 remain UNVERIFIED.**
 
 ### Foundation & Platform Abstraction Layer
 - `sal/osl/unx/thread.cxx` / `sal/osl/w32/thread.cxx`: Implements OS thread creation, priority mapping, and thread-local storage. -> [modules/foundation.md#2-component-architecture--data-structures](./modules/foundation.md)
-- `sal/osl/all/mutex.cxx`: Implements recursive OS mutex handles and atomic test-and-set guards. -> [modules/foundation.md#2-component-architecture--data-structures](./modules/foundation.md)
+- `sal/osl/all/mutex.cxx` — **INCORRECT PATH (UNVERIFIED as written): `sal/osl/all/` contains `mutexshared.cxx`, not `mutex.cxx` (verified via contents API 2026-10-24). Mutex impl is per-platform (`sal/osl/unx/`, `sal/osl/w32/`). Correct to `sal/osl/all/mutexshared.cxx` for shared bits or platform-specific mutex source. -> [modules/foundation.md#2-component-architecture--data-structures](./modules/foundation.md)
 - `sal/osl/unx/file.cxx` / `sal/osl/w32/file.cxx`: Implements RFC-2396 URI-based native file streaming and directory traversal. -> [modules/foundation.md#2-component-architecture--data-structures](./modules/foundation.md)
 - `cppu/source/uno/any.cxx`: Implements `uno::Any` generic polymorphic type container and reflection metadata binding. -> [modules/foundation.md#3-behavioral-rules--algorithms](./modules/foundation.md)
 - `cppuhelper/source/weak.cxx`: Implements `OWeakObject` intrusive atomic reference counting and weak connection notifications. -> [modules/foundation.md#3-behavioral-rules--algorithms](./modules/foundation.md)
@@ -73,8 +73,8 @@ The following index *claims to* categorize critical production source files. **U
 - `configmgr/source/configurationprovider.cxx`: Implements layered configuration resolution merging schema defaults with user XML profiles. -> [modules/foundation.md#32-configuration-resolution-hierarchy](./modules/foundation.md)
 
 ### Core Utilities, Geometry & Internationalization Layer
-- `basegfx/matrix/b2dhommatrix.cxx`: Implements $3 \times 3$ affine transformation matrix multiplication, rotation, scaling, and inversion. -> [modules/utilities.md#2-component-architecture--data-structures](./modules/utilities.md)
-- `basegfx/polygon/b2dpolygon.cxx`: Implements 2D poly-bezier curve subdivision and polygon clipping routines. -> [modules/utilities.md#2-component-architecture--data-structures](./modules/utilities.md)
+- `basegfx/source/matrix/b2dhommatrix.cxx` — **CORRECTED (was `basegfx/matrix/b2dhommatrix.cxx`, 404): VERIFIED 200 2026-10-24, defines `B2DHomMatrix::rotate/translate/scale/invert/isInvertible`, determinant-zero → `return false`.** Implements 3×3 affine matrix ops. -> [modules/utilities.md#2-component-architecture--data-structures](./modules/utilities.md)
+- `basegfx/source/polygon/b2dpolygon.cxx` — **CORRECTED PATH (was `basegfx/polygon/...`, UNVERIFIED as written; `basegfx/` layout is `source/` + `inc/` per contents API). Existence of polygon source UNVERIFIED in this pass until fetched.** Implements 2D poly-bezier subdivision/clipping (claimed). -> [modules/utilities.md#2-component-architecture--data-structures](./modules/utilities.md)
 - `comphelper/source/property/propertysethelper.cxx`: Implements fast integer-indexed property lookup and change broadcasts for UNO components. -> [modules/utilities.md#1-overview--purpose](./modules/utilities.md)
 - `i18npool/source/breakiterator/breakiterator_unicode.cxx`: Implements Unicode word, sentence, and script boundary analysis using ICU break iterators. -> [modules/utilities.md#4-internationalization-i18n-rules--break-iterator](./modules/utilities.md)
 - `ucb/source/core/ucb.cxx`: Coordinates URL scheme routing and dispatches content commands to registered provider plugins. -> [modules/utilities.md#32-ucb-content-resolution-and-streaming](./modules/utilities.md)

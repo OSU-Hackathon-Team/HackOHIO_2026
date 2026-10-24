@@ -1,6 +1,6 @@
 # Module Specification: Math & Base (Formula Editor & Database Subsystems)
 
-> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No `starmath/`, `dbaccess/`, `connectivity/`, `reportdesign/` sources (e.g. `starmath/source/parse.cxx`, `dbaccess/source/core/dataaccess/Model.cxx`, `connectivity/source/manager/vclman.cxx`) exist here. All `SmNode`/`XConnection`/`XResultSet` definitions, fraction-layout/SDBC-dispatch pseudocode, `.odb`/Firebird lifecycle and `¿`/WAL-recovery claims below are **UNVERIFIED**.
+> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** `connectivity`, `dbaccess` dirs exist (trees API); `starmath/source/parse.cxx` exists (HTTP 200) but is a version factory (`GetVersionSmParser` → `SmParser5`), not the full grammar — spec's "parse.cxx parses equation text" is **oversimplified; correct to parse5/parser harness**. **Still UNVERIFIED in this pass:** `dbaccess/.../Model.cxx`, `connectivity/.../vclman.cxx`, `SmNode` layouts, fraction/SDBC pseudocode, `.odb`/Firebird/WAL details — not yet fetched.
 
 ## 1. Overview & Purpose (UNVERIFIED)
 
