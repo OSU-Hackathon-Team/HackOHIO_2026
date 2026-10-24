@@ -275,6 +275,13 @@ def main() -> None:
                 assert queue.finish_review(shape_task["task_id"], "review-worker",
                                            review_lease["epoch"], shape_review_artifact)
                 assert queue.status(campaign)["reviews"]["completed"] >= 2
+                with queue._connect() as conn:
+                    conn.execute("DELETE FROM decomp_review_jobs WHERE task_id = %s",
+                                 (shape_task["task_id"],))
+                assert queue.status(campaign)["review_jobs_missing"] == 1
+                queue.enqueue_pending_reviews(campaign)
+                assert queue.task(shape_task["task_id"])["review_job"]["state"] == "completed"
+                assert queue.status(campaign)["review_jobs_missing"] == 0
                 malformed = active[4]
                 failed_artifact = put(store, {"state": "failed", "error": "malformed JSON"})
                 assert queue.fail(malformed["task_id"], malformed["worker_id"],
