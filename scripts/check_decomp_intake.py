@@ -14,6 +14,7 @@ from engine.analysis.links import link_modules  # noqa: E402
 from engine.intake import analyze_project  # noqa: E402
 from engine.models import ScopeRequest  # noqa: E402
 from engine.project_export import export_project  # noqa: E402
+from engine.project_scope import persist_project_scope  # noqa: E402
 from engine.scope import persist_scope  # noqa: E402
 
 
@@ -89,6 +90,34 @@ def main() -> None:
         assert exported["unassigned_instructions"] == sum(
             module["static_inventory"]["unassigned_instructions"]
             for module in exported["modules"])
+        app_entries = {item["entry"] for item in indexes["app"]["functions"]
+                       if not item["external"] and not item["thunk"]}
+        caller = next(site["caller"] for site in bound[0]["call_sites"]
+                      if site["caller"] in app_entries)
+        project_request = {"mode": "subsystem", "query": "adjust from executable",
+                           "seeds": [{"module": "app", "seed": caller}],
+                           "max_functions_per_module": 4, "max_depth": 1}
+        project_scope = persist_project_scope(engine, project["artifact"], project_request)
+        assert persist_project_scope(engine, project["artifact"], project_request) == project_scope
+        scope_modules = {item["module_id"]: item for item in project_scope["module_scopes"]}
+        assert set(scope_modules) == {"app", "math"}
+        math_scope = json.loads(engine.store.get(scope_modules["math"]["scope_artifact"]))
+        app_scope = json.loads(engine.store.get(scope_modules["app"]["scope_artifact"]))
+        assert bound[0]["target_entry"] in {item["entry"] for item in math_scope["included"]}
+        assert app_scope["project_context"]["project_scope_id"] == project_scope["scope_id"]
+        assert any(item["kind"] == "cross_module_binding_unverified" and
+                   item["target_entry"] == bound[0]["target_entry"] and item["call_sites"]
+                   for item in app_scope["unresolved"])
+        assert any(item["symbol"] == "project_adjust" and item["target_included"]
+                   for item in project_scope["cross_module_candidates"])
+        assert any(item["kind"] == "cross_module_binding_unverified" and
+                   item["symbol"] == "project_adjust" for item in project_scope["unresolved"])
+        whole = persist_project_scope(engine, project["artifact"],
+                                      {"mode": "project", "query": "entire linked fixture",
+                                       "max_functions_per_module": 100})
+        assert len(whole["module_scopes"]) == 2
+        assert any(json.loads(engine.store.get(item["scope_artifact"]))["unresolved"]
+                   for item in whole["module_scopes"])
         status = subprocess.check_output(
             [sys.executable, str(ROOT / "launch.py"), "status", "--state",
              str(root / "state"), "--campaign", project["project_id"]], text=True)
@@ -98,6 +127,7 @@ def main() -> None:
         assert progress["export"]["state"] == "finished"
         assert progress["export"]["complete_discovered_exports"]
         assert len(progress["export"]["modules"]) == 2
+        assert project_scope["scope_id"] in progress["scopes"]
         assert all(module["state"] == "finished" for module in progress["modules"].values())
         assert all(module["analysis"]["function_count"] > 0 and
                    module["analysis"]["scope_count"] >= 1

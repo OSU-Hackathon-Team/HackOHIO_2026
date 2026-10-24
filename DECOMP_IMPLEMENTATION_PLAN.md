@@ -133,6 +133,8 @@ Depends on M1.
 Deliverables:
 
 - Scope request/revision records and seed ranking.
+- Project requests that generate bounded module scopes and retain candidate cross-module
+  bindings as unresolved questions.
 - Bounded expansion through calls, data, callers, initialization, and callbacks.
 - Behavioral task schema and prompts that require citations, assumptions, and alternatives.
 - Worker output includes contracts and readable pseudocode, with no C compilation gate.

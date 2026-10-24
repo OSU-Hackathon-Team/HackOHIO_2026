@@ -37,9 +37,9 @@ Project intake can group executable and shared-library modules, reuse each modul
 baseline, record declared and ELF `DT_NEEDED` dependencies, and identify static candidate
 links from imported call thunks to functions in supplied modules. A project export aggregates
 all discovered function evidence and preserves per-module failures and code-discovery gaps.
-Semantic scopes and queue
-campaigns still operate on one module at a time; cross-module scope and contract resolution
-remain to be built.
+Project scopes now follow static cross-module candidates into bounded module scopes while
+keeping those bindings unresolved. Semantic queue campaigns and dossiers still operate on one
+module at a time; cross-module contract resolution and aggregate dossiers remain to be built.
 The static index records executable memory and decoded instruction runs outside discovered
 functions. Project scopes retain those runs as unresolved work; a successful export of all
 discovered functions alone does not establish whole-binary code coverage.

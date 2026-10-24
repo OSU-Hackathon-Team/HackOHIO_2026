@@ -27,6 +27,11 @@ def main() -> None:
         scope = {"campaign": campaign, "scope_id": "a" * 64, "revision": 2,
                  "included": [{"entry": "00100000", "name": "count"}],
                  "unresolved": [{"kind": "indirect_call", "site": "00100003"},
+                                {"kind": "cross_module_binding_unverified",
+                                 "from_module": "app", "to_module": "math",
+                                 "symbol": "project_adjust",
+                                 "target_entry": "00101010",
+                                 "target_included": True},
                                 {"kind": "unassigned_executable_instructions",
                                  "instructions": 2, "instruction_bytes": 10,
                                  "regions": [{"start": "00100020", "end": "00100029",
@@ -87,6 +92,8 @@ def main() -> None:
         assert any(b["kind"] == "independent_review_gaps" for b in spec["blockers"])
         assert spec["boundary"]["expected_observables_to_investigate"] == ["counter changes"]
         assert any(edge["kind"] == "unassigned_executable_instructions"
+                   for edge in spec["boundary"]["unresolved_edges"])
+        assert any(edge["kind"] == "cross_module_binding_unverified"
                    for edge in spec["boundary"]["unresolved_edges"])
         assert spec["provenance"]["analysis"]["reviews"][0]["model"] == "independent-reviewer"
         ambiguous = {**dossier, "draft_artifacts": [draft_artifact, "f" * 64],

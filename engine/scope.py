@@ -197,11 +197,18 @@ def discover(index: dict, request: ScopeRequest, campaign: str, index_artifact: 
             "unresolved": unresolved, "tasks": tasks, "readiness": "partial"}
 
 
-def persist_scope(engine: GhidraAnalysis, manifest: dict, request: ScopeRequest) -> dict:
-    scope_id = hashlib.sha256(canonical({"campaign": manifest["campaign"],
-                                         "request": request.as_dict()})).hexdigest()
+def persist_scope(engine: GhidraAnalysis, manifest: dict, request: ScopeRequest, *,
+                  project_context: dict | None = None,
+                  additional_unresolved: tuple[dict, ...] = ()) -> dict:
+    identity = {"campaign": manifest["campaign"], "request": request.as_dict()}
+    if project_context is not None:
+        identity["project_context"] = project_context
+    scope_id = hashlib.sha256(canonical(identity)).hexdigest()
     content = discover(engine.index(manifest), request, manifest["campaign"],
                        manifest["index_artifact"])
+    if project_context is not None:
+        content["project_context"] = project_context
+    content["unresolved"].extend(additional_unresolved)
     content["scope_id"] = scope_id
     folder = engine.root / "scopes" / scope_id
     folder.mkdir(parents=True, exist_ok=True)

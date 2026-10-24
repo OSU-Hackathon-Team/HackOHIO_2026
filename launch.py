@@ -17,6 +17,7 @@ from model_config import available_roles, get_model, resolved_table
 from engine.analysis.ghidra import GhidraAnalysis
 from engine.intake import analyze_project
 from engine.project_export import export_project
+from engine.project_scope import persist_project_scope
 from engine.models import ScopeRequest
 from engine.scope import persist_scope
 from engine.worker import SemanticWorker
@@ -144,6 +145,10 @@ def main() -> None:
     project_export.add_argument("--state", type=Path, default=ENGINE_STATE)
     project_export.add_argument("--headless", type=Path,
                                 default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+    project_scope = sub.add_parser("project-scope", help="discover bounded work across native modules")
+    project_scope.add_argument("--project-artifact", required=True)
+    project_scope.add_argument("--request", type=Path, required=True)
+    project_scope.add_argument("--state", type=Path, default=ENGINE_STATE)
     function = sub.add_parser("function", help="export one indexed function's decompiler evidence")
     function.add_argument("--manifest", type=Path, required=True)
     function.add_argument("--address", required=True)
@@ -344,6 +349,11 @@ def main() -> None:
     elif args.command == "project-export-all":
         engine = GhidraAnalysis(args.state, args.headless)
         print(json.dumps(export_project(engine, args.project_artifact), indent=2))
+    elif args.command == "project-scope":
+        engine = GhidraAnalysis(args.state, Path(os.environ.get(
+            "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+        print(json.dumps(persist_project_scope(
+            engine, args.project_artifact, json.loads(args.request.read_text())), indent=2))
     elif args.command == "function":
         engine = GhidraAnalysis(args.state, args.headless)
         manifest = json.loads(args.manifest.read_text())
@@ -744,6 +754,13 @@ def main() -> None:
                 item.setdefault("project", {"modules": {}}).setdefault(
                     "export", {"modules": {}}).update(
                         {"state": "failed", "error": event["error"]})
+            elif event["stage"] == "project_scope_revised":
+                item.setdefault("project", {"modules": {}}).setdefault("scopes", {})[
+                    event["scope_id"]] = {"revision": event["revision"],
+                                          "artifact": event["artifact"],
+                                          "modules": event["modules"],
+                                          "included": event["included"],
+                                          "unresolved": event["unresolved"]}
             elif event["stage"] == "import_started":
                 baseline["import_attempts"] += 1
             elif event["stage"] == "import_finished":
