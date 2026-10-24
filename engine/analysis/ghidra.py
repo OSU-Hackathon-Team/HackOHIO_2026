@@ -4,7 +4,24 @@ from __future__ import annotations
 
 import atexit
 from contextlib import contextmanager
-import fcntl
+try:
+    import fcntl
+    def _flock_ex(file_obj):
+        fcntl.flock(file_obj, fcntl.LOCK_EX)
+    def _flock_un(file_obj):
+        fcntl.flock(file_obj, fcntl.LOCK_UN)
+except ImportError:
+    try:
+        import msvcrt
+        def _flock_ex(file_obj):
+            file_obj.seek(0)
+            msvcrt.locking(file_obj.fileno(), msvcrt.LK_LOCK, 1)
+        def _flock_un(file_obj):
+            file_obj.seek(0)
+            msvcrt.locking(file_obj.fileno(), msvcrt.LK_UNLCK, 1)
+    except ImportError:
+        def _flock_ex(file_obj): pass
+        def _flock_un(file_obj): pass
 import hashlib
 import json
 import os
@@ -107,11 +124,11 @@ class GhidraAnalysis:
         project_root = self.root / "projects" / campaign
         project_root.mkdir(parents=True, exist_ok=True)
         with (project_root / ".analysis.lock").open("a+b") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+            _flock_ex(lock)
             try:
                 return self._analyze_locked(binary, identity, campaign, project_root, force)
             finally:
-                fcntl.flock(lock, fcntl.LOCK_UN)
+                _flock_un(lock)
 
     def _analyze_locked(self, binary: Path, identity: dict, campaign: str,
                         project_root: Path, force: bool) -> dict:
@@ -177,11 +194,11 @@ class GhidraAnalysis:
     @contextmanager
     def _function_lock(self, cache_dir: Path, key: str):
         with (cache_dir / (key + ".lock")).open("a+b") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
+            _flock_ex(lock)
             try:
                 yield
             finally:
-                fcntl.flock(lock, fcntl.LOCK_UN)
+                _flock_un(lock)
 
     def _publish_function(self, pointer: Path, artifact: str) -> None:
         with tempfile.NamedTemporaryFile(mode="w", dir=pointer.parent, suffix=".tmp",

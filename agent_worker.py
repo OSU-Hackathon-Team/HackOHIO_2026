@@ -92,7 +92,7 @@ def attempt():
         "Use the Ghidra MCP tools in this exact order:\n"
         "1. ghidra_program_open with path=/work/input.bin, read_only=false, "
         "project_location=/work/project, project_name=analysis, program_name=input.bin, "
-        "update_analysis=true. Keep its session_id.\n"
+        "update_analysis=false. Keep its session_id.\n"
         f"2. ghidra_function_at for address={MANIFEST['address']} and that session_id; "
         "also inspect with ghidra_function_report.\n"
         f"3. ghidra_function_rename with function_start={MANIFEST['address']}, "
