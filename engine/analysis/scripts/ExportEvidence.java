@@ -37,11 +37,13 @@ public class ExportEvidence extends GhidraScript {
     }
 
     private Map<String, Object> describe(Function function) {
+        Function target = function.isThunk() ? function.getThunkedFunction(true) : null;
         return record("entry", addr(function.getEntryPoint()),
                       "name", function.getName(),
                       "namespace", function.getParentNamespace().getName(true),
                       "external", function.isExternal(),
                       "thunk", function.isThunk(),
+                      "thunk_target", target == null ? null : addr(target.getEntryPoint()),
                       "body_min", addr(function.getBody().getMinAddress()),
                       "body_max", addr(function.getBody().getMaxAddress()),
                       "signature", function.getSignature().getPrototypeString());
@@ -50,6 +52,8 @@ public class ExportEvidence extends GhidraScript {
     private void runIndex(Map<String, Object> output) throws Exception {
         List<Map<String, Object>> functions = new ArrayList<>();
         List<Map<String, Object>> calls = new ArrayList<>();
+        List<Map<String, Object>> dataReferences = new ArrayList<>();
+        List<Map<String, Object>> indirectCalls = new ArrayList<>();
         FunctionIterator iterator = currentProgram.getFunctionManager().getFunctions(true);
         while (iterator.hasNext()) {
             monitor.checkCancelled();
@@ -59,12 +63,24 @@ public class ExportEvidence extends GhidraScript {
                 InstructionIterator instructions = currentProgram.getListing().getInstructions(function.getBody(), true);
                 while (instructions.hasNext()) {
                     Instruction instruction = instructions.next();
+                    boolean directCall = false;
                     for (Reference reference : currentProgram.getReferenceManager().getReferencesFrom(instruction.getAddress())) {
                         if (reference.getReferenceType().isCall()) {
+                            directCall = true;
                             calls.add(record("caller", addr(function.getEntryPoint()),
                                              "site", addr(instruction.getAddress()),
                                              "target", addr(reference.getToAddress())));
+                        } else if (reference.getReferenceType().isData()) {
+                            dataReferences.add(record("function", addr(function.getEntryPoint()),
+                                                      "site", addr(instruction.getAddress()),
+                                                      "target", addr(reference.getToAddress()),
+                                                      "type", reference.getReferenceType().toString()));
                         }
+                    }
+                    if (instruction.getFlowType().isCall() && !directCall) {
+                        indirectCalls.add(record("caller", addr(function.getEntryPoint()),
+                                                 "site", addr(instruction.getAddress()),
+                                                 "instruction", instruction.toString()));
                     }
                 }
             }
@@ -94,6 +110,8 @@ public class ExportEvidence extends GhidraScript {
         output.put("imports", imports);
         output.put("strings", strings);
         output.put("calls", calls);
+        output.put("data_references", dataReferences);
+        output.put("indirect_calls", indirectCalls);
         output.put("omissions", List.of("indirect call targets and non-function data dependencies may be unresolved"));
     }
 
