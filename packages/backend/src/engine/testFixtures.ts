@@ -113,6 +113,29 @@ export function parseLinks(md: string): string[] {
 }
 `;
 
+/** A generated UI that uses both engines above (sm2Scheduler + wikiLinks). */
+export const APP = `import { useState } from "react";
+import { updateEase, type ReviewResult } from "./engines/sm2Scheduler";
+import { NoteCard } from "./components/NoteCard";
+
+export default function App() {
+  const [ease, setEase] = useState(2.5);
+  const last: ReviewResult = { ease, interval: 1 };
+  return (
+    <main className="p-4">
+      <NoteCard body="See [[Cardiology]]" />
+      <button onClick={() => setEase(updateEase(ease, 4))}>Grade 4 (ease {last.ease})</button>
+    </main>
+  );
+}`;
+
+export const NOTE_CARD = `import { BookOpen } from "lucide-react";
+import { parseLinks } from "../engines/wikiLinks";
+
+export function NoteCard({ body }: { body: string }) {
+  return <div><BookOpen className="h-4 w-4" />{parseLinks(body).join(", ")}</div>;
+}`;
+
 export function makeBlueprint(spec: FeatureSpec, code: string): FeatureBlueprint {
   return FeatureBlueprint.parse({
     schema_version: 1,

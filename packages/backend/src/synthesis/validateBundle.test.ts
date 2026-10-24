@@ -3,33 +3,12 @@ import assert from "node:assert/strict";
 import type { SynthesisBundle } from "@splice/contracts";
 import { assembleBundle, ENTRY_FILES } from "./assemble.js";
 import { validateBundle } from "./validateBundle.js";
-import { GOOD_ENGINE, LINK_ENGINE, makeBlueprint, makeLinkSpec, makeSpec } from "../engine/testFixtures.js";
+import { APP, GOOD_ENGINE, LINK_ENGINE, NOTE_CARD, makeBlueprint, makeLinkSpec, makeSpec } from "../engine/testFixtures.js";
 
 const sm2 = makeBlueprint(makeSpec(), GOOD_ENGINE);
 const links = makeBlueprint(makeLinkSpec(), LINK_ENGINE);
 const blueprints = [sm2, links];
 const meta = { bundle_id: "b_test", app_title: "Study", app_description: "Notes + reviews", revision: 0, mode: "live" as const };
-
-const APP = `import { useState } from "react";
-import { updateEase, type ReviewResult } from "./engines/sm2Scheduler";
-import { NoteCard } from "./components/NoteCard";
-
-export default function App() {
-  const [ease, setEase] = useState(2.5);
-  const last: ReviewResult = { ease, interval: 1 };
-  return (
-    <main className="p-4">
-      <NoteCard body="See [[Cardiology]]" />
-      <button onClick={() => setEase(updateEase(ease, 4))}>Grade 4 (ease {last.ease})</button>
-    </main>
-  );
-}`;
-const NOTE_CARD = `import { BookOpen } from "lucide-react";
-import { parseLinks } from "../engines/wikiLinks";
-
-export function NoteCard({ body }: { body: string }) {
-  return <div><BookOpen className="h-4 w-4" />{parseLinks(body).join(", ")}</div>;
-}`;
 
 const generated = (app = APP, card = NOTE_CARD) => [
   { path: "/App.tsx", content: app },

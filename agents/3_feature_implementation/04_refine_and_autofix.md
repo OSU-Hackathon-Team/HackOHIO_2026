@@ -116,6 +116,15 @@ Add `summary` to the stream: emit it as a `stage` event with `stage: "complete"`
 The route is the same shape as `/api/synthesize` (02 §7), with `RefineRequest` and the key
 `refine__<bundle_id>__r<revision>` for transcripts.
 
+> **Implementation note (as built):**
+> - The merged file map **accumulates across fix attempts**. The code above restarts from
+>   `req.bundle` on every attempt, so a fix that returns only the corrected file silently drops
+>   the first attempt's edits to other files.
+> - Exhausted fixes throw `BundleValidationError` (as in 02 §6). No revision is produced, no summary
+>   is emitted, and the Studio keeps the previous working bundle.
+> - `refineRequestErrors` rejects requests whose blueprints don't match the bundle's features or
+>   engine bytes, unverified engines, a `fix` without `runtime_error` and an `edit` without a prompt.
+
 ## 3. Auto-fix policy (frontend, implemented in 08)
 
 ```

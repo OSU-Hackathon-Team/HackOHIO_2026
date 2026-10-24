@@ -242,6 +242,13 @@ export async function synthesize(blueprints: FeatureBlueprint[], prompt: string,
 }
 ```
 
+> **Implementation note (as built):** when the fixes are exhausted, `synthesize` throws
+> `BundleValidationError(errors)` instead of returning a bundle with "Unresolved" warnings, so an
+> app that fails validation never reaches Sandpack looking ready. The route turns it into a fatal
+> `error` + `done { ok: false }`, after the `validation` events have already streamed. `synthesize`
+> also refuses blueprints that didn't pass verification, or duplicate engines (`fusionErrors`), and
+> takes the LLM as an injected port (`deps.llm`), like `implementEngine`.
+
 ## 7. Route (add to `src/routes/step3/index.ts`)
 
 ```ts
