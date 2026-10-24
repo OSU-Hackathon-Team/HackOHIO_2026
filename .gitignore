@@ -19,7 +19,9 @@ dist/
 runs/
 __pycache__/
 *.pyc
-.agents/
+.agents/*
+# agent onboarding docs are tracked; local agent tooling state stays ignored
+!.agents/*.md
 .codex/
 
 # OS and Editor metadata
@@ -33,3 +35,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 *.log
+
+# Splice fixtures: *.latest.json are scratch; promote to golden *.json (agents/1_reverse_engineering/05_record_and_replay.md)
+fixtures/**/*.latest.json

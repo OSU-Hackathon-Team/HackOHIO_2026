@@ -1,0 +1,2 @@
+# Demo target sources must be byte-identical on every OS (requirement line refs + .asar sha256)
+targets/src/** text eol=lf

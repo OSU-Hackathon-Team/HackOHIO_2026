@@ -16,20 +16,15 @@ What changed from the old plan, and why:
 
 ---
 
-## 1. Package setup — `packages/contracts/package.json`
+## 1. Package setup — `packages/contracts`
 
-```json
-{
-  "name": "@splice/contracts",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "exports": { ".": "./src/index.ts" },
-  "dependencies": { "zod": "^4.1.0" }
-}
-```
+The package is already scaffolded. It **compiles to `dist/`** with `tsc`
+(`"exports": "./dist/index.js"`), uses **zod 3** (`^3.24`), and its relative imports need
+**`.js` extensions** because of `moduleResolution: NodeNext`. The code blocks below omit the
+extension for readability. The files in `packages/contracts/src/` have it.
 
-There is no build step. The backend (`tsx`) and frontend (Vite) both import the TS source directly.
+- After editing a contract: `npm run build:contracts`. The root `npm run dev` also runs `tsc --watch` on contracts.
+- Everything below works on zod 3. Don't use zod-4-only APIs such as `z.toJSONSchema`; the JSON Schemas for Bedrock structured outputs are written by hand.
 
 `packages/contracts/src/index.ts`:
 

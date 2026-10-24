@@ -1,5 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+// Backend is ESM: derive __dirname from import.meta.url
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const FALLBACK_MODEL = "amazon-bedrock/deepseek.v3.2";
 

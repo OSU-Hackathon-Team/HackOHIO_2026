@@ -1,9 +1,9 @@
 # Splice — Engineering Playbook (start here)
 
 This folder is the build spec for Splice. It replaces the high-level plan in
-`hackathon_master_plan_rea_lovable.md` wherever the two disagree, and it replaces
-the older flat files `agents/reverse_engineering.md`, `agents/feature_extraction.md`
-and `agents/implementation_and_frontend.md`.
+`hackathon_master_plan_rea_lovable.md` wherever the two disagree. (The older flat files
+`agents/reverse_engineering.md`, `feature_extraction.md` and `implementation_and_frontend.md`
+have been deleted; see git history if needed.)
 
 ```
 agents/
@@ -65,9 +65,11 @@ These **override** anything the older docs say:
 | Discovery | `tools/list` returns the full catalog. `binary_session {}` → `tool_availability` says what is callable right now | Hour-0 task: dump both to `fixtures/rea/` |
 | Big replies | A full app graph can be MBs. Use `detail: "summary"` on the first call. Response cap is set by `REA_MCP_MAX_RESPONSE_BYTES` | Bridge truncates before anything reaches Claude |
 
-> ⚠️ **Exact argument names for each tool are NOT confirmed.** The first job of Engineer 1 is
-> `npm run rea:catalog`, which writes the real input schemas to `fixtures/rea/tools.json`. All
-> argument names in these docs that are marked `// VERIFY` must be checked against that file.
+> ✅ **Arguments verified live on 2026-10-24** for `analyze_javascript_application` (`input_path`),
+> `trace_application_feature` and `binary_session`. The catalog and real results are in `fixtures/rea/`.
+> The key surprise: with `detail: "summary"`, follow-up tools need the reply's
+> `normalized_result.parent_evidence_id`, not its `evidence_id`. `trace_javascript_semantics` and
+> `inspect_analysis_view` are still `// VERIFY` (see `1_reverse_engineering/03_mcp_bridge.md` §4).
 
 ---
 

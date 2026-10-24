@@ -1,0 +1,58 @@
+{
+  "apps": [
+    {
+      "app_id": "inkwell",
+      "display_name": "Inkwell Notes",
+      "icon": "BookOpen",
+      "description": "Electron markdown vault with [[wiki links]], backlinks and fuzzy search.",
+      "artifact_type": "electron_asar",
+      "target_path": "targets/build/inkwell/app.asar",
+      "live_supported": true,
+      "features": [
+        {
+          "feature_id": "inkwell.wikilink_graph",
+          "title": "Wiki-link graph & backlinks",
+          "query": "How Inkwell finds [[wiki links]] in notes and builds the note graph with backlinks and unresolved links",
+          "category": "graph",
+          "seeds": [{ "kind": "module", "value": "src/graph/backlinks.js" }],
+          "symbols": ["buildLinkGraph", "parseWikiLinks", "normalizeTitle"]
+        },
+        {
+          "feature_id": "inkwell.fuzzy_search",
+          "title": "Fuzzy title search",
+          "query": "How Inkwell scores and ranks note titles for a fuzzy search query",
+          "category": "search",
+          "seeds": [{ "kind": "module", "value": "src/search/fuzzy.js" }],
+          "symbols": ["fuzzyScore", "rankNotes"]
+        }
+      ]
+    },
+    {
+      "app_id": "recall",
+      "display_name": "Recall Flashcards",
+      "icon": "Clock",
+      "description": "Electron flashcard app with SM-2 scheduling and review streaks.",
+      "artifact_type": "electron_asar",
+      "target_path": "targets/build/recall/app.asar",
+      "live_supported": true,
+      "features": [
+        {
+          "feature_id": "recall.sm2_scheduler",
+          "title": "SM-2 spaced repetition",
+          "query": "How Recall schedules the next review of a card after the user grades their recall",
+          "category": "scheduling",
+          "seeds": [{ "kind": "module", "value": "src/scheduler/sm2.js" }],
+          "symbols": ["scheduleReview", "updateEase"]
+        },
+        {
+          "feature_id": "recall.review_streaks",
+          "title": "Review streaks",
+          "query": "How Recall computes the current and longest daily review streak",
+          "category": "utility",
+          "seeds": [{ "kind": "module", "value": "src/stats/streaks.js" }],
+          "symbols": ["computeStreak"]
+        }
+      ]
+    }
+  ]
+}

@@ -1,8 +1,13 @@
 import express, { Request, Response, NextFunction } from "express";
 import path from "path";
+import { fileURLToPath } from "url";
 import cors from "cors";
 import compression from "compression";
-import { getModel, resolvedModelTable } from "./models.js";
+import { step1Router } from "./routes/step1/index.js";
+import { step2Router } from "./routes/step2/index.js";
+import { step3Router } from "./routes/step3/index.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const app = express();
 const PORT = process.env.PORT || 3001;
@@ -24,54 +29,15 @@ app.use(
 );
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "10mb" })); // specs/blueprints/bundles can be large
 
 // ==============================================================================
-// 2. Health & Diagnostic Endpoints
+// 2. Step routers — one file per engineer, so nobody edits the same file
+//    (agents/1_reverse_engineering/06_backend_server_shell.md §4)
 // ==============================================================================
-app.get("/api/health", (_req: Request, res: Response) => {
-  res.json({
-    status: "ok",
-    service: "splice-backend",
-    node_env: process.env.NODE_ENV || "development",
-    rea_mode: process.env.REA_MODE || "mock",
-    model: getModel("decomp_worker"),
-    models: resolvedModelTable(),
-    timestamp: Date.now()
-  });
-});
-
-// SSE Streaming Route Skeleton with Anti-Buffering Headers
-app.post("/api/extract", (req: Request, res: Response) => {
-  // Enforce zero-buffering headers for real-time SSE delivery
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no");
-
-  if (typeof (res as any).flushHeaders === "function") {
-    (res as any).flushHeaders();
-  }
-
-  const sendEvent = (stage: string, message: string, data?: any) => {
-    res.write(`data: ${JSON.stringify({ stage, message, data, timestamp: Date.now() })}\n\n`);
-  };
-
-  sendEvent("connected", "REA extraction pipeline initialized.");
-  
-  // Note: Full extraction and cache replay logic will be wired by Worker 1
-  res.write(`data: ${JSON.stringify({ stage: "complete", message: "SSE stream ready" })}\n\n`);
-  res.end();
-});
-
-// Stubs for Worker 2 routes
-app.post("/api/synthesize", (req: Request, res: Response) => {
-  res.json({ message: "Synthesize route ready for Worker 2 implementation" });
-});
-
-app.post("/api/refine", (req: Request, res: Response) => {
-  res.json({ message: "Refine route ready for Worker 2 implementation" });
-});
+app.use(step1Router); // Eng 1 (REA):            /api/health, /api/pantry
+app.use(step2Router); // Eng 2 (Requirements):   /api/extract, /api/specs
+app.use(step3Router); // Eng 3 (Implementation): /api/implement, /api/blueprints, /api/synthesize, /api/refine
 
 // ==============================================================================
 // 3. API 404 Guard

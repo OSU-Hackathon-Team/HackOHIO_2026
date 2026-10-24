@@ -136,16 +136,18 @@ export async function collectEvidence(app: PantryApp, feature: PantryFeature, ho
   // 2. analyze
   hooks.onStage("analyzing", `Analyzing ${app.display_name} — ${path.basename(targetAbs)} (${(await fs.stat(targetAbs)).size.toLocaleString()} bytes)`);
   const analysis = await run("analyze_javascript_application", reaArgs.analyzeApp(targetAbs));
-  if (!analysis.evidenceId) throw new Error("analyze_javascript_application returned no evidence_id");
+  // detail:"summary" returns a summary record; trace tools need the retained full analysis (verified live)
+  const appEvidence = analysis.parentEvidenceId ?? analysis.evidenceId;
+  if (!appEvidence) throw new Error("analyze_javascript_application returned no evidence id");
 
   // 3. trace
   hooks.onStage("tracing", `Tracing "${feature.title}" from ${feature.seeds.map((s) => s.value).join(", ")}`);
   const traces: NormalizedResult[] = [];
-  for (const seed of feature.seeds) traces.push(await run("trace_application_feature", reaArgs.traceFeature(analysis.evidenceId, seed)));
+  for (const seed of feature.seeds) traces.push(await run("trace_application_feature", reaArgs.traceFeature(appEvidence, seed)));
   if (rea.hasTool("trace_javascript_semantics")) {
     for (const sym of feature.symbols.slice(0, 2)) {
       try {
-        traces.push(await run("trace_javascript_semantics", reaArgs.traceSemantics(analysis.evidenceId, sym)));
+        traces.push(await run("trace_javascript_semantics", reaArgs.traceSemantics(appEvidence, sym)));
       } catch {
         // optional — the failed call is still in the record
       }

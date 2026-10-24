@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.19.0"
   },
   "scripts": {
     "build:contracts": "npm run build --workspace=@splice/contracts",
@@ -16,9 +16,10 @@
     "build": "npm run build:contracts && npm run build:backend && npm run build:frontend",
     "dev:backend": "npm run dev --workspace=@splice/backend",
     "dev:frontend": "npm run dev --workspace=@splice/frontend",
-    "dev": "concurrently -n backend,frontend -c green,cyan \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev": "npm run build:contracts && concurrently -n contracts,backend,frontend -c yellow,green,cyan \"npm run dev --workspace=@splice/contracts\" \"npm run dev:backend\" \"npm run dev:frontend\"",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "start": "npm run start --workspace=@splice/backend"
+    "start": "npm run start --workspace=@splice/backend",
+    "build:targets": "node scripts/build-targets.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
