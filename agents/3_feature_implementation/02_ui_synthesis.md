@@ -208,6 +208,7 @@ export async function synthesize(blueprints: FeatureBlueprint[], prompt: string,
   let messages: Parameters<typeof structuredCall>[0]["messages"] = [{ role: "user", content: formatSynthRequest(blueprints, prompt) }];
   const call = () =>
     structuredCall({
+      role: "ui_synthesizer",
       system: SYNTH_SYSTEM,
       messages,
       schema: SYNTH_DRAFT_SCHEMA,

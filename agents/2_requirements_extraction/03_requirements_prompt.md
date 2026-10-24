@@ -201,6 +201,7 @@ Write the specification for this feature.`;
 ```ts
 const messages = [{ role: "user" as const, content: formatEvidence(evidence, app, feature) }];
 const first = await structuredCall({
+  role: "spec_writer",
   system: SPEC_SYSTEM,
   messages,
   schema: SPEC_DRAFT_SCHEMA,

@@ -25,14 +25,15 @@
 
 ## Claude on Amazon Bedrock
 - Client: `AnthropicBedrockMantle` from `@anthropic-ai/bedrock-sdk`. No Anthropic API key exists.
-- Models are routed **per role** in root `models.json` (`decomp_worker`, `spec_writer`,
-  `legal_verification`), overridable with `MODEL_<ROLE>` env vars, and resolved by
-  `packages/backend/src/models.ts` (TS) / `model_config.py` (Python). IDs there use OpenCode's
-  `amazon-bedrock/<bedrock-id>` form. Strip the `amazon-bedrock/` prefix before passing one to the
-  Bedrock SDK. The Mantle client speaks the Anthropic Messages API, so it only works with
-  **Claude** models: a non-Claude role (Nova, DeepSeek) can't go through `llm.ts` as written.
+- Models are routed **per role** in root `models.json`, overridable with `MODEL_<ROLE>` env vars,
+  and resolved by `packages/backend/src/models.ts` (TS) / `model_config.py` (Python). Splice roles
+  (`spec_writer`, `engine_writer`, `ui_synthesizer`, `refusal_fallback`) are **Claude only**: get
+  their Bedrock ID with `bedrockModelId(role)`, which strips OpenCode's `amazon-bedrock/` prefix and
+  throws on non-Claude IDs. The Mantle client speaks the Anthropic Messages API (structured
+  outputs, effort), so Qwen3 Coder 480B, Nova and DeepSeek (listed in `models.json` `options`) are
+  for the Python/OpenCode roles only.
 - Bedrock has **no server-side `fallbacks`**. `llm.ts` retries a `stop_reason: "refusal"` once on
-  `SPLICE_FALLBACK_MODEL`. Describe tasks as analyzing *our own demo apps*, to avoid tripping the
+  the `refusal_fallback` role. Describe tasks as analyzing *our own demo apps*, to avoid tripping the
   cyber safety classifier.
 - Opus 5.5: **don't send `thinking`** (disabled / `budget_tokens` → 400). Control depth with
   `output_config.effort`; the default is `medium`, so set it explicitly. Forced `tool_choice` → 400,

@@ -141,6 +141,7 @@ export async function buildSpec(ev: RawEvidence, app: PantryApp, feature: Pantry
   ];
   const call = (phase: "specifying" | "repairing_spec") =>
     structuredCall({
+      role: "spec_writer",
       system: SPEC_SYSTEM,
       messages,
       schema: SPEC_DRAFT_SCHEMA,

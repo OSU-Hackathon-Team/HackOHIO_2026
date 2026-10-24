@@ -75,8 +75,6 @@ const flag = z.enum(["0", "1"]).default("0").transform((v) => v === "1");
 const Env = z.object({
   PORT: z.coerce.number().default(3001),
   AWS_REGION: z.string().default("us-east-2"),           // Bedrock region; creds come from the AWS chain
-  SPLICE_MODEL: z.string().default("anthropic.claude-opus-5-5"),
-  SPLICE_FALLBACK_MODEL: z.string().default("anthropic.claude-opus-4-8"),
   LLM_DEBUG: flag,
   REA_MODE: z.enum(["live", "replay", "auto"]).default("auto"),
   LLM_MODE: z.enum(["live", "replay"]).default("live"),
@@ -92,8 +90,6 @@ const env = Env.parse(process.env);
 export const config = {
   port: env.PORT,
   awsRegion: env.AWS_REGION,
-  model: env.SPLICE_MODEL,
-  fallbackModel: env.SPLICE_FALLBACK_MODEL,
   llmDebug: env.LLM_DEBUG,
   reaMode: env.REA_MODE,
   llmMode: env.LLM_MODE,
@@ -191,7 +187,7 @@ step1Router.get("/api/health", (_req, res) => {
     rea: { connected: rea.connected, version: rea.serverVersion, tool_count: rea.toolCount },
     rea_mode: config.reaMode,
     llm_mode: config.llmMode,
-    model: config.model,
+    model: getModel("spec_writer"),   // models.ts; the full table: resolvedModelTable()
   };
   res.json(body);
 });
@@ -251,7 +247,7 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 });
 
 app.listen(config.port, () => {
-  console.log(`[splice] backend on http://localhost:${config.port}  REA_MODE=${config.reaMode} LLM_MODE=${config.llmMode} model=${config.model}`);
+  console.log(`[splice] backend on http://localhost:${config.port}  REA_MODE=${config.reaMode} LLM_MODE=${config.llmMode} models=${JSON.stringify(resolvedModelTable())}`);
 });
 
 // Pre-warm REA so the first demo click isn't a cold start

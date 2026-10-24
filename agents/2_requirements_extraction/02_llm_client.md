@@ -28,13 +28,12 @@ AWS_PROFILE=splice                   # preferred: profile in ~/.aws/credentials 
 # AWS_ACCESS_KEY_ID=...
 # AWS_SECRET_ACCESS_KEY=...
 # AWS_SESSION_TOKEN=...
-# Role routing lives in root models.json (decomp_worker → nova lite,
-# spec_writer → nova pro, legal_verification → opus 4.6). Per-role env
-# overrides win over models.json without editing it:
-# MODEL_DECOMP_WORKER=amazon-bedrock/amazon.nova-lite-v1:0
-# MODEL_SPEC_WRITER=amazon-bedrock/amazon.nova-pro-v1:0
-# MODEL_LEGAL_VERIFICATION=amazon-bedrock/anthropic.claude-opus-4-6-v1
-SPLICE_FALLBACK_MODEL=anthropic.claude-opus-4-8
+# Splice roles are routed in root models.json and MUST be Claude models (llm.ts = Anthropic
+# Messages API on Bedrock). Override a role without editing models.json:
+# MODEL_SPEC_WRITER=amazon-bedrock/anthropic.claude-opus-5-5
+# MODEL_ENGINE_WRITER=amazon-bedrock/anthropic.claude-opus-5-5
+# MODEL_UI_SYNTHESIZER=amazon-bedrock/anthropic.claude-opus-5-5
+# MODEL_REFUSAL_FALLBACK=amazon-bedrock/anthropic.claude-opus-4-8
 ```
 
 > ⚠️ The AWS keys that were committed in `.env` (`83f811b`) are almost certainly these Bedrock
@@ -57,12 +56,12 @@ SPLICE_FALLBACK_MODEL=anthropic.claude-opus-4-8
 | Decision | Why |
 |---|---|
 | `AnthropicBedrockMantle` client, region from `AWS_REGION` | Bedrock's Messages-API endpoint. Same request shapes as the first-party SDK |
-| Per-role models via root `models.json` (`MODEL_<ROLE>` env wins) | Decomp = cheap/fast, spec + verification = strongest. One file answers "what model does what" |
+| Per-role models via root `models.json` (`MODEL_<ROLE>` env wins). Splice roles: `spec_writer` (Step 2), `engine_writer` (Step 3a), `ui_synthesizer` (Step 3b + refine), `refusal_fallback`. **All Claude** (Opus 5.5 by default) | One file answers "what model does what". `bedrockModelId(role)` strips OpenCode's `amazon-bedrock/` prefix and refuses non-Claude IDs, because structured outputs, effort and the rest of this design are Anthropic Messages API features. Other models (Qwen3 Coder 480B, Nova, DeepSeek) are listed in `models.json` `options` for the OpenCode roles only |
 | **Structured outputs** (`output_config.format: { type: "json_schema", schema }`) | Supported on Bedrock. Guarantees parseable JSON. Forced `tool_choice` returns a 400 on Opus 5.5, and assistant prefill is gone |
 | **Streaming** + `finalMessage()` | Long outputs (full TS files) would otherwise risk HTTP timeouts. Also gives us `output_chars` progress for the UI |
 | **No `thinking` param** | Opus 5.5 always uses adaptive thinking; `disabled` / `budget_tokens` return a 400. Depth is set with `output_config.effort` |
 | Effort: spec `high`, engine `high`, UI synthesis `medium`, refine `medium` | Opus 5.5 defaults to `medium`, so set it explicitly |
-| **Client-side refusal fallback** (retry once on `SPLICE_FALLBACK_MODEL`) | Bedrock has **no** server-side `fallbacks` parameter. "Reverse engineering" wording can trip the `cyber` safety classifier, so on `stop_reason: "refusal"` we re-issue the same request on the fallback model ourselves |
+| **Client-side refusal fallback** (retry once on the `refusal_fallback` role) | Bedrock has **no** server-side `fallbacks` parameter. "Reverse engineering" wording can trip the `cyber` safety classifier, so on `stop_reason: "refusal"` we re-issue the same request on the fallback model ourselves |
 | `cache_control` on the system prompt | Supported on Bedrock. The system prompt is identical across calls, so it's cheaper and faster from the 2nd call on |
 | Append-only conversations for repair | Repairs push the assistant's full `content` back unchanged, then add a user turn. Never edit earlier turns |
 
@@ -73,7 +72,10 @@ SPLICE_FALLBACK_MODEL=anthropic.claude-opus-4-8
 
 ## 3. Config (already in Eng 1's `config.ts`, see `1_reverse_engineering/06_backend_server_shell.md` §2)
 
-`llm.ts` reads `config.awsRegion`, `config.model`, `config.fallbackModel` and `config.llmDebug`. `config.model` is the role-resolved model (same precedence as `packages/backend/src/models.ts` / root `model_config.py`); the decomp worker records its resolved `model` + `model_role` in the attempt manifest.
+`llm.ts` reads `config.awsRegion` and `config.llmDebug`. Models come per call from
+`bedrockModelId(role)` in `packages/backend/src/models.ts` (precedence: `MODEL_<ROLE>` env →
+`models.json` role; the same rules as root `model_config.py`). The decomp worker records its
+resolved `model` + `model_role` in the attempt manifest.
 There is no API-key setting. The AWS SDK finds credentials through the default chain and
 reports missing or expired ones on the first call.
 
@@ -83,6 +85,7 @@ reports missing or expired ones on the first call.
 import Anthropic from "@anthropic-ai/sdk";
 import { AnthropicBedrockMantle } from "@anthropic-ai/bedrock-sdk";
 import { config } from "../config.js";
+import { bedrockModelId, type SpliceRole } from "../models.js";
 
 // Bedrock Messages-API client. Credentials: default AWS chain (env / profile / SSO).
 export const claude = new AnthropicBedrockMantle({ awsRegion: config.awsRegion });
@@ -100,6 +103,8 @@ export class LlmSchemaError extends Error {
 }
 
 export interface StructuredCallOpts<T> {
+  /** Which models.json role answers: spec_writer | engine_writer | ui_synthesizer */
+  role: Exclude<SpliceRole, "refusal_fallback">;
   system: string;
   messages: Anthropic.MessageParam[];
   /** JSON Schema for output_config.format. Objects need additionalProperties:false + required. */
@@ -118,7 +123,7 @@ export interface StructuredResult<T> {
   /** Append this when continuing the conversation (repair loops). */
   assistantContent: Anthropic.ContentBlock[];
   usage: Anthropic.Usage;
-  /** The model that actually answered (differs from config.model if the fallback ran). */
+  /** The model that actually answered (the refusal_fallback model if the fallback ran). */
   model: string;
 }
 
@@ -152,14 +157,16 @@ async function streamOnce(model: string, o: StructuredCallOpts<unknown>): Promis
 }
 
 export async function structuredCall<T>(o: StructuredCallOpts<T>): Promise<StructuredResult<T>> {
-  let msg = await streamOnce(config.model, o);
+  const primary = bedrockModelId(o.role);
+  let msg = await streamOnce(primary, o);
 
-  // Bedrock has no server-side fallbacks: retry a refusal once on the fallback model.
+  // Bedrock has no server-side fallbacks: retry a refusal once on the refusal_fallback role.
   // (Earlier thinking blocks from the primary model are dropped by the API, unbilled.)
-  if (msg.stop_reason === "refusal" && config.fallbackModel) {
+  if (msg.stop_reason === "refusal") {
+    const fallback = bedrockModelId("refusal_fallback");
     const d = (msg as any).stop_details ?? null;
-    console.warn(`[llm] ${config.model} declined (${d?.category ?? "unknown"}); retrying on ${config.fallbackModel}`);
-    msg = await streamOnce(config.fallbackModel, o);
+    console.warn(`[llm] ${primary} declined (${d?.category ?? "unknown"}); retrying on ${fallback}`);
+    msg = await streamOnce(fallback, o);
   }
   if (msg.stop_reason === "refusal") {
     const d = (msg as any).stop_details ?? null;
@@ -220,6 +227,7 @@ Notes:
 
 ```ts
 export async function toolLoop(o: {
+  role: Exclude<SpliceRole, "refusal_fallback">;
   system: string;
   user: string;
   tools: Anthropic.Tool[];
@@ -232,7 +240,7 @@ export async function toolLoop(o: {
     const msg = await claude.messages
       .stream(
         {
-          model: config.model,
+          model: bedrockModelId(o.role),
           max_tokens: 16_000,
           output_config: { effort: "medium" },
           system: [{ type: "text", text: o.system, cache_control: { type: "ephemeral" } }],
@@ -268,6 +276,7 @@ import { structuredCall } from "../llm/llm.js";
 
 const Out = z.object({ answer: z.number() });
 const r = await structuredCall({
+  role: "spec_writer",
   system: "You are a calculator. Reply only with the JSON requested.",
   messages: [{ role: "user", content: "What is 17 * 23?" }],
   schema: { type: "object", properties: { answer: { type: "number" } }, required: ["answer"], additionalProperties: false },
