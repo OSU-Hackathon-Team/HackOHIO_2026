@@ -14,6 +14,8 @@ from pathlib import Path
 
 from model_config import available_roles, get_model, resolved_table
 from engine.analysis.ghidra import GhidraAnalysis
+from engine.models import ScopeRequest
+from engine.scope import persist_scope
 
 ROOT = Path(__file__).resolve().parent
 RUNS = ROOT / "runs"
@@ -135,6 +137,10 @@ def main() -> None:
     export_all.add_argument("--state", type=Path, default=ENGINE_STATE)
     export_all.add_argument("--headless", type=Path,
                             default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+    scope = sub.add_parser("scope", help="discover a bounded native subsystem from a scope request")
+    scope.add_argument("--manifest", type=Path, required=True)
+    scope.add_argument("--request", type=Path, required=True)
+    scope.add_argument("--state", type=Path, default=ENGINE_STATE)
     status = sub.add_parser("status", help="show persisted decomp campaign progress")
     status.add_argument("--state", type=Path, default=ENGINE_STATE)
     status.add_argument("--campaign", help="limit output to one campaign hash")
@@ -165,6 +171,12 @@ def main() -> None:
         engine = GhidraAnalysis(args.state, args.headless)
         manifest = json.loads(args.manifest.read_text())
         print(json.dumps(engine.export_all(manifest), indent=2))
+    elif args.command == "scope":
+        engine = GhidraAnalysis(args.state, Path(os.environ.get(
+            "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+        manifest = json.loads(args.manifest.read_text())
+        request = ScopeRequest.from_dict(json.loads(args.request.read_text()))
+        print(json.dumps(persist_scope(engine, manifest, request), indent=2))
     elif args.command == "status":
         events_path = args.state / "progress.jsonl"
         events = [json.loads(line) for line in events_path.read_text().splitlines()] if events_path.exists() else []
@@ -186,6 +198,10 @@ def main() -> None:
             elif event["stage"] == "export_finished":
                 item["coverage"] = event["counts"]
                 item["complete"] = event["complete"]
+            elif event["stage"] == "scope_revised":
+                item["scope_revision"] = event["revision"]
+                item["scope_included"] = event["included"]
+                item["scope_unresolved"] = event["unresolved"]
         for item in campaigns.values():
             item["function_exports"] = len(item.pop("_exported"))
             item["function_failures"] = len(item.pop("_failed"))

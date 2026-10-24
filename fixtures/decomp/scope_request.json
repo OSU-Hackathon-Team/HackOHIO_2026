@@ -1,0 +1,13 @@
+{
+  "mode": "subsystem",
+  "query": "Decode frames and account for shared state and callback rejection",
+  "seeds": ["parse_frame"],
+  "max_functions": 12,
+  "max_depth": 2,
+  "include_callers": false,
+  "include_shared_data": true,
+  "expected_observables": [
+    "Malformed frame returns an error without changing counters",
+    "Callback rejection updates total and last value but not accepted count"
+  ]
+}

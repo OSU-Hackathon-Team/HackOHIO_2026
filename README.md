@@ -26,9 +26,19 @@ Build source-known stripped executable and shared-library fixtures at `-O0` and 
 python scripts/build_decomp_fixtures.py
 python scripts/probe_decomp_fixtures.py
 python scripts/check_decomp_export.py
+python scripts/check_decomp_scope.py
 ```
 
 The generated manifest, debug companions, and probe report stay in ignored `decomp-state/fixtures/`. Analysis workers should receive only the stripped `analysis_path` entries. The source and debug companions are evaluator material.
+
+Discover a bounded subsystem from indexed evidence:
+
+```sh
+python launch.py scope --manifest decomp-state/projects/<campaign>/manifest.json \
+  --request fixtures/decomp/scope_request.json
+```
+
+The scope revision records ranked seeds, included functions, direct-call and shared-data expansion, boundary contracts, exclusions, unresolved indirect calls, and deduplicated behavioral questions. Scope artifacts and revision pointers live under `decomp-state/scopes/`; `launch.py status` reports scope counts. A scope remains `partial` until semantic claims and independent validation are available.
 
 ## Rename diagnostic
 

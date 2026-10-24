@@ -1,6 +1,6 @@
 # Subsystem decompilation engine implementation plan
 
-Status: planned; no engine implementation is claimed by this document.
+Status: implementation in progress; all milestone acceptance gates remain open.
 Updated: 2026-10-24.
 Architecture and decision rationale: [DecompPileline.md](DecompPileline.md).
 
