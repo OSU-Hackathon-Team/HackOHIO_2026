@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from engine.analysis.ghidra import GhidraAnalysis  # noqa: E402
+from engine.analysis.links import link_modules  # noqa: E402
 from engine.intake import analyze_project  # noqa: E402
 from engine.models import ScopeRequest  # noqa: E402
 from engine.scope import persist_scope  # noqa: E402
@@ -45,23 +46,42 @@ def main() -> None:
                    edge["source"] == "elf_needed" for edge in project["dependencies"])
         assert any(edge["name"] == "libc.so.6" and edge["reason"] == "external"
                    for edge in project["unresolved_dependencies"])
+        links = json.loads(engine.store.get(project["symbol_links_artifact"]))
+        bound = [item for item in links["candidates"] if item["symbol"] == "project_adjust"]
+        assert len(bound) == 1 and bound[0]["from_module"] == "app"
+        assert bound[0]["to_module"] == "math" and bound[0]["call_sites"]
+        assert bound[0]["binding"] == "candidate_static"
+        assert project["symbol_link_counts"]["candidates"] == len(links["candidates"])
+        indexes = {}
         for module in project["modules"]:
             manifest = json.loads(Path(module["analysis_manifest"]).read_text())
             assert manifest["campaign"] == module["analysis_campaign"]
             assert manifest["index_artifact"] == module["index_artifact"]
             assert module["function_count"] > 0
-            entry = next(item["entry"] for item in engine.index(manifest)["functions"]
+            indexes[module["id"]] = engine.index(manifest)
+            entry = next(item["entry"] for item in indexes[module["id"]]["functions"]
                          if not item["external"] and not item["thunk"])
             scope = persist_scope(engine, manifest, ScopeRequest.from_dict({
                 "mode": "subsystem", "query": f"{module['id']} entry", "seeds": [entry],
                 "max_functions": 1, "max_depth": 0}))
             assert scope["campaign"] == module["analysis_campaign"]
             assert scope["included"]
+        duplicate = {**next(item for item in project["modules"] if item["id"] == "math"),
+                     "id": "math_copy"}
+        contested = link_modules([*project["modules"], duplicate],
+                                 {**indexes, "math_copy": indexes["math"]},
+                                 [*project["dependencies"],
+                                  {"from": "app", "to": "math_copy", "source": "declared"}])
+        assert not any(item["symbol"] == "project_adjust"
+                       for item in contested["candidates"])
+        assert any(item["symbol"] == "project_adjust" and len(item["candidates"]) == 2
+                   for item in contested["ambiguous"])
         status = subprocess.check_output(
             [sys.executable, str(ROOT / "launch.py"), "status", "--state",
              str(root / "state"), "--campaign", project["project_id"]], text=True)
         progress = json.loads(status)[project["project_id"]]["project"]
         assert progress["state"] == "finished" and progress["module_count"] == 2
+        assert progress["symbol_links"]["counts"]["candidates"] >= 1
         assert all(module["state"] == "finished" for module in progress["modules"].values())
         assert all(module["analysis"]["function_count"] > 0 and
                    module["analysis"]["scope_count"] >= 1
@@ -70,6 +90,7 @@ def main() -> None:
                           "modules": {module["id"]: module["function_count"]
                                       for module in project["modules"]},
                           "dependencies": project["dependencies"],
+                          "symbol_link_counts": project["symbol_link_counts"],
                           "unresolved": project["unresolved_dependencies"]}))
 
 

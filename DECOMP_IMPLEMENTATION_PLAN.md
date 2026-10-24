@@ -42,7 +42,7 @@ Engine layout (some components are still planned):
 ```text
 engine/
   models.py             # internal records and validation (implemented)
-  intake.py             # multi-module import inventory (implemented; cross-module scope planned)
+  intake.py             # module inventory and static symbol candidates (implemented; cross-module scope planned)
   artifacts.py          # immutable local artifacts (implemented)
   analysis/             # Ghidra evidence and local warm pool (implemented; M1 gate open)
   scope.py              # seed discovery and bounded expansion (implemented)

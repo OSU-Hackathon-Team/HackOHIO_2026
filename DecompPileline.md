@@ -34,7 +34,8 @@ review work through a durable PostgreSQL queue. Original-binary probes and parti
 dossiers are implemented. The rename-attempt path remains a diagnostic with a private
 Ghidra project per attempt.
 Project intake can group executable and shared-library modules, reuse each module's analyzed
-baseline, and record declared and ELF `DT_NEEDED` dependencies. Semantic scopes and queue
+baseline, record declared and ELF `DT_NEEDED` dependencies, and identify static candidate
+links from imported call thunks to functions in supplied modules. Semantic scopes and queue
 campaigns still operate on one module at a time; cross-module scope and contract resolution
 remain to be built.
 The static index records executable memory and decoded instruction runs outside discovered

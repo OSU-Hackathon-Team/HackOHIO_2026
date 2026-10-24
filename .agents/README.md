@@ -80,7 +80,8 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
 - **Decompilation engine:** the `engine/` package runs native evidence export, scopes,
   semantic attempts, independent review, probes, partial dossiers, and a durable queue.
   Project intake now groups executable and shared-library modules with per-module analysis
-  manifests and ELF dependency edges; cross-module semantic scopes are still planned.
+  manifests, ELF dependency edges, and static candidate import/function links;
+  cross-module semantic scopes are still planned.
   The telemetry root caller binds all 18 direct calls to active helper contracts and is
   accepted as `static_only`. The latest 21-function dossier has 38/38 statically
   supported claims, 18 current caller dependencies, and 15 distinct agreeing

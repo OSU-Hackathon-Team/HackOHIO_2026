@@ -11,6 +11,7 @@ import re
 import subprocess
 
 from engine.analysis.ghidra import GhidraAnalysis, SCRIPT_DIR, file_hash, tool_version
+from engine.analysis.links import link_modules
 
 
 def canonical(value: object) -> bytes:
@@ -103,7 +104,7 @@ def _dependencies(modules: list[dict], declared: list[dict]) -> tuple[list[dict]
 def analyze_project(engine: GhidraAnalysis, request_path: Path) -> dict:
     modules, declared = _request(request_path.resolve(strict=True))
     edges, unresolved = _dependencies(modules, declared)
-    identity = {"schema": 1, "modules": modules, "dependencies": edges,
+    identity = {"schema": 2, "modules": modules, "dependencies": edges,
                 "unresolved_dependencies": unresolved,
                 "ghidra_version_sha256": tool_version(engine.headless),
                 "exporter_sha256": file_hash(SCRIPT_DIR / "ExportEvidence.java")}
@@ -117,8 +118,9 @@ def analyze_project(engine: GhidraAnalysis, request_path: Path) -> dict:
             if pointer.exists():
                 artifact = json.loads(pointer.read_text())["artifact"]
                 project = json.loads(engine.store.get(artifact))
-                if project.get("project_id") != project_id:
+                if project.get("schema") != 2 or project.get("project_id") != project_id:
                     raise RuntimeError("cached project identity does not match its pointer")
+                engine.store.get(project["symbol_links_artifact"])
                 for module in project["modules"]:
                     manifest = engine.analyze(Path(module["path"]))
                     if (manifest["campaign"] != module["analysis_campaign"] or
@@ -128,6 +130,7 @@ def analyze_project(engine: GhidraAnalysis, request_path: Path) -> dict:
                 return {**project, "artifact": artifact}
             engine._emit(project_id, "project_intake_started", modules=len(modules))
             analyzed = []
+            indexes = {}
             for module in modules:
                 engine._emit(project_id, "project_module_started", module_id=module["id"])
                 try:
@@ -140,11 +143,20 @@ def analyze_project(engine: GhidraAnalysis, request_path: Path) -> dict:
                                  "index_artifact": manifest["index_artifact"],
                                  "function_count": manifest["function_count"],
                                  "analysis_manifest": str(Path(manifest["project"]) / "manifest.json")})
+                indexes[module["id"]] = engine.index(manifest)
                 engine._emit(project_id, "project_module_finished", module_id=module["id"],
                              module_campaign=manifest["campaign"],
                              functions=manifest["function_count"])
-            project = {"schema": 1, "project_id": project_id, "modules": analyzed,
+            links = link_modules(analyzed, indexes, edges)
+            links_artifact = engine.store.put(canonical(links))
+            link_counts = {key: len(links[key]) for key in
+                           ("candidates", "ambiguous", "unmatched")}
+            engine._emit(project_id, "project_links_indexed", artifact=links_artifact,
+                         counts=link_counts)
+            project = {"schema": 2, "project_id": project_id, "modules": analyzed,
                        "dependencies": edges, "unresolved_dependencies": unresolved,
+                       "symbol_links_artifact": links_artifact,
+                       "symbol_link_counts": link_counts,
                        "ghidra_version_sha256": identity["ghidra_version_sha256"],
                        "exporter_sha256": identity["exporter_sha256"]}
             artifact = engine.store.put(canonical(project))

@@ -700,6 +700,9 @@ def main() -> None:
                 project.update({"state": "finished", "artifact": event["artifact"],
                                 "module_count": event["modules"],
                                 "unresolved_dependencies": event["unresolved_dependencies"]})
+            elif event["stage"] == "project_links_indexed":
+                item.setdefault("project", {"modules": {}})["symbol_links"] = {
+                    "artifact": event["artifact"], "counts": event["counts"]}
             elif event["stage"] == "project_intake_failed":
                 project = item.setdefault("project", {"modules": {}})
                 project.update({"state": "failed", "error": event["error"]})
