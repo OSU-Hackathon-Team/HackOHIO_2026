@@ -6,6 +6,8 @@ import { ENGINE_SYSTEM, ENGINE_DRAFT_SCHEMA, EngineDraft, formatSpecForImplement
 import { purityViolations } from "./purity.js";
 import { conformanceErrors } from "./conformance.js";
 import type { ChatMessage, LlmPort, SandboxPort } from "./ports.js";
+import { structuredCall, continueWith } from "../llm/llm.js";
+import { runTests } from "../sandbox/runTests.js";
 
 export interface ImplementHooks {
   signal?: AbortSignal;
@@ -21,7 +23,16 @@ export interface ImplementDeps {
 
 export const MAX_REPAIRS = 2;
 
-export async function implementEngine(spec: FeatureSpec, hooks: ImplementHooks, deps: ImplementDeps): Promise<FeatureBlueprint> {
+const defaultDeps: ImplementDeps = {
+  llm: { structuredCall, continueWith },
+  sandbox: { runTests },
+};
+
+export async function implementEngine(
+  spec: FeatureSpec,
+  hooks: ImplementHooks,
+  deps: ImplementDeps = defaultDeps,
+): Promise<FeatureBlueprint> {
   const t0 = Date.now();
   let messages: ChatMessage[] = [{ role: "user", content: formatSpecForImplementer(spec) }];
   const call = (phase: "implementing" | "repairing_engine") => {

@@ -13,7 +13,7 @@ const only = process.argv[2];
 
 async function loadSpecs(): Promise<{ spec: FeatureSpec; file: string }[]> {
   const out = new Map<string, { spec: FeatureSpec; file: string }>();
-  for (const dir of [SPECS, path.join(SPECS, "_seed")]) {
+  for (const dir of [SPECS, path.join(SPECS, "_seed"), path.join(REPO_ROOT, "fixtures/hand-authored/specs")]) {
     let files: string[] = [];
     try { files = await fs.readdir(dir); } catch { continue; }
     for (const f of files.filter((f) => f.endsWith(".json") && !f.endsWith(".latest.json"))) {

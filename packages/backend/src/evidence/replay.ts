@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { RawEvidence } from "@splice/contracts";
+import { RawEvidence, FeatureBlueprint } from "@splice/contracts";
 import { REPO_ROOT } from "../config.js";
 import type { SseWriter } from "../http/sse.js";
 import type { TranscriptKind } from "./recorder.js";
@@ -50,6 +50,26 @@ function markReplay(e: any, runId: string): any {
   return out;
 }
 
+/** Golden → latest → hand-authored → seed. */
+export async function loadRecordedBlueprint(featureId: string): Promise<FeatureBlueprint | null> {
+  const raw = await readFirst([
+    path.join(FIX, "blueprints", `${featureId}.json`),
+    path.join(FIX, "blueprints", `${featureId}.latest.json`),
+    path.join(FIX, "hand-authored", "blueprints", `${featureId}.json`),
+    path.join(FIX, "blueprints", "_seed", `${featureId}.json`),
+  ]);
+  if (!raw) return null;
+  try {
+    const bp = FeatureBlueprint.parse(raw);
+    return {
+      ...bp,
+      verification: { ...bp.verification, mode: "replay" },
+    };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Re-emits a recorded stream with the original gaps (scaled by `speed`, each capped at maxGapMs).
  * Returns false if no recording exists.
@@ -75,6 +95,7 @@ export async function replayTranscript(
   let prevTs = rawEvents[0]?.ts ?? 0;
 
   const hasSpec = rawEvents.some((e: any) => e.type === "spec");
+  const hasBlueprint = rawEvents.some((e: any) => e.type === "blueprint");
 
   for (const e of rawEvents) {
     if (sse.signal.aborted) return true;
@@ -82,6 +103,12 @@ export async function replayTranscript(
       const spec = await loadRecordedSpec(key);
       if (spec) {
         sse.send(markReplay({ type: "spec", run_id: opts.runId, feature_id: key, ts: Date.now(), spec }, opts.runId));
+      }
+    }
+    if (e.type === "done" && !hasBlueprint && kind === "implement") {
+      const blueprint = await loadRecordedBlueprint(key);
+      if (blueprint) {
+        sse.send(markReplay({ type: "blueprint", run_id: opts.runId, feature_id: key, ts: Date.now(), blueprint }, opts.runId));
       }
     }
     const gap = Math.min((e.ts - prevTs) / speed, maxGap);
