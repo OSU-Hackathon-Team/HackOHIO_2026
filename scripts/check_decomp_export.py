@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from engine.analysis.ghidra import GhidraAnalysis  # noqa: E402
+from engine.validation.review import review_prompt  # noqa: E402
+from engine.worker import prompt_for  # noqa: E402
 
 
 def main() -> None:
@@ -42,6 +44,20 @@ def main() -> None:
             evidence = [engine.function(manifest, item["entry"]) for item in candidates]
             assert any(item["status"] == "ok" and item["decompilation"] and
                        item["instructions"] for item in evidence)
+            parsed = next(item for item in evidence if item["status"] == "ok")
+            assert parsed["listing_parameters"] == []
+            assert len(parsed["decompiler_prototype"]["parameters"]) == 4
+            assert parsed["decompiler_signature"]
+            assert any(item["status"] == "defined" for item in parsed["referenced_data"])
+            context = {"request": {"query": "parse a frame", "expected_observables": []},
+                       "included": [{"entry": parsed["entry"], "name": "parse_frame"}],
+                       "boundaries": []}
+            work_prompt, truncated = prompt_for({"question": "Explain parse_frame"}, context,
+                                                parsed, max_evidence_bytes=60000)
+            assert not truncated and "decompiler_prototype" in work_prompt
+            assert "referenced_data" in work_prompt
+            review = review_prompt({"answer": {"claims": []}}, parsed, context)
+            assert "decompiler_prototype" in review and "referenced_data" in review
             repeated = engine.export_all(manifest)
             assert repeated["functions"] == inventory["functions"]
             report.append({"kind": build["kind"], "functions": len(inventory["functions"]),
