@@ -2,19 +2,15 @@ import { useState, useMemo } from "react";
 import { useIdeStore, type NoteItem } from "../store/useIdeStore";
 import { IDE_FEATURES } from "../data/ideFixtures";
 import {
-  Undo2,
-  Redo2,
   Plus,
   ArrowRight,
   AlertTriangle,
   CheckCircle2,
-  Sparkles,
   Maximize2,
   Minimize2,
   Trash2,
   BookOpen,
   Calendar,
-  X,
 } from "lucide-react";
 
 // ============================================================================
@@ -155,10 +151,6 @@ function computeWikiLinkGraph(notes: NoteItem[]): GraphComputation {
 export function StudioView() {
   const includedFeatureIds = useIdeStore(s => s.includedFeatureIds);
   const layout = useIdeStore(s => s.layout);
-  const pastLayouts = useIdeStore(s => s.pastLayouts);
-  const futureLayouts = useIdeStore(s => s.futureLayouts);
-  const undoLayout = useIdeStore(s => s.undoLayout);
-  const redoLayout = useIdeStore(s => s.redoLayout);
   const toggleBlockWidth = useIdeStore(s => s.toggleBlockWidth);
   const removeBlock = useIdeStore(s => s.removeBlock);
   const notes = useIdeStore(s => s.notes);
@@ -170,9 +162,6 @@ export function StudioView() {
   const gradeFlashcard = useIdeStore(s => s.gradeFlashcard);
   const bundle = useIdeStore(s => s.bundle);
   const selectFeature = useIdeStore(s => s.selectFeature);
-  const toggleCopilot = useIdeStore(s => s.toggleCopilot);
-  const statusError = useIdeStore(s => s.statusError);
-  const clearStatusError = useIdeStore(s => s.clearStatusError);
 
   // Active note resolution
   const activeNote = useMemo(() => {
@@ -213,98 +202,6 @@ export function StudioView() {
 
   return (
     <div className="flex h-full flex-col bg-[#181614] text-[#f5f2eb]">
-      {/* ==================================================================== */}
-      {/* 1. Clean Top Bar                                                     */}
-      {/* ==================================================================== */}
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#332e29] bg-[#211e1b] px-6 py-2.5">
-        {/* Left: Active Building Blocks as friendly clickable pills */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-[#a8a29e]">Powered by:</span>
-          {includedFeatureIds.map(fId => {
-            const feat = IDE_FEATURES.find(f => f.featureId === fId);
-            const label =
-              fId === "inkwell.wikilink_graph"
-                ? "Connected Notes & Backlinks"
-                : fId === "recall.sm2_scheduler"
-                ? "Smart Flashcard Scheduler"
-                : feat?.title ?? fId;
-
-            return (
-              <button
-                type="button"
-                key={fId}
-                onClick={() => selectFeature(fId)}
-                title={`Click to view ${label} feature specifications`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-[#10b981]/30 bg-[#064e3b]/60 px-3 py-1 text-xs font-medium text-[#34d399] hover:bg-[#064e3b]/90 transition-colors"
-              >
-                <CheckCircle2 size={12} aria-hidden="true" />
-                <span>{label}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Right: Customize with AI + Undo / Redo */}
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={() => toggleCopilot(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-[#10b981]/30 bg-[#064e3b]/60 px-3.5 py-1.5 text-xs font-medium text-[#34d399] hover:bg-[#064e3b]/90 transition-colors"
-          >
-            <Sparkles size={14} aria-hidden="true" />
-            <span>Customize with AI</span>
-          </button>
-
-          <div className="h-4 border-l border-[#332e29]" />
-
-          <div role="toolbar" aria-label="Layout history controls" className="flex items-center gap-1">
-            <button
-              type="button"
-              aria-label="Undo layout edit"
-              disabled={pastLayouts.length === 0}
-              onClick={undoLayout}
-              className="flex items-center justify-center rounded-lg border border-[#332e29] bg-[#282420] p-2 text-[#f5f2eb] hover:bg-[#332e29] disabled:cursor-not-allowed disabled:opacity-30 transition-colors"
-            >
-              <Undo2 size={14} aria-hidden="true" />
-            </button>
-
-            <button
-              type="button"
-              aria-label="Redo layout edit"
-              disabled={futureLayouts.length === 0}
-              onClick={redoLayout}
-              className="flex items-center justify-center rounded-lg border border-[#332e29] bg-[#282420] p-2 text-[#f5f2eb] hover:bg-[#332e29] disabled:cursor-not-allowed disabled:opacity-30 transition-colors"
-            >
-              <Redo2 size={14} aria-hidden="true" />
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Status Error Banner (if any) */}
-      {statusError && (
-        <div
-          role="alert"
-          className="flex items-center justify-between border-b border-red-500/30 bg-[#7f1d1d]/30 px-6 py-2 text-xs text-red-200"
-        >
-          <div className="flex items-center gap-2">
-            <AlertTriangle size={14} aria-hidden="true" className="shrink-0 text-red-400" />
-            <p className="text-pretty">{statusError}</p>
-          </div>
-          <button
-            type="button"
-            aria-label="Dismiss error"
-            onClick={clearStatusError}
-            className="rounded p-1 text-red-300 hover:bg-[#7f1d1d]/50"
-          >
-            <X size={14} aria-hidden="true" />
-          </button>
-        </div>
-      )}
-
-      {/* ==================================================================== */}
-      {/* 2. Spacious Live Application Canvas                                  */}
-      {/* ==================================================================== */}
       <main className="flex-1 overflow-y-auto p-6 bg-[#181614]">
         <div className="mx-auto max-w-5xl space-y-6">
           {/* App Title & Header */}
