@@ -241,6 +241,16 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
             blockers.append({"kind": "claim_needs_resolution", "subject": claim["subject"],
                              "claim_index": claim["claim_index"],
                              "review_state": claim["review_state"]})
+    review_gaps = []
+    for draft_artifact, items in reviews.items():
+        for review_artifact, review in items:
+            for field in ("missing_behavior", "unresolved"):
+                for item in review["answer"].get(field, []):
+                    review_gaps.append({"draft_artifact": draft_artifact,
+                                        "review_artifact": review_artifact,
+                                        "kind": field, "description": item})
+    if review_gaps:
+        blockers.append({"kind": "independent_review_gaps", "items": review_gaps})
     unreviewed_dependencies = [item for item in dependencies
                                if item["review_state"] != "supported_static"]
     if unreviewed_dependencies:
@@ -287,12 +297,14 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
               "functions": sorted(function_summaries, key=lambda item: item["subject"]),
               "claims": claims, "dependency_contracts": dependencies,
               "uncovered_direct_calls": uncovered_calls,
+              "independent_review_gaps": review_gaps,
               "probes": probes, "blockers": blockers,
               "coverage": {"included_functions": len(included),
                            "drafted_functions": len(drafted_subjects),
                            "claims": len(claims),
                            "static_supported_claims": sum(
                                claim["review_state"] == "supported_static" for claim in claims),
+                           "independent_review_gaps": len(review_gaps),
                            "reviewed_dependency_contracts": len(dependencies) -
                                len(unreviewed_dependencies),
                            "current_dependency_contracts": sum(
@@ -381,6 +393,10 @@ def render_markdown(dossier: dict) -> str:
                      f"{call['target_name'] or call['target_entry']} "
                      f"(`{call['target_entry']}`); declared at site: "
                      f"{', '.join(call['declared_targets']) or 'none'}")
+    lines += ["", "## Independent review gaps", ""]
+    for gap in dossier["independent_review_gaps"]:
+        lines.append(f"- **{gap['kind']}** · draft `{gap['draft_artifact']}` · "
+                     f"review `{gap['review_artifact']}`: {gap['description']}")
     lines += ["", "## Original-execution probes", ""]
     for probe in dossier["probes"]:
         lines.append(f"- **{probe['outcome']}** · {probe['case_id']} · "

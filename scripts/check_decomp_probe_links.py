@@ -67,6 +67,13 @@ def main() -> None:
         agreed = dossier(link)
         assert agreed["claims"][0]["execution_state"] == "case_agreement"
         assert agreed["coverage"]["claims_with_case_agreement"] == 1
+        flagged_review = {**review, "answer": {**review["answer"],
+                           "missing_behavior": ["check decrement path"]}}
+        flagged = assemble(engine, manifest, scope_artifact, [draft_artifact],
+                           [put(store, flagged_review)], [report_artifact])
+        assert flagged["coverage"]["independent_review_gaps"] == 1
+        assert any(item["kind"] == "independent_review_gaps"
+                   for item in flagged["blockers"])
         disagreed = dossier({**link, "expected_observed": 2})
         assert disagreed["claims"][0]["execution_state"] == "case_disagreement"
         assert any(item["kind"] == "claim_probe_disagreements"
