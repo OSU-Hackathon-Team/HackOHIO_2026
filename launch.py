@@ -36,6 +36,10 @@ def worker(workspace: Path, mode: str) -> None:
             "--volume", f"{ROOT}:/app:ro",
             "--volume", f"{workspace}:/work:rw",
             "--env", "GHIDRA_INSTALL_DIR=/opt/ghidra_12.1.3_PUBLIC"]
+    for var in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+                "AWS_REGION", "AWS_DEFAULT_REGION"):
+        if var in os.environ:
+            args += ["--env", f"{var}={os.environ[var]}"]
     if mode == "run":
         for path in ("/run/opencode-bin", "/run/opencode-auth.json"):
             if not Path(path).is_file():
@@ -55,8 +59,11 @@ def worker(workspace: Path, mode: str) -> None:
         raise RuntimeError(f"{mode} timed out after {limit} seconds") from error
 
 
+DEFAULT_MODEL = os.environ.get("OPENCODE_MODEL", "amazon-bedrock/deepseek.v3.2")
+
+
 def run(binary: Path, address: str, new_name: str,
-        model: str = "openrouter/openrouter/free", timeout: int = 180) -> Path:
+        model: str = DEFAULT_MODEL, timeout: int = 180) -> Path:
     if timeout < 1:
         raise ValueError("timeout must be positive")
     if not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", new_name):
@@ -89,7 +96,7 @@ def dispatch_many(assignments: list[dict], max_workers: int = 2) -> list[Path]:
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = [pool.submit(
             run, Path(item["binary"]), item["address"], item["new_name"],
-            item.get("model", "openrouter/openrouter/free"), item.get("timeout", 180))
+            item.get("model", DEFAULT_MODEL), item.get("timeout", 180))
             for item in assignments]
         return [future.result() for future in futures]
 
@@ -104,7 +111,7 @@ def main() -> None:
     rename.add_argument("--binary", type=Path, required=True)
     rename.add_argument("--address", required=True)
     rename.add_argument("--new-name", required=True)
-    rename.add_argument("--model", default="openrouter/openrouter/free")
+    rename.add_argument("--model", default=DEFAULT_MODEL)
     rename.add_argument("--timeout", type=int, default=180)
     batch = sub.add_parser("batch", help="dispatch independent rename agents from JSON")
     batch.add_argument("--assignments", type=Path, required=True)

@@ -6,8 +6,12 @@ services:
     privileged: true
     security_opt:
       - label=disable
+    env_file:
+      - .env
     environment:
       STORAGE_DRIVER: vfs
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
     volumes:
       - .:/workspace
       - podman-storage:/var/lib/containers
