@@ -13,9 +13,9 @@ if the pre-specification acceptance gates pass. Completing a dossier or reaching
 Work exclusively on the native pre-specification pipeline: intake, analysis, scope,
 semantic work, independent review, original-execution probes, findings, reconciliation,
 dossiers, queue reliability, progress visibility, and their acceptance gates. Do not start
-M5 specification generation, the dossier-to-spec handoff, or downstream API integration.
-Those phases remain in this plan
-for future work and require an explicit user instruction to resume.
+or continue M5 specification generation, the dossier-to-spec handoff, or downstream API
+integration. Existing M5 draft code is outside the current work and does not change this
+boundary. Those phases require a new explicit user instruction to resume.
 
 ## Required outcome
 
@@ -194,7 +194,7 @@ Acceptance:
 - A missing observable behavior prevents readiness when it blocks writing the specification.
 - Cases unavailable for execution remain explicit limitations; probes do not substitute guessed outputs.
 
-## M5 — Dossier-to-spec handoff and API integration (deferred; do not start)
+## M5 — Dossier-to-spec handoff and API integration (deferred)
 
 Depends on M3 and M4.
 
@@ -269,8 +269,8 @@ Ghidra changes use their own isolated revision path.
 - [ ] M2 first subsystem dossier produced with explicit boundaries and unknowns.
 - [ ] M3 sixteen-worker recovery and concurrency gates pass.
 - [ ] M4 semantic and original-behavior checks pass.
-- [ ] M5 shared contracts and specification handoff integrated. **Deferred: do not start
-  without an explicit new user instruction.**
+- [ ] M5 shared contracts and specification handoff integrated; the native dossier-to-spec
+  artifact path is implemented, while the external API and acceptance gates remain open.
 - [ ] M6 measured scaling and two-host recovery demonstrated.
 
 Do not mark these complete based on documentation, worker counts, rename persistence,

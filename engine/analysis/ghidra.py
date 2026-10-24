@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import fcntl
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -126,6 +128,25 @@ class GhidraAnalysis:
     def index(self, manifest: dict) -> dict:
         return json.loads(self.store.get(manifest["index_artifact"]))
 
+    @contextmanager
+    def _function_lock(self, cache_dir: Path, key: str):
+        with (cache_dir / (key + ".lock")).open("a+b") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+
+    def _publish_function(self, pointer: Path, artifact: str) -> None:
+        with tempfile.NamedTemporaryFile(mode="w", dir=pointer.parent, suffix=".tmp",
+                                         delete=False) as output:
+            output.write(json.dumps({"artifact": artifact}) + "\n")
+            temporary = Path(output.name)
+        try:
+            os.replace(temporary, pointer)
+        finally:
+            temporary.unlink(missing_ok=True)
+
     def function(self, manifest: dict, address: str) -> dict:
         index = self.index(manifest)
         matches = [item for item in index["functions"] if item["entry"] == address]
@@ -135,29 +156,30 @@ class GhidraAnalysis:
         cache_dir.mkdir(exist_ok=True)
         key = address.replace(":", "_")
         pointer = cache_dir / (key + ".json")
-        if pointer.exists():
-            artifact = json.loads(pointer.read_text())["artifact"]
-            evidence = json.loads(self.store.get(artifact))
-            self._emit(manifest["campaign"], "function_cache_hit", address=address,
-                       artifact=artifact)
+        with self._function_lock(cache_dir, key):
+            if pointer.exists():
+                artifact = json.loads(pointer.read_text())["artifact"]
+                evidence = json.loads(self.store.get(artifact))
+                self._emit(manifest["campaign"], "function_cache_hit", address=address,
+                           artifact=artifact)
+                return evidence
+            with tempfile.TemporaryDirectory(dir=self.root) as scratch:
+                export = Path(scratch) / "function.json"
+                self._run([manifest["project"], "baseline", "-process",
+                           manifest["program_name"], "-readOnly", "-noanalysis", "-scriptPath",
+                           str(SCRIPT_DIR), "-postScript", "ExportEvidence.java",
+                           str(export), "function", address], manifest["campaign"],
+                          "function_" + key)
+                if not export.exists():
+                    raise RuntimeError("Ghidra function script produced no output; see function log")
+                evidence = json.loads(export.read_text())
+                if evidence.get("entry") != address:
+                    raise RuntimeError("Ghidra returned evidence for a different function")
+                artifact = self.store.put(export.read_bytes())
+            self._publish_function(pointer, artifact)
+            self._emit(manifest["campaign"], "function_exported", address=address,
+                       artifact=artifact, status=evidence["status"])
             return evidence
-        with tempfile.TemporaryDirectory(dir=self.root) as scratch:
-            export = Path(scratch) / "function.json"
-            self._run([manifest["project"], "baseline", "-process",
-                       manifest["program_name"], "-readOnly", "-noanalysis", "-scriptPath",
-                       str(SCRIPT_DIR), "-postScript", "ExportEvidence.java",
-                       str(export), "function", address], manifest["campaign"],
-                      "function_" + key)
-            if not export.exists():
-                raise RuntimeError("Ghidra function script produced no output; see function log")
-            evidence = json.loads(export.read_text())
-            if evidence.get("entry") != address:
-                raise RuntimeError("Ghidra returned evidence for a different function")
-            artifact = self.store.put(export.read_bytes())
-        pointer.write_text(json.dumps({"artifact": artifact}) + "\n")
-        self._emit(manifest["campaign"], "function_exported", address=address,
-                   artifact=artifact, status=evidence["status"])
-        return evidence
 
     def export_all(self, manifest: dict) -> dict:
         index = self.index(manifest)
@@ -200,11 +222,11 @@ class GhidraAnalysis:
                                         raise ValueError(f"unexpected function address {address}")
                                     artifact = self.store.put(path.read_bytes())
                                     pointer = cache_dir / (address.replace(":", "_") + ".json")
-                                    temporary = pointer.with_suffix(".tmp")
-                                    temporary.write_text(json.dumps({"artifact": artifact}) + "\n")
-                                    os.replace(temporary, pointer)
-                                    self._emit(campaign, "function_exported", address=address,
-                                               artifact=artifact, status=evidence["status"])
+                                    with self._function_lock(cache_dir, address.replace(":", "_")):
+                                        if not pointer.exists():
+                                            self._publish_function(pointer, artifact)
+                                            self._emit(campaign, "function_exported", address=address,
+                                                       artifact=artifact, status=evidence["status"])
                                 except Exception as error:
                                     self._emit(campaign, "function_failed", error=str(error),
                                                output=str(path))

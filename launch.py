@@ -21,6 +21,7 @@ from engine.worker import SemanticWorker
 from engine.validation.review import IndependentReviewer
 from engine.validation.probes import NativeProbeRunner
 from engine.dossier import persist_dossier
+from engine.specification import persist_spec
 
 ROOT = Path(__file__).resolve().parent
 RUNS = ROOT / "runs"
@@ -178,6 +179,9 @@ def main() -> None:
     dossier.add_argument("--state", type=Path, default=ENGINE_STATE)
     dossier.add_argument("--dsn", default=os.environ.get("DECOMP_DATABASE_URL"),
                          help="PostgreSQL DSN for a current helper-contract snapshot")
+    specification = sub.add_parser("spec", help="generate a native spec from an immutable dossier")
+    specification.add_argument("--dossier-artifact", required=True)
+    specification.add_argument("--state", type=Path, default=ENGINE_STATE)
     status = sub.add_parser("status", help="show persisted decomp campaign progress")
     status.add_argument("--state", type=Path, default=ENGINE_STATE)
     status.add_argument("--campaign", help="limit output to one campaign hash")
@@ -189,6 +193,7 @@ def main() -> None:
         ("queue-run-one", "lease and run one semantic task with heartbeats"),
         ("queue-drain", "run bounded parallel semantic workers until idle"),
         ("queue-review", "independently review one validated queue task"),
+        ("queue-review-fixed-memory", "review simple fixed-address x86 stores deterministically"),
         ("queue-review-drain", "review validated tasks with bounded durable leases"),
         ("queue-review-dependency", "review one caller dependency against a helper contract"),
         ("queue-adjudicate-gaps", "check review omissions against raw and original evidence"),
@@ -262,7 +267,8 @@ def main() -> None:
         if name in {"queue-normalize-partial", "queue-reclassify-intrinsic",
                     "queue-repair-dependency-citations", "queue-complete-direct-calls"}:
             command.add_argument("--task-id", required=True)
-        if name in {"queue-task", "queue-publish-claims", "queue-publish-contract"}:
+        if name in {"queue-task", "queue-review-fixed-memory", "queue-publish-claims",
+                    "queue-publish-contract"}:
             command.add_argument("--task-id", required=True)
         if name in {"queue-events", "queue-findings"}:
             command.add_argument("--campaign", required=True)
@@ -391,6 +397,8 @@ def main() -> None:
                           "readiness": result["readiness"],
                           "coverage": result["coverage"],
                           "blockers": result["blockers"]}, indent=2))
+    elif args.command == "spec":
+        print(json.dumps(persist_spec(args.state, args.dossier_artifact), indent=2))
     elif args.command.startswith("queue-"):
         from engine.artifacts import LocalArtifactStore
         from engine.queue import DurableQueue
@@ -476,6 +484,21 @@ def main() -> None:
                       "review_state": review_result["state"],
                       "review_artifact": review_result["artifact"],
                       "outcomes": review_result.get("outcomes", {})}
+        elif args.command == "queue-review-fixed-memory":
+            from engine.validation.fixed_memory import FixedMemoryReviewer
+
+            task = queue.task(args.task_id)
+            if task is None or task["state"] != "validated":
+                parser.error("queue-review-fixed-memory requires a validated task")
+            engine = GhidraAnalysis(args.state, Path(os.environ.get(
+                "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+            review_result = FixedMemoryReviewer(engine).run(task["result_artifact"])
+            queue_state = (queue.publish_review(args.task_id, review_result["artifact"])
+                           if review_result["state"] == "reviewed" else "invalid")
+            result = {"task_id": args.task_id, "queue_state": queue_state,
+                      "review_state": review_result["state"],
+                      "review_artifact": review_result["artifact"],
+                      "outcomes": review_result["outcomes"]}
         elif args.command == "queue-review-drain":
             from engine.review_runner import run_one as run_review_one
 

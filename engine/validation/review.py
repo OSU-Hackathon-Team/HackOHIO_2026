@@ -74,10 +74,17 @@ def review_prompt(draft: dict, evidence: dict, scope: dict | None = None) -> str
         "Track each write to the return register along that path, including moves, zeroing, "
         "SETcc, and arithmetic; the last value at RET determines the return. If a concrete "
         "counterexample path cannot be traced, choose uncertain instead of contradicted. "
+        "For a memory-write claim, compute each store's byte width and address range. "
+        "A vector store writes every byte in its range; check later overlapping writes "
+        "before deciding whether an individual field changes. For an overlap claim, "
+        "calculate the intersection of the cited stores' inclusive byte ranges; a claimed "
+        "overlap outside that intersection is contradicted. "
         "Treat unsigned branch conditions as unsigned and check whether a proposed missing "
         "input is already included in an existing claim's range. "
         "Check success as well as failure paths and each state update. Scope "
-        "observables are coverage questions, not facts to assume true. Do not say there is no "
+        "observables describe the wider subsystem. Report a missing behavior only when this "
+        "function's own instructions show that behavior, never because a different caller or "
+        "helper performs it. Do not say there is no "
         "missing behavior merely because the listed claims are individually correct. "
         "List missing_behavior only for an observable path or effect shown by this raw "
         "function and absent from the draft. Do not invent error codes, callee failures, "
@@ -128,7 +135,7 @@ class IndependentReviewer:
                       "campaign": draft["campaign"], "draft_artifact": draft_artifact,
                       "evidence_artifact": draft["evidence_artifact"],
                       "subject": draft["subject"], "model": resolved_model,
-                      "model_role": model_role, "prompt_version": 4,
+                      "model_role": model_role, "prompt_version": 6,
                       "state": "running"}
         checkpoint_path = folder / "checkpoint.json"
         checkpoint_path.write_text(json.dumps(checkpoint, indent=2) + "\n")
