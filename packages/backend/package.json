@@ -20,7 +20,8 @@
     "spec:all": "tsx src/scripts/specAll.ts",
     "test:implement": "tsx src/scripts/testImplement.ts",
     "test:synthesis": "tsx src/scripts/testSynthesis.ts",
-    "test:unit": "node --import tsx --test src/**/*.test.ts"
+    "test:unit": "node --import tsx --test src/**/*.test.ts",
+    "seed:studio": "tsx src/scripts/seedStudio.ts"
   },
   "dependencies": {
     "@anthropic-ai/bedrock-sdk": "^1.1.0",
