@@ -80,11 +80,41 @@ if (process.env.NODE_ENV === "production" || hasFrontendDist) {
 }
 
 // ==============================================================================
-// 5. Server Initialization
+// 5. Server Initialization & REA Pre-Warming
 // ==============================================================================
-if (process.env.NODE_ENV !== "test") {
+import { rea } from "./rea/reaClient.js";
+import { checkArgsAgainstCatalog } from "./rea/reaArgs.js";
+import { config } from "./config.js";
+
+const isMainModule = Boolean(
+  process.argv[1] &&
+    (process.argv[1].endsWith("/server.js") ||
+      process.argv[1].endsWith("/server.ts") ||
+      process.argv[1].endsWith("\\server.js") ||
+      process.argv[1].endsWith("\\server.ts"))
+);
+
+if (process.env.NODE_ENV !== "test" && isMainModule) {
   app.listen(PORT, () => {
     console.log(`[Splice Backend] Server running on port ${PORT} (mode: ${process.env.NODE_ENV || "development"})`);
-    console.log(`[Splice Backend] REA Engine Mode: ${process.env.REA_MODE || "mock"}`);
+    console.log(`[Splice Backend] REA Engine Mode: ${config.reaMode} (env: ${process.env.REA_MODE || "auto"})`);
+  });
+
+  if (config.reaMode !== "replay") {
+    rea.start()
+      .then(async () => {
+        checkArgsAgainstCatalog((await rea.listTools()) as any);
+        await rea.call("binary_session", {});
+        console.log(`[rea] ready: ${rea.toolCount} tools (server ${rea.serverVersion ?? "?"})`);
+      })
+      .catch((e) => console.warn(`[rea] pre-warm failed: ${e.message} — live extraction will fall back to replay in auto mode`));
+  }
+}
+
+for (const sig of ["SIGINT", "SIGTERM"] as const) {
+  process.on(sig, async () => {
+    await rea.close().catch(() => {});
+    process.exit(0);
   });
 }
+
