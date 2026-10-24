@@ -18,7 +18,7 @@ python launch.py function --manifest decomp-state/projects/<campaign>/manifest.j
 python launch.py export-all --manifest decomp-state/projects/<campaign>/manifest.json
 ```
 
-Each function artifact records its entry address, decompilation status, C rendering, instructions, and references. External functions and decompilation errors have explicit statuses. `export-all` keeps one Ghidra decompiler context open for the full indexed program and returns a coverage inventory. Its `complete` flag means every *discovered* function exported successfully; it does not mean all behavior has been discovered or validated. `decomp-state/progress.jsonl` contains append-only JSON events, including each completed function, for a future job API/UI; `launch.py status` summarizes them. All artifacts are SHA-256 addressed under `decomp-state/artifacts/`. This is static evidence, not a validated behavioral dossier.
+Each function artifact records its entry address, decompilation status, C rendering, instructions, and references. External functions and decompilation errors have explicit statuses. Targeted cache misses use two reusable Ghidra contexts by default; set `DECOMP_ANALYSIS_WORKERS` to `0..16` to size the local pool (`0` uses a fresh process per request). Each context opens a separate copy of the closed analyzed project because this Ghidra headless version locks projects even in read-only mode. A failed or timed-out context is stopped and started again on its next request. `export-all` keeps one Ghidra decompiler context open for the full indexed program and returns a coverage inventory. Its `complete` flag means every *discovered* function exported successfully; it does not mean all behavior has been discovered or validated. `decomp-state/progress.jsonl` contains append-only JSON events, including each completed function and warm-pool activity, for a future job API/UI; `launch.py status` summarizes exports, cache hits, pool waits, completions, failures, and worker restarts. All artifacts are SHA-256 addressed under `decomp-state/artifacts/`. This is static evidence, not a validated behavioral dossier.
 
 Build source-known stripped executable and shared-library fixtures at `-O0` and `-O2`, then execute held-out cases against the original code:
 
@@ -26,6 +26,7 @@ Build source-known stripped executable and shared-library fixtures at `-O0` and 
 python scripts/build_decomp_fixtures.py
 python scripts/probe_decomp_fixtures.py
 python scripts/check_decomp_export.py
+python scripts/check_decomp_warm.py
 python scripts/check_decomp_scope.py
 ```
 
