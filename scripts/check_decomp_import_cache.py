@@ -41,7 +41,8 @@ class FakeAnalysis(GhidraAnalysis):
         elif stage == "index":
             with shared.guard:
                 shared.indexes += 1
-            Path(args[-2]).write_text(json.dumps({"status": "ok", "functions": []}))
+            Path(args[-2]).write_text(json.dumps({"status": "ok", "functions": [],
+                                                 "static_inventory": {}}))
         else:
             raise AssertionError(stage)
 
