@@ -41,12 +41,27 @@ export interface Step3Deps {
   replayTranscript(kind: Step3TranscriptKind, key: string, sse: SseWriterPort, opts: { runId: string }): Promise<boolean>;
 }
 
-// LLM and Eng 1 helpers are implemented. Production wiring still waits on Eng 2's sandbox.
+import { structuredCall, continueWith } from "../../llm/llm.js";
+import { runTests } from "../../sandbox/runTests.js";
+import { openSse as openSseReal, newRunId as newRunIdReal } from "../../http/sse.js";
+import { createTranscript as createTranscriptReal } from "../../evidence/recorder.js";
+import { replayTranscript as replayTranscriptReal } from "../../evidence/replay.js";
+import { config } from "../../config.js";
+
+// Kept for tests that verify 503 behavior when deps is explicitly passed as null
 export const MISSING_UPSTREAM = [
   "sandbox/runTests.ts (Eng 2)",
 ];
 
-export const step3Deps: Step3Deps | null = null;
+export const step3Deps: Step3Deps = {
+  llm: { structuredCall, continueWith },
+  sandbox: { runTests },
+  llmMode: () => config.llmMode,
+  openSse: openSseReal,
+  newRunId: newRunIdReal,
+  createTranscript: createTranscriptReal,
+  replayTranscript: (kind, key, sse, opts) => replayTranscriptReal(kind, key, sse as any, opts),
+};
 
 /** Same value as REPO_ROOT in config.ts: src|dist/routes/step3 → repo root. */
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
