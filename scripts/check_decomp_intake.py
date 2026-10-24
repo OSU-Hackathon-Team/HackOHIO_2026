@@ -1,20 +1,28 @@
 """Check multi-module ELF intake, dependency identity, and persisted progress."""
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
+import uuid
+
+import psycopg
+from psycopg import sql
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from engine.analysis.ghidra import GhidraAnalysis  # noqa: E402
 from engine.analysis.links import link_modules  # noqa: E402
+from engine.artifacts import LocalArtifactStore  # noqa: E402
 from engine.intake import analyze_project  # noqa: E402
 from engine.models import ScopeRequest  # noqa: E402
 from engine.project_export import export_project  # noqa: E402
+from engine.project_queue import enqueue_project_scope, project_queue_status  # noqa: E402
 from engine.project_scope import persist_project_scope  # noqa: E402
+from engine.queue import DurableQueue  # noqa: E402
 from engine.scope import persist_scope  # noqa: E402
 
 
@@ -118,6 +126,26 @@ def main() -> None:
         assert len(whole["module_scopes"]) == 2
         assert any(json.loads(engine.store.get(item["scope_artifact"]))["unresolved"]
                    for item in whole["module_scopes"])
+        admin_dsn = os.environ.get(
+            "DECOMP_TEST_PG_DSN", "host=127.0.0.1 port=55479 dbname=postgres user=mitch")
+        dbname = "decomp_project_intake_check_" + uuid.uuid4().hex[:12]
+        with psycopg.connect(admin_dsn, autocommit=True) as admin:
+            admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(dbname)))
+            try:
+                params = psycopg.conninfo.conninfo_to_dict(admin_dsn)
+                params["dbname"] = dbname
+                queue = DurableQueue(psycopg.conninfo.make_conninfo(**params),
+                                     LocalArtifactStore(root / "state" / "artifacts"))
+                first = enqueue_project_scope(queue, project_scope["artifact"])
+                assert first["enqueued"] == project_scope["coverage"]["tasks"]
+                assert enqueue_project_scope(queue, project_scope["artifact"])["enqueued"] == 0
+                queued = project_queue_status(queue, project_scope["artifact"])
+                assert len(queued["modules"]) == 2
+                assert all(item["scope_tasks"]["missing"] == 0
+                           for item in queued["modules"])
+            finally:
+                admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(
+                    sql.Identifier(dbname)))
         status = subprocess.check_output(
             [sys.executable, str(ROOT / "launch.py"), "status", "--state",
              str(root / "state"), "--campaign", project["project_id"]], text=True)
