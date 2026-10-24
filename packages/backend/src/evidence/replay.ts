@@ -23,8 +23,8 @@ export async function loadRecordedEvidence(featureId: string): Promise<RawEviden
   const raw = await readFirst([
     path.join(FIX, "evidence", `${featureId}.json`),
     path.join(FIX, "evidence", `${featureId}.latest.json`),
-    path.join(FIX, "evidence", "_seed", `${featureId}.json`),
     path.join(FIX, "hand-authored", "evidence", `${featureId}.json`),
+    path.join(FIX, "evidence", "_seed", `${featureId}.json`),
   ]);
   if (!raw) return null;
   return { ...RawEvidence.parse(raw), mode: "replay" };
