@@ -176,7 +176,13 @@ export function validateBundle(
     if (bundle.dependencies) {
       for (const [pkg, ver] of Object.entries(bundle.dependencies)) {
         const allowedVer = ALLOWED_DEPENDENCIES[pkg as keyof typeof ALLOWED_DEPENDENCIES];
-        if (allowedVer !== undefined && allowedVer !== ver) {
+        if (allowedVer === undefined) {
+          addDiag(
+            "manifest",
+            undefined,
+            `Dependency "${pkg}" is not an allowed Sandpack dependency`,
+          );
+        } else if (allowedVer !== ver) {
           addDiag(
             "manifest",
             undefined,

@@ -19,6 +19,8 @@
     "dev": "npm run build:contracts && concurrently -n contracts,backend,frontend -c yellow,green,cyan \"npm run dev --workspace=@splice/contracts\" \"npm run dev:backend\" \"npm run dev:frontend\"",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:python": "python3 -m unittest discover -s tests -p \"test_*.py\"",
+    "test:all": "npm run test && npm run test:python",
     "start": "npm run start --workspace=@splice/backend",
     "build:targets": "node scripts/build-targets.mjs",
     "test:studio": "playwright test"
