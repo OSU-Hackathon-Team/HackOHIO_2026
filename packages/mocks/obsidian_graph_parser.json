@@ -1,0 +1,29 @@
+{
+  "feature_id": "obsidian_wiki_backlink_graph",
+  "source_app": "Obsidian",
+  "source_icon": "BookOpen",
+  "consumer_title": "Bi-Directional Wiki Link Graph Engine",
+  "consumer_description": "Parses markdown content for [[wikilinks]] and resolves bi-directional node connections and backlink references.",
+  "category": "graph",
+  "rea_evidence": {
+    "artifact_type": "electron_asar",
+    "target_file": "app.asar/dist/app.js",
+    "entry_symbols": ["parseMarkdownLinks", "resolveBacklinks", "metadataCache"],
+    "decompiled_snippet": "function resolveBacklinks(e, t) { let n = {}; for (let r of e) { let i = parseWikiLinks(r.content); i.forEach(l => { n[l] = n[l] || []; n[l].push(r.id); }); } return n; }",
+    "ipc_or_network_routes": ["vault:read-metadata", "renderer->metadata-worker"],
+    "confidence_score": 0.98,
+    "limitations": ["Assumes UTF-8 markdown notes", "Ignores block-level transclusions"]
+  },
+  "clean_room_implementation": {
+    "language": "typescript",
+    "module_name": "wikiGraphEngine",
+    "inputs": [
+      { "name": "notes", "type": "Array<{ id: string; title: string; content: string }>" }
+    ],
+    "outputs": [
+      { "name": "graph", "type": "{ nodes: Array<{ id: string; label: string }>; links: Array<{ source: string; target: string }> }" },
+      { "name": "backlinks", "type": "Record<string, string[]>" }
+    ],
+    "portable_code": "export interface NoteItem {\n  id: string;\n  title: string;\n  content: string;\n}\n\nexport interface GraphData {\n  nodes: { id: string; label: string }[];\n  links: { source: string; target: string }[];\n  backlinks: Record<string, string[]>;\n}\n\nexport function buildWikiGraph(notes: NoteItem[]): GraphData {\n  const nodes = notes.map(n => ({ id: n.id, label: n.title }));\n  const links: { source: string; target: string }[] = [];\n  const backlinks: Record<string, string[]> = {};\n  const titleToId = new Map(notes.map(n => [n.title.toLowerCase().trim(), n.id]));\n\n  for (const note of notes) {\n    const matches = Array.from(note.content.matchAll(/\\[\\[([^\\]\\|]+)(?:\\|[^\\]]+)?\\]\\]/g));\n    for (const match of matches) {\n      const targetTitle = match[1].toLowerCase().trim();\n      const targetId = titleToId.get(targetTitle);\n      if (targetId && targetId !== note.id) {\n        links.push({ source: note.id, target: targetId });\n        if (!backlinks[targetId]) backlinks[targetId] = [];\n        if (!backlinks[targetId].includes(note.id)) backlinks[targetId].push(note.id);\n      }\n    }\n  }\n  return { nodes, links, backlinks };\n}"
+  }
+}

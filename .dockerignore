@@ -1,7 +1,51 @@
-.git
+# Python and local agent caches
 .agents
 .codex
-.env
 runs
 __pycache__
 *.pyc
+
+# Dependencies and host modules (prevent host OS binaries from leaking into container)
+node_modules
+**/node_modules
+
+# Build outputs and compilation artifacts
+dist
+**/dist
+.vite
+**/.vite
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Sensitive credentials and environment files (must be injected at runtime)
+.env
+.env.*
+!.env.example
+
+# Version control and repository metadata
+.git
+.gitignore
+
+# IDE, OS, and editor metadata
+.vscode
+.idea
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Diagnostic logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Temporary and scratch files
+tmp
+temp
+.temp
+
+# Critical: Retain mock fixtures and binary targets for reverse-engineering extraction
+!packages/mocks/**
+!targets/**
