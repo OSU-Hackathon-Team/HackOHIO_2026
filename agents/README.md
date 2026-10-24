@@ -14,8 +14,8 @@ reconstructed C and exhaustive variable renaming are not completion requirements
 
 The Electron demo instructions below remain a bounded integration path. Their fixed collector,
 replay-only native policy, hour-based cut list, and pure-function restrictions do not constrain
-the new engine. The existing shared contract remains unchanged until the plan's explicit schema
-migration; proposed dossier records are not already implemented API types.
+the new engine. The Electron `FeatureSpec` remains separate. `NativeSubsystemSpec` is the
+versioned dossier-to-spec handoff; broader campaign and dossier API records remain proposed.
 
 
 This folder is the build spec for Splice. It replaces the high-level plan in
