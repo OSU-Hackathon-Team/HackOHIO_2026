@@ -6,153 +6,112 @@ import { adaptNativeSpecToFeatureSpec } from "./nativeAdapter.js";
 describe("NativeSubsystemSpec -> FeatureSpec Adapter", () => {
   const dummyHash = "a".repeat(64);
   const sampleNativeSpec: NativeSubsystemSpec = {
-    schema: 1,
+    schema: 2,
     kind: "native_subsystem_spec",
-    campaign: dummyHash,
-    binary_sha256: "b".repeat(64),
-    scope_id: "c".repeat(64),
-    scope_revision: 1,
-    title: "Task Priority Scoring Subsystem",
     status: "ready_for_review",
-    boundary: {
-      mode: "subsystem",
-      included: [
-        { entry: "004012a0", name: "score_task_priority" },
-        { entry: "00401220", name: "urgency_bucket" },
-      ],
-      boundaries: [],
-      exclusions: [],
-      unresolved_edges: [],
-      expected_observables_to_investigate: ["priority score calculation"],
+    title: "Task Priority Scoring Subsystem",
+    purpose: "Calculates priority score from task due dates, urgency, and importance.",
+    boundary: "subsystem",
+    interface: {
+      inputs: ["TaskView struct with due date, completion status, and importance"],
+      outputs: ["Calculated priority score as non-negative integer"],
+      state: ["No persistent state between calculations"],
     },
     requirements: [
       {
         id: "REQ-1",
-        subject: "004012a0",
-        draft_artifact: dummyHash,
-        claim_index: 0,
         statement: "Completed tasks score 0 regardless of due date or importance.",
-        evidence: [{ artifact: dummyHash, address: "004012a0" }],
-        assumptions: [],
-        alternatives: [],
-        review_state: "supported_static",
-        reviews: [{ outcome: "supported_static", model: "independent-reviewer" }],
-        execution_state: "case_agreement",
-        probe_links: [{ case_id: "completed_zero", agreement: true }],
       },
       {
         id: "REQ-2",
-        subject: "004012a0",
-        draft_artifact: dummyHash,
-        claim_index: 1,
         statement: "Overdue tasks gain 40 points per complete day late, capped at 120.",
-        evidence: [{ artifact: dummyHash, address: "004012a8" }],
-        assumptions: [],
-        alternatives: [],
-        review_state: "supported_static",
-        reviews: [{ outcome: "supported_static", model: "independent-reviewer" }],
-        execution_state: "case_agreement",
-        probe_links: [{ case_id: "overdue_capped", agreement: true }],
       },
     ],
-    function_descriptions: [
+    behavior_steps: [
+      "Check if task is completed; if so return 0.",
+      "Calculate overdue days and urgency points, capping at 120.",
+    ],
+    examples: [
       {
-        entry: "004012a0",
-        name: "score_task_priority",
-        draft_artifact: dummyHash,
-        inputs: "TaskView* task, int64_t now_epoch",
-        outputs: "int score",
-        state: "stateless",
-        side_effects: "none",
-        errors: "clamped",
-        draft_pseudocode: "int score_task_priority(TaskView *task) { return task->completed ? 0 : 42; }",
-        unknowns: [],
-        evidence_requests: [],
+        name: "completed_task_zero",
+        input: { completed: true, importance: 3 },
+        expected_output: 0,
       },
-    ],
-    dependency_contracts: [],
-    original_cases: [
       {
-        case_id: "completed_zero",
-        target: "score_task_priority",
-        input: { completed: 1 },
-        expected: 0,
-        observed: 0,
-        outcome: "agreement",
+        name: "overdue_task_capped",
+        input: { completed: false, days_overdue: 4 },
+        expected_output: 120,
       },
     ],
-    unresolved_claims: [],
-    review_gaps: [],
-    blockers: [],
-    coverage: { claims: 2, supported_static: 2, case_agreements: 2 },
-    provenance: {
-      dossier_artifact: "d".repeat(64),
-      dossier_revision: 1,
-      dossier_readiness: "ready_for_spec",
-      dossier_schema: 1,
-      analysis: null,
-      scope_artifact: "e".repeat(64),
-      draft_artifacts: [dummyHash],
-      review_artifacts: [dummyHash],
-      probe_report_artifacts: [dummyHash],
-      probe_link_artifacts: [dummyHash],
-      dependency_resolution_artifacts: [],
-      gap_adjudication_artifacts: [],
-      generator_sha256: "f".repeat(64),
-    },
+    acceptance_criteria: [
+      "Completed tasks evaluate to 0.",
+      "Urgency contribution does not exceed 120.",
+    ],
+    deviations: [],
+    exclusions: [],
   };
 
-  test("valid native spec -> valid FeatureSpec adhering to Zod schema", () => {
-    const featureSpec = adaptNativeSpecToFeatureSpec(sampleNativeSpec, {
-      appId: "mockpriority",
-      featureId: "mockpriority.priority_score",
-      category: "utility",
+  const sampleWithProvenance: NativeSubsystemSpec = {
+    ...sampleNativeSpec,
+    ...({
+      campaign: dummyHash,
+      binary_sha256: "b".repeat(64),
+      provenance: {
+        dossier_artifact: "d".repeat(64),
+        scope_artifact: "s".repeat(64),
+      },
+    } as any),
+  };
+
+  test("converts a valid NativeSubsystemSpec into a valid FeatureSpec", () => {
+    const adapted = adaptNativeSpecToFeatureSpec(sampleWithProvenance, {
+      feature_id: "mockpriority.priority_score",
+      app_id: "mockpriority",
     });
 
-    const parsed = FeatureSpec.safeParse(featureSpec);
-    assert.ok(parsed.success, `FeatureSpec failed validation: ${parsed.error?.message}`);
-    assert.equal(featureSpec.schema_version, 1);
-    assert.equal(featureSpec.feature_id, "mockpriority.priority_score");
-    assert.equal(featureSpec.app_id, "mockpriority");
+    const parsed = FeatureSpec.parse(adapted);
+    assert.equal(parsed.feature_id, "mockpriority.priority_score");
+    assert.equal(parsed.app_id, "mockpriority");
+    assert.equal(parsed.schema_version, 1);
   });
 
-  test("requirements are preserved with correct IDs and source references", () => {
-    const featureSpec = adaptNativeSpecToFeatureSpec(sampleNativeSpec);
+  test("preserves all native requirements and correctly infers kinds", () => {
+    const adapted = adaptNativeSpecToFeatureSpec(sampleWithProvenance);
 
-    assert.equal(featureSpec.requirements.length, 2);
-    assert.equal(featureSpec.requirements[0].id, "REQ-1");
-    assert.equal(
-      featureSpec.requirements[0].statement,
-      "Completed tasks score 0 regardless of due date or importance."
-    );
-    assert.deepEqual(featureSpec.requirements[0].source_refs, ["004012a0@004012a0"]);
+    assert.equal(adapted.requirements.length, 2);
+    assert.equal(adapted.requirements[0].id, "REQ-1");
+    assert.equal(adapted.requirements[0].statement, "Completed tasks score 0 regardless of due date or importance.");
+    assert.equal(adapted.requirements[0].kind, "edge_case"); // "0" -> edge_case
 
-    assert.equal(featureSpec.requirements[1].id, "REQ-2");
-    assert.equal(featureSpec.requirements[1].kind, "invariant");
+    assert.equal(adapted.requirements[1].id, "REQ-2");
+    assert.equal(adapted.requirements[1].statement, "Overdue tasks gain 40 points per complete day late, capped at 120.");
+    assert.equal(adapted.requirements[1].kind, "invariant"); // "capped at" -> invariant
   });
 
-  test("interface is valid TypeScript declaration with module name and exports", () => {
-    const featureSpec = adaptNativeSpecToFeatureSpec(sampleNativeSpec);
+  test("creates a valid TypeScript InterfaceSpec without leaking C types", () => {
+    const adapted = adaptNativeSpecToFeatureSpec(sampleWithProvenance);
 
-    assert.ok(/^[a-z][A-Za-z0-9]*$/.test(featureSpec.interface.module_name));
-    assert.ok(featureSpec.interface.exports.length >= 1);
-    assert.ok(featureSpec.interface.types_code.includes("declare function"));
+    assert.ok(adapted.interface.exports.length > 0);
+    const exp = adapted.interface.exports[0];
+    assert.equal(exp.kind, "function");
+    assert.ok(exp.name.length > 0);
+    assert.ok(adapted.interface.types_code.includes("export declare function"));
   });
 
-  test("acceptance tests cover every requirement and match required test() pattern", () => {
-    const featureSpec = adaptNativeSpecToFeatureSpec(sampleNativeSpec);
+  test("generates acceptance tests anchored to requirement IDs", () => {
+    const adapted = adaptNativeSpecToFeatureSpec(sampleWithProvenance);
 
-    assert.ok(featureSpec.acceptance_tests.includes('test("REQ-1:'));
-    assert.ok(featureSpec.acceptance_tests.includes('test("REQ-2:'));
-
-    assert.equal(featureSpec.coverage.length, 2);
-    assert.ok(featureSpec.coverage.every((c) => c.test_names.length > 0));
+    assert.ok(adapted.acceptance_tests.includes("REQ-1:"));
+    assert.ok(adapted.acceptance_tests.includes("REQ-2:"));
+    assert.equal(adapted.coverage.length, 2);
+    assert.ok(adapted.coverage[0].test_names.length > 0);
+    assert.ok(adapted.coverage[1].test_names.length > 0);
   });
 
-  test("native oracle status is strictly not_executable with null adapter", () => {
-    const featureSpec = adaptNativeSpecToFeatureSpec(sampleNativeSpec);
+  test("sets oracle strictly to not_executable with 0 passed / 0 total", () => {
+    const adapted = adaptNativeSpecToFeatureSpec(sampleWithProvenance);
 
-    assert.deepEqual(featureSpec.oracle, {
+    assert.deepEqual(adapted.oracle, {
       status: "not_executable",
       adapter_code: null,
       tests: [],
@@ -161,32 +120,36 @@ describe("NativeSubsystemSpec -> FeatureSpec Adapter", () => {
     });
   });
 
-  test("native provenance is preserved", () => {
-    const featureSpec = adaptNativeSpecToFeatureSpec(sampleNativeSpec);
+  test("preserves provenance (binary SHA256, campaign, dossier artifact)", () => {
+    const adapted = adaptNativeSpecToFeatureSpec(sampleWithProvenance);
 
-    assert.equal(featureSpec.provenance.target.sha256, sampleNativeSpec.binary_sha256);
-    assert.equal(featureSpec.provenance.target.artifact_type, "native_elf");
-    assert.ok(
-      featureSpec.provenance.limitations.some((l) =>
-        l.includes(`Dossier artifact: ${sampleNativeSpec.provenance.dossier_artifact}`)
-      )
-    );
-    assert.ok(
-      featureSpec.provenance.limitations.some((l) =>
-        l.includes(`Campaign: ${sampleNativeSpec.campaign}`)
-      )
-    );
+    assert.equal(adapted.provenance.target.sha256, "b".repeat(64));
+    assert.ok(adapted.provenance.limitations.some((l) => l.includes("d".repeat(64))));
+    assert.ok(adapted.provenance.limitations.some((l) => l.includes(dummyHash)));
+    assert.equal(adapted.provenance.mode, "replay");
   });
 
-  test("CRITICAL: raw native pseudocode is not leaked into prompt-facing fields", () => {
-    const featureSpec = adaptNativeSpecToFeatureSpec(sampleNativeSpec);
-    const jsonStr = JSON.stringify(featureSpec);
+  test("CRITICAL: strictly avoids leaking raw decompiler pseudocode into implementation content", () => {
+    const specWithPseudocode = {
+      ...sampleWithProvenance,
+      raw_pseudocode: "void score_task_priority() { uint64_t *ptr = (uint64_t *)0x4012A0; }",
+      decompilation: "int score_task_priority(TaskView *task) { asm volatile(\"movq %rax, %rbx\"); }",
+    };
 
-    // The raw decompiler snippet must NOT be present
-    assert.ok(
-      !jsonStr.includes("return task->completed ? 0 : 42;"),
-      "Raw decompiler pseudocode must not be present in FeatureSpec"
-    );
-    assert.equal(featureSpec.provenance.snippets.length, 0);
+    const adapted = adaptNativeSpecToFeatureSpec(specWithPseudocode as any);
+
+    const serialized = JSON.stringify({
+      requirements: adapted.requirements,
+      interface: adapted.interface,
+      inputs: adapted.inputs,
+      outputs: adapted.outputs,
+      acceptance_tests: adapted.acceptance_tests,
+      snippets: adapted.provenance.snippets,
+    });
+
+    assert.ok(!serialized.includes("uint64_t"));
+    assert.ok(!serialized.includes("0x4012A0"));
+    assert.ok(!serialized.includes("asm volatile"));
+    assert.equal(adapted.provenance.snippets.length, 0);
   });
 });

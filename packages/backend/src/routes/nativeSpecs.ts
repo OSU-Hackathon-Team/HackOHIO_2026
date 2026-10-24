@@ -143,8 +143,13 @@ nativeSpecsRouter.post("/api/native-specs/adapt", async (req, res) => {
       });
     }
 
-    const featureId = typeof req.body?.feature_id === "string" ? req.body.feature_id : undefined;
-    const featureSpec = adaptNativeSpecToFeatureSpec(nativeSpec, { feature_id: featureId });
+    const options = {
+      feature_id: typeof req.body?.feature_id === "string" ? req.body.feature_id : undefined,
+      binary_sha256: typeof req.body?.binary_sha256 === "string" ? req.body.binary_sha256 : undefined,
+      campaign: typeof req.body?.campaign === "string" ? req.body.campaign : undefined,
+      dossier_artifact: typeof req.body?.dossier_artifact === "string" ? req.body.dossier_artifact : undefined,
+    };
+    const featureSpec = adaptNativeSpecToFeatureSpec(nativeSpec, options);
     const validated = FeatureSpec.parse(featureSpec);
     return res.json({ spec: validated, feature_spec: validated });
   } catch (error) {

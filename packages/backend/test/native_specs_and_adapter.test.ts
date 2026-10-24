@@ -16,97 +16,49 @@ describe("Native Pipeline -> FeatureSpec and Backend API", () => {
   const dummyHash = "a".repeat(64);
 
   const sampleNativeSpec: NativeSubsystemSpec = {
-    schema: 1,
+    schema: 2,
     kind: "native_subsystem_spec",
-    campaign: dummyHash,
-    binary_sha256: "b".repeat(64),
-    scope_id: "c".repeat(64),
-    scope_revision: 1,
-    title: "Task Priority Scoring Subsystem",
     status: "ready_for_review",
-    boundary: {
-      mode: "subsystem",
-      included: [{ entry: "004012a0", name: "score_task_priority" }],
-      boundaries: [],
-      exclusions: [],
-      unresolved_edges: [],
-      expected_observables_to_investigate: ["priority score calculation"],
+    title: "Task Priority Scoring Subsystem",
+    purpose: "Score task due dates, urgency, and task importance.",
+    boundary: "subsystem",
+    interface: {
+      inputs: ["Task view description with due date, completion status, and importance"],
+      outputs: ["Calculated priority score as non-negative integer"],
+      state: ["No persistent state between calculations"],
     },
     requirements: [
       {
         id: "REQ-1",
-        subject: "004012a0",
-        draft_artifact: dummyHash,
-        claim_index: 0,
         statement: "Score must be non-negative and capped at 200.",
-        evidence: [{ artifact: dummyHash, address: "004012a0" }],
-        assumptions: [],
-        alternatives: [],
-        review_state: "supported_static",
-        reviews: [{ outcome: "supported_static", model: "independent-reviewer" }],
-        execution_state: "case_agreement",
-        probe_links: [{ case_id: "completed_zero", agreement: true }],
       },
       {
         id: "REQ-2",
-        subject: "004012a0",
-        draft_artifact: dummyHash,
-        claim_index: 1,
         statement: "Completed tasks must evaluate to priority 0.",
-        evidence: [{ artifact: dummyHash, address: "004012a8" }],
-        assumptions: [],
-        alternatives: [],
-        review_state: "supported_static",
-        reviews: [{ outcome: "supported_static", model: "independent-reviewer" }],
-        execution_state: "case_agreement",
-        probe_links: [{ case_id: "completed_zero", agreement: true }],
       },
     ],
-    function_descriptions: [
+    behavior_steps: [
+      "Check if task is completed and produce 0.",
+      "Calculate overdue days and urgency points, capping at 200.",
+    ],
+    examples: [
       {
-        entry: "004012a0",
-        name: "score_task_priority",
-        draft_artifact: dummyHash,
-        inputs: "TaskView* task, int64_t now_epoch",
-        outputs: "int score",
-        state: "stateless",
-        side_effects: "none",
-        errors: "clamped",
-        draft_pseudocode: "int score_task_priority(TaskView *task) { return task->completed ? 0 : 42; }",
-        unknowns: [],
-        evidence_requests: [],
+        name: "completed_zero",
+        input: { completed: true },
+        expected_output: 0,
       },
-    ],
-    dependency_contracts: [],
-    original_cases: [
       {
-        case_id: "completed_zero",
-        target: "score_task_priority",
-        input: { completed: 1 },
-        expected: 0,
-        observed: 0,
-        outcome: "agreement",
+        name: "capped_200",
+        input: { days_overdue: 10 },
+        expected_output: 200,
       },
     ],
-    unresolved_claims: [],
-    review_gaps: [],
-    blockers: [],
-    coverage: { claims: 2, supported_static: 2, case_agreements: 2 },
-    provenance: {
-      dossier_artifact: "d".repeat(64),
-      dossier_revision: 1,
-      dossier_readiness: "ready_for_spec",
-      dossier_schema: 1,
-      analysis: null,
-      scope_artifact: "e".repeat(64),
-      draft_artifacts: [dummyHash],
-      review_artifacts: [dummyHash],
-      probe_report_artifacts: [dummyHash],
-      probe_link_artifacts: [dummyHash],
-      dependency_resolution_artifacts: [],
-      gap_adjudication_artifacts: [],
-      generator_sha256: "f".repeat(64),
-    },
+    acceptance_criteria: [
+      "Completed tasks evaluate to 0.",
+      "Score is capped at 200.",
+    ],
+    deviations: [],
+    exclusions: [],
   };
 
   async function put(value: object): Promise<string> {
@@ -155,10 +107,10 @@ describe("Native Pipeline -> FeatureSpec and Backend API", () => {
 
     assert.equal(featureSpec.requirements.length, 2);
     assert.equal(featureSpec.requirements[0].id, "REQ-1");
-    assert.deepEqual(featureSpec.requirements[0].source_refs, ["004012a0@004012a0"]);
+    assert.deepEqual(featureSpec.requirements[0].source_refs, ["REQ-1"]);
     assert.equal(featureSpec.requirements[0].kind, "invariant");
 
-    assert.ok(featureSpec.interface.types_code.includes("score_task_priority"));
+    assert.ok(featureSpec.interface.types_code.includes("taskPriorityScoringSubsystem"));
     assert.ok(featureSpec.acceptance_tests.includes('test("REQ-1:'));
     assert.ok(featureSpec.acceptance_tests.includes('test("REQ-2:'));
   });
@@ -201,8 +153,9 @@ describe("Native Pipeline -> FeatureSpec and Backend API", () => {
       body: JSON.stringify({ artifact }),
     });
 
-    assert.equal(res.status, 200);
-    const data = (await res.json()) as { spec: FeatureSpec };
+    const text = await res.text();
+    assert.equal(res.status, 200, `Expected 200 but got ${res.status}: ${text}`);
+    const data = JSON.parse(text) as { spec: FeatureSpec };
     assert.equal(data.spec.app_id, "native");
   });
 

@@ -8,98 +8,7 @@ import linkBlueprint from "../../../../fixtures/blueprints/_seed/inkwell.wikilin
 import studyRoom from "../../../../fixtures/bundles/_seed/study-room.json";
 
 const mockHex64 = "0".repeat(64);
-const mockNativeSpec: NativeSubsystemSpec = {
-  schema: 1,
-  kind: "native_subsystem_spec",
-  campaign: mockHex64,
-  binary_sha256: mockHex64,
-  scope_id: mockHex64,
-  scope_revision: 1,
-  title: "Task Priority Scoring Subsystem (offline fixture)",
-  status: "ready_for_review",
-  boundary: {
-    mode: "subsystem",
-    included: [{ entry: "004012a0", name: "score_task_priority" }],
-    boundaries: [],
-    exclusions: [],
-    unresolved_edges: [],
-    expected_observables_to_investigate: ["priority score calculation"],
-  },
-  requirements: [
-    {
-      id: "REQ-1",
-      subject: "004012a0",
-      draft_artifact: mockHex64,
-      claim_index: 0,
-      statement: "Score must be non-negative and capped at 200.",
-      evidence: [{ artifact: mockHex64, address: "004012a0" }],
-      assumptions: [],
-      alternatives: [],
-      review_state: "supported_static",
-      reviews: [{ outcome: "supported_static", model: "development-offline-fixture" }],
-      execution_state: "case_agreement",
-      probe_links: [{ case_id: "completed_zero", agreement: true }],
-    },
-    {
-      id: "REQ-2",
-      subject: "004012a0",
-      draft_artifact: mockHex64,
-      claim_index: 1,
-      statement: "Completed tasks must evaluate to priority 0.",
-      evidence: [{ artifact: mockHex64, address: "004012a8" }],
-      assumptions: [],
-      alternatives: [],
-      review_state: "supported_static",
-      reviews: [{ outcome: "supported_static", model: "development-offline-fixture" }],
-      execution_state: "case_agreement",
-      probe_links: [{ case_id: "completed_zero", agreement: true }],
-    },
-  ],
-  function_descriptions: [
-    {
-      entry: "004012a0",
-      name: "score_task_priority",
-      draft_artifact: mockHex64,
-      inputs: "TaskView* task, int64_t now_epoch",
-      outputs: "int score",
-      state: "stateless",
-      side_effects: "none",
-      errors: "clamped",
-      unknowns: [],
-      evidence_requests: [],
-    },
-  ],
-  dependency_contracts: [],
-  original_cases: [
-    {
-      case_id: "completed_zero",
-      target: "score_task_priority",
-      input: { completed: 1 },
-      expected: 0,
-      observed: 0,
-      outcome: "agreement",
-    },
-  ],
-  unresolved_claims: [],
-  review_gaps: [],
-  blockers: [],
-  coverage: { claims: 2, supported_static: 2, case_agreements: 2 },
-  provenance: {
-    dossier_artifact: mockHex64,
-    dossier_revision: 1,
-    dossier_readiness: "partial",
-    dossier_schema: 1,
-    analysis: null,
-    scope_artifact: mockHex64,
-    draft_artifacts: [mockHex64],
-    review_artifacts: [mockHex64],
-    probe_report_artifacts: [mockHex64],
-    probe_link_artifacts: [mockHex64],
-    dependency_resolution_artifacts: [],
-    gap_adjudication_artifacts: [],
-    generator_sha256: mockHex64,
-  },
-};
+import { mockNativeSpec } from "../ide/data/ideFixtures";
 
 import mockPrioritySpecJson from "../../../../fixtures/specs/_seed/mockpriority.priority_score.json";
 import mockPriorityBpJson from "../../../../fixtures/blueprints/_seed/mockpriority.priority_score.json";
@@ -182,17 +91,11 @@ export const mockApi: Api = {
   async blueprints() {
     return blueprints;
   },
-  async nativeSpec(dossierArtifact) {
+  async nativeSpec(_dossierArtifact) {
     await pause();
     return {
       artifact: mockHex64,
-      spec: {
-        ...mockNativeSpec,
-        provenance: {
-          ...mockNativeSpec.provenance,
-          dossier_artifact: dossierArtifact || mockHex64,
-        },
-      },
+      spec: mockNativeSpec,
     };
   },
   async getNativeSpec(_artifact) {

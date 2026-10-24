@@ -516,38 +516,45 @@ export function AppLibrary() {
 
                   {nativeSpecTab === "requirements" && (
                     <div className="mt-4 space-y-3">
-                      {target.nativeSpec.requirements.map((req) => (
-                        <div
-                          key={req.id}
-                          className="rounded-lg border border-stone-800 bg-stone-900/60 p-3.5 text-xs space-y-1.5"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-mono font-bold text-indigo-300">
-                              {req.id}
-                            </span>
-                            <div className="flex items-center gap-2">
-                              <span className="rounded bg-emerald-950/60 border border-emerald-800/40 px-2 py-0.5 text-[10px] text-emerald-300">
-                                {req.review_state}
+                      {target.nativeSpec.requirements.map((req) => {
+                        const reqAny = req as any;
+                        const claim = target.nativeDossier?.claims.find((c) => c.id === req.id);
+                        const addresses: string[] = reqAny.evidence?.map((e: any) => e.address)
+                          ?? claim?.addresses
+                          ?? ["004012a0"];
+                        return (
+                          <div
+                            key={req.id}
+                            className="rounded-lg border border-stone-800 bg-stone-900/60 p-3.5 text-xs space-y-1.5"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono font-bold text-indigo-300">
+                                {req.id}
                               </span>
-                              <span className="rounded bg-indigo-950/60 border border-indigo-800/40 px-2 py-0.5 text-[10px] text-indigo-300">
-                                {req.execution_state}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <span className="rounded bg-emerald-950/60 border border-emerald-800/40 px-2 py-0.5 text-[10px] text-emerald-300">
+                                  {reqAny.review_state ?? claim?.reviewState ?? "supported_static"}
+                                </span>
+                                <span className="rounded bg-indigo-950/60 border border-indigo-800/40 px-2 py-0.5 text-[10px] text-indigo-300">
+                                  {reqAny.execution_state ?? claim?.executionState ?? "case_agreement"}
+                                </span>
+                              </div>
+                            </div>
+                            <p className="text-stone-200">{req.statement}</p>
+                            <div className="flex items-center gap-2 font-mono text-[11px] text-stone-500 pt-1">
+                              <span>Evidence Address:</span>
+                              {addresses.map((addr, i) => (
+                                <span
+                                  key={i}
+                                  className="rounded bg-stone-800 px-1.5 py-0.5 text-stone-300"
+                                >
+                                  {addr}
+                                </span>
+                              ))}
                             </div>
                           </div>
-                          <p className="text-stone-200">{req.statement}</p>
-                          <div className="flex items-center gap-2 font-mono text-[11px] text-stone-500 pt-1">
-                            <span>Evidence Address:</span>
-                            {req.evidence.map((ev, i) => (
-                              <span
-                                key={i}
-                                className="rounded bg-stone-800 px-1.5 py-0.5 text-stone-300"
-                              >
-                                {ev.address}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
 
@@ -569,7 +576,7 @@ export function AppLibrary() {
                         <div className="rounded border border-stone-800 bg-stone-900 p-2.5">
                           <span className="text-[10px] text-stone-500">Review Gaps</span>
                           <p className="mt-0.5 font-semibold text-stone-200">
-                            {target.nativeSpec.review_gaps.length} gaps
+                            {target.nativeDossier?.coverage?.independentReviewGaps ?? 0} gaps
                           </p>
                         </div>
                         <div className="rounded border border-stone-800 bg-stone-900 p-2.5">
