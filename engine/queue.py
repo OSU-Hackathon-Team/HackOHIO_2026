@@ -1104,7 +1104,8 @@ class DurableQueue:
                          "prior_review_artifact": prior_review})
             return True
 
-    def revise_semantics(self, task_id: str, reason: str) -> dict:
+    def revise_semantics(self, task_id: str, reason: str,
+                         probe_report_artifact: str | None = None) -> dict:
         if not reason.strip():
             raise ValueError("semantic revision reason is required")
         with self._connect() as conn:
@@ -1118,11 +1119,53 @@ class DurableQueue:
             return {"state": "invalid"}
         self.store.get(task["result_artifact"])
         self.store.get(task["review_artifact"])
+        probe_cases = []
+        if probe_report_artifact:
+            try:
+                report = json.loads(self.store.get(probe_report_artifact))
+                scope = json.loads(self.store.get(task["scope_artifact"]))
+            except (ValueError, FileNotFoundError, TypeError):
+                return {"state": "invalid"}
+            with self._connect() as conn:
+                campaign = conn.execute("SELECT binary_sha256 FROM decomp_campaigns "
+                                        "WHERE id = %s", (task["campaign_id"],)).fetchone()
+            names = {item["entry"]: item["name"] for item in scope["included"]}
+            subject_name = names.get(task["subject"])
+            if (report.get("schema") != 1 or not subject_name or campaign is None or
+                    not isinstance(report.get("results"), list)):
+                return {"state": "invalid"}
+            probe_cases = [
+                {"case_id": item["case_id"], "input": item["input"],
+                 "observed": item["observed"], "probe_artifact": item["artifact"]}
+                for item in report["results"]
+                if item.get("target") == subject_name and
+                item.get("binary_sha256") == campaign["binary_sha256"] and
+                item.get("execution_mode") == "original" and
+                item.get("outcome") == "agreement" and
+                isinstance(item.get("adapter_sha256"), str) and
+                isinstance(item.get("runner_sha256"), str)]
+            if not probe_cases:
+                return {"state": "invalid"}
+            selected_artifacts = {case["probe_artifact"] for case in probe_cases}
+            try:
+                for item in report["results"]:
+                    if item.get("artifact") not in selected_artifacts:
+                        continue
+                    original = json.loads(self.store.get(item["artifact"]))
+                    if any(original.get(key) != item.get(key) for key in
+                           ("case_id", "target", "binary_sha256", "input", "observed",
+                            "outcome", "execution_mode", "runner_sha256",
+                            "adapter_sha256")):
+                        return {"state": "invalid"}
+            except (ValueError, KeyError, FileNotFoundError, TypeError):
+                return {"state": "invalid"}
         context = {"schema": 1, "state": "revision_context",
                    "campaign": task["campaign_id"], "subject": task["subject"],
                    "scope_artifact": task["scope_artifact"],
                    "draft_artifact": task["result_artifact"],
-                   "review_artifact": task["review_artifact"], "reason": reason}
+                   "review_artifact": task["review_artifact"], "reason": reason,
+                   "probe_report_artifact": probe_report_artifact,
+                   "probe_cases": probe_cases}
         artifact = self.store.put(json.dumps(context, sort_keys=True).encode())
         with self._connect() as conn:
             current = conn.execute("SELECT * FROM decomp_tasks WHERE id = %s FOR UPDATE",
@@ -1152,6 +1195,8 @@ class DurableQueue:
                         {"task_id": task_id, "context_artifact": artifact,
                          "source_draft": task["result_artifact"],
                          "source_review": task["review_artifact"],
+                         "probe_report_artifact": probe_report_artifact,
+                         "probe_case_count": len(probe_cases),
                          "reason": reason})
         return {"state": "queued", "context_artifact": artifact,
                 "source_draft": task["result_artifact"],

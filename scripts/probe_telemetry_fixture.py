@@ -55,6 +55,8 @@ def main() -> None:
             library.telemetry_apply.restype = ctypes.c_int32
             library.telemetry_snapshot.argtypes = []
             library.telemetry_snapshot.restype = Snapshot
+            library.choose_bucket.argtypes = [ctypes.c_uint32]
+            library.choose_bucket.restype = ctypes.c_uint32
 
             def apply(raw: bytes) -> int:
                 buffer = (ctypes.c_uint8 * len(raw)).from_buffer_copy(raw)
@@ -77,6 +79,15 @@ def main() -> None:
             results.append({"binary_sha256": build["analysis_sha256"],
                             "case": "shared:malformed-and-state-sequence",
                             "outcome": "agreement"})
+            for value, expected in ((0, 0), (99, 0), (100, 1), (999, 1),
+                                    (1000, 2), (4999, 2), (5000, 3),
+                                    (0xffffffff, 3)):
+                observed = library.choose_bucket(value)
+                assert observed == expected, (build, value, expected, observed)
+                results.append({"binary_sha256": build["analysis_sha256"],
+                                "case": f"shared:choose-bucket:{value}",
+                                "input": value, "expected": expected,
+                                "observed": observed, "outcome": "agreement"})
     report = {"source_sha256": manifest["source_sha256"], "results": results,
               "agreement_count": len(results)}
     output = MANIFEST.with_name("telemetry_probe_report.json")

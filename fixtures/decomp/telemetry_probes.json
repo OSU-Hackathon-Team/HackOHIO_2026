@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "cases": [
+    {"id": "bucket_0", "kind": "shared", "target": "choose_bucket", "input": {"operation": "choose_bucket", "value": 0}, "expected": {"return": 0}},
+    {"id": "bucket_99", "kind": "shared", "target": "choose_bucket", "input": {"operation": "choose_bucket", "value": 99}, "expected": {"return": 0}},
+    {"id": "bucket_100", "kind": "shared", "target": "choose_bucket", "input": {"operation": "choose_bucket", "value": 100}, "expected": {"return": 1}},
+    {"id": "bucket_999", "kind": "shared", "target": "choose_bucket", "input": {"operation": "choose_bucket", "value": 999}, "expected": {"return": 1}},
+    {"id": "bucket_1000", "kind": "shared", "target": "choose_bucket", "input": {"operation": "choose_bucket", "value": 1000}, "expected": {"return": 2}},
+    {"id": "bucket_4999", "kind": "shared", "target": "choose_bucket", "input": {"operation": "choose_bucket", "value": 4999}, "expected": {"return": 2}},
+    {"id": "bucket_5000", "kind": "shared", "target": "choose_bucket", "input": {"operation": "choose_bucket", "value": 5000}, "expected": {"return": 3}},
+    {"id": "bucket_max", "kind": "shared", "target": "choose_bucket", "input": {"operation": "choose_bucket", "value": 4294967295}, "expected": {"return": 3}}
+  ]
+}

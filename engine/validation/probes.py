@@ -37,6 +37,7 @@ class NativeProbeRunner:
         else:
             raise ValueError(f"unknown probe kind {case['kind']}")
         identity = {"schema": 1, "case_id": case["id"], "kind": case["kind"],
+                    "target": case.get("target"),
                     "binary_sha256": file_hash(binary),
                     "runner_sha256": file_hash(Path(__file__)),
                     "adapter_sha256": file_hash(self.adapter) if case["kind"] == "shared" else None,

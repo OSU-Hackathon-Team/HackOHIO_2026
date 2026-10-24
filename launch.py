@@ -252,6 +252,8 @@ def main() -> None:
         if name == "queue-revise-semantics":
             command.add_argument("--task-id", required=True)
             command.add_argument("--reason", required=True)
+            command.add_argument("--probe-report-artifact",
+                                 help="immutable original-execution report for revision context")
         if name in {"queue-normalize-partial", "queue-reclassify-intrinsic",
                     "queue-repair-dependency-citations"}:
             command.add_argument("--task-id", required=True)
@@ -537,7 +539,8 @@ def main() -> None:
             result = {"task_id": args.task_id, "reopened": reopened,
                       "task": queue.task(args.task_id)}
         elif args.command == "queue-revise-semantics":
-            result = queue.revise_semantics(args.task_id, args.reason)
+            result = queue.revise_semantics(args.task_id, args.reason,
+                                            args.probe_report_artifact)
         elif args.command == "queue-expand-coverage":
             from engine.validation.coverage import CoverageExpander
 

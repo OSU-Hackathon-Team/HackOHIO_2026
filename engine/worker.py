@@ -212,6 +212,12 @@ class SemanticWorker:
                            "and missing behavior, including success and failure paths and "
                            "state updates. Return a complete answer, not a patch. "
                            "Revision context: " + prior_context[:30000])
+                if prior.get("probe_cases"):
+                    prompt += ("\nThese cases were executed against the original binary. "
+                               "Use the observed results to challenge the prior review and "
+                               "your static interpretation; cite raw instruction addresses "
+                               "for every new claim. Original probe observations: " +
+                               json.dumps(prior["probe_cases"], separators=(",", ":")))
             else:
                 prior_context = json.dumps(
                     {"structural_errors": prior.get("structural_errors", []),
