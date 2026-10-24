@@ -45,6 +45,8 @@ executable memory, decoded instruction runs outside discovered functions, define
 data, and remaining unclassified bytes. Project scopes retain those gaps as unresolved work;
 a successful export of all discovered functions alone does not establish whole-binary code
 coverage. Unclassified bytes need adjudication because they may be code, padding, or data.
+Bounded read-only range exports now capture raw bytes, instruction classifications, symbols,
+and incoming references for that adjudication; inspected ranges appear in campaign status.
 
 Conflict reconciliation, warm analysis pooling, multi-host recovery, and a durable job
 API remain planned. The implementation plan lists their acceptance gates. Proposed

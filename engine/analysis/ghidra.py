@@ -231,6 +231,45 @@ class GhidraAnalysis:
                        artifact=artifact, status=evidence["status"])
             return evidence
 
+    def executable_range(self, manifest: dict, start: str, end: str) -> dict:
+        """Export bounded raw evidence from executable memory without changing the baseline."""
+        if (manifest.get("exporter_sha256") != file_hash(SCRIPT_DIR / "ExportEvidence.java") or
+                manifest.get("ghidra_version_sha256") != tool_version(self.headless)):
+            raise ValueError("executable range export needs a current analysis revision")
+        key = hashlib.sha256(json.dumps({"campaign": manifest["campaign"],
+                                         "index_artifact": manifest["index_artifact"],
+                                         "start": start, "end": end},
+                                        sort_keys=True).encode()).hexdigest()
+        cache_dir = Path(manifest["project"]) / "gaps"
+        cache_dir.mkdir(exist_ok=True)
+        pointer = cache_dir / (key + ".json")
+        with self._function_lock(cache_dir, key):
+            if pointer.exists():
+                artifact = json.loads(pointer.read_text())["artifact"]
+                return {**json.loads(self.store.get(artifact)), "artifact": artifact}
+            with tempfile.TemporaryDirectory(dir=self.root) as scratch:
+                export = Path(scratch) / "range.json"
+                self._run([manifest["project"], "baseline", "-process",
+                           manifest["program_name"], "-readOnly", "-noanalysis",
+                           "-scriptPath", str(SCRIPT_DIR), "-postScript", "ExportEvidence.java",
+                           str(export), "gap", start, end], manifest["campaign"],
+                          "gap_" + key[:16])
+                if not export.exists():
+                    raise RuntimeError("Ghidra executable range export produced no output")
+                evidence = json.loads(export.read_text())
+            if evidence.get("status") != "ok" or evidence.get("kind") != (
+                    "executable_range_evidence"):
+                raise RuntimeError("Ghidra returned incomplete executable range evidence")
+            content = {**evidence, "campaign": manifest["campaign"],
+                       "binary_sha256": manifest["binary_sha256"],
+                       "index_artifact": manifest["index_artifact"]}
+            artifact = self.store.put(json.dumps(content, sort_keys=True).encode())
+            self._publish_function(pointer, artifact)
+            self._emit(manifest["campaign"], "gap_exported", start=content["start"],
+                       end=content["end"], artifact=artifact,
+                       classifications=content["classifications"])
+            return {**content, "artifact": artifact}
+
     def export_all(self, manifest: dict) -> dict:
         index = self.index(manifest)
         functions = index["functions"]

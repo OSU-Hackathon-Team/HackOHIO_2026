@@ -175,6 +175,13 @@ def main() -> None:
     function.add_argument("--state", type=Path, default=ENGINE_STATE)
     function.add_argument("--headless", type=Path,
                           default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+    gap = sub.add_parser("gap", help="export raw evidence for a bounded executable range")
+    gap.add_argument("--manifest", type=Path, required=True)
+    gap.add_argument("--start", required=True)
+    gap.add_argument("--end", required=True)
+    gap.add_argument("--state", type=Path, default=ENGINE_STATE)
+    gap.add_argument("--headless", type=Path,
+                     default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
     export_all = sub.add_parser("export-all", help="decompile every indexed function and report coverage")
     export_all.add_argument("--manifest", type=Path, required=True)
     export_all.add_argument("--state", type=Path, default=ENGINE_STATE)
@@ -447,6 +454,10 @@ def main() -> None:
         engine = GhidraAnalysis(args.state, args.headless)
         manifest = json.loads(args.manifest.read_text())
         print(json.dumps(engine.function(manifest, args.address), indent=2))
+    elif args.command == "gap":
+        engine = GhidraAnalysis(args.state, args.headless)
+        manifest = json.loads(args.manifest.read_text())
+        print(json.dumps(engine.executable_range(manifest, args.start, args.end), indent=2))
     elif args.command == "export-all":
         engine = GhidraAnalysis(args.state, args.headless)
         manifest = json.loads(args.manifest.read_text())
@@ -765,7 +776,7 @@ def main() -> None:
             item = campaigns.setdefault(event["campaign"],
                                         {"last_stage": None, "function_exports": 0,
                                          "function_failures": 0, "_exported": set(),
-                                         "_failed": set(), "_semantic": {},
+                                         "_failed": set(), "_gaps": {}, "_semantic": {},
                                          "_scopes": {}, "_reviews": {}, "_probes": {},
                                          "_baseline": {"import_attempts": 0,
                                                        "imports_finished": 0,
@@ -884,6 +895,10 @@ def main() -> None:
                         item.get("unattributed_function_failures", 0) + 1)
             elif event["stage"] == "function_cache_hit":
                 analysis["cache_hits"] += 1
+            elif event["stage"] == "gap_exported":
+                item["_gaps"][event["start"] + ":" + event["end"]] = {
+                    "artifact": event["artifact"],
+                    "classifications": event["classifications"]}
             elif event["stage"] in {"warm_worker_started", "warm_worker_ready",
                                      "warm_worker_stopped"}:
                 field = {"warm_worker_started": "worker_starts",
@@ -915,7 +930,7 @@ def main() -> None:
                 item["_reviews"][event["review_id"]] = {"state": "running"}
             elif event["stage"] == "review_finished":
                 item["_reviews"][event["review_id"]] = {
-                    "state": event["status"], "outcomes": event["outcomes"]}
+                    "state": event["status"], "outcomes": event.get("outcomes", {})}
             elif event["stage"] == "probe_started":
                 if "probe_key" in event:
                     item["_probes"].pop(event["case_id"], None)
@@ -931,6 +946,7 @@ def main() -> None:
         for item in campaigns.values():
             item["function_exports"] = len(item.pop("_exported"))
             item["function_failures"] = len(item.pop("_failed"))
+            item["gap_ranges"] = item.pop("_gaps")
             item["analysis_baseline"] = item.pop("_baseline")
             item["analysis_pool"] = item.pop("_analysis")
             states = list(item.pop("_semantic").values())

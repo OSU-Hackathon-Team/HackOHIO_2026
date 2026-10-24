@@ -114,6 +114,8 @@ Deliverables:
 - Function/string/import/reference index and scoped decompilation requests.
 - Executable-region, unassigned-instruction, and unclassified-byte inventory, so
   discovered-function export coverage does not conceal code outside known function bodies.
+- Bounded immutable evidence for executable gaps, including raw bytes, classifications,
+  incoming references, and symbol context.
 - Immutable evidence exports with native address mappings and explicit omission/error records.
 - Multi-module export inventory with per-module completion and unresolved code regions.
 - Warm analysis service with bounded concurrency, per-operation timeouts, and restart handling.

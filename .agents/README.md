@@ -99,7 +99,8 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   against the existing generator. The function index now counts executable regions, decoded
   instructions outside functions, and bytes classified as neither instructions nor defined
   data, exposing gaps that `export-all` success alone cannot rule out. Scale and recovery gates
-  remain open. Current work
+  remain open. Read-only gap exports now preserve raw bytes and reference context for targeted
+  adjudication. Current work
   stops before advancing a live campaign into specification generation as directed in
   `DECOMP_IMPLEMENTATION_PLAN.md`.
   The native spec generator and backend endpoint now consume
