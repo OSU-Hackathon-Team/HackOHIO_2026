@@ -94,17 +94,21 @@ python scripts/check_decomp_queue.py
 
 `queue-init` applies the current PostgreSQL migrations, audits earlier accepted tasks for unresolved dependencies, and backfills durable review jobs for validated drafts. Run it again after upgrading the engine. `queue-review-drain` leases those jobs through the independently capped review pool, renews leases while the reviewer runs, and records each outcome; expired review leases can be recovered. A review with supported claims but unreviewed dependencies is retained as `needs_reconciliation`, with its reason visible through `queue-task` and the ordered `queue-events` cursor. For a reviewed x86 function with no direct or indirect calls, `queue-reclassify-intrinsic` moves mistaken memory or input "dependencies" into visible state unknowns, creates a linked draft, and queues a fresh independent review. It refuses functions that may call another function. `queue-reopen-review` rechecks an unresolved, unpublished draft against updated review criteria. `queue-revise-semantics` starts a bounded new reasoning attempt for a contradicted or incomplete unpublished draft, with its old draft and review supplied as untrusted context. `queue-expand-coverage` requests additional cited claims for each reviewer-identified omission, records the model output and source review, and queues a fresh review only when every omission is mapped and the merged draft passes structural validation. Expansion is capped at two published revisions per task. Review every real draft dependency against the active helper contract and both raw functions, then pass the resulting artifact IDs as a JSON array to `queue-resolve-dependencies`. Acceptance requires supported reviews for every dependency and unchanged contract versions; uncertain reviews leave the task awaiting reconciliation. The queue event cursor records each dependency review and the final pinned resolution.
 
+The dependency reviewer checks that the caller cites a direct call to the helper's actual entry before spending a model call. Resolution and dossier assembly repeat that check. Dossiers list direct calls that have no correctly bound dependency, including calls attributed to the wrong helper; those calls remain readiness blockers.
+
 Reviewed, accepted claims can be published into explicit semantic slots. Supply a JSON object such as `{"0":"seen_counter_increment"}` for a one-claim draft:
 
 ```sh
 python launch.py queue-publish-claims --task-id <accepted-task-uuid> --slots <slots.json>
 python launch.py queue-publish-contract --task-id <accepted-task-uuid> \
   --claim-index 0 --contract-key record_seen --expected-version 0
+python launch.py queue-publish-contract --task-id <accepted-task-uuid> \
+  --claim-indices 0,1 --contract-key record_accepted --expected-version 0
 python launch.py queue-findings --campaign <campaign>
 python scripts/check_decomp_findings.py
 ```
 
-Findings and contract versions are immutable artifact-backed records. Conditional publication checks the accepted review and contract head versions; conflicting statements in the same subject and semantic slot remain separate, with open conflict records. A changed or disputed contract stales its indexed consumers while unrelated findings remain active. Dependent accepted claims use their recorded resolution pins; semantic slot assignment remains explicit and open conflicts do not auto-resolve.
+Findings and contract versions are immutable artifact-backed records. A helper contract can cover several independently supported claims from one task. Conditional publication checks the accepted review and contract head versions; conflicting statements in the same subject and semantic slot remain separate, with open conflict records. A changed or disputed contract stales its indexed consumers while unrelated findings remain active. Dependent accepted claims use their recorded resolution pins; semantic slot assignment remains explicit and open conflicts do not auto-resolve.
 
 Independently challenge a draft against the raw function evidence:
 
