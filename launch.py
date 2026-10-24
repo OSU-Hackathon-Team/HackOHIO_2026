@@ -187,6 +187,11 @@ def main() -> None:
         ("queue-drain", "run bounded parallel semantic workers until idle"),
         ("queue-review", "independently review one validated queue task"),
         ("queue-reassess", "requeue one partial task with its prior draft"),
+        ("queue-task", "inspect a durable native task and its blocker"),
+        ("queue-events", "read ordered transactional campaign events"),
+        ("queue-findings", "inspect published claim and contract versions"),
+        ("queue-publish-claims", "publish reviewed claims with explicit semantic slots"),
+        ("queue-publish-contract", "version a published supported claim as a contract"),
     ):
         command = sub.add_parser(name, help=help_text)
         command.add_argument("--state", type=Path, default=ENGINE_STATE)
@@ -209,6 +214,22 @@ def main() -> None:
         if name == "queue-reassess":
             command.add_argument("--task-id", required=True)
             command.add_argument("--reason", required=True)
+        if name in {"queue-task", "queue-publish-claims", "queue-publish-contract"}:
+            command.add_argument("--task-id", required=True)
+        if name in {"queue-events", "queue-findings"}:
+            command.add_argument("--campaign", required=True)
+        if name == "queue-events":
+            command.add_argument("--after-id", type=int, default=0)
+            command.add_argument("--limit", type=int, default=100)
+        if name == "queue-publish-claims":
+            command.add_argument("--slots", type=Path, required=True,
+                                 help="JSON mapping of claim index to explicit semantic slot")
+            command.add_argument("--dependency-versions", type=Path,
+                                 help="JSON mapping of contract key to pinned version")
+        if name == "queue-publish-contract":
+            command.add_argument("--claim-index", type=int, required=True)
+            command.add_argument("--contract-key", required=True)
+            command.add_argument("--expected-version", type=int, required=True)
         if name == "queue-run-one":
             command.add_argument("--worker-id", required=True)
             command.add_argument("--lease-seconds", type=int, default=60)
@@ -392,6 +413,27 @@ def main() -> None:
             requeued = queue.reassess(args.task_id, args.reason)
             result = {"task_id": args.task_id, "requeued": requeued,
                       "task": queue.task(args.task_id)}
+        elif args.command == "queue-task":
+            result = queue.task(args.task_id)
+        elif args.command == "queue-events":
+            result = queue.events(args.campaign, args.after_id, args.limit)
+        elif args.command.startswith("queue-publish-") or args.command == "queue-findings":
+            from engine.findings import FindingsStore
+
+            findings = FindingsStore(queue)
+            if args.command == "queue-findings":
+                result = findings.inventory(args.campaign)
+            elif args.command == "queue-publish-claims":
+                slots = json.loads(args.slots.read_text())
+                pins = (json.loads(args.dependency_versions.read_text())
+                        if args.dependency_versions else {})
+                result = findings.publish_claims(args.task_id,
+                                                 {int(key): value for key, value in slots.items()},
+                                                 dependency_versions=pins)
+            else:
+                result = findings.publish_contract(args.task_id, args.claim_index,
+                                                   args.contract_key,
+                                                   expected_version=args.expected_version)
         print(json.dumps(result, indent=2))
     elif args.command == "status":
         events_path = args.state / "progress.jsonl"
