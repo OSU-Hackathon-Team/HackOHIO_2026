@@ -81,14 +81,14 @@ To maximize cache locality and reduce memory overhead, spreadsheet cells are sto
 - **Advantage:** Storing 1,000,000 numbers in a column requires only one contiguous array of 8 MB, avoiding object overhead and pointer indirection.
 
 #### 2. `ScAddress` & Spatial Coordinates
-- **Representation:** Struct containing 32-bit `Row`, 16-bit `Column`, and 16-bit `Tab` (Sheet index).
-- **Limits:** Supports up to 16,384 columns and 16,777,216 rows per sheet.
+- **Representation:** Struct containing 32-bit `Row`, 16-bit `Column`, and 16-bit `Tab` (Sheet index). **VERIFIED:** `sc/inc/types.hxx`: `SCROW=sal_Int32`, `SCCOL/SCTAB=sal_Int16`.
+- **Limits:** Supports up to 16,384 columns (`MAXCOLCOUNT=16*1024` in `sc/inc/address.hxx:61`) and up to 10,000 sheets (`MAXTABCOUNT=10000`, `address.hxx:64`) — **VERIFIED**. Rows: default `MAXROWCOUNT=1024*1024` (1,048,576 rows, `address.hxx:60`); 16,777,216 rows applies only to `MAXROWCOUNT_JUMBO=16*1024*1024` (`address.hxx:70`), not the default. **PARTIALLY VERIFIED — prior unconditional “16,777,216 rows” corrected to distinguish default vs jumbo.**
 
 #### 3. Formula Token Bytecode (`TokenArray`)
 - Formulas are compiled from text into Reverse Polish Notation (RPN) token arrays. Tokens represent:
   - Immediate Literals (Double, String).
   - Cell References (`SingleRef`, `AreaRef`).
-  - OpCodes (`ocAdd`, `ocMultiply`, `ocSUM`, `ocVLOOKUP`, `ocIF`).
+  - OpCodes (**VERIFIED** in `include/formula/opcode.hxx`: `ocAdd=51` (line 93), `ocMul=53` (line 95) — not `ocMultiply`; `ocSum=224` (line 263) — not `ocSUM`; `ocIf=6` (line 39) — not `ocIF`; `ocVLookup=286` (line 327) — not `ocVLOOKUP`). **CORRECTED — prior opcode casing/names were incorrect.** RPN execution order and dirty-propagation sequence remain **UNVERIFIED**.
 
 ---
 
@@ -188,13 +188,13 @@ flowchart TD
 
 ---
 
-## 5. Error Handling & Edge Cases (UNVERIFIED — circular-ref/div-zero/deleted-sheet claims not observed)
+## 5. Error Handling & Edge Cases (PARTIALLY VERIFIED — codes verified; propagation behavior UNVERIFIED)
 
 1. **Circular Reference Detection:** When formula evaluation encounters an indirect cycle ($A1 \to B1 \to C1 \to A1$):
-   - The interpreter tracks evaluation depth on the active call stack (`RecursionCounter`).
+   - The interpreter tracks evaluation depth on the active call stack (`RecursionCounter`). [UNVERIFIED — call-stack tracking not traced in this pass.]
    - If a cell is encountered while already in an evaluating state:
-     - If Iterative Calculation is enabled, it stops when reaching `MaxIterations` or `MaxChange`.
-     - If disabled, evaluation terminates immediately and sets the cell result to error code `522` (`#REF! / Circular reference`).
-2. **Division by Zero:** Evaluates to error code `503` (`#DIV/0!`), propagating outward to all dependent formulas without crashing the calculation thread.
+     - If Iterative Calculation is enabled, it stops when reaching `MaxIterations` or `MaxChange`. [UNVERIFIED.]
+     - If disabled, evaluation terminates immediately and sets the cell result to error code `522` (**VERIFIED** `FormulaError::CircularReference=522` in `include/formula/errorcodes.hxx:53`; **CORRECTED** — 522 is circular reference, not `#REF!`; `#REF!` is `NoRef=524` at `errorcodes.hxx:55`).
+2. **Division by Zero:** Evaluates to error code `532` (`#DIV/0!`) (**VERIFIED** `FormulaError::DivisionByZero=532` in `include/formula/errorcodes.hxx:65`; **CORRECTED — prior `503` was incorrect**: `503` is `IllegalFPOperation // #NUM!` at `errorcodes.hxx:36`). Propagation to dependents without crashing remains **UNVERIFIED**.
 3. **Invalid Range Expansion on Deleted Sheet:** When a referenced sheet is deleted from the workbook:
    - References targeting the deleted sheet are rewritten to invalid ref tokens (`#REF!`).

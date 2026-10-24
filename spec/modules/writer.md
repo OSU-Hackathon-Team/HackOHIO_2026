@@ -36,9 +36,10 @@ classDiagram
         +getIDocumentLayoutAccess() IDocumentLayoutAccess
     }
     class SwNodes {
-        -List~SwNode~ nodes
-        +InsertNode(SwNode node, NodeIndex idx) void
-        +DeleteNode(NodeIndex start, NodeIndex end) void
+        -BigPtrArray nodeStore // VERIFIED: sw/inc/ndarr.hxx:105-106 `class SwNodes final : private BigPtrArray` (not List<SwNode> — CORRECTED)
+        -SwNode EndOfPostIts/Inserts/Autotext/Redlines/Content markers // VERIFIED ndarr.hxx:121-123,169-180
+        +InsertNode(SwNode node, SwNodeIndex pos) void // simplified; actual: InsertNode(SwNode*, SwNodeIndex/SwNodeOffset), RemoveNode/DelNodes/CopyNodes (ndarr.hxx) — PARTIALLY VERIFIED
+        +DeleteNode(NodeIndex start, NodeIndex end) void // simplified illustration; see DelNodes/Delete(SwNodeIndex, SwNodeOffset) — PARTIALLY VERIFIED
     }
     class SwTextNode {
         -string textContent

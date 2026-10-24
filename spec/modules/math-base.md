@@ -1,6 +1,6 @@
 # Module Specification: Math & Base (Formula Editor & Database Subsystems)
 
-> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** `connectivity`, `dbaccess` dirs exist (trees API); `starmath/source/parse.cxx` exists (HTTP 200) but is a version factory (`GetVersionSmParser` → `SmParser5`), not the full grammar — spec's "parse.cxx parses equation text" is **oversimplified; correct to parse5/parser harness**. **Still UNVERIFIED in this pass:** `dbaccess/.../Model.cxx`, `connectivity/.../vclman.cxx`, `SmNode` layouts, fraction/SDBC pseudocode, `.odb`/Firebird/WAL details — not yet fetched.
+> **Verification Status (2026-10-24, rev.3 — LO core remote, master).** **Verified:** `connectivity`, `dbaccess` dirs exist; `starmath/source/parse.cxx` (200) lines 25-37 define `starmathdatabase::GetVersionSmParser(nVersion)` returning `new SmParser5()` for v5, else `throw range_error` — **is a parser factory, not the full grammar**. Full equation grammar lives in `parse5`/parser harness (UNVERIFIED here). **CORRECTED:** do not describe `parse.cxx` as parsing equation text directly. **Still UNVERIFIED:** `SmNode` layouts, fraction/SDBC pseudocode, `.odb`/Firebird/WAL details.
 
 ## 1. Overview & Purpose (UNVERIFIED)
 
