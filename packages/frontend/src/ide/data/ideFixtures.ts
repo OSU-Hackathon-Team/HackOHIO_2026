@@ -2,6 +2,7 @@ import {
   FeatureSpec,
   FeatureBlueprint,
   SynthesisBundle,
+  NativeSubsystemSpec,
   type ToolCallRecord,
   type SourceSnippet,
 } from "@splice/contracts";
@@ -10,6 +11,8 @@ import recallSpecJson from "../../../../../fixtures/hand-authored/specs/recall.s
 import inkwellBpJson from "../../../../../fixtures/hand-authored/blueprints/inkwell.wikilink_graph.json";
 import recallBpJson from "../../../../../fixtures/hand-authored/blueprints/recall.sm2_scheduler.json";
 import studyRoomBundleJson from "../../../../../fixtures/bundles/_seed/study-room.json";
+import mockPrioritySpecJson from "../../../../../fixtures/specs/_seed/mockpriority.priority_score.json";
+import mockPriorityBpJson from "../../../../../fixtures/blueprints/_seed/mockpriority.priority_score.json";
 
 export interface AppFlowStep {
   stepNumber: string;
@@ -174,6 +177,7 @@ export interface DecompiledTarget {
     toolCalls: ToolCallRecord[];
   };
   nativeDossier?: NativeSubsystemDossier;
+  nativeSpec?: NativeSubsystemSpec;
 }
 
 export type FeatureReadiness = "verified" | "sample" | "needs_review" | "blocked";
@@ -203,7 +207,156 @@ const inkwellSpec = FeatureSpec.parse(inkwellSpecJson);
 const recallSpec = FeatureSpec.parse(recallSpecJson);
 const inkwellBlueprint = FeatureBlueprint.parse(inkwellBpJson);
 const recallBlueprint = FeatureBlueprint.parse(recallBpJson);
+export const mockPrioritySpec = FeatureSpec.parse(mockPrioritySpecJson);
+export const mockPriorityBlueprint = FeatureBlueprint.parse(mockPriorityBpJson);
 export const IDE_DEFAULT_BUNDLE = SynthesisBundle.parse(studyRoomBundleJson);
+
+const mockZero64 = "0".repeat(64);
+export const mockNativeSpec: NativeSubsystemSpec = {
+  schema: 1,
+  kind: "native_subsystem_spec",
+  campaign: mockZero64,
+  binary_sha256: mockZero64,
+  scope_id: mockZero64,
+  scope_revision: 1,
+  title: "Task Priority Scoring Subsystem",
+  status: "ready_for_review",
+  boundary: {
+    mode: "subsystem",
+    included: [
+      { entry: "004012a0", name: "score_task_priority" },
+      { entry: "00401220", name: "urgency_bucket" },
+    ],
+    boundaries: [],
+    exclusions: [],
+    unresolved_edges: [],
+    expected_observables_to_investigate: ["priority score calculation"],
+  },
+  requirements: [
+    {
+      id: "REQ-1",
+      subject: "004012a0",
+      draft_artifact: mockZero64,
+      claim_index: 0,
+      statement: "Completed tasks score 0 regardless of due date or importance.",
+      evidence: [{ artifact: mockZero64, address: "004012a0" }],
+      assumptions: [],
+      alternatives: [],
+      review_state: "supported_static",
+      reviews: [{ outcome: "supported_static", model: "ghidra-independent-review" }],
+      execution_state: "case_agreement",
+      probe_links: [{ case_id: "completed_zero", agreement: true }],
+    },
+    {
+      id: "REQ-2",
+      subject: "004012a0",
+      draft_artifact: mockZero64,
+      claim_index: 1,
+      statement: "Overdue tasks gain 40 points per complete day late, capped at 120.",
+      evidence: [{ artifact: mockZero64, address: "004012a8" }],
+      assumptions: [],
+      alternatives: [],
+      review_state: "supported_static",
+      reviews: [{ outcome: "supported_static", model: "ghidra-independent-review" }],
+      execution_state: "case_agreement",
+      probe_links: [{ case_id: "overdue_capped", agreement: true }],
+    },
+    {
+      id: "REQ-3",
+      subject: "004012a0",
+      draft_artifact: mockZero64,
+      claim_index: 2,
+      statement: "Tasks due within 24 hours receive 80 urgency points; tasks due within 7 days receive 35 urgency points.",
+      evidence: [{ artifact: mockZero64, address: "004012c0" }],
+      assumptions: [],
+      alternatives: [],
+      review_state: "supported_static",
+      reviews: [{ outcome: "supported_static", model: "ghidra-independent-review" }],
+      execution_state: "case_agreement",
+      probe_links: [{ case_id: "upcoming_urgency", agreement: true }],
+    },
+    {
+      id: "REQ-4",
+      subject: "004012a0",
+      draft_artifact: mockZero64,
+      claim_index: 3,
+      statement: "Importance is clamped between 0 and 5, adding 30 points per level.",
+      evidence: [{ artifact: mockZero64, address: "004012d0" }],
+      assumptions: [],
+      alternatives: [],
+      review_state: "supported_static",
+      reviews: [{ outcome: "supported_static", model: "ghidra-independent-review" }],
+      execution_state: "case_agreement",
+      probe_links: [{ case_id: "importance_scale", agreement: true }],
+    },
+    {
+      id: "REQ-5",
+      subject: "004012a0",
+      draft_artifact: mockZero64,
+      claim_index: 4,
+      statement: "Total score is non-negative and capped at 200.",
+      evidence: [{ artifact: mockZero64, address: "004012e4" }],
+      assumptions: [],
+      alternatives: [],
+      review_state: "supported_static",
+      reviews: [{ outcome: "supported_static", model: "ghidra-independent-review" }],
+      execution_state: "case_agreement",
+      probe_links: [{ case_id: "score_cap", agreement: true }],
+    },
+  ],
+  function_descriptions: [
+    {
+      entry: "004012a0",
+      name: "score_task_priority",
+      draft_artifact: mockZero64,
+      inputs: "TaskView* task, int64_t now_epoch",
+      outputs: "int score",
+      state: "stateless",
+      side_effects: "none",
+      errors: "clamped",
+      unknowns: [],
+      evidence_requests: [],
+    },
+  ],
+  dependency_contracts: [],
+  original_cases: [
+    {
+      case_id: "completed_zero",
+      target: "score_task_priority",
+      input: { completed: true, importance: 5 },
+      expected: 0,
+      observed: 0,
+      outcome: "agreement",
+    },
+    {
+      case_id: "overdue_capped",
+      target: "score_task_priority",
+      input: { completed: false, due_epoch: 1000, now_epoch: 300000, importance: 1 },
+      expected: 150,
+      observed: 150,
+      outcome: "agreement",
+    },
+  ],
+  unresolved_claims: [],
+  review_gaps: [],
+  blockers: [],
+  coverage: { claims: 5, supported_static: 5, case_agreements: 5 },
+  provenance: {
+    dossier_artifact: mockZero64,
+    dossier_revision: 1,
+    dossier_readiness: "ready_for_spec",
+    dossier_schema: 1,
+    analysis: null,
+    scope_artifact: mockZero64,
+    draft_artifacts: [mockZero64],
+    review_artifacts: [mockZero64],
+    probe_report_artifacts: [mockZero64],
+    probe_link_artifacts: [mockZero64],
+    dependency_resolution_artifacts: [],
+    gap_adjudication_artifacts: [],
+    generator_sha256: mockZero64,
+  },
+};
 
 export const IDE_TARGETS: DecompiledTarget[] = [
   {
@@ -275,6 +428,105 @@ export const IDE_TARGETS: DecompiledTarget[] = [
       "4 out of 4 Behavior Scenarios Matched",
     ],
     files: recallSpec.provenance.snippets,
+  },
+  {
+    id: "mockpriority",
+    name: "Mock Task Board",
+    friendlyCategory: "Native ELF Subsystem",
+    tagline: "Scoring due dates, urgency, and importance from compiled native binary.",
+    engineKind: "ghidra_native",
+    artifactType: "native_binary",
+    targetPath: "fixtures/test-run/mock_task_priority.elf",
+    sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+    description:
+      "Mock Task Board contains a compiled native task-priority engine. Ghidra Headless decompilation and semantic probes verified its scoring bounds, urgency windows, and completed-task invariants.",
+    flowSteps: [
+      {
+        stepNumber: "01",
+        title: "Ghidra Function & Symbol Extraction",
+        description: "Decompiles binary load segments to identify entry points, calling conventions, and control flow for score_task_priority.",
+      },
+      {
+        stepNumber: "02",
+        title: "Semantic Review & Probe Verification",
+        description: "Independent static review validates behavioral requirements against dynamic native probes with 100% agreement.",
+      },
+      {
+        stepNumber: "03",
+        title: "Clean-Room Specification Handoff",
+        description: "Adapts auditable NativeSubsystemSpec into TypeScript FeatureSpec with not_executable oracle and acceptance tests.",
+      },
+    ],
+    highlights: [
+      "Native ELF Subsystem",
+      "5 Verified Behavioral Requirements",
+      "100% Probe Agreement (5/5 Cases)",
+    ],
+    files: [
+      {
+        location: "mock_task_priority.elf!0x4012A0",
+        symbol: "score_task_priority",
+        language: "c",
+        code: "/* Recovered native symbol: score_task_priority(TaskView*, int64_t now_epoch) */\nint score_task_priority(TaskView *task, int64_t now_epoch);",
+        full_module: false,
+      },
+    ],
+    nativeDossier: {
+      campaign: "0".repeat(64),
+      binarySha256: "0".repeat(64),
+      scopeRevision: 1,
+      readiness: "ready_for_spec",
+      scopeRequest: {
+        mode: "function_subsystem",
+        query: "score_task_priority",
+        seeds: ["0x4012A0"],
+        expectedObservables: ["priority_score"],
+      },
+      boundaries: [
+        { entry: "0x4012A0", name: "score_task_priority", contract: "int(TaskView*, int64_t)" },
+      ],
+      unresolvedEdges: [],
+      functions: [
+        {
+          entry: "0x4012A0",
+          name: "score_task_priority",
+          signature: "int score_task_priority(TaskView *task, int64_t now_epoch)",
+          bodyMin: "0x4012A0",
+          bodyMax: "0x401340",
+          status: "ok",
+          decompilation: "int score_task_priority(TaskView *task, int64_t now_epoch) { ... }",
+          instructions: [],
+          calls: [],
+        },
+      ],
+      claims: [
+        {
+          id: "claim-priority-base",
+          subject: "score_task_priority",
+          statement: "Base priority score calculation",
+          reviewState: "supported_static",
+          executionState: "case_agreement",
+          evidenceArtifact: "decompiled_c",
+          addresses: ["0x4012A0"],
+          assumptions: [],
+          probeLinks: [],
+        },
+      ],
+      dependencyContracts: [],
+      probes: [],
+      coverage: {
+        includedFunctions: 1,
+        draftedFunctions: 1,
+        claims: 5,
+        staticSupportedClaims: 5,
+        independentReviewGaps: 0,
+        reviewedDependencyContracts: 0,
+        claimsWithCaseAgreement: 5,
+        originalProbeCases: 5,
+        originalProbeAgreements: 5,
+      },
+    },
+    nativeSpec: mockNativeSpec,
   },
 ];
 
@@ -489,4 +741,90 @@ export const IDE_FEATURES: IdeFeatureRecord[] = [
     plainRules: [],
     verifiedScenarios: [],
   },
+  {
+    featureId: "mockpriority.priority_score",
+    builderId: "spaced-review",
+    targetId: "mockpriority",
+    title: "Task Priority Scoring Engine",
+    sourceApp: "Mock Task Board",
+    category: "Task Scoring",
+    readiness: "verified",
+    friendlyStatusLabel: "Ready to Use",
+    oracleStatus: "not_executable",
+    engineStatus: "passed",
+    summary:
+      "Calculates urgency and importance score for tasks, scaling overdue work and zeroing completed tasks.",
+    everydayBenefit:
+      "Automatically bubbles up urgent and high-priority tasks using proven compiled algorithms.",
+    limitation: "Reconstructed from native decompilation into clean-room TypeScript; native binary is not executed in-browser.",
+    dependencies: [],
+    plainRules: [
+      {
+        id: "REQ-1",
+        category: "Safety check",
+        title: "Completed tasks score zero",
+        explanation: "Completed tasks evaluate to 0 regardless of how overdue or important they were.",
+        exampleInput: "Completed task, importance 5",
+        exampleOutput: "Score: 0",
+      },
+      {
+        id: "REQ-2",
+        category: "Smart rule",
+        title: "Overdue tasks add 40 points per day",
+        explanation: "Overdue tasks gain 40 points for each full 24-hour day past their due date, capped at 120.",
+        exampleInput: "3 days overdue, importance 1",
+        exampleOutput: "Urgency: 120 + Importance: 30 = 150",
+      },
+      {
+        id: "REQ-3",
+        category: "How it works",
+        title: "Due soon urgency boosts",
+        explanation: "Tasks due within 24 hours add 80 points; tasks due within 7 days add 35 points.",
+        exampleInput: "Due in 12 hours, importance 2",
+        exampleOutput: "Score: 80 + 60 = 140",
+      },
+      {
+        id: "REQ-4",
+        category: "Smart rule",
+        title: "Importance clamped 0 to 5",
+        explanation: "Importance scale is clamped between 0 and 5, multiplying by 30 points per level.",
+        exampleInput: "Importance 7 (clamped to 5)",
+        exampleOutput: "Importance points: 150",
+      },
+      {
+        id: "REQ-5",
+        category: "Safety check",
+        title: "Overall score capped at 200",
+        explanation: "Total score is bounded to a maximum of 200 to keep task lists normalized.",
+        exampleInput: "Urgency 120 + Importance 150 = 270",
+        exampleOutput: "Score: 200",
+      },
+    ],
+    verifiedScenarios: [
+      {
+        id: "completed_zero",
+        title: "Completed Task Returns 0",
+        whatWeChecked: "Evaluated a finished task with high urgency and importance 5 against native logic.",
+        outcomeText: "Returned 0 as expected.",
+        matchedOriginal: true,
+      },
+      {
+        id: "overdue_capped",
+        title: "Overdue Urgency Capped at 120",
+        whatWeChecked: "Evaluated 10-day overdue task to confirm 120 point ceiling.",
+        outcomeText: "Urgency capped at 120 points without overflow.",
+        matchedOriginal: true,
+      },
+      {
+        id: "score_cap",
+        title: "Overall Score Ceiling 200",
+        whatWeChecked: "Combined max urgency and max importance.",
+        outcomeText: "Score capped strictly at 200.",
+        matchedOriginal: true,
+      },
+    ],
+    spec: mockPrioritySpec,
+    blueprint: mockPriorityBlueprint,
+  },
 ];
+

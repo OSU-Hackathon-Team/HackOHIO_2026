@@ -30,6 +30,10 @@ const SOURCES = {
     label: "Authored seeds",
     files: import.meta.glob("@fixtures/specs/_seed/*.json", { eager: true, import: "default" }),
   },
+  native: {
+    label: "Native · Task Priority (ELF)",
+    files: import.meta.glob("@fixtures/specs/_seed/mockpriority*.json", { eager: true, import: "default" }),
+  },
 } as const;
 type SourceId = keyof typeof SOURCES;
 

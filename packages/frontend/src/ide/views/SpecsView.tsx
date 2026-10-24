@@ -15,6 +15,7 @@ import {
   ExternalLink,
   RotateCcw,
   Flame,
+  Binary,
 } from "lucide-react";
 import { useIdeStore } from "../store/useIdeStore";
 import { IDE_FEATURES, type IdeFeatureRecord } from "../data/ideFixtures";
@@ -120,16 +121,15 @@ export function SpecsView() {
                       : "bg-[#282420]/50 text-[#a8a29e] border-[#332e29] hover:bg-[#282420] hover:text-[#f5f2eb]"
                   )}
                 >
-                  {f.builderId === "wiki-links" && (
+                  {f.targetId === "mockpriority" ? (
+                    <Binary className="w-3.5 h-3.5 text-indigo-400" aria-hidden="true" />
+                  ) : f.builderId === "wiki-links" ? (
                     <BookOpen className="w-3.5 h-3.5 text-[#38bdf8]" aria-hidden="true" />
-                  )}
-                  {f.builderId === "spaced-review" && (
+                  ) : f.builderId === "spaced-review" ? (
                     <Clock className="w-3.5 h-3.5 text-indigo-400" aria-hidden="true" />
-                  )}
-                  {f.builderId === "fuzzy-search" && (
+                  ) : f.builderId === "fuzzy-search" ? (
                     <Search className="w-3.5 h-3.5 text-amber-400" aria-hidden="true" />
-                  )}
-                  {f.builderId === "cloud-sync" && (
+                  ) : (
                     <CloudOff className="w-3.5 h-3.5 text-rose-400" aria-hidden="true" />
                   )}
 

@@ -8,6 +8,8 @@ import {
   Plus,
   ArrowRight,
   Info,
+  Binary,
+  Cpu,
 } from "lucide-react";
 import { useIdeStore } from "../store/useIdeStore";
 import {
@@ -61,16 +63,25 @@ export function DecompiledView() {
                   onClick={() => selectTarget(t.id)}
                   className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors border ${
                     isActive
-                      ? "bg-[#451a03]/60 border-[#f59e0b]/50 text-[#fbbf24] shadow-sm"
+                      ? t.engineKind === "ghidra_native"
+                        ? "bg-[#1e1b4b]/80 border-[#6366f1]/60 text-[#a5b4fc] shadow-sm"
+                        : "bg-[#451a03]/60 border-[#f59e0b]/50 text-[#fbbf24] shadow-sm"
                       : "bg-[#282420] border-[#332e29] text-[#a8a29e] hover:text-[#f5f2eb] hover:bg-[#332e29]"
                   }`}
                 >
-                  {t.id === "inkwell" ? (
+                  {t.engineKind === "ghidra_native" ? (
+                    <Binary className={`w-3.5 h-3.5 shrink-0 ${isActive ? "text-[#a5b4fc]" : "text-[#a8a29e]"}`} aria-hidden="true" />
+                  ) : t.id === "inkwell" ? (
                     <BookOpen className={`w-3.5 h-3.5 shrink-0 ${isActive ? "text-[#fbbf24]" : "text-[#a8a29e]"}`} aria-hidden="true" />
                   ) : (
                     <Layers className={`w-3.5 h-3.5 shrink-0 ${isActive ? "text-[#fbbf24]" : "text-[#a8a29e]"}`} aria-hidden="true" />
                   )}
                   <span>{t.name}</span>
+                  {t.engineKind === "ghidra_native" && (
+                    <span className="rounded bg-[#312e81]/60 px-1.5 py-0.5 text-[9px] font-bold text-[#c7d2fe] border border-[#4338ca]/50">
+                      Native ELF
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -88,8 +99,14 @@ export function DecompiledView() {
           >
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-[#451a03]/60 border border-[#f59e0b]/30 flex items-center justify-center shrink-0">
-                  {target.id === "inkwell" ? (
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 border ${
+                  target.engineKind === "ghidra_native"
+                    ? "bg-[#1e1b4b]/80 border-[#6366f1]/40"
+                    : "bg-[#451a03]/60 border-[#f59e0b]/30"
+                }`}>
+                  {target.engineKind === "ghidra_native" ? (
+                    <Binary className="w-5 h-5 text-[#818cf8]" aria-hidden="true" />
+                  ) : target.id === "inkwell" ? (
                     <BookOpen className="w-5 h-5 text-[#fbbf24]" aria-hidden="true" />
                   ) : (
                     <Layers className="w-5 h-5 text-[#fbbf24]" aria-hidden="true" />
