@@ -340,6 +340,8 @@ class DurableQueue:
             return True
 
     def publish_review(self, task_id: str, review_artifact: str) -> str:
+        from engine.validation.dependencies import uncovered_direct_calls
+
         try:
             review = json.loads(self.store.get(review_artifact))
         except (ValueError, TypeError):
@@ -352,6 +354,7 @@ class DurableQueue:
             try:
                 draft = json.loads(self.store.get(task["result_artifact"]))
                 evidence = json.loads(self.store.get(draft["evidence_artifact"]))
+                scope = json.loads(self.store.get(task["scope_artifact"]))
                 answer = review["answer"]
                 claim_count = len(draft["answer"]["claims"])
                 outcomes = {kind: sum(item["outcome"] == kind for item in answer["reviews"])
@@ -377,6 +380,10 @@ class DurableQueue:
                 reasons.append("review_unresolved")
             if draft["answer"]["dependencies"]:
                 reasons.append("dependency_contracts_unreviewed")
+            uncovered = uncovered_direct_calls(draft["answer"]["dependencies"],
+                                               evidence, scope)
+            if uncovered:
+                reasons.append("direct_calls_unbound")
             state = "accepted" if not reasons else "needs_reconciliation"
             support = "static_only" if outcomes["supported_static"] == claim_count and claim_count else "none"
             conn.execute("UPDATE decomp_tasks SET state = %s, review_artifact = %s, "
@@ -390,7 +397,8 @@ class DurableQueue:
                          (review_artifact, task_id))
             self._event(conn, task["campaign_id"], "review_recorded",
                         {"task_id": task_id, "state": state, "support_level": support,
-                         "review_artifact": review_artifact, "reasons": reasons})
+                         "review_artifact": review_artifact, "reasons": reasons,
+                         "unbound_direct_calls": len(uncovered)})
             return state
 
     def accept(self, task_id: str, review_artifact: str) -> bool:
@@ -417,7 +425,8 @@ class DurableQueue:
             return True
 
     def resolve_dependencies(self, task_id: str, review_artifacts: list[str]) -> str:
-        from engine.validation.dependencies import validate_dependency_review
+        from engine.validation.dependencies import (dependency_binding_errors,
+                                                    validate_dependency_review)
 
         with self._connect() as conn:
             task = conn.execute("SELECT * FROM decomp_tasks WHERE id = %s",
@@ -452,6 +461,7 @@ class DurableQueue:
                     review.get("callee_evidence_artifact") != contract["evidence_artifact"] or
                     contract.get("campaign") != task["campaign_id"] or
                     contract.get("contract_key") != key or
+                    dependency_binding_errors(dependency, caller, callee) or
                     validate_dependency_review(review["answer"], caller, callee)):
                 return "invalid"
             if review["answer"]["outcome"] != "supported_static":
@@ -499,22 +509,35 @@ class DurableQueue:
             return "accepted"
 
     def audit_accepted_dependencies(self, campaign: str) -> int:
+        from engine.validation.dependencies import uncovered_direct_calls
+
         revised = 0
         with self._connect() as conn:
-            tasks = conn.execute("SELECT id, result_artifact, dependency_resolution_artifact "
+            tasks = conn.execute("SELECT id, result_artifact, scope_artifact, "
+                                 "dependency_resolution_artifact "
                                  "FROM decomp_tasks "
                                  "WHERE campaign_id = %s AND state = 'accepted' "
                                  "FOR UPDATE", (campaign,)).fetchall()
             for task in tasks:
                 draft = json.loads(self.store.get(task["result_artifact"]))
-                if not draft["answer"].get("dependencies") or task["dependency_resolution_artifact"]:
+                evidence = json.loads(self.store.get(draft["evidence_artifact"]))
+                scope = json.loads(self.store.get(task["scope_artifact"]))
+                reasons = []
+                if draft["answer"].get("dependencies") and not task["dependency_resolution_artifact"]:
+                    reasons.append("dependency_contracts_unreviewed")
+                unbound = uncovered_direct_calls(draft["answer"]["dependencies"],
+                                                 evidence, scope)
+                if unbound:
+                    reasons.append("direct_calls_unbound")
+                if not reasons:
                     continue
                 conn.execute("UPDATE decomp_tasks SET state = 'needs_reconciliation', "
-                             "terminal_reason = 'dependency_contracts_unreviewed', "
-                             "updated_at = now() WHERE id = %s", (task["id"],))
+                             "terminal_reason = %s, updated_at = now() WHERE id = %s",
+                             (",".join(reasons), task["id"]))
                 self._event(conn, campaign, "acceptance_revised",
                             {"task_id": str(task["id"]),
-                             "reason": "dependency_contracts_unreviewed"})
+                             "reason": ",".join(reasons), "reasons": reasons,
+                             "unbound_direct_calls": len(unbound)})
                 revised += 1
         return revised
 

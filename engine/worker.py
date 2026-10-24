@@ -118,6 +118,12 @@ def prompt_for(task: dict, scope: dict, evidence: dict, *, max_evidence_bytes: i
     truncated = len(raw.encode()) > max_evidence_bytes
     if truncated:
         raw = raw.encode()[:max_evidence_bytes].decode(errors="ignore")
+    names = {item["entry"]: item["name"] for item in
+             scope.get("included", []) + scope.get("boundaries", [])}
+    direct_calls = [{"call_site": ref["from"], "target_entry": ref["to"],
+                     "target_name": names.get(ref["to"])}
+                    for ref in evidence.get("references", [])
+                    if "CALL" in ref.get("type", "") and not ref.get("external")]
     prompt = (
         "Analyze this native function for a behavioral specification. Use only the evidence "
         "below. The C rendering is Ghidra output, not verified source. Do not invent callback "
@@ -137,14 +143,18 @@ def prompt_for(task: dict, scope: dict, evidence: dict, *, max_evidence_bytes: i
         "the evidence; a valid citation is not proof of correct interpretation. Scope expected "
         "observables are questions to investigate, not claims about this function. Describe "
         "uncertain widths, signedness, state mutation order, and indirect dispatch in unknowns. "
-        "List a dependency only for a call to another function whose behavior this answer "
-        "relies on. Use the callee's exact name as target. Memory locations, globals, input "
+        "For every listed dependency, cite the actual call instruction to that callee. "
+        "Use the direct-call index below to bind each call site to its target name. "
+        "Account for every direct call: add a dependency when the answer relies on the "
+        "callee's behavior, or identify the unexamined call explicitly in unknowns. "
+        "Memory locations, globals, input "
         "values, and field reads belong in state, assumptions, or unknowns, not dependencies. "
         "If the function makes no relevant call, return dependencies: []. "
         "No markdown.\n"
         f"Scope query: {scope['request']['query']}\n"
         f"Expected observables to investigate, not assume true: "
         f"{json.dumps(scope['request']['expected_observables'])}\n"
+        f"Direct-call index: {json.dumps(direct_calls, separators=(',', ':'))}\n"
         f"Task: {task['question']}\n"
         f"Evidence was truncated: {str(truncated).lower()}\n"
         f"Evidence: {raw}"
@@ -219,7 +229,7 @@ class SemanticWorker:
                       "scope_artifact": scope_artifact, "task_key": task["deduplication_key"],
                       "subject": subject, "evidence_artifact": evidence_artifact,
                       "model": resolved_model, "model_role": model_role,
-                      "opencode_version": None, "prompt_version": 2,
+                      "opencode_version": None, "prompt_version": 3,
                       "evidence_truncated": truncated, "state": "running"}
         if prior_artifact is not None:
             checkpoint["reassessment_of"] = prior_artifact

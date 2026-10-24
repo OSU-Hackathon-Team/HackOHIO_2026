@@ -8,7 +8,9 @@ import os
 from pathlib import Path
 
 from engine.analysis.ghidra import GhidraAnalysis
-from engine.validation.dependencies import validate_dependency_review
+from engine.validation.dependencies import (dependency_binding_errors,
+                                            uncovered_direct_calls,
+                                            validate_dependency_review)
 
 
 def canonical(value: object) -> bytes:
@@ -103,6 +105,7 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                     contract.get("campaign") != manifest["campaign"] or
                     contract.get("contract_key") != key or
                     review.get("answer", {}).get("outcome") != "supported_static" or
+                    dependency_binding_errors(dependency, caller, callee) or
                     validate_dependency_review(review["answer"], caller, callee) or
                     not isinstance(version, int) or version < 1 or
                     (key in pins and pins[key] != version)):
@@ -132,10 +135,15 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                                "probe_artifact": result["artifact"]})
     claims = []
     dependencies = []
+    uncovered_calls = []
     function_summaries = []
     for artifact, draft in drafts.items():
         answer = draft["answer"]
         subject = draft["subject"]
+        caller = json.loads(engine.store.get(draft["evidence_artifact"]))
+        uncovered_calls.extend({"subject": subject, **call}
+                               for call in uncovered_direct_calls(
+                                   answer["dependencies"], caller, scope))
         function_summaries.append({"subject": subject, "draft_artifact": artifact,
                                    "inputs": answer["inputs"], "outputs": answer["outputs"],
                                    "state": answer["state"],
@@ -253,6 +261,9 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
     if uncited_dependencies:
         blockers.append({"kind": "dependency_contracts_missing_citations",
                          "targets": uncited_dependencies})
+    if uncovered_calls:
+        blockers.append({"kind": "direct_calls_without_bound_dependencies",
+                         "calls": uncovered_calls})
     unmapped = [claim for claim in claims if claim["execution_state"] == "unmapped"]
     if unmapped:
         blockers.append({"kind": "claims_not_linked_to_original_probes",
@@ -275,6 +286,7 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
               "contract_snapshot": contract_snapshot,
               "functions": sorted(function_summaries, key=lambda item: item["subject"]),
               "claims": claims, "dependency_contracts": dependencies,
+              "uncovered_direct_calls": uncovered_calls,
               "probes": probes, "blockers": blockers,
               "coverage": {"included_functions": len(included),
                            "drafted_functions": len(drafted_subjects),
@@ -285,6 +297,7 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                                len(unreviewed_dependencies),
                            "current_dependency_contracts": sum(
                                item["current_at_snapshot"] is True for item in dependencies),
+                           "uncovered_direct_calls": len(uncovered_calls),
                            "claims_with_case_agreement": sum(
                                claim["execution_state"] == "case_agreement" for claim in claims),
                            "claims_with_case_disagreement": len(disagreements),
@@ -362,6 +375,12 @@ def render_markdown(dossier: dict) -> str:
                          f"`{dependency['resolution_artifact']}`")
             lines.append(f"  - Current at recorded head snapshot: "
                          f"{dependency['current_at_snapshot']}")
+    lines += ["", "## Direct calls without bound dependencies", ""]
+    for call in dossier["uncovered_direct_calls"]:
+        lines.append(f"- `{call['subject']}@{call['call_site']}` → "
+                     f"{call['target_name'] or call['target_entry']} "
+                     f"(`{call['target_entry']}`); declared at site: "
+                     f"{', '.join(call['declared_targets']) or 'none'}")
     lines += ["", "## Original-execution probes", ""]
     for probe in dossier["probes"]:
         lines.append(f"- **{probe['outcome']}** · {probe['case_id']} · "

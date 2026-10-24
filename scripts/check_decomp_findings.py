@@ -18,6 +18,8 @@ from engine.artifacts import LocalArtifactStore  # noqa: E402
 from engine.dossier import assemble  # noqa: E402
 from engine.findings import FindingsStore  # noqa: E402
 from engine.queue import DurableQueue  # noqa: E402
+from engine.validation.dependencies import (dependency_binding_errors,  # noqa: E402
+                                            uncovered_direct_calls)
 
 
 def put(store: LocalArtifactStore, value: dict) -> str:
@@ -49,6 +51,7 @@ def main() -> None:
                     ("helper_conflict", "00100000", "helper returns two"),
                     ("multi_helper", "00100040", "first effect"),
                     ("multi_helper_conflict", "00100040", "second effect differs"),
+                    ("unbound_caller", "00100050", "calls helper without a dependency"),
                 ]
                 tasks = [{"kind": "behavior", "subject": address,
                           "question": f"Explain {name}: {statement}",
@@ -66,13 +69,18 @@ def main() -> None:
                 assert len(queue.enqueue_scope(scope_artifact)) == len(entries)
 
                 def complete(position: int, dependencies: list | None = None,
-                             statements: list[str] | None = None) -> str:
+                             statements: list[str] | None = None,
+                             expected_state: str | None = None) -> str:
                     name, address, statement = entries[position]
                     statements = statements or [statement]
                     lease = queue.lease(name, campaign=campaign)
                     assert lease and lease["subject"] == address
+                    references = ([{"from": address, "to": "00100000",
+                                    "type": "UNCONDITIONAL_CALL", "external": False}]
+                                  if position in (2, 8) else [])
                     evidence_artifact = put(store, {"entry": address,
-                                                    "instructions": [], "references": []})
+                                                    "instructions": [],
+                                                    "references": references})
                     answer = {"inputs": "No explicit parameters", "outputs": statement,
                               "state": "No observed state", "side_effects": "None observed",
                               "errors": "No observed error path", "pseudocode": "return value",
@@ -105,7 +113,8 @@ def main() -> None:
                                          "missing_behavior": [], "unresolved": []},
                               "outcomes": {"supported_static": len(statements)}}
                     outcome = queue.publish_review(lease["task_id"], put(store, review))
-                    assert outcome == ("needs_reconciliation" if dependencies else "accepted")
+                    assert outcome == (expected_state or
+                                       ("needs_reconciliation" if dependencies else "accepted"))
                     return lease["task_id"]
 
                 findings = FindingsStore(queue)
@@ -133,6 +142,20 @@ def main() -> None:
                     raise AssertionError("unresolved dependent claim was published")
                 dependent_task = queue.task(dependent)
                 contract = json.loads(store.get(version1["artifact"]))
+                dependent_draft = json.loads(store.get(dependent_task["result_artifact"]))
+                caller = json.loads(store.get(dependent_draft["evidence_artifact"]))
+                callee = json.loads(store.get(contract["evidence_artifact"]))
+                assert not dependency_binding_errors(
+                    dependent_draft["answer"]["dependencies"][0], caller, callee)
+                assert dependency_binding_errors(
+                    {"target": "helper", "evidence_addresses": ["00100031"]}, caller, callee)
+                call_scope = {"included": [{"entry": "00100000", "name": "helper"}],
+                              "boundaries": []}
+                assert not uncovered_direct_calls(
+                    dependent_draft["answer"]["dependencies"], caller, call_scope)
+                assert uncovered_direct_calls(
+                    [{"target": "wrong_helper", "evidence_addresses": ["00100030"]}],
+                    caller, call_scope)[0]["target_name"] == "helper"
                 dependency_review = {"schema": 1, "state": "reviewed", "structural_errors": [],
                                      "campaign": campaign, "task_id": dependent,
                                      "draft_artifact": dependent_task["result_artifact"],
@@ -236,6 +259,8 @@ def main() -> None:
                 final_inventory = findings.inventory(campaign)
                 assert next(head for head in final_inventory["contract_heads"]
                             if head["contract_key"] == "multi_helper")["state"] == "disputed"
+                unbound = complete(8, expected_state="needs_reconciliation")
+                assert queue.task(unbound)["terminal_reason"] == "direct_calls_unbound"
                 print(json.dumps({"findings": len(final_inventory["findings"]),
                                   "open_conflicts": len(final_inventory["conflicts"]),
                                   "contract_version": version2["version"],

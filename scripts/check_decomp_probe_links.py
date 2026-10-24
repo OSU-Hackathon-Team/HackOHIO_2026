@@ -31,8 +31,11 @@ def main() -> None:
                                                "expected_observables": []},
                  "boundaries": []}
         scope_artifact = put(store, scope)
+        evidence_artifact = put(store, {"entry": "00100000", "references": [],
+                                        "instructions": [{"address": "00100000",
+                                                          "text": "RET"}]})
         draft = {"campaign": campaign, "subject": "00100000", "state": "unreviewed",
-                 "scope_artifact": scope_artifact, "evidence_artifact": "e" * 64,
+                 "scope_artifact": scope_artifact, "evidence_artifact": evidence_artifact,
                  "answer": {"inputs": "none", "outputs": "counter", "state": "counter",
                             "side_effects": "increments", "errors": "none",
                             "pseudocode": "counter += 1", "unknowns": [],

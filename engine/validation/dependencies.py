@@ -15,6 +15,40 @@ from engine.worker import parse_answer
 from model_config import get_model
 
 
+def dependency_binding_errors(dependency: dict, caller: dict, callee: dict) -> list[str]:
+    """Require a cited direct call from this caller to this exact helper entry."""
+    target = callee.get("entry")
+    refs = dependency.get("evidence_addresses", [])
+    calls = {ref.get("from"): ref.get("to")
+             for ref in caller.get("references", [])
+             if "CALL" in ref.get("type", "") and not ref.get("external")}
+    if not isinstance(refs, list) or target not in (calls.get(address) for address in refs):
+        return [f"dependency {dependency.get('target')} lacks a cited direct call to {target}"]
+    return []
+
+
+def uncovered_direct_calls(dependencies: list[dict], caller: dict,
+                           scope: dict) -> list[dict]:
+    """List direct native calls without a dependency bound to their call site."""
+    names = {item["entry"]: item["name"]
+             for item in scope.get("included", []) + scope.get("boundaries", [])}
+    uncovered = []
+    for ref in caller.get("references", []):
+        if "CALL" not in ref.get("type", "") or ref.get("external"):
+            continue
+        site, target = ref.get("from"), ref.get("to")
+        name = names.get(target)
+        if not any(site in item.get("evidence_addresses", []) and
+                   (name is None or item.get("target") == name)
+                   for item in dependencies):
+            uncovered.append({"call_site": site, "target_entry": target,
+                              "target_name": name,
+                              "declared_targets": sorted({item.get("target") for item in dependencies
+                                                          if site in item.get("evidence_addresses", [])
+                                                          and isinstance(item.get("target"), str)})})
+    return uncovered
+
+
 def validate_dependency_review(answer: dict, caller: dict, callee: dict) -> list[str]:
     if not isinstance(answer, dict):
         return ["dependency review answer must be an object"]
@@ -114,26 +148,32 @@ class IndependentDependencyReviewer:
                           review_id=review_id, task_id=task_id,
                           dependency_index=dependency_index)
         started = time.monotonic()
-        try:
-            reply = invoke_opencode(self.opencode, folder, prompt, model=resolved_model,
-                                    timeout=self.timeout, env_file=self.env_file,
-                                    agent_name="dependency-review",
-                                    agent_instruction="Challenge caller contract against both raw functions. Return JSON only.")
-            answer = parse_answer(reply["text"])
-            refs, corrections = normalize_references(
-                answer.get("evidence_addresses"), evidence_addresses(caller) |
-                evidence_addresses(callee))
-            answer["evidence_addresses"] = refs
-            errors = validate_dependency_review(answer, caller, callee)
-            result = {**base, "state": "reviewed" if not errors else "rejected",
-                      "answer": answer, "structural_errors": errors,
-                      "citation_normalizations": corrections,
-                      "usage": reply["usage"],
-                      "opencode_version": reply["runtime_version"],
+        binding_errors = dependency_binding_errors(dependency, caller, callee)
+        if binding_errors:
+            result = {**base, "state": "rejected", "structural_errors": binding_errors,
                       "elapsed_seconds": round(time.monotonic() - started, 3)}
-        except Exception as error:
-            result = {**base, "state": "failed", "error": str(error),
-                      "elapsed_seconds": round(time.monotonic() - started, 3)}
+        else:
+            try:
+                reply = invoke_opencode(
+                    self.opencode, folder, prompt, model=resolved_model,
+                    timeout=self.timeout, env_file=self.env_file,
+                    agent_name="dependency-review",
+                    agent_instruction="Challenge caller contract against both raw functions. Return JSON only.")
+                answer = parse_answer(reply["text"])
+                refs, corrections = normalize_references(
+                    answer.get("evidence_addresses"), evidence_addresses(caller) |
+                    evidence_addresses(callee))
+                answer["evidence_addresses"] = refs
+                errors = validate_dependency_review(answer, caller, callee)
+                result = {**base, "state": "reviewed" if not errors else "rejected",
+                          "answer": answer, "structural_errors": errors,
+                          "citation_normalizations": corrections,
+                          "usage": reply["usage"],
+                          "opencode_version": reply["runtime_version"],
+                          "elapsed_seconds": round(time.monotonic() - started, 3)}
+            except Exception as error:
+                result = {**base, "state": "failed", "error": str(error),
+                          "elapsed_seconds": round(time.monotonic() - started, 3)}
         result["prompt_artifact"] = self.engine.store.put(prompt.encode())
         events_path = folder / "events.jsonl"
         if events_path.exists():
