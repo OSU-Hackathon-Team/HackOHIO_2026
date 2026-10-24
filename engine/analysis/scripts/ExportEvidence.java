@@ -13,6 +13,7 @@ import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.InstructionIterator;
 import ghidra.program.model.listing.Parameter;
 import ghidra.program.model.listing.Variable;
+import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.pcode.FunctionPrototype;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.HighSymbol;
@@ -152,6 +153,58 @@ public class ExportEvidence extends GhidraScript {
                 strings.add(record("address", addr(item.getAddress()), "value", value));
             }
         }
+        List<Map<String, Object>> executableRegions = new ArrayList<>();
+        long executableBytes = 0;
+        for (MemoryBlock block : currentProgram.getMemory().getBlocks()) {
+            if (block.isExecute()) {
+                executableRegions.add(record("name", block.getName(),
+                        "start", addr(block.getStart()), "end", addr(block.getEnd()),
+                        "size", block.getSize(), "initialized", block.isInitialized()));
+                executableBytes += block.getSize();
+            }
+        }
+        List<Map<String, Object>> unassignedRegions = new ArrayList<>();
+        long assignedInstructionBytes = 0;
+        long unassignedInstructionBytes = 0;
+        int assignedInstructions = 0;
+        int unassignedInstructions = 0;
+        Address runStart = null;
+        Address runEnd = null;
+        int runCount = 0;
+        long runBytes = 0;
+        InstructionIterator allInstructions = currentProgram.getListing().getInstructions(true);
+        while (allInstructions.hasNext()) {
+            monitor.checkCancelled();
+            Instruction instruction = allInstructions.next();
+            MemoryBlock block = currentProgram.getMemory().getBlock(instruction.getAddress());
+            if (block == null || !block.isExecute()) {
+                continue;
+            }
+            if (currentProgram.getFunctionManager().getFunctionContaining(instruction.getAddress()) != null) {
+                assignedInstructions++;
+                assignedInstructionBytes += instruction.getLength();
+                continue;
+            }
+            unassignedInstructions++;
+            unassignedInstructionBytes += instruction.getLength();
+            if (runStart != null && !instruction.getAddress().equals(runEnd.next())) {
+                unassignedRegions.add(record("start", addr(runStart), "end", addr(runEnd),
+                        "instructions", runCount, "instruction_bytes", runBytes));
+                runStart = null;
+            }
+            if (runStart == null) {
+                runStart = instruction.getAddress();
+                runCount = 0;
+                runBytes = 0;
+            }
+            runEnd = instruction.getMaxAddress();
+            runCount++;
+            runBytes += instruction.getLength();
+        }
+        if (runStart != null) {
+            unassignedRegions.add(record("start", addr(runStart), "end", addr(runEnd),
+                    "instructions", runCount, "instruction_bytes", runBytes));
+        }
         output.put("status", "ok");
         output.put("program", currentProgram.getName());
         output.put("executable_format", currentProgram.getExecutableFormat());
@@ -164,6 +217,13 @@ public class ExportEvidence extends GhidraScript {
         output.put("calls", calls);
         output.put("data_references", dataReferences);
         output.put("indirect_calls", indirectCalls);
+        output.put("executable_regions", executableRegions);
+        output.put("unassigned_instruction_regions", unassignedRegions);
+        output.put("static_inventory", record("executable_bytes", executableBytes,
+                "assigned_instructions", assignedInstructions,
+                "assigned_instruction_bytes", assignedInstructionBytes,
+                "unassigned_instructions", unassignedInstructions,
+                "unassigned_instruction_bytes", unassignedInstructionBytes));
         output.put("omissions", List.of("indirect call targets and non-function data dependencies may be unresolved"));
     }
 

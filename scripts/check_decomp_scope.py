@@ -23,6 +23,14 @@ def main() -> None:
     request = ScopeRequest.from_dict(json.loads(
         (ROOT / "fixtures" / "decomp" / "scope_request.json").read_text()))
     scope = persist_scope(engine, manifest, request)
+    index = engine.index(manifest)
+    project = persist_scope(engine, manifest, replace(
+        request, mode="project", seeds=(), max_functions=10000))
+    gaps = [edge for edge in project["unresolved"]
+            if edge["kind"] == "unassigned_executable_instructions"]
+    assert bool(gaps) == bool(index["unassigned_instruction_regions"])
+    if gaps:
+        assert gaps[0]["instructions"] == index["static_inventory"]["unassigned_instructions"]
     repeated = persist_scope(engine, manifest, request)
     assert scope["artifact"] == repeated["artifact"] and scope["revision"] == repeated["revision"]
     names = {item["name"] for item in scope["included"]}

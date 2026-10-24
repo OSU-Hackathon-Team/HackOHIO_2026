@@ -33,6 +33,9 @@ immutable function evidence, discovers bounded scopes, and runs semantic and ind
 review work through a durable PostgreSQL queue. Original-binary probes and partial
 dossiers are implemented. The rename-attempt path remains a diagnostic with a private
 Ghidra project per attempt.
+The static index records executable memory and decoded instruction runs outside discovered
+functions. Project scopes retain those runs as unresolved work; a successful export of all
+discovered functions alone does not establish whole-binary code coverage.
 
 Conflict reconciliation, warm analysis pooling, multi-host recovery, and a durable job
 API remain planned. The implementation plan lists their acceptance gates. Proposed

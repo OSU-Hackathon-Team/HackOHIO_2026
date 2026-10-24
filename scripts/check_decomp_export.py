@@ -33,6 +33,18 @@ def main() -> None:
             assert inventory["complete"], inventory["counts"]
             assert len(inventory["functions"]) == manifest["function_count"]
             index = engine.index(manifest)
+            inventory_summary = index["static_inventory"]
+            assert inventory_summary["executable_bytes"] > 0
+            assert inventory_summary["assigned_instructions"] > 0
+            assert (inventory_summary["unassigned_instructions"] ==
+                    sum(region["instructions"] for region in
+                        index["unassigned_instruction_regions"]))
+            assert all(region["start"] <= region["end"] for region in
+                       index["unassigned_instruction_regions"])
+            assert index["executable_regions"]
+            assert inventory["static_inventory"] == inventory_summary
+            assert inventory["unassigned_instruction_regions"] == index[
+                "unassigned_instruction_regions"]
             symbols = subprocess.check_output(["nm", "-n", build["debug_path"]], text=True)
             symbol_address = next(int(line.split()[0], 16) for line in symbols.splitlines()
                                   if line.split()[-1] == "parse_frame")

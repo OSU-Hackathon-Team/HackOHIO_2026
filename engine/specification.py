@@ -29,6 +29,12 @@ def generate_spec(dossier: dict, dossier_artifact: str) -> dict:
     _require(isinstance(dossier.get("claims"), list) and
              isinstance(dossier.get("blockers"), list) and
              isinstance(dossier.get("functions"), list), "incomplete dossier")
+    required_lists = ("draft_artifacts", "review_artifacts", "probe_report_artifacts",
+                      "probe_link_artifacts", "dependency_resolution_artifacts",
+                      "gap_adjudication_artifacts", "independent_review_gaps",
+                      "dependency_contracts", "probes")
+    missing = [field for field in required_lists if not isinstance(dossier.get(field), list)]
+    _require(not missing, f"dossier lacks current handoff fields: {', '.join(missing)}")
     names = {item["entry"]: item["name"] for item in scope["included"]}
     drafts_by_subject: dict[str, set[str]] = {}
     for function in dossier["functions"]:

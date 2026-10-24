@@ -110,6 +110,8 @@ Deliverables:
 
 - Campaign/module identity and configuration-aware import cache.
 - Function/string/import/reference index and scoped decompilation requests.
+- Executable-region and unassigned-instruction inventory, so discovered-function export
+  coverage does not conceal decoded instructions outside known function bodies.
 - Immutable evidence exports with native address mappings and explicit omission/error records.
 - Warm analysis service with bounded concurrency, per-operation timeouts, and restart handling.
 - Narrow engine-owned read interfaces: inspect function, references, data/types, and evidence.
@@ -141,6 +143,8 @@ Acceptance:
 - A worker explains one subsystem's inputs, outputs, state, errors, and relevant dependencies.
 - A shared helper's contract can terminate expansion without analyzing its entire implementation.
 - Unresolved indirect dispatch appears as a potential blocker, not a fabricated target.
+- Project-wide scopes retain decoded executable instructions outside discovered functions as
+  unresolved regions until their role is established.
 - Relevant persistence/timing effects survive extraction.
 - Exhausted budgets return partial findings with a concrete unresolved question.
 
