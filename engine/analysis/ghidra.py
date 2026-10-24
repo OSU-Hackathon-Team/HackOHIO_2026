@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import time
@@ -105,10 +106,22 @@ class GhidraAnalysis:
         campaign = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
         project_root = self.root / "projects" / campaign
         project_root.mkdir(parents=True, exist_ok=True)
+        with (project_root / ".analysis.lock").open("a+b") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                return self._analyze_locked(binary, identity, campaign, project_root, force)
+            finally:
+                fcntl.flock(lock, fcntl.LOCK_UN)
+
+    def _analyze_locked(self, binary: Path, identity: dict, campaign: str,
+                        project_root: Path, force: bool) -> dict:
         manifest_path = project_root / "manifest.json"
         if manifest_path.exists() and not force:
             manifest = json.loads(manifest_path.read_text())
             self.store.get(manifest["index_artifact"])
+            if not ((project_root / "baseline.gpr").exists() and
+                    (project_root / "baseline.rep").is_dir()):
+                raise RuntimeError("cached Ghidra baseline is missing; evidence remains immutable")
             self._emit(campaign, "cache_hit", binary=str(binary))
             return manifest
         if force and manifest_path.exists():
@@ -116,10 +129,24 @@ class GhidraAnalysis:
         project_name = "baseline"
         program_name = binary.name
         project = project_root / (project_name + ".gpr")
-        if not project.exists():
+        repository = project_root / (project_name + ".rep")
+        imported = project_root / "import.done"
+        if force or not imported.exists() or not project.exists() or not repository.is_dir():
+            if project.exists() or repository.exists() or imported.exists():
+                self._emit(campaign, "import_recovery", forced=force)
+            project.unlink(missing_ok=True)
+            if repository.exists():
+                shutil.rmtree(repository)
+            imported.unlink(missing_ok=True)
             self._run([str(project_root), project_name, "-import", str(binary),
                        "-overwrite", "-analysisTimeoutPerFile", str(self.timeout)],
                       campaign, "import")
+            if not project.exists() or not repository.is_dir():
+                self._emit(campaign, "import_failed", error="incomplete project")
+                raise RuntimeError("Ghidra import produced no complete project")
+            temporary = imported.with_suffix(".tmp")
+            temporary.write_text(json.dumps({"binary_sha256": identity["binary_sha256"]}) + "\n")
+            os.replace(temporary, imported)
         with tempfile.TemporaryDirectory(dir=self.root) as scratch:
             export = Path(scratch) / "index.json"
             self._run([str(project_root), project_name, "-process", program_name,
@@ -127,9 +154,11 @@ class GhidraAnalysis:
                        "-postScript", "ExportEvidence.java", str(export), "index"],
                       campaign, "index")
             if not export.exists():
+                self._emit(campaign, "index_failed", error="no output")
                 raise RuntimeError("Ghidra index script produced no output; see index.log")
             index = json.loads(export.read_text())
             if index.get("status") != "ok":
+                self._emit(campaign, "index_failed", error="incomplete export")
                 raise RuntimeError("Ghidra index exporter did not finish")
             index_sha = self.store.put(export.read_bytes())
         manifest = {**identity, "campaign": campaign, "binary": str(binary),
