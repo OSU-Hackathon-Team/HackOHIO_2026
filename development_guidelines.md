@@ -8,6 +8,7 @@
   - `fix/<name>` (e.g., `fix/npx-offline-fallback`)
   - `chore/<name>` or `infra/<name>` (e.g., `infra/multi-stage-dockerfile`)
   - `refactor/<name>` (e.g., `refactor/blueprint-zod-schema`)
+- **One Domain Per Branch:** Keep branches focused. If a task spans clearly separate domains (e.g., `infra` vs. `feat(frontend)`), use separate branches or atomic commits per logical unit.
 
 ## 2. Atomic, Small Commits
 - **One Logical Change Per Commit:** Never bundle unrelated changes (e.g., Docker setup + frontend UI tweaks + schema updates) into a single monolithic commit.
@@ -24,13 +25,15 @@
   - `feat(backend): add static SPA fallback excluding /api routes`
   - `infra(docker): add multi-stage Dockerfile with base rea-agents cache`
   - `chore(docker): add .dockerignore and docker-compose profiles`
-  ## 4. Push & Pull Request Protocol
-- **Never Merge Locally into `dev` or `main`:** Do not run `git checkout dev && git merge <branch>`. All changes must go through a Pull Request.
-- **Push Upstream:** Once all atomic commits for the task are complete and verified (build/typecheck passes), push the feature branch to origin using `git push -u origin <branch-name>`.
-- **Target Branch (`dev`):** Always open Pull Requests against `dev` (`--base dev`), NEVER against `main`, unless explicitly instructed for a final release.
-- **Non-Interactive PR Creation (`gh pr create`):** Use the GitHub CLI with explicit flags so the terminal never hangs waiting for interactive input.
-- **PR Title & Body Structure:**
-  - **Title:** Match Conventional Commits format (e.g., `infra(docker): add multi-stage Dockerfile and compose profiles`).
-  - **Body:** Include a concise summary of changes, architectural decisions made, and exact verification/testing steps for teammates.
-  - **Command Pattern:**
-    `gh pr create --base dev --head <branch-name> --title "<type>(<scope>): <summary>" --body "## Summary\n- ...\n\n## Verification\n- ..."`
+
+## 4. Direct Branch-and-Merge Protocol (No Pull Requests)
+- **No Pull Requests (`gh pr create` is disabled):** Do not open GitHub Pull Requests unless explicitly asked.
+- **Branch off `dev` for All Work:** Still create a dedicated feature/fix/infra branch (`<type>/<short-kebab-description>`) off the latest `dev` before starting any task. Never write uncommitted experimental work directly on `main` or `dev`.
+- **Atomic Commits on the Feature Branch:** Continue staging specific files (`git add <files>`) and making small, single-purpose Conventional Commits on your working branch.
+- **Verify, Merge into `dev`, and Push:**
+  1. Once all atomic commits on the working branch are complete and verified (build/typecheck passes and `git status` is clean), switch to `dev`: `git checkout dev`
+  2. Pull latest `origin/dev` to prevent conflicts: `git pull --rebase origin dev`
+  3. Merge the feature branch into `dev` preserving atomic commits: `git merge <branch-name>`
+  4. Push directly to `origin/dev`: `git push origin dev`
+  5. Clean up the merged local feature branch: `git branch -d <branch-name>`
+- **Never Touch `main`:** `main` remains strictly reserved for final milestone/judging releases when explicitly instructed.
