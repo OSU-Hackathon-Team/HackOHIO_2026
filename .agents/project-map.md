@@ -19,6 +19,18 @@ packages/
 targets/                    demo apps that REA analyzes (source + built .asar)
 fixtures/                   recorded runs used for replay mode and tests
 scripts/build-targets.mjs   packs targets/src/<app> into targets/build/<app>/app.asar
+models.json                 role → model routing for BOTH tracks (Splice roles must be Claude)
+Dockerfile                  Node app image (contracts → backend → frontend), used by CI
+.github/workflows/ci.yml    CI: npm ci + build on Node 22, then Docker smoke test (/api/health, SPA, 404 guard)
+
+# Subsystem decompilation engine track (Python)
+DecompPileline.md           engine architecture — takes precedence for native/subsystem work
+DECOMP_IMPLEMENTATION_PLAN.md  phases, proposed engine/ layout, acceptance gates
+launch.py, agent_worker.py  current rename-attempt scaffold (OpenCode + Ghidra headless MCP)
+model_config.py             Python role resolver for models.json
+worker.Dockerfile, docker-compose.yml, compose.yaml   orchestrator + Podman worker images
+docs/archive/               historical reviews; context only, not policy
+engine/                     (planned, does not exist yet)
 ```
 
 ## Backend (`packages/backend/src/`) by owner

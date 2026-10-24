@@ -19,8 +19,11 @@
   long-lived connection; a restart invalidates them.
 - REA wants **absolute** paths. Use `detail: "summary"` on the first analyze call, since a full
   graph can be megabytes.
-- Native targets need Ghidra/IDA/Hopper, and Windows Ghidra support is experimental. The live
-  path is Electron `.asar` only; native targets are replay-only stretch work.
+- Through REA, native targets need Ghidra/IDA/Hopper, and REA's Windows Ghidra support is
+  experimental. So the **Electron demo's** live path is `.asar` only, and REA native targets are
+  replay-only there. **Native subsystem analysis is a primary goal of the Python engine**, which
+  runs Ghidra headless in a Linux Podman worker (no Windows Ghidra involved). Follow
+  `DecompPileline.md` for that work, not this file.
 - Requires Node 22.19+. Pin `rea-agents@6.7.0` everywhere; never `@latest`.
 
 ## Claude on Amazon Bedrock

@@ -25,7 +25,7 @@ REA is an optional stretch mode (`04_evidence_collector.md` §6).
 | 05 | `05_record_and_replay.md` | Recording evidence and transcripts; replay loader | H12 |
 | 06 | `06_backend_server_shell.md` | `server.ts`, `sse.ts`, `/api/health`, `/api/pantry`, config | H6 |
 | 07 | `07_testing_and_acceptance.md` | CLI scripts and the acceptance gate | continuous |
-| 08 | `08_stretch_native_targets.md` | Optional .NET / native target, replay only | only if ahead at H16 |
+| 08 | `08_stretch_native_targets.md` | Demo-only .NET / native target via REA (replay). Native engine work follows `DecompPileline.md` instead | only if ahead at H16 |
 
 ## Files you own
 

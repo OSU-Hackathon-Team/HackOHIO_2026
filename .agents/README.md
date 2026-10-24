@@ -10,6 +10,19 @@ first, then whichever of the files below your task needs.
 | `working-on-a-task.md` | You're about to change code: implementing a stub, changing a contract, git workflow |
 | `gotchas.md` | Before writing REA, Bedrock, SSE, contracts or target-app code. Each entry cost someone time |
 
+## Two tracks in this repo (know which one your task is in)
+
+| Track | Language | Status | Source of truth |
+|---|---|---|---|
+| **Splice app (Electron demo pipeline)** | TypeScript (`packages/`) | Scaffolded; step modules are stubs | `agents/` (README, CONTRACTS, step folders) |
+| **Subsystem decompilation engine** (native binaries, 16+ parallel workers, behavioral dossiers) | Python (`launch.py`, `agent_worker.py`, `model_config.py`; planned `engine/`) | Planned; today only a Ghidra rename-attempt scaffold runs (Docker + Podman) | `DecompPileline.md` (architecture, wins for native work), then `DECOMP_IMPLEMENTATION_PLAN.md` (phases, acceptance gates) |
+
+They meet later: the TypeScript backend will consume the engine's job state and dossiers, after
+an explicit contract migration (`ScopeRequest`, `EvidenceArtifact`, `BehaviorClaim`,
+`SubsystemDossier` in the plan). Until then those records are proposals, not runtime types.
+The Electron demo's limits (fixed REA collector, replay-only native targets, the hour-based cut
+list) do **not** constrain the engine.
+
 ## What Splice does (30 seconds)
 
 The user picks features from a pantry of desktop apps. The pipeline then runs three steps:
@@ -26,6 +39,10 @@ The user picks features from a pantry of desktop apps. The pipeline then runs th
 
 ## Where the truth lives (in priority order)
 
+For **native / subsystem decompilation** work: `DecompPileline.md` first, then
+`DECOMP_IMPLEMENTATION_PLAN.md`. `docs/archive/` is historical context only. For the
+**Splice app**:
+
 1. **`agents/CONTRACTS.md`** + **`packages/contracts/src/`**: every type passed between
    steps. These two must always agree.
 2. **`agents/README.md`**: team ownership, timeline, runtime modes, verified REA facts,
@@ -38,10 +55,10 @@ The user picks features from a pantry of desktop apps. The pipeline then runs th
 `agents/` step folders supersede. `fixtures/_legacy_mocks/` holds old hand-written mocks that use
 the outdated schema.
 
-**Separate pipeline, don't mix it in:** `launch.py`, `agent_worker.py`, `Dockerfile`,
-`worker.Dockerfile`, `docker-compose.yml`, root `README.md` and `DecompPileline.md` describe a
-Python/Ghidra/OpenCode worker experiment. It is not part of the Node app. (The `Dockerfile`
-also builds the Node app; it's pinned to Node 22 + `rea-agents@6.7.0`.)
+**Engine files:** `launch.py`, `agent_worker.py`, `model_config.py`, `worker.Dockerfile`,
+`docker-compose.yml`/`compose.yaml` and the root `README.md` belong to the Python decompilation
+engine track (see the table above). The root `Dockerfile` builds the **Node app** (Node 22 +
+`rea-agents@6.7.0`), and CI (`.github/workflows/ci.yml`) builds it and smoke-tests it.
 
 ## Current state (update this section when it changes)
 
@@ -49,6 +66,8 @@ also builds the Node app; it's pinned to Node 22 + `rea-agents@6.7.0`.)
   backend server shell with per-step routers (`/api/health` works), all docs.
 - **Stubs:** every other file under `packages/backend/src/` and `packages/frontend/src/`
   (`export {};` plus an owner/spec header). Nothing in the pipeline runs yet.
+- **Decompilation engine:** planned (no `engine/` package yet). The runnable piece is the
+  Ghidra rename-attempt scaffold (`python launch.py rename|batch` inside Docker).
 - **Not yet installed:** the per-step dependencies (Bedrock SDK, esbuild, `@electron/asar`,
   `rea-agents`, zustand, jszip, …). Each spec doc lists the ones it needs.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
