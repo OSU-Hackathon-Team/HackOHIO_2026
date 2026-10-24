@@ -37,11 +37,15 @@ const assert = {
       throw new AssertionError(m || "expected " + e + " ± " + tol + ", got " + show(a));
     }
   },
-  throws(fn, name) {
+  // `expected` may be an error name ("RangeError") or a constructor (RangeError), as in node:assert.
+  throws(fn, expected) {
     try {
       fn();
     } catch (err) {
-      if (name && (!err || err.name !== name)) {
+      const name = typeof expected === "function" ? expected.name : expected;
+      const matches = !expected || (err && (err.name === name ||
+        (typeof expected === "function" && err instanceof expected)));
+      if (!matches) {
         throw new AssertionError("expected " + name + " to be thrown, got " + errMsg(err));
       }
       return;

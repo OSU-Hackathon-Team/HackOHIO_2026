@@ -148,7 +148,7 @@ export function StudioPanel() {
         theme="dark"
         files={files}
         customSetup={{ dependencies: bundle.dependencies }}
-        options={{ recompileMode: "delayed", recompileDelay: 500 }}
+        options={{ recompileMode: "delayed", recompileDelay: 500, externalResources: ["https://cdn.tailwindcss.com/3.4.17"] }}
       >
         <RuntimeErrorWatcher bundleId={bundle.bundle_id} revision={bundle.revision} />
         <RuntimeBanner />

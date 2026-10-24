@@ -17,7 +17,8 @@ services:
       - REA_MODE=${REA_MODE:-mock}
     restart: unless-stopped
 
-  # Splice Development Service with Hot-Reloading (docker compose --profile dev up)
+  # Hot reload: docker compose --profile dev up --build splice-dev (open http://localhost:5173).
+  # Stop splice first; both services publish API port 3001.
   splice-dev:
     profiles:
       - dev
