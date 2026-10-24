@@ -36,3 +36,15 @@ export function conformanceErrors(spec: FeatureSpec, engineCode: string): string
     return name ? `Export "${name}" does not match the interface: ${m![2]}` : e;
   });
 }
+
+// Re-export oracle evaluation functions, types, and limitations
+export {
+  evaluateEngineConformance,
+  checkCleanRoomIndependence,
+  formatActionableFeedback,
+  ORACLE_LIMITATIONS,
+  type ActionableFailure,
+  type ConformanceOptions,
+  type ConformanceReport,
+  type FailureCategory,
+} from "./oracle.js";
