@@ -4,6 +4,7 @@
 // Implementation note: built by createStep3Router(deps) so the routes run against injected helpers;
 // requests are validated (400) before any stream opens, and missing upstream helpers give 503.
 import { Router, type Response } from "express";
+import { builderRouter } from "../../builder/edits.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -169,3 +170,4 @@ export function createStep3Router(
 }
 
 export const step3Router = createStep3Router(step3Deps);
+step3Router.use(builderRouter);

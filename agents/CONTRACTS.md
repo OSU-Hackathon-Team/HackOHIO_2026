@@ -726,3 +726,28 @@ export function reviewCard(state: CardState, grade: number, today: string): Revi
 > covers `reviewCard`, so the oracle passes. A test calling `nextEaseFactor(2.5, 9)` and expecting
 > a throw would **fail against the original**. That is exactly the kind of invented requirement
 > the oracle check exists to catch.
+
+## Prototype builder contracts (additive; `src/builder.ts`)
+
+The maker frontend uses separate prototype contracts. These do not replace pipeline types,
+represent native jobs, or certify findings. `SAMPLE_FEATURES` is an authored catalog: linked
+notes and spaced repetition have three local checks each; fuzzy search needs review and cloud
+sync is blocked. Only the two sample implementations can be reused. Reviews depend on notes.
+
+- `BuilderBlock`: unique `id`, `kind` (`notes`, `backlinks`, `reviews`, `text`), `title`,
+  `description`, `visible`, and `width` (`full` / `half`). A layout has at most 24 sections.
+- `BuilderEditRequest`: nonnegative `revision`, 1–2000 character `instruction`, nullable
+  `selectedBlockId`, enabled `featureIds`, and current `layout`. All objects are strict.
+- `BuilderOperation`: `type` (`add`, `update`, `remove`, `move`), `blockId`, zero-based `index`,
+  and nullable complete `block`. Updates preserve ID and kind. Moves use the destination index
+  after removal. Adds require a unique matching ID. Remove/move use `block: null`.
+- `BuilderEditResponse`: `summary`, up to 24 operations, echoed `revision`, actual answering
+  `model`. `applyBuilderOperations` validates a copy and feature dependencies before any edit is
+  published. No generated code is executed; engines remain imported, read-only modules.
+
+`POST /api/builder/edits` calls the existing `ui_synthesizer` role through `structuredCall`.
+It returns 400 for invalid input and 502 for model/service or invalid generated edits.
+Disconnects abort the model request. It is independent of the Step 3 dependency wiring.
+The frontend rejects stale revisions and cancelled responses and keeps the previous layout on
+failure. Local project persistence is versioned independently in `builder/project.ts`; only file
+names/sizes are saved, never application bytes or credentials.
