@@ -30,7 +30,7 @@ launch.py, agent_worker.py  current rename-attempt scaffold (OpenCode + Ghidra h
 model_config.py             Python role resolver for models.json
 worker.Dockerfile, docker-compose.yml, compose.yaml   orchestrator + Podman worker images
 docs/archive/               historical reviews; context only, not policy
-engine/                     (planned, does not exist yet)
+engine/                     native analysis, queue, dossier, and specification artifact generator
 ```
 
 ## Backend (`packages/backend/src/`) by owner
@@ -45,6 +45,7 @@ engine/                     (planned, does not exist yet)
 | `llm/` (**shared**, used by Eng 2 and Eng 3) | Eng 2 | `2_requirements_extraction/02_llm_client.md` |
 | `sandbox/` (**shared**: `runTests.ts`, `worker.cjs`) | Eng 2 | `04_sandbox_runner.md` |
 | `spec/` (`prompt`, `formatEvidence`, `staticChecks`, `buildSpec`, `store`) | Eng 2 | `03_*`, `05_*` |
+| `routes/nativeSpecs.ts` | Native handoff | Generate and fetch immutable native specs |
 | `routes/step2/` (`/api/extract`, `/api/specs`) | Eng 2 | `01_pipeline_and_route.md` |
 | `engine/` (`prompt`, `purity`, `conformance`, `implement`) | Eng 3 | `3_feature_implementation/01_engine_implementation.md` |
 | `synthesis/` (`prompt`, `assemble`, `synthesize`, `refine`, `validateBundle`) | Eng 3 | `02_*`, `03_*`, `04_*` |

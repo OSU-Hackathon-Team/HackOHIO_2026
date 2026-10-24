@@ -153,6 +153,15 @@ Assemble an immutable dossier from explicit artifact IDs with `python launch.py 
 
 The dossier inputs may also include `gap_adjudication_artifacts`. Each adjudication must match a supplied draft, review, and original probe report. Its decisions and reasons remain visible; blocking or uncertain decisions remain dossier blockers. A matching original case with disagreement or execution error prevents gap clearance. `queue-adjudicate-gaps` uses a model different from the claim reviewer and clears review gaps only when all current claims have static support and every gap is independently classified nonblocking. Tasks with dependencies remain in reconciliation until every dependency is reviewed against its active helper contract. Dossier coverage reports distinct original cases and total probe runs separately.
 
+Generate a native subsystem specification from one immutable dossier revision:
+
+```sh
+python launch.py spec --dossier-artifact <dossier-artifact-sha256>
+python scripts/check_decomp_spec.py
+```
+
+The command writes content-addressed JSON and Markdown under `decomp-state/specifications/<scope-id>/`. Supported static claims become numbered requirements with raw addresses, independent reviews, and linked original cases. Function inputs, outputs, state, effects, errors, and pseudocode remain labeled as draft descriptions. Unsupported claims, review gaps, unresolved edges, exclusions, dependency status, and dossier blockers remain explicit. Case agreement applies only to the recorded input, and a `partial` specification is not verified. Repeating the command for the same dossier artifact returns the same spec artifact. The Node backend exposes the same handoff with `POST /api/native-specs` (`{"dossier_artifact":"<sha256>"}`) and `GET /api/native-specs/<spec-artifact-sha256>`; set `DECOMP_STATE_DIR` if the engine state is outside the repository. The native spec contract is separate from the Electron `FeatureSpec`.
+
 ## Rename diagnostic
 
 The earlier tool-integration diagnostic dispatches an OpenCode agent that inspects a function through a headless Ghidra MCP server, renames it, and saves the project. A second process reopens the project to verify the name. Each attempt gets its own Ghidra project under `runs/`.

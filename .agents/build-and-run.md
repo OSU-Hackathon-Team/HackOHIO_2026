@@ -100,6 +100,11 @@ For native analysis and queue commands, see the root `README.md`. Install
 `requirements-decomp.txt`; fixture builds need a C compiler, export and scope checks need
 Ghidra headless, and queue checks need PostgreSQL.
 
+Generate a native spec from a dossier with `python launch.py spec --dossier-artifact <sha256>`;
+run `python scripts/check_decomp_spec.py` for the handoff check. Backend callers use
+`POST /api/native-specs` and `GET /api/native-specs/:artifact` with `DECOMP_STATE_DIR` pointing
+at the engine state directory if needed.
+
 ## Quick health check
 
 ```bash

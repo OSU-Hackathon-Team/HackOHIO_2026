@@ -6,16 +6,13 @@ Architecture and decision rationale: [DecompPileline.md](DecompPileline.md).
 
 ## Current execution boundary
 
-**Stop before specification generation.** This instruction governs the current work even
-if the pre-specification acceptance gates pass. Completing a dossier or reaching
-`ready_for_spec` does not authorize starting the next phase.
+**Specification handoff resumed by explicit user request.** The native dossier-to-spec
+artifact path is now in scope. Completing a dossier or reaching `ready_for_spec` alone does
+not establish a verified specification or authorize downstream implementation.
 
-Work exclusively on the native pre-specification pipeline: intake, analysis, scope,
-semantic work, independent review, original-execution probes, findings, reconciliation,
-dossiers, queue reliability, progress visibility, and their acceptance gates. Do not start
-M5 specification generation, the dossier-to-spec handoff, or downstream API integration.
-Those phases remain in this plan
-for future work and require an explicit user instruction to resume.
+Keep the native evidence pipeline and its acceptance gates separate from the specification
+handoff. The initial generator consumes immutable dossiers and carries validation gaps through
+to partial specs. M5 API and downstream implementation acceptance gates remain open.
 
 ## Required outcome
 
@@ -194,7 +191,7 @@ Acceptance:
 - A missing observable behavior prevents readiness when it blocks writing the specification.
 - Cases unavailable for execution remain explicit limitations; probes do not substitute guessed outputs.
 
-## M5 — Dossier-to-spec handoff and API integration (deferred; do not start)
+## M5 — Dossier-to-spec handoff and API integration (in progress)
 
 Depends on M3 and M4.
 
@@ -269,8 +266,8 @@ Ghidra changes use their own isolated revision path.
 - [ ] M2 first subsystem dossier produced with explicit boundaries and unknowns.
 - [ ] M3 sixteen-worker recovery and concurrency gates pass.
 - [ ] M4 semantic and original-behavior checks pass.
-- [ ] M5 shared contracts and specification handoff integrated. **Deferred: do not start
-  without an explicit new user instruction.**
+- [ ] M5 shared contracts and specification handoff integrated; the native dossier-to-spec
+  artifact path is implemented, while the external API and acceptance gates remain open.
 - [ ] M6 measured scaling and two-host recovery demonstrated.
 
 Do not mark these complete based on documentation, worker counts, rename persistence,

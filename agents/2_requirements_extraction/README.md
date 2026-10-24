@@ -2,7 +2,9 @@
 
 > **Subsystem integration:** The new upstream output is a behavioral dossier with evidence,
 > scope boundaries, dependency contracts, and unresolved questions. See
-> [the implementation plan](../../DECOMP_IMPLEMENTATION_PLAN.md) for the proposed schema migration.
+> [the implementation plan](../../DECOMP_IMPLEMENTATION_PLAN.md) for the remaining schema migration.
+> `NativeSubsystemSpec` now carries the dossier-to-spec handoff through
+> `POST /api/native-specs` and `GET /api/native-specs/:artifact`.
 > Existing examples below use the Electron `RawEvidence`/`FeatureSpec` contract. Preserve
 > externally observable persistence, timing, network, and state behavior when it belongs to the
 > requested subsystem. Test-name coverage is traceability, and passing oracle cases establishes

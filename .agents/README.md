@@ -17,9 +17,10 @@ first, then whichever of the files below your task needs.
 | **Splice app (Electron demo pipeline)** | TypeScript (`packages/`) | Step 3 backend + Studio core implemented; upstream integration pending | `agents/` (README, CONTRACTS, step folders) |
 | **Subsystem decompilation engine** (native binaries, 16+ parallel workers, behavioral dossiers) | Python (`launch.py`, `engine/`) | Evidence export, bounded scopes, semantic attempts, review, probes, partial dossiers, and a PostgreSQL queue run; readiness and scale gates remain open | `DecompPileline.md` (architecture), `DECOMP_IMPLEMENTATION_PLAN.md` (acceptance gates), root `README.md` (commands) |
 
-They meet later: the TypeScript backend will consume the engine's job state and dossiers, after
-an explicit contract migration (`ScopeRequest`, `EvidenceArtifact`, `BehaviorClaim`,
-`SubsystemDossier` in the plan). Until then those records are proposals, not runtime types.
+The native spec handoff now connects the two tracks: `launch.py spec` consumes an immutable
+dossier revision and the backend exposes the generated `NativeSubsystemSpec` artifact. The
+larger campaign/job API remains planned. `ScopeRequest`, `EvidenceArtifact`, `BehaviorClaim`,
+and `SubsystemDossier` external contracts in the plan remain proposals.
 The Electron demo's limits (fixed REA collector, replay-only native targets, the hour-based cut
 list) do **not** constrain the engine.
 
@@ -84,8 +85,9 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   original cases. It remains partial because 26 claims have no original probe link.
   The reset helper used a narrow deterministic fixed-store reviewer after model
   reviewers misread its overlapping vector stores. Probe runs and distinct cases
-  are counted separately. The plan stops current engine work before specification
-  generation; scale gates and downstream app integration remain open. See the root
+  are counted separately. The native spec generator and backend endpoint now consume
+  dossier revisions; specification quality and downstream implementation gates remain
+  open. See the root
   `README.md` for commands.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
