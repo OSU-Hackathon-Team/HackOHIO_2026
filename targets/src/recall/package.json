@@ -1,0 +1,8 @@
+{
+  "name": "recall-flashcards",
+  "version": "1.4.2",
+  "description": "Spaced-repetition flashcards",
+  "main": "src/main.js",
+  "author": "Splice demo target",
+  "license": "MIT"
+}
