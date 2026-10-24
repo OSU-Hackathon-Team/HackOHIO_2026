@@ -1,183 +1,203 @@
-# Rev: how the reverse-engineering engine works, and how to improve it
+# Decompilation engine architecture
 
-_Code review of `/home/mitch/Documents/rev`, 2026-10-24. The path supplied as `/home/mitch/rev` was absent; this document describes the checkout at `/home/mitch/Documents/rev`._
+Status: approved direction, implementation pending. Updated 2026-10-24.
 
-## Executive summary
+Implementation sequence: [DECOMP_IMPLEMENTATION_PLAN.md](DECOMP_IMPLEMENTATION_PLAN.md).
+The earlier review of the separate Rev checkout is preserved as
+[historical context](docs/archive/rev-engine-review-2026-10-24.md); its global FIFO,
+exhaustive annotation, and project-publication policies do not govern this design.
 
-Rev is an experimental system for analyzing a binary with Ghidra, distributing function-level work, validating proposed documentation, and publishing compatible findings into a versioned project. Its central idea is **function sifting**: assign a function as a starting point, allow investigation to move through dependencies, keep useful partial findings, and return unfinished work to a durable queue.
+## Objective and completion policy
 
-There are two different maturity levels in the repository:
+Recover enough supported behavior to write a specification for a selected subsystem.
+Support entire-project campaigns through multiple subsystem scopes and shared evidence.
+The engine must support at least 16 concurrent reasoning workers, including workers on
+separate hosts. A small request need not manufacture 16 tasks to occupy the fleet.
 
-1. **The current `rev run` pipeline** imports a binary into headless Ghidra, surveys functions, queues work in PostgreSQL, runs parallel TypeScript worker loops, builds mostly heuristic semantic proposals, validates claims, serializes publication, and generates a header plus disabled decompiler excerpts. An optional `--opencode` route asks an existing OpenCode server for a structured analysis response. The output is documentation and analysis, **not a reconstructed or verified implementation**.
-2. **The proposed architecture** adds a private Ghidra project and OpenCode session per attempt, domain-specific MCP tools, durable checkpoints, agent pivots, resource-limited Podman pods, and a single authoritative merge publisher. Pieces of this exist as modules, but the full path is not connected to `rev run`.
+The deliverable is a behavioral dossier: interfaces, readable pseudocode, state transitions,
+side effects, dependency contracts, evidence-linked claims, examples, and open questions.
+Reconstructed C need not compile. Compilability, exact original names, exhaustive local
+renaming, and cosmetic cleanup are not completion requirements.
 
-The most valuable next step is an end-to-end worker milestone: one assigned function, one private project, one selected agent skill, the Ghidra and campaign MCP servers, a persisted change bundle, independent validation, and a published revision. Make that work before increasing parallelism.
+A scope is ready for specification when its identified observable behaviors have supported
+contracts, consequential dependency assumptions are resolved, and independent review finds
+no unresolved blocker to specifying the requested behavior. Nonblocking unknowns remain
+visible. Budget exhaustion produces a partial dossier, never a successful completion claim.
+Readiness is relative to the declared boundary and evidence revision; it is not proof that
+all possible runtime behavior was discovered.
 
-## The model: campaigns, functions, attempts, and revisions
+## Current repository versus target design
 
-Rev treats one immutable binary as a **campaign**. A campaign has a binary hash, a Ghidra project, a set of discovered functions, a queue, and a current committed revision. Each queue dispatch creates an **attempt** for one primary function and pins the revision the attempt started from. A proposed change is a **bundle** of semantic operations, such as renaming a function or parameter, changing a type, or adding documentation. A **claim** says a function is fully understood, with evidence and inventory coverage. Only accepted changes and valid claims should advance the campaign.
+| Current scaffold | Target engine |
+| --- | --- |
+| `launch.py` copies a binary for each rename assignment | Import/index once per binary and analysis configuration |
+| `agent_worker.py` asks an agent to perform a predetermined rename | Workers answer bounded behavioral questions |
+| Each attempt starts its own Ghidra project | Most workers read immutable exported evidence |
+| A fresh process verifies rename persistence | Validation checks evidence support and observable behavior |
+| `ThreadPoolExecutor` dispatches an in-memory batch | Durable leases, retries, fencing, budgets, and recovery |
+| Backend extraction route is a skeleton | Explicit dossier-to-spec integration after schema migration |
 
-This split matters because a worker can learn something useful without completing its assigned function. It can also discover the meaning of another function while following a call chain. The architecture permits that cross-function work; the current CLI pipeline has a narrower form of it, including a cycle fallback that may analyze a blocking callee before the leased caller.
+The Electron examples under `agents/` remain useful demo integrations. Their replay-only
+native policy and fixed file limits are not engine requirements. The plan introduces proposed
+records; it does not claim the existing runtime already implements them.
+
+## Architecture
 
 ```mermaid
-flowchart LR
-    B[Binary] --> G[Headless Ghidra import and survey]
-    G --> R[Base project revision]
-    G --> Q[(PostgreSQL function queue)]
-    Q --> A[Leased attempt]
-    R --> A
-    A --> I[Function inventory and evidence]
-    I --> P[Semantic proposal and completion claim]
-    P --> V[Coverage and evidence validation]
-    V --> M[Serialized merge publisher]
-    M --> R2[New committed revision]
-    M --> Q
-    R2 --> O[Generated header and disabled C excerpts]
+flowchart TD
+    A[Project artifacts] --> B[Import and index once]
+    B --> C[Immutable evidence store]
+    Q[Subsystem request] --> D[Scope discovery]
+    C --> D
+    D --> E[Durable priority queue]
+    E --> F[16 or more reasoning workers]
+    C --> F
+    F --> G[Claims and dependency contracts]
+    F --> H[Targeted analysis requests]
+    H --> I[Warm Ghidra analysis pool]
+    I --> C
+    G --> J[Validation and reconciliation]
+    J --> K[Versioned subsystem dossier]
+    J --> E
 ```
 
-### Repository components
+Use Python for the first engine implementation alongside the current launcher, PostgreSQL
+for durable control state, and content-addressed files for immutable artifacts. Preserve
+an artifact-store interface for later shared object storage. Keep the TypeScript backend as
+an integration client; do not build a second scheduler there. Logical components may run
+in one service initially, while worker processes remain independently deployable.
 
-| Component | Current responsibility |
-| --- | --- |
-| `packages/core` | Stable ID types, inventories, change and claim models, coverage contract, MCP schemas. |
-| `packages/ghidra-adapter` | Headless Ghidra bridge, inventory mapping, MCP-facing interfaces and campaign MCP server. |
-| `packages/db` | PostgreSQL campaign state, queue, leases, claims, revisions. |
-| `packages/scheduler` | Campaign orchestration, queue dispatch, worker loops, snapshots, admission helpers. |
-| `packages/merge-engine` | Proposal building, evidence checks, semantic three-way merge, claim validation, publication. |
-| `packages/supervisor` | OpenCode HTTP client, agent prompt and budget helper, MCP configuration generator, Podman runner. |
-| `packages/cli` | `run`, `init`, `status`, `campaign-mcp`, and `mcp-config` entry points. |
+### Import and evidence extraction
 
-## What `rev run` actually does
+Hash each input artifact. Record architecture, compiler/language selection, Ghidra/backend
+versions, analyzer settings, and analysis revision. A project manifest identifies all modules
+and dependencies; function identity includes module identity, address space, and relative
+address, with a generation for boundary changes.
 
-### 1. Import, analyze, and inventory
+Build a broad index of discovered functions, imports, strings, references, and call edges.
+Decompile selected functions on demand. Cache immutable decompiler output, address mappings,
+disassembly, relevant types, and P-code where needed. Include extraction failures and omitted
+regions explicitly. Do not treat truncated evidence as a complete body.
 
-The CLI calls `ReverseEngineeringOrchestrator.reverseEngineerBinary`. It resolves and hashes the binary, creates a Ghidra project, and invokes `analyzeHeadless` to import and analyze it. The Java bridge then tries to export a program survey: discovered functions, their decompilation and inventories, entry point, and initialization/finalization arrays. If survey export fails, the orchestrator falls back to a simpler function list. See `packages/scheduler/src/orchestrator.ts` and `packages/ghidra-adapter/src/driver.ts`.
+Reuse warm decompiler contexts. Ghidra supports persistent `DecompInterface` instances and
+parallel function decompilation. Use distinct interfaces for concurrent contexts. These API
+capabilities must still be verified against the pinned backend/version in the integration gate.
 
-The intake logic separates runtime glue from user functions and seeds the queue in a deterministic randomized order. The fallback list has less inventory information. Inventory completeness is important: the claim validator refuses to treat a function as fully documented when required globals or referenced types have not been enumerated.
+Most workers need no writable project. Type, prototype, and function-boundary experiments
+use isolated copies of a closed snapshot. Validated changes create a new analysis revision
+and invalidate affected evidence. Never share one writable project across worker processes.
 
-### 2. Create campaign state and the base snapshot
+### Scope discovery
 
-Rev stores campaign and function state in PostgreSQL. It copies the closed Ghidra project to a revision snapshot, computes a file manifest, and publishes the first revision with compare-and-swap semantics. Snapshot copying prefers a reflink and requires `REV_ALLOW_FULL_COPY=1` before falling back to a full copy. This avoids silently making expensive copies on filesystems without reflink support.
+Locate candidate entry points from user seeds, symbols, strings, imports, routes, or traces.
+Expand through calls, relevant data dependencies, callers, initialization, shared globals,
+callback registration, and dispatch tables. A call graph alone is insufficient.
 
-### 3. Dispatch function attempts
+Record included entities, observable outputs, boundary contracts, exclusions with reasons,
+and unresolved scope edges. Expansion stops at a dependency whose relevant behavior is
+adequately established, rather than walking its entire implementation. New evidence may
+expand or revise the boundary; preserve scope revisions and reasons for changes.
 
-The queue uses a short database transaction and `FOR UPDATE SKIP LOCKED` to avoid assigning the same queue row to concurrent workers. It first prefers a function whose known user callees are already documented. If none is ready, it takes the oldest eligible queued function and marks the dispatch as a cycle case. The attempt records a primary function, base revision, lease expiry, and lease epoch. Workers renew leases and requeue unfinished work to the tail.
+For project-wide campaigns, use multiple bounded scopes with shared helper contracts and
+cross-module identities. Publish each ready subsystem progressively and retain unexplored
+areas in the campaign inventory. Completion cannot be inferred from an empty ready queue.
 
-The current orchestrator creates a configurable number of async worker loops, eight by default. These are in-process loops; the normal `rev run` path does not use the separate Podman runner to launch an OpenCode/Ghidra pod per attempt. It may clone the current snapshot to a worker directory for a fresh Ghidra inspection. Initial survey inventories can be reused while the campaign remains on the first revision.
+### Tasks and scheduling
 
-### 4. Produce an analysis proposal
+A task answers a question about an operation, function group, branch, state transition, or
+uncertain dependency. Use independent tasks where possible; small recursive cycles may be
+analyzed together. Large functions/cycles require bounded subquestions with explicit shared
+state assumptions and a reconciliation task.
 
-Without `--opencode`, a deterministic heuristic analyzes the decompiled body and proposes names, behavior notes, return semantics, and evidence. With `--opencode`, the orchestrator creates a session on an already running OpenCode server, sends an assignment prompt containing the decompiled function, reads the response text, and deletes the session. The response parser expects JSON-like semantic evidence. A failed or insufficient OpenCode result does not fall back to the heuristic in that mode.
+Prioritize scope relevance, uncertainty reduction, dependent work unlocked, and estimated
+cost. Start with deterministic priority classes and aging to prevent starvation. Do not claim
+numerical precision for an uncalibrated information-gain score.
 
-This optional route is narrower than the proposed autonomous agent: the orchestrator does not provision an attempt-specific OpenCode configuration, select `SKILL.md` files, connect the generated MCP configuration, supervise a tool-using session through events, or consume a checkpointed Ghidra edit bundle. The repo README explicitly describes the OpenCode supervisor as not wired into the normal pipeline.
+Use transactional leases, attempt IDs, heartbeat renewal, fencing epochs, bounded retries,
+and idempotent submissions. Deduplicate dependency requests. Persist partial findings before
+finishing or timing out. A late result can be retained as stale evidence but cannot mutate a
+newer lease. Every task pins its evidence and dependency contract versions.
 
-### 5. Validate and publish
+Workers can proceed from provisional contracts if assumptions are explicit. Schedule review
+when those assumptions change. Do not impose a global dependency barrier or repeatedly
+retry unresolved cycles without new evidence. Stop with partial/stalled status when progress
+or budget is exhausted.
 
-Rev converts accepted analysis into semantic operations and, when it considers the function claimable, a completion claim. The validator checks that the adapter marked the inventory complete, the body fingerprint still matches, every required parameter/local/global/callee/type appears in the coverage map, names and types meet structural rules, and the documented purpose is persisted. Measured naming and return evidence add checks beyond a simple placeholder blacklist.
+### Evidence, findings, and publication
 
-The merge engine compares each proposed property with its base and the current main value. Compatible edits can be applied; conflicting dependency groups are held back. Publication is serialized in the orchestrator, and accepted bundles can be batched before one new snapshot is committed. A database compare-and-swap checks the parent revision when publishing. Completion state and queue state are updated with the revision transaction.
+Keep raw tool evidence, semantic interpretation, and downstream specifications separate.
+A claim records its subject, statement, evidence references, assumptions, dependency versions,
+review/probe results, and unresolved alternatives. Raw tool output is not automatically a
+correct semantic interpretation.
 
-The validation proves coverage and persistence of the recorded annotation. It does **not** prove that the inferred semantics are true. A plausible but wrong name or explanation can still require human or later evidence-based review.
+Use immutable artifact hashes and binary addresses for native citations. Decompiled line
+numbers are presentation references tied to one immutable rendering. Record original traces
+with inputs, environment, outputs, and run identity.
 
-### 6. Stop and generate artifacts
+The evidence/findings store is authoritative. Most semantic updates require short database
+transactions, not Ghidra saves. Validate dependency versions and publish compatible findings
+using conditional updates. Preserve conflicting claims for reconciliation; never resolve a
+semantic disagreement by last-writer-wins. A canonical dossier references an immutable set
+of accepted claim versions. Store artifacts first, then commit pointers and outbox events.
 
-The campaign stops when all user functions are documented, the configured attempt limit is reached, or a no-progress threshold is hit. It reports `completed`, `budget_exhausted`, or `stalled`. It writes a C header for accepted documented functions and a C source file containing decompiler excerpts wrapped in `#if 0`. Those excerpts are reference material, not a buildable reverse-engineered implementation.
+Ghidra names/comments are optional derived views. Analysis-affecting edits are a separate,
+serialized revision path per program with isolation and persistence checks. A corrected type
+or callee contract invalidates consumers through a reverse dependency index. Display-name
+changes can refresh renderings without invalidating unchanged semantics.
 
-## The intended autonomous worker design
+### Worker output and validation
 
-`ARCHITECTURE.md` proposes a stronger loop. A scheduler leases the oldest eligible function and pins the latest main revision. A trusted runner clones a **closed** Ghidra project into a private attempt workspace. One container runs Ghidra and its adapter; another runs OpenCode and its supervisor. The agent receives an assignment prompt, can inspect and edit through a narrow Ghidra MCP interface, and records pivots, claims, and finish status through a separate campaign MCP interface. A checkpoint seals the resulting project state and evidence bundle. A validator checks the claim against a fresh inventory, and a single publisher merges safe changes into main.
+Dossiers include scope, inputs/outputs, units, encodings, pseudocode, state transitions,
+side effects, errors, boundary cases, dependency contracts, examples, and open questions.
+Preserve observable widths, signedness, overflow, rounding, byte order, aliasing, mutation
+order, and synchronization behavior. Consult disassembly/P-code for ambiguous decompiler
+renderings; do not require pseudocode to compile.
 
-The separation of MCP interfaces is sound:
+Validation has distinct layers:
 
-- **Ghidra MCP** should expose inspection, typed edits, validation, and checkpoints against the private branch.
-- **Campaign MCP** should persist investigation pivots, claims, notes, and attempt finalization. Its mutations must be tied to an attempt and durable state.
-- **Supervisor** should own wall-clock, token, tool-call, heartbeat, and cancellation controls. The model should not decide whether its own budget was enforced.
-- **Publisher** should decide what becomes authoritative. A model's `finish_attempt` or `claim_documented` call is a proposal, not final acceptance.
+1. Structural: schema, references, identities, versions, and required dossier sections.
+2. Semantic: independent review against raw evidence; challenge consequential claims and
+   compare competing explanations.
+3. Behavioral: original-execution probes where feasible, covering boundaries, errors, and
+   state sequences. Use original binaries/modules through a harness or application interface.
 
-The current `packages/supervisor/src/runner.ts`, `mcp-config.ts`, `opencode-client.ts`, and `packages/ghidra-adapter/src/campaign-mcp.ts` are useful building blocks. They do not yet form a production worker lifecycle. The container files also need work before they can be treated as pinned reproducible images: the analysis image leaves Ghidra installation as a placeholder, while the agent image runs an install script without a fixed release and ignores installation failure.
+A small native harness is permitted; reconstructed compilable C is unnecessary. Execution
+requires a controlled environment suitable for the target, with recorded limits and context.
+If execution is unavailable, retain reviewed static findings with explicit limitations.
 
-## Where the implementation is strongest
+A source citation proves location validity only. Requirement IDs in test names measure
+traceability only. A call counter can detect failure to invoke original code, but cannot prove
+that an adapter uses its result. Review adapters and vary probes. Report static support,
+review, probe outcomes, and unresolved questions separately. Passing examples never proves
+complete equivalence. No fabricated confidence percentages.
 
-1. **Durable task identity and revision pinning.** Queue rows, attempt IDs, leases, and base revisions are explicit rather than hidden in prompts.
-2. **Honest completion checks.** The code rejects incomplete inventories and requires evidence for claims. It does not declare a function done because an agent wrote a convincing summary.
-3. **Semantic merge unit.** Changes are represented by entity and property, which permits disjoint findings to survive overlapping work better than copying an entire worker project over main.
-4. **Serialized publication.** One publisher prevents concurrent writes to the authoritative Ghidra project and revision pointer.
-5. **Clear experimental status.** The README and disabled C excerpts avoid presenting partial decompilation as verified source reconstruction.
+Persistence, timers, networking, and platform state belong in the dossier when observable
+within the selected scope. A downstream pure-function API may adapt them only through
+explicitly recorded deviations; blanket removal of platform behavior loses specification data.
 
-## Main gaps and risks
+## Capacity and cost
 
-| Gap | Why it matters | Better behavior |
-| --- | --- | --- |
-| Full agent runtime is not connected | `--opencode` is a prompt/response call, not a tool-using isolated attempt. | Wire one complete attempt before scaling workers. |
-| No task-specific skill delivery | An agent cannot reliably receive a chosen `SKILL.md` for a particular task. | Materialize only selected skills in a fresh attempt workspace, name them in the prompt, and verify skill-load events. |
-| MCP config is generated separately | Config generation alone does not prove the session connected to Ghidra and campaign servers. | Generate config before server startup and check MCP status and one real tool call. |
-| Container images are not reproducible yet | The analysis image lacks an installed Ghidra distribution; the OpenCode install is unpinned and may fail silently. | Pin image digests and tool versions, build images in CI, and run startup smoke tests. |
-| Inventory gaps block completion | The strict contract is only useful when the adapter can enumerate all required entities. | Complete and conformance-test the inventory and edit adapter, including save/reopen checks. |
-| Semantic correctness remains uncertain | Structural checks can pass with a plausible wrong explanation. | Attach evidence to each assertion, use independent review on difficult claims, and expose confidence and unresolved assumptions. |
-| Dependency-version checks need current values | The validator accepts optional known callee/type versions; callers that omit them cannot detect every changed dependency there. | Pass candidate-main dependency versions into every final claim validation and test invalidation. |
-| Output records are accumulated during this run | A restart may have durable database state but no in-memory records for already accepted functions. | Generate reports from committed revisions and completion records, with resume/rebuild tests. |
-| In-process orchestration has limited recovery | A crash between work, claim, snapshot, and state changes needs explicit reconciliation. | Add idempotent attempt finalization, a durable outbox, orphan cleanup, and crash-injection tests. |
-| Workload cost is unmeasured | Parallel workers can saturate Ghidra, storage, model limits, or merge throughput. | Admit workers from measured capacity and track accepted progress per resource spent. |
+Start with 16–32 reasoning slots, a separately bounded warm analysis pool (initial experiment:
+2–4 contexts), and reserved validation capacity. These are hypotheses to benchmark. Increase
+analysis concurrency to 16+ when workload and hardware justify it. Multiple requests can share
+the fleet when one subsystem has insufficient independent work.
 
-These are code-review observations, not claims that a particular failure was reproduced in a live campaign.
+Admission accounts for model requests/tokens, CPU, JVM/native memory, artifact I/O, and
+validation backlog. Apply bounded queues and backpressure, rate limiting, retry jitter, and
+per-campaign budgets. Track effective throughput rather than container count.
 
-## A practical improvement plan
+Route models through `models.json`; evaluate role quality on held-out cases. Cheap extraction
+must not become an unchecked source of semantic claims. Escalate ambiguous state/control
+flow and failed probes to stronger reasoning. Cache reusable evidence and contracts before
+optimizing model price alone.
 
-### Phase 1: prove the Ghidra contract
+Cache raw artifacts by input and toolchain/configuration revision; cache semantic outputs by
+evidence, contract, prompt/schema, and model versions. Use measured invalidation boundaries.
 
-Choose one pinned Ghidra version and one headless MCP backend. On a small fixture, verify that a worker can enumerate every required parameter, local, referenced global, callee, and type; rename and retype them; save; reopen in a fresh Ghidra process; and recover the same identities and annotations. Exercise indirect calls, thunks, composites, recursive types, and decompiler-generated locals. Where a backend cannot meet the contract, add a narrow Java bridge operation or report a capability failure. Do not weaken the completion rule to fit a limited backend.
+## References
 
-Stable IDs deserve particular attention. For example, the current local-variable mapping includes a decompiler fingerprint derived from the current name. Names can change during the workflow, so an identity and replay test should verify that the same local remains addressable after a rename and reanalysis. Capture before/after values and expected fingerprints for every edit, including automatic analysis side effects.
-
-### Phase 2: complete one real agent attempt
-
-Define an immutable attempt manifest containing task ID, function ID, base revision hash, model/runtime/toolchain versions, selected skill hashes, MCP server definitions, budgets, and output schema. Give the attempt its own workspace and config directory. Copy only selected `SKILL.md` files into the agent's skill search path. Start the configured MCP servers and the headless OpenCode server, confirm readiness, create a session, and submit a prompt that names the assigned skill and objective.
-
-Observe the session through events. Record that the agent loaded the skill and called the expected MCP tools. On finish or timeout, save a checkpoint, collect the operation journal and final state diff, and seal the bundle. Make unexpected permission prompts, missing tools, malformed output, and MCP disconnects explicit attempt outcomes. Avoid treating a successful HTTP response as successful reverse engineering.
-
-### Phase 3: validate and publish safely
-
-Validate against a freshly reopened candidate Ghidra project. Compare the final touched-entity state with the operation journal, so untracked Ghidra changes cannot slip through. Recompute inventory coverage after edits and analysis settle. Pass the actual current callee-contract and type-layout versions to the final validator. Publish the snapshot and database revision with a recoverable protocol: write immutable artifacts first, commit the revision pointer and associated queue/completion state atomically, then garbage-collect unreferenced artifacts later.
-
-On a merge conflict, retain the rejected proposal and its evidence. A conflict investigator should receive both versions and the current main inventory; it should produce a new proposal rather than mutating main directly. Make bundles and claims idempotent so retries cannot duplicate publication.
-
-### Phase 4: make recovery and parallelism boring
-
-Add tests that kill a worker during analysis, after checkpoint, during merge, and immediately after revision commit. Reconcile database attempts with actual containers and project directories on restart. Make the lease epoch fence all state-changing attempt operations. A late worker may submit evidence for review, but cannot requeue or complete someone else's newer assignment.
-
-Then run two attempts on the same base revision. Verify disjoint edits merge, conflicting edits remain separate, a claim for another worker's primary function suppresses new dispatch, and stale workers do not resurrect completed work. Only after that should admission scale with memory, Ghidra startup cost, model request/token limits, snapshot traffic, and publisher throughput.
-
-### Phase 5: improve analysis quality
-
-Use several small task-specific skills rather than one large reverse-engineering prompt: for example, inventory verification, type recovery, caller/callee contract analysis, and evidence review. Choose skills per attempt and store their hashes. Structure evidence so each inferred name, type, return behavior, side effect, and invariant points to disassembly, p-code, call sites, strings, or dynamic observations where available.
-
-Keep mechanical validity and semantic confidence separate. The system can prove that all known entities were addressed and persisted; it cannot prove that a name is the original source name or that every runtime behavior was discovered. Report unresolved indirect dispatch, opaque external contracts, analysis limitations, and the exact revision for which a completion was validated. Revalidate affected completions when a body, prototype, type layout, or callee contract changes.
-
-## Definition of done for the next milestone
-
-A small fixture campaign should demonstrate all of the following in one repeatable integration run:
-
-- A scheduler leases a specific function and pins a revision.
-- A fresh agent workspace contains exactly the assigned skill files and MCP configuration.
-- The agent loads the selected skill and calls a real Ghidra MCP inspection tool.
-- An edit survives save, process exit, and fresh reopen.
-- A pivot and completion claim are durably recorded through campaign MCP.
-- The supervisor enforces timeout and captures usage and outcome.
-- The validator checks a fresh complete inventory and measured evidence.
-- The publisher commits a new revision, and a restart regenerates the same report from committed state.
-- A second, overlapping worker cannot overwrite or resurrect that completion.
-
-## Source map
-
-The implementation details above come from these repository files:
-
-- [`README.md`](/home/mitch/Documents/rev/README.md) — current product status and output limits.
-- [`ARCHITECTURE.md`](/home/mitch/Documents/rev/ARCHITECTURE.md) — proposed full worker architecture and operating contract.
-- [`packages/scheduler/src/orchestrator.ts`](/home/mitch/Documents/rev/packages/scheduler/src/orchestrator.ts) — current `rev run` control flow.
-- [`packages/db/src/queue.ts`](/home/mitch/Documents/rev/packages/db/src/queue.ts) — dispatch, leases, and requeue logic.
-- [`packages/ghidra-adapter/src/driver.ts`](/home/mitch/Documents/rev/packages/ghidra-adapter/src/driver.ts) and [`scripts/GhidraBridge.java`](/home/mitch/Documents/rev/packages/ghidra-adapter/scripts/GhidraBridge.java) — headless Ghidra integration.
-- [`packages/merge-engine/src/publisher.ts`](/home/mitch/Documents/rev/packages/merge-engine/src/publisher.ts), [`validator.ts`](/home/mitch/Documents/rev/packages/merge-engine/src/validator.ts), and [`bundle.ts`](/home/mitch/Documents/rev/packages/merge-engine/src/bundle.ts) — publication, claims, and merge logic.
-- [`packages/supervisor/src/`](/home/mitch/Documents/rev/packages/supervisor/src/) and [`packages/ghidra-adapter/src/campaign-mcp.ts`](/home/mitch/Documents/rev/packages/ghidra-adapter/src/campaign-mcp.ts) — agent/MCP building blocks.
-- [`tests/`](/home/mitch/Documents/rev/tests/) — interface, queue, merge, pipeline, and Ghidra fixture tests.
-
-This is a source review. I did not run a full binary campaign or containerized agent attempt to verify runtime behavior.
+- [Ghidra persistent decompiler interface](https://ghidra.re/ghidra_docs/api/ghidra/app/decompiler/DecompInterface.html)
+- [Ghidra parallel decompiler](https://ghidra.re/ghidra_docs/api/ghidra/app/decompiler/parallel/ParallelDecompiler.html)
+- [Ghidra P-code semantics](https://ghidra.re/ghidra_docs/languages/html/pcoderef.html)
+- [PostgreSQL SELECT and SKIP LOCKED](https://www.postgresql.org/docs/current/sql-select.html)
+- [Current Ghidra MCP upstream](https://github.com/mrphrazer/ghidra-headless-mcp)

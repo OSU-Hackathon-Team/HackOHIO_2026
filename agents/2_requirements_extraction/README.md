@@ -1,5 +1,13 @@
 # Step 2 — Requirements Extraction (Owner: Engineer 2)
 
+> **Subsystem integration:** The new upstream output is a behavioral dossier with evidence,
+> scope boundaries, dependency contracts, and unresolved questions. See
+> [the implementation plan](../../DECOMP_IMPLEMENTATION_PLAN.md) for the proposed schema migration.
+> Existing examples below use the Electron `RawEvidence`/`FeatureSpec` contract. Preserve
+> externally observable persistence, timing, network, and state behavior when it belongs to the
+> requested subsystem. Test-name coverage is traceability, and passing oracle cases establishes
+> agreement only for those cases; neither proves completeness.
+
 **Input:** `RawEvidence` from Step 1: the real source REA located, plus how it was found.
 **Output:** a `FeatureSpec` (`../CONTRACTS.md` §4) containing:
 - numbered **requirements**, each citing source lines

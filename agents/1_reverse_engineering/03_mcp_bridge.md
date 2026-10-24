@@ -1,5 +1,11 @@
 # 03 — REA MCP Bridge (H1–H4)
 
+> **Concurrency scope:** The single connection and serialization below are for the Electron
+> demo bridge. Do not route all native workers through one stateful active-target session.
+> The new engine uses cached evidence plus a bounded pool of warm analysis contexts. Preserve
+> session ownership of retained evidence IDs; persist exported payloads under durable IDs before
+> sharing them across workers. See [the architecture](../../DecompPileline.md).
+
 One long-lived stdio MCP connection to REA per backend process. It must be long-lived because
 REA's `retained-evidence` references (`ev_…`) belong to a single connection's ledger.
 

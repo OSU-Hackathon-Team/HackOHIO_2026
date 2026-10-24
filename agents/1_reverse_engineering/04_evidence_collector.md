@@ -1,5 +1,10 @@
 # 04 — Evidence Collector (H4–H8, CP1)
 
+> **Scope:** This capped collector is for the small Electron demo. The subsystem engine uses
+> scope discovery, address-linked evidence, pagination, and on-demand expansion as specified in
+> [the implementation plan](../../DECOMP_IMPLEMENTATION_PLAN.md). An eight-file or character
+> cap must report omitted evidence; truncation must never imply complete behavioral coverage.
+
 `collectEvidence(app, feature, hooks)` → `RawEvidence`. The sequence of calls is fixed per
 artifact type, so runs are fast and repeatable.
 
