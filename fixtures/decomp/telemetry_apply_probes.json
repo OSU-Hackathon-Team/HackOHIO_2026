@@ -2,6 +2,13 @@
   "schema": 1,
   "cases": [
     {
+      "id": "reset_state",
+      "kind": "shared",
+      "target": "telemetry_reset",
+      "input": {"operation": "telemetry_sequence", "frames": []},
+      "expected": {"returns": [], "state": {"seen": 0, "accepted": 0, "rejected": 0, "sum": 0, "low": 4294967295, "high": 0, "last": 0, "buckets": [0, 0, 0, 0]}}
+    },
+    {
       "id": "apply_null_packet",
       "kind": "shared",
       "target": "telemetry_apply",
