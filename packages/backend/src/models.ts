@@ -15,12 +15,18 @@ export type ModelRole =
   | "refusal_fallback"
   | "legal_verification";
 
-/** Roles called through llm.ts (Anthropic Messages API on Bedrock): must resolve to Claude models. */
+/** Roles called through llm.ts: Claude models, or non-Claude models marked splice_compatible in models.json. */
 export type SpliceRole = "spec_writer" | "engine_writer" | "ui_synthesizer" | "refusal_fallback";
+
+export interface ModelOption {
+  id: string;
+  splice_compatible?: boolean;
+}
 
 export interface ModelsConfig {
   default: string;
   roles: Record<string, string>;
+  options: ModelOption[];
 }
 
 function configPath(): string {
@@ -39,6 +45,7 @@ export function loadModelsConfig(): ModelsConfig {
     const raw = JSON.parse(fs.readFileSync(file, "utf8")) as {
       default?: unknown;
       roles?: unknown;
+      options?: unknown;
     };
     const roles =
       raw.roles && typeof raw.roles === "object"
@@ -50,11 +57,12 @@ export function loadModelsConfig(): ModelsConfig {
           ? raw.default
           : FALLBACK_MODEL,
       roles,
+      options: Array.isArray(raw.options) ? (raw.options as ModelOption[]) : [],
     };
     cache = { path: file, config };
     return config;
   } catch {
-    const config: ModelsConfig = { default: FALLBACK_MODEL, roles: {} };
+    const config: ModelsConfig = { default: FALLBACK_MODEL, roles: {}, options: [] };
     cache = { path: file, config };
     return config;
   }
@@ -96,13 +104,33 @@ export function toBedrockId(model: string): string {
   return model.startsWith(OPENCODE_BEDROCK_PREFIX) ? model.slice(OPENCODE_BEDROCK_PREFIX.length) : model;
 }
 
+const isClaude = (id: string) => /(^|\.)anthropic\.claude-/.test(id);
+
 /** Bedrock model ID for a Splice role. Throws early if the role isn't routed to a Claude model. */
 export function bedrockModelId(role: SpliceRole, explicit?: string | null): string {
   const id = toBedrockId(getModel(role, explicit));
-  if (!/(^|\.)anthropic\.claude-/.test(id)) {
-    throw new Error(`models.json role "${role}" resolves to "${id}", but Splice's llm.ts only supports Claude models on Bedrock`);
+  if (!isClaude(id)) {
+    throw new Error(`models.json role "${role}" resolves to "${id}", but this call needs a Claude model on Bedrock`);
   }
   return id;
+}
+
+/** "anthropic": Messages API via the Mantle client. "converse": Bedrock Converse API (non-Claude models). */
+export type SpliceApi = "anthropic" | "converse";
+
+/**
+ * Bedrock model ID + API for a Splice role. Claude models use the Anthropic Messages API; any other
+ * model must be listed in models.json `options` with `splice_compatible: true` (verified to return
+ * schema-shaped JSON through a forced Converse tool call) or this throws before any request is sent.
+ */
+export function spliceModel(role: SpliceRole, explicit?: string | null): { id: string; api: SpliceApi } {
+  const id = toBedrockId(getModel(role, explicit));
+  if (isClaude(id)) return { id, api: "anthropic" };
+  const option = loadModelsConfig().options.find((o) => toBedrockId(o.id) === id);
+  if (!option?.splice_compatible) {
+    throw new Error(`models.json role "${role}" resolves to "${id}", which is not a Claude model and not marked splice_compatible in models.json options`);
+  }
+  return { id, api: "converse" };
 }
 
 export function availableRoles(): string[] {

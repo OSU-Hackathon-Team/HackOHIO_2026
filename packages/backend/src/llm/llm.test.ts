@@ -2,11 +2,11 @@ import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import type Anthropic from "@anthropic-ai/sdk";
 import {
-  LlmRefusalError, LlmSchemaError, LlmTruncatedError, continueWith, setClaudeClientForTests, structuredCall,
-  type ClaudeClient,
+  LlmRefusalError, LlmSchemaError, LlmTruncatedError, continueWith, setClaudeClientForTests, setConverseClientForTests,
+  structuredCall, type ClaudeClient, type ConverseClient,
 } from "./llm.js";
 import type { LlmPort } from "../engine/ports.js";
-import { bedrockModelId } from "../models.js";
+import { bedrockModelId, spliceModel } from "../models.js";
 
 // Compile-time: the real client satisfies the port Step 3 is built against.
 const _port: LlmPort = { structuredCall, continueWith };
@@ -47,10 +47,38 @@ function fakeClaude(replies: Reply[]) {
   return requests;
 }
 
-afterEach(() => setClaudeClientForTests(null));
+afterEach(() => {
+  setClaudeClientForTests(null);
+  setConverseClientForTests(null);
+});
+
+type ConverseReply = { tool?: string; text?: string; stop?: string };
+
+/** Bedrock Converse double: streams each reply as ConverseStream events and records every command input. */
+function fakeConverse(replies: ConverseReply[]) {
+  const inputs: Record<string, any>[] = [];
+  const client = {
+    async send(command: { input: Record<string, any> }) {
+      inputs.push(command.input);
+      const r = replies.shift();
+      if (!r) throw new Error("unexpected send() call");
+      async function* stream() {
+        yield { messageStart: { role: "assistant" } };
+        const chunks = (s: string) => s.match(/.{1,5}/gs) ?? [];
+        for (const c of chunks(r!.tool ?? "")) yield { contentBlockDelta: { contentBlockIndex: 0, delta: { toolUse: { input: c } } } };
+        for (const c of chunks(r!.text ?? "")) yield { contentBlockDelta: { contentBlockIndex: 0, delta: { text: c } } };
+        yield { messageStop: { stopReason: r!.stop ?? (r!.tool ? "tool_use" : "end_turn") } };
+        yield { metadata: { usage: { inputTokens: 12, outputTokens: 7 } } };
+      }
+      return { stream: stream() };
+    },
+  };
+  setConverseClientForTests(client as unknown as ConverseClient);
+  return inputs;
+}
 
 const opts = (over: Partial<Parameters<typeof structuredCall<{ answer: number }>>[0]> = {}) => ({
-  role: "engine_writer" as const,
+  role: "spec_writer" as const,
   system: "You are a calculator.",
   messages: [{ role: "user" as const, content: "17 * 23?" }],
   schema: { type: "object", properties: { answer: { type: "number" } }, required: ["answer"], additionalProperties: false },
@@ -68,10 +96,10 @@ test("a structured call sends the spec'd request and returns the parsed value", 
   const r = await structuredCall(opts({ effort: "low", maxTokens: 2000, onProgress: (n) => progress.push(n) }));
 
   assert.deepEqual(r.value, { answer: 391 });
-  assert.equal(r.model, bedrockModelId("engine_writer"));
+  assert.equal(r.model, bedrockModelId("spec_writer"));
   assert.equal(r.assistantContent[0].type, "text");
   const req = requests[0];
-  assert.equal(req.model, bedrockModelId("engine_writer"));
+  assert.equal(req.model, bedrockModelId("spec_writer"));
   assert.equal(req.max_tokens, 2000);
   assert.deepEqual(req.output_config, { effort: "low", format: { type: "json_schema", schema: opts().schema } });
   assert.deepEqual(req.system, [{ type: "text", text: "You are a calculator.", cache_control: { type: "ephemeral" } }]);
@@ -82,7 +110,7 @@ test("a structured call sends the spec'd request and returns the parsed value", 
 test("a refusal is retried once on the refusal_fallback model", async () => {
   const requests = fakeClaude([{ stop_reason: "refusal", category: "cyber" }, { text: '{"answer":391}' }]);
   const r = await structuredCall(opts());
-  assert.deepEqual(requests.map((q) => q.model), [bedrockModelId("engine_writer"), bedrockModelId("refusal_fallback")]);
+  assert.deepEqual(requests.map((q) => q.model), [bedrockModelId("spec_writer"), bedrockModelId("refusal_fallback")]);
   assert.equal(r.model, bedrockModelId("refusal_fallback"), "provenance records the model that actually answered");
 });
 
@@ -109,4 +137,56 @@ test("continueWith appends the assistant content unchanged, then the feedback", 
   assert.equal(msgs.length, 3);
   assert.equal(msgs[1].content, content);
   assert.deepEqual(msgs[2], { role: "user", content: "fix it" });
+});
+
+// ---- Converse path (non-Claude models marked splice_compatible, e.g. Qwen3 Coder) ----
+
+const QWEN = "qwen.qwen3-coder-480b-a35b-v1:0";
+const qwenOpts = (over: Parameters<typeof opts>[0] = {}) => opts({ role: "engine_writer", ...over });
+
+test("models.json routes engine_writer to Qwen3 Coder over Converse; non-compatible models are refused", () => {
+  assert.deepEqual(spliceModel("engine_writer"), { id: QWEN, api: "converse" });
+  assert.deepEqual(spliceModel("spec_writer"), { id: bedrockModelId("spec_writer"), api: "anthropic" });
+  assert.throws(() => spliceModel("engine_writer", "amazon-bedrock/amazon.nova-lite-v1:0"), /not marked splice_compatible/);
+  assert.throws(() => bedrockModelId("engine_writer"), /needs a Claude model/);
+});
+
+test("a Converse call forces the respond tool with the schema and returns the parsed value", async () => {
+  const inputs = fakeConverse([{ tool: '{"answer":391}' }]);
+  const progress: number[] = [];
+  const r = await structuredCall(qwenOpts({ maxTokens: 2000, onProgress: (n) => progress.push(n) }));
+
+  assert.deepEqual(r.value, { answer: 391 });
+  assert.equal(r.model, QWEN);
+  assert.deepEqual(r.usage, { input_tokens: 12, output_tokens: 7 });
+  assert.deepEqual(r.assistantContent, [{ type: "text", text: '{"answer":391}', citations: null }]);
+  const req = inputs[0];
+  assert.equal(req.modelId, QWEN);
+  assert.equal(req.inferenceConfig.maxTokens, 2000);
+  assert.deepEqual(req.toolConfig.toolChoice, { tool: { name: "respond" } });
+  assert.deepEqual(req.toolConfig.tools[0].toolSpec.inputSchema, { json: opts().schema });
+  assert.match(req.system[0].text, /^You are a calculator\.[\s\S]*"respond" tool/);
+  assert.deepEqual(req.messages, [{ role: "user", content: [{ text: "17 * 23?" }] }]);
+  assert.equal(progress.at(-1), '{"answer":391}'.length);
+});
+
+test("Converse repair turns go back as text, append-only", async () => {
+  const inputs = fakeConverse([{ tool: '{"answer":390}' }, { tool: '{"answer":391}' }]);
+  const first = await structuredCall(qwenOpts());
+  const messages = continueWith(qwenOpts().messages, first.assistantContent, "Wrong, try again.");
+  await structuredCall(qwenOpts({ messages }));
+  assert.deepEqual(inputs[1].messages, [
+    { role: "user", content: [{ text: "17 * 23?" }] },
+    { role: "assistant", content: [{ text: '{"answer":390}' }] },
+    { role: "user", content: [{ text: "Wrong, try again." }] },
+  ]);
+});
+
+test("Converse stop reasons map to the same typed errors", async () => {
+  fakeConverse([{ tool: '{"ans', stop: "max_tokens" }]);
+  await assert.rejects(structuredCall(qwenOpts()), LlmTruncatedError);
+  fakeConverse([{ stop: "content_filtered" }]);
+  await assert.rejects(structuredCall(qwenOpts()), (e: unknown) => e instanceof LlmRefusalError && e.category === "content_filtered");
+  fakeConverse([{ text: "I think it is 391" }]);
+  await assert.rejects(structuredCall(qwenOpts()), LlmSchemaError);
 });
