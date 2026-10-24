@@ -189,6 +189,7 @@ def main() -> None:
         ("queue-run-one", "lease and run one semantic task with heartbeats"),
         ("queue-drain", "run bounded parallel semantic workers until idle"),
         ("queue-review", "independently review one validated queue task"),
+        ("queue-review-fixed-memory", "review simple fixed-address x86 stores deterministically"),
         ("queue-review-drain", "review validated tasks with bounded durable leases"),
         ("queue-review-dependency", "review one caller dependency against a helper contract"),
         ("queue-adjudicate-gaps", "check review omissions against raw and original evidence"),
@@ -262,7 +263,8 @@ def main() -> None:
         if name in {"queue-normalize-partial", "queue-reclassify-intrinsic",
                     "queue-repair-dependency-citations", "queue-complete-direct-calls"}:
             command.add_argument("--task-id", required=True)
-        if name in {"queue-task", "queue-publish-claims", "queue-publish-contract"}:
+        if name in {"queue-task", "queue-review-fixed-memory", "queue-publish-claims",
+                    "queue-publish-contract"}:
             command.add_argument("--task-id", required=True)
         if name in {"queue-events", "queue-findings"}:
             command.add_argument("--campaign", required=True)
@@ -476,6 +478,21 @@ def main() -> None:
                       "review_state": review_result["state"],
                       "review_artifact": review_result["artifact"],
                       "outcomes": review_result.get("outcomes", {})}
+        elif args.command == "queue-review-fixed-memory":
+            from engine.validation.fixed_memory import FixedMemoryReviewer
+
+            task = queue.task(args.task_id)
+            if task is None or task["state"] != "validated":
+                parser.error("queue-review-fixed-memory requires a validated task")
+            engine = GhidraAnalysis(args.state, Path(os.environ.get(
+                "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+            review_result = FixedMemoryReviewer(engine).run(task["result_artifact"])
+            queue_state = (queue.publish_review(args.task_id, review_result["artifact"])
+                           if review_result["state"] == "reviewed" else "invalid")
+            result = {"task_id": args.task_id, "queue_state": queue_state,
+                      "review_state": review_result["state"],
+                      "review_artifact": review_result["artifact"],
+                      "outcomes": review_result["outcomes"]}
         elif args.command == "queue-review-drain":
             from engine.review_runner import run_one as run_review_one
 
