@@ -2,7 +2,8 @@
 # Stage 1: Base Runtime Environment
 # System dependencies for REA (reverse engineering), binutils, and pre-warmed npx cache
 # ==============================================================================
-FROM node:20-bookworm-slim AS base
+# rea-agents 6.7.0 requires Node ^22.19.0
+FROM node:22-bookworm-slim AS base
 
 WORKDIR /app
 
@@ -17,10 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# 1. Install rea-agents globally so it's directly available on PATH (`rea-agents --mcp`)
-# 2. Warm the npx cache (`_npx`) so `npx -y rea-agents@latest --mcp` works 100% offline without registry lookups
-RUN npm install -g rea-agents@latest \
-    && npx -y rea-agents@latest --help || true
+# 1. Install pinned rea-agents globally; the MCP server is the `mcp` subcommand (`rea-agents mcp`)
+# 2. Warm the npx cache so `npx -y rea-agents@6.7.0 mcp` also works offline
+RUN npm install -g rea-agents@6.7.0 \
+    && npx -y rea-agents@6.7.0 --help || true
 
 # ==============================================================================
 # Stage 2: Monorepo Builder
