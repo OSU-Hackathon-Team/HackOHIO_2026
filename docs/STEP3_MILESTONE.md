@@ -52,10 +52,8 @@ Browser tests use installed Microsoft Edge on isolated port 5175, leaving port 5
 
 ## Still pending
 
-- Shared sandbox, SSE/configuration, record/replay and extraction helpers, followed by production
-  wiring in `routes/step3/deps.ts`. Valid Step 3 requests currently return 503.
-- The upstream health payload is still temporary; the Studio reports unknown status instead of
-  claiming REA or Bedrock readiness. Pantry loading errors are shown with retry.
+- Eng 2 sandbox and requirements extraction, followed by production wiring in `routes/step3/deps.ts`. Eng 1 SSE/configuration, archive/REA helpers, record/replay and pantry/health endpoints landed during final integration. Valid Step 3 requests still return 503 because the sandbox is not implemented.
+- Live REA and model access acceptance remain separate from health. Health now conforms to the runtime schema. The Studio distinguishes disconnected/replay REA from unavailable health and shows the configured UI model without claiming model-access readiness.
 - Genuine extraction recordings, golden specs/blueprints, live synthesis quality and timings,
   and full live Harvest → Fuse acceptance. Smoke arithmetic is not generation-quality evidence.
 - Refinement chat, automatic repair, ZIP export, additional development feature seeds, and component
@@ -70,3 +68,7 @@ User-authored PLAN.md and the frontend-guidelines move are preserved separately 
 The incoming dev changes add hand-authored fixtures, contract schema tests, and improved static SPA serving. Both dependency additions are retained. The two Inkwell restorations differed only in the final source newline; dev's latest source/archive/hash set was kept together, and our seed metadata was regenerated to match. The Windows working-tree `npm ci` attempt hit a native Rollup file lock; dependencies were restored with `npm install --ignore-scripts` before post-merge checks.
 
 Post-merge checks passed: production build, workspace typecheck, 13 incoming contract tests, 65 backend unit tests, 10 frontend tests, and 5 browser tests (38.5s under concurrent build/test load). Both target archive checksums match; Inkwell source is byte-identical to its archived module. Production HTTP checks again returned 200/200/404/200 and implement 400/503 as expected. The Windows file-lock cleanup warnings concern ignored node_modules only.
+
+A subsequent teammate push (`8380f3d`) supplied the Step 1 helpers and tests. The initial Step 1 run passed 22/24 and exposed a Windows archive separator bug. The shared reader now converts validated POSIX keys to host separators for asar extraction; the existing two archive-reading cases cover the fix. Step 3 production wiring still waits on the missing sandbox.
+
+Final integrated checks: 24/24 Step 1 tests after the Windows fix, 13/13 contract tests, 65/65 Step 3 backend unit tests, 10/10 frontend unit tests, 5/5 browser tests (26.2s), production build, workspace typecheck and production HTTP gate all passed. `GET /api/pantry` now also returns 200. The implement 503 diagnostic lists only the missing sandbox.

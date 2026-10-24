@@ -65,10 +65,9 @@ classDiagram
 
 ### Conceptual Data Structures (UNVERIFIED — no corresponding sources found)
 
-#### 1. `B2DHomMatrix` (Affine 2D Transformation)
-- **Data Representation:** $3 \times 3$ double-precision matrix representing homogeneous coordinates:
-  $$\begin{pmatrix} a & c & tx \\ b & d & ty \\ 0 & 0 & 1 \end{pmatrix}$$
-- **Invariants:** The bottom row is strictly $[0, 0, 1]$. Affine transformations preserve parallel lines and relative aspect ratios.
+#### 1. `B2DHomMatrix` (Affine 2D Transformation) — PARTIALLY VERIFIED
+- **Data Representation:** Stores a 2×3 array (`std::array<std::array<double,3>,2> mfValues` in `include/basegfx/matrix/b2dhommatrix.hxx:38`); the last row is implicitly `[0,0,1]` and “we don't bother to store it” (`b2dhommatrix.hxx:37`). **CORRECTED — prior “stored 3×3 `double[3][3]`” was incorrect.** Conceptually `[[a,c,tx],[b,d,ty],[0,0,1]]`.
+- **Invariants:** Bottom row is implicitly `[0,0,1]`. **VERIFIED:** `rotate/translate/scale/invert/isInvertible` declared at `b2dhommatrix.hxx:104-105` and defined in `basegfx/source/matrix/b2dhommatrix.cxx` (determinant-zero → `return false`). Affine parallel-line preservation remains UNVERIFIED phrasing.
 
 #### 2. `SfxItemPool` & `SfxItemSet` (Copy-on-Write Formatting Attributes)
 - **Purpose:** Eliminates redundant memory allocations across millions of formatted characters, paragraphs, and cells.

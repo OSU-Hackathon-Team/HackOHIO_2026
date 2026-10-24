@@ -107,16 +107,17 @@ Output: InterfacePointer or NULL
 ```
 
 ```
-Algorithm: ReleaseReference()
+Algorithm: ReleaseReference() — CORRECTED per XInterface.idl:39-41,85-102
 Input: None
-Output: Remaining reference count
+Output: None (void — IDL `acquire()/release()` have NO return values; do not assume concrete count except 1→0 transition)
 
-1. count := Decrement referenceCount atomically
-2. Invariant: count >= 0 (Underflow indicates invalid memory ownership)
-3. If count == 0:
-     Execute destructor and free memory block
-4. Return count
+1. Decrement reference count (language-binding defined; C++ UNO impl uses atomic ops — inferred, not IDL-guaranteed).
+2. If count reaches 0: delete object (C++ binding behavior; IDL only documents lifetime control, not memory op).
+3. Return nothing.
+// PRIOR “Output: Remaining reference count / Return count” was INCORRECT vs IDL.
 ```
+
+> **Scope note (SolarMutex):** `include/comphelper/solarmutex.hxx:38-40` documents SolarMutex as “one big recursive code lock … to protect the **vast majority** … in particular anything graphical and the cores” — **CORRECTED: replace any absolute “all mutations must acquire” with this scoped wording.** Deadlock-avoidance release/reacquire rule remains UNVERIFIED.
 
 ### 3.2 Configuration Resolution Hierarchy
 

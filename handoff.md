@@ -117,3 +117,7 @@ Find any others with `rg -i opus --glob '!node_modules' --glob '!dist' --glob '!
 ## Update: Qwen and core Studio milestone
 
 The migration described above is now implemented for all four **Splice** roles. Python legal_verification is intentionally unchanged, as agreed with the user. Qwen smoke calls pass for the three primary roles. Fallback dispatch supports either API once and skips same-model retry; Converse is capped at 16,384 output tokens. Core Studio development mode implements Harvest, evidence, Fuse, and working Sandpack preview/code. See `docs/STEP3_MILESTONE.md` for reproduction commands, measured checks, and remaining live dependencies. Refinement/auto-fix/export are next milestone. The user explicitly authorized merging and pushing the verified milestone to dev.
+
+### Latest upstream integration
+
+Eng 1 helpers landed in dev (`8380f3d`) during publication: config, SSE, record/replay, REA/archive/collector, pantry and schema-shaped health. Step 3 still waits on Eng 2 sandbox and production deps wiring. The Windows archive path conversion was fixed using existing failing Step 1 tests. See current milestone for final verification.

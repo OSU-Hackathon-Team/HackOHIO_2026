@@ -1,5 +1,5 @@
 // Owner: Eng 3 (Implementation) — production wiring for Step 3.
-// The ONLY Step 3 file that will import Eng 1/2 helpers. Until they land (all stubs today), it
+// The ONLY Step 3 file that will import Eng 1/2 helpers. Until the sandbox lands, it
 // exports null and the streaming routes answer 503 instead of pretending to work. To wire up:
 //   import { structuredCall, continueWith } from "../../llm/llm.js";          (Eng 2, 02_llm_client.md §4)
 //   import { runTests } from "../../sandbox/runTests.js";                      (Eng 2, 04_sandbox_runner.md §3)
@@ -41,16 +41,12 @@ export interface Step3Deps {
   replayTranscript(kind: Step3TranscriptKind, key: string, sse: SseWriterPort, opts: { runId: string }): Promise<boolean>;
 }
 
-// llm/llm.ts (structuredCall + continueWith) is implemented; the rest are still stubs.
+// LLM and Eng 1 helpers are implemented. Production wiring still waits on Eng 2's sandbox.
 export const MISSING_UPSTREAM = [
   "sandbox/runTests.ts (Eng 2)",
-  "http/sse.ts openSse + newRunId (Eng 1)",
-  "evidence/recorder.ts createTranscript (Eng 1)",
-  "evidence/replay.ts replayTranscript (Eng 1)",
-  "config.ts llmMode (Eng 1)",
 ];
 
 export const step3Deps: Step3Deps | null = null;
 
-/** Same value as REPO_ROOT in config.ts (Eng 1, still a stub): src|dist/routes/step3 → repo root. */
+/** Same value as REPO_ROOT in config.ts: src|dist/routes/step3 → repo root. */
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");

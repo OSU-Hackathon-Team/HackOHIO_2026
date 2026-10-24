@@ -74,7 +74,8 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
 - **Shared LLM client:** `llm/llm.ts` is implemented per `02_llm_client.md` (Bedrock Mantle for Claude,
   plus a Converse path for `splice_compatible` non-Claude models). **Splice defaults:** all four roles use Qwen3 Coder 480B over Converse. All three primary role smoke tests returned 391 in 0.5–0.6 seconds on this account. Claude overrides remain available but account access is blocked (see `gotchas.md`).
 - **Studio core:** typed POST-SSE client, Zustand orchestration, development adapter, pantry, activity terminal, cards/X-Ray, evidence drawer, fusion, and Sandpack preview/code are implemented. Use `?mode=development` or `VITE_API_MODE=mock`. Authored `_seed` fixtures have real local engine checks and unrun original-code oracle; simulated activity is labeled development data. Refinement/auto-fix/export remain next milestone.
-- **Remaining stubs:** shared `sandbox/`, `http/sse.ts`, `config.ts`, `evidence/`, REA and extraction services. No live pipeline end to end yet; valid Step 3 requests still return 503 until `deps.ts` is wired.
+- **Eng 1 helpers landed:** configuration, SSE, archive/REA bridge and collector, record/replay, pantry and schema-shaped health are implemented. Existing Step 1 tests cover these modules; live REA acceptance is separate.
+- **Remaining stubs:** Eng 2 sandbox and requirements extraction. No live pipeline end to end yet; Step 3 deps remain null until the sandbox is available. Its 503 diagnostic now names only the missing sandbox.
 - **Decompilation engine:** planned (no `engine/` package yet). The runnable piece is the
   Ghidra rename-attempt scaffold (`python launch.py rename|batch` inside Docker).
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.

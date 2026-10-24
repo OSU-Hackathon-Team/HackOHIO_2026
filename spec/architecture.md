@@ -300,9 +300,9 @@ flowchart TD
     WorkerPool -.->|Posts Completion Events| EventLoop
 ```### The SolarMutex UI Lock (UNVERIFIED)
 
-The spec claims all document model mutations, VCL windowing calls, and UI event processing are synchronized by a global recursive mutex known as the **SolarMutex**. **UNVERIFIED — no SolarMutex, VCL, or document-model source found in this repository.**
-- **Rule:** Any thread executing UI calls, traversing `SfxObjectShell`, or mutating the active document model must acquire the SolarMutex.
-- **Deadlock Avoidance:** Background threads performing heavy computation (e.g., filter import/export, cryptographic signing) must release the SolarMutex during compute phases and re-acquire it only when posting updates to the document model or notifying UI listeners.
+The **SolarMutex** is documented in `include/comphelper/solarmutex.hxx:38-40` as “the one big recursive code lock used to protect the **vast majority** of the LibreOffice code-base, in particular anything that is graphical and the cores of the applications” (**PARTIALLY VERIFIED — CORRECTED from absolute “all mutations”**; `vcl/source/app/svapp.cxx` includes `comphelper/solarmutex.hxx`).
+- **Rule (scoped):** Code paths that touch VCL/graphical state and app cores run under SolarMutex; do not state as unconditional “any thread … must acquire”. [UNVERIFIED for exact thread list.]
+- **Deadlock Avoidance:** Background threads performing heavy computation must release the SolarMutex during compute and re-acquire only for model/UI updates — **UNVERIFIED** (no source traced in this pass; preserved as UNVERIFIED per policy).
 
 ### Multi-Threaded Calculation Engine
 Modern subsystems circumvent SolarMutex bottlenecks by isolating thread-safe data structures:
