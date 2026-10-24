@@ -53,4 +53,35 @@ export const mockApi: Api = {
     on({ type: "bundle", run_id, ts: Date.now(), bundle: { ...bundle, bundle_id: run_id } });
     on({ type: "done", run_id, ts: Date.now(), ok: true });
   },
+  async refine(req, on, signal) {
+    const run_id = `development-${++sequence}`;
+    on({
+      type: "stage",
+      run_id,
+      ts: Date.now(),
+      stage: "generating",
+      message:
+        req.kind === "fix"
+          ? "Development demo: repairing preview error..."
+          : `Development demo: applying edit "${req.prompt}"...`,
+    });
+    await pause(signal);
+    const updatedBundle: SynthesisBundle = {
+      ...req.bundle,
+      revision: req.bundle.revision + 1,
+    };
+    on({ type: "bundle", run_id, ts: Date.now(), bundle: updatedBundle });
+    on({
+      type: "stage",
+      run_id,
+      ts: Date.now(),
+      stage: "complete",
+      message: req.kind === "fix" ? "Repaired runtime preview error." : `Applied: ${req.prompt}`,
+    });
+    on({ type: "done", run_id, ts: Date.now(), ok: true });
+  },
+  async blueprints() {
+    return blueprints;
+  },
 };
+

@@ -78,6 +78,19 @@ textarea { display: block; width: 100%; margin: 8px 0; resize: vertical; min-hei
 .preview-pane { width: 100%; height: 100%; min-width: 0; }.preview-pane > * { flex: 1; height: 100% !important; }
 .code-pane { width: 100%; height: 100%; display: flex; min-width: 0; }.code-pane > :first-child { width: 140px; flex-shrink: 0; overflow: auto; }.code-pane > :last-child { flex: 1; min-width: 0; }
 details { margin: 12px 0; font-size: 12px; }summary { cursor: pointer; min-height: 44px; padding: 8px 0; }
+.refine-chat { margin-top: 16px; background: #111922; border: 1px solid #2b3540; border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.refine-chat-header { display: flex; justify-content: space-between; align-items: baseline; }
+.chat-messages { display: flex; flex-direction: column; gap: 10px; max-height: 220px; overflow-y: auto; padding: 4px; }
+.chat-bubble { max-width: 80%; padding: 8px 12px; border-radius: 8px; font-size: 13px; line-height: 1.45; }
+.chat-bubble.user { align-self: flex-end; background: #1c362c; border: 1px solid #72bc9a; color: #bcf1d7; }
+.chat-bubble.assistant { align-self: flex-start; background: #18212a; border: 1px solid #35414e; color: #d9e2eb; }
+.chat-bubble .eyebrow { display: block; font-size: 10px; margin-bottom: 2px; }
+.suggestion-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { min-height: 30px; padding: 4px 10px; font-size: 11px; background: #141f29; border: 1px solid #354556; border-radius: 16px; color: #a8bccd; }
+.chip:hover:not(:disabled) { background: #223242; color: #e2e8f0; }
+.chat-input-row { display: flex; gap: 8px; align-items: flex-end; }
+.chat-input-row textarea { min-height: 56px; margin: 0; flex: 1; }
+.chat-input-row button { min-height: 56px; }
 .evidence-drawer { position: fixed; inset: 0 0 0 auto; width: min(780px,100%); max-width: 100%; height: 100dvh; max-height: 100dvh; margin: 0; padding: 0; border: 0; border-left: 1px solid #43515c; background: #111922; color: #d9e3eb; }
 .evidence-drawer::backdrop { background: #000a; }.drawer-inner { padding: 24px; }.drawer-header { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 18px; }.drawer-header h2 { margin-top: 8px; }
 .notice { padding: 12px; background: #282319; color: #ead2a6; font-size: 12px; }.drawer-inner > .tabs { margin: 20px 0; border-bottom: 1px solid #34404c; padding-bottom: 12px; }
