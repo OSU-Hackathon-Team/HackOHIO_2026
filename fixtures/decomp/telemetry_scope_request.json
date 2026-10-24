@@ -1,0 +1,14 @@
+{
+  "mode": "subsystem",
+  "query": "Decode telemetry packets, enforce kind and value policy, and update aggregate state",
+  "seeds": ["telemetry_apply"],
+  "max_functions": 24,
+  "max_depth": 2,
+  "include_callers": false,
+  "include_shared_data": true,
+  "expected_observables": [
+    "Malformed packets leave all counters unchanged",
+    "Policy rejection increments seen and rejected but not accepted",
+    "Accepted packets update sum, low, high, last, and a value bucket"
+  ]
+}
