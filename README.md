@@ -1,6 +1,6 @@
 # Decomp pipeline agent scaffold
 
-**Architecture:** [DecompPileline.md](DecompPileline.md) defines the subsystem-oriented engine for 16+ workers. [DECOMP_IMPLEMENTATION_PLAN.md](DECOMP_IMPLEMENTATION_PLAN.md) lists the implementation phases and acceptance gates. The engine now has a Ghidra evidence export foundation; semantic workers, durable queue, review, and dossiers remain planned. The commands below also retain the rename diagnostic.
+**Architecture:** [DecompPileline.md](DecompPileline.md) defines the subsystem-oriented engine for 16+ workers. [DECOMP_IMPLEMENTATION_PLAN.md](DECOMP_IMPLEMENTATION_PLAN.md) lists the implementation phases and acceptance gates. Evidence export, bounded scopes, semantic attempts, static review, original probes, partial dossiers, and a PostgreSQL task queue are implemented. The full subsystem pipeline and its acceptance gates remain in progress. The commands below also retain the rename diagnostic.
 
 ## Native evidence export
 
@@ -48,6 +48,19 @@ python launch.py work --manifest decomp-state/projects/<campaign>/manifest.json 
 ```
 
 The worker resolves its model through `models.json` (`decomp_worker` by default), reads AWS variables from the ignored root `.env` when they are absent from the process environment, and denies OpenCode tools. It records a checkpoint, prompt and transcript artifacts, model/runtime version, token usage, structural citation checks, and a terminal status. A structurally valid draft is `unreviewed`; it cannot make a scope ready without independent semantic review and original-behavior probes. Use `--model` to evaluate a different configured provider/model. `launch.py status` counts attempts by state.
+
+Run semantic tasks through the durable queue after installing `python -m pip install -r requirements-decomp.txt` and setting `DECOMP_DATABASE_URL` to a PostgreSQL DSN:
+
+```sh
+python launch.py queue-init --manifest decomp-state/projects/<campaign>/manifest.json
+python launch.py queue-enqueue --scope-artifact <scope-artifact-sha256>
+python launch.py queue-run-one --manifest decomp-state/projects/<campaign>/manifest.json --worker-id worker-1
+python launch.py queue-status --campaign <campaign>
+python launch.py queue-review --task-id <validated-task-uuid>
+python scripts/check_decomp_queue.py
+```
+
+`queue-run-one` leases one task, renews its lease while the model runs, submits the immutable draft, and checks its scope and evidence structure. The PostgreSQL queue uses epochs to reject expired submissions, deduplicates tasks and submissions, retains checkpoints across retries, caps reasoning leases at 16, and writes progress events in the same transactions as task changes. `queue-review` runs an independent static reviewer and accepts a task only when every claim is supported and no gaps are reported. Accepted tasks record `static_only`; original probe agreement still needs separate reconciliation. The queue check creates and removes its own test database; set `DECOMP_TEST_PG_DSN` if the local PostgreSQL test server is elsewhere. Review pool leasing, larger meaningful concurrent workloads, claim reconciliation, and dependency invalidation remain open M3 work.
 
 Independently challenge a draft against the raw function evidence:
 
