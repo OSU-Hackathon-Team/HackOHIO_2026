@@ -84,7 +84,11 @@
   engine is built from the spec alone, and the pitch depends on that.
 
 ## Sandpack and frontend
-- Tailwind v3 on both sides (Studio config file + Play CDN inside Sandpack's `/public/index.html`).
+- Tailwind v3 on both sides (Studio config file + Play CDN for generated apps). Sandpack copies `<script>` tags
+  from `/public/index.html` **without running them**, so the preview must load the CDN through
+  `SandpackProvider` `options.externalResources` (verified 2026-10-24). Keep the tag in `index.html` for exports.
+- `assert.throws(fn, X)` in the sandbox accepts an error name or constructor (`RangeError`). It accepted only
+  names until 2026-10-24, which made specs written in `node:assert` style unpassable.
 - Sandpack 2.20's `react-ts` template defaults to **React 19**. Always send `react`/`react-dom`
   `18.3.1` in `customSetup.dependencies`, because the validator type-checks against React 18 types.
 - Remount `SandpackProvider` with `key={bundle_id + revision}` on every new bundle.
