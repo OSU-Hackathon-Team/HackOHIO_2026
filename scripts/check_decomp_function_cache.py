@@ -40,7 +40,7 @@ class FakeAnalysis(GhidraAnalysis):
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="decomp-function-cache-") as scratch:
         root = Path(scratch)
-        engine = FakeAnalysis(root, Path("/unused/headless"))
+        engine = FakeAnalysis(root, Path("/unused/headless"), warm_workers=0)
         addresses = ["00401000", "00402000"]
         index_artifact = engine.store.put(json.dumps({
             "functions": [{"entry": address} for address in addresses]
@@ -52,7 +52,7 @@ def main() -> None:
 
         def request(number: int) -> dict:
             barrier.wait()
-            caller = FakeAnalysis(root, Path("/unused/headless"))
+            caller = FakeAnalysis(root, Path("/unused/headless"), warm_workers=0)
             return caller.function(manifest, addresses[number % 2])
 
         with ThreadPoolExecutor(max_workers=8) as workers:

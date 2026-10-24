@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import fcntl
+import atexit
 from contextlib import contextmanager
+import fcntl
 import hashlib
 import json
 import os
@@ -13,6 +14,7 @@ import tempfile
 import time
 
 from engine.artifacts import LocalArtifactStore
+from engine.analysis.warm import WarmGhidraPool
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_DIR = ROOT / "engine" / "analysis" / "scripts"
@@ -34,12 +36,27 @@ def tool_version(headless: Path) -> str:
 
 
 class GhidraAnalysis:
-    def __init__(self, root: Path, headless: Path, *, timeout: int = 900):
+    def __init__(self, root: Path, headless: Path, *, timeout: int = 900,
+                 warm_workers: int | None = None):
         self.root = Path(root)
         self.headless = Path(headless)
         self.timeout = timeout
         self.store = LocalArtifactStore(self.root / "artifacts")
         self.root.mkdir(parents=True, exist_ok=True)
+        if warm_workers is None:
+            warm_workers = int(os.environ.get("DECOMP_ANALYSIS_WORKERS", "2"))
+        if not 0 <= warm_workers <= 16:
+            raise ValueError("warm_workers must be between 0 and 16")
+        self.warm = (WarmGhidraPool(self.root, self.headless, SCRIPT_DIR,
+                                    size=warm_workers, timeout=timeout,
+                                    environment=self._environment, emit=self._emit)
+                     if warm_workers else None)
+        if self.warm is not None:
+            atexit.register(self.close)
+
+    def close(self) -> None:
+        if self.warm is not None:
+            self.warm.close()
 
     def _emit(self, campaign: str, stage: str, **details: object) -> None:
         record = {"schema": SCHEMA, "time": time.time(), "campaign": campaign,
@@ -163,19 +180,23 @@ class GhidraAnalysis:
                 self._emit(manifest["campaign"], "function_cache_hit", address=address,
                            artifact=artifact)
                 return evidence
-            with tempfile.TemporaryDirectory(dir=self.root) as scratch:
-                export = Path(scratch) / "function.json"
-                self._run([manifest["project"], "baseline", "-process",
-                           manifest["program_name"], "-readOnly", "-noanalysis", "-scriptPath",
-                           str(SCRIPT_DIR), "-postScript", "ExportEvidence.java",
-                           str(export), "function", address], manifest["campaign"],
-                          "function_" + key)
-                if not export.exists():
-                    raise RuntimeError("Ghidra function script produced no output; see function log")
-                evidence = json.loads(export.read_text())
-                if evidence.get("entry") != address:
-                    raise RuntimeError("Ghidra returned evidence for a different function")
-                artifact = self.store.put(export.read_bytes())
+            if self.warm is not None:
+                data = self.warm.export(manifest, address)
+            else:
+                with tempfile.TemporaryDirectory(dir=self.root) as scratch:
+                    export = Path(scratch) / "function.json"
+                    self._run([manifest["project"], "baseline", "-process",
+                               manifest["program_name"], "-readOnly", "-noanalysis", "-scriptPath",
+                               str(SCRIPT_DIR), "-postScript", "ExportEvidence.java",
+                               str(export), "function", address], manifest["campaign"],
+                              "function_" + key)
+                    if not export.exists():
+                        raise RuntimeError("Ghidra function script produced no output; see function log")
+                    data = export.read_bytes()
+            evidence = json.loads(data)
+            if evidence.get("entry") != address:
+                raise RuntimeError("Ghidra returned evidence for a different function")
+            artifact = self.store.put(data)
             self._publish_function(pointer, artifact)
             self._emit(manifest["campaign"], "function_exported", address=address,
                        artifact=artifact, status=evidence["status"])

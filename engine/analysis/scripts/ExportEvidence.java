@@ -1,5 +1,5 @@
 // Export a Ghidra program index or a selected function as JSON.
-// Arguments: output-path index | output-path function address
+// Arguments: output-path index | output-path function address | directory all | directory serve
 import com.google.gson.Gson;
 import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileResults;
@@ -187,6 +187,39 @@ public class ExportEvidence extends GhidraScript {
         writeAtomic(directory.resolve("all_done.json"), record("schema", 1, "count", count));
     }
 
+    private void runServe(String workDirectory, DecompInterface decompiler) throws Exception {
+        Path directory = Path.of(workDirectory);
+        Files.createDirectories(directory);
+        Path request = directory.resolve("request.json");
+        Path response = directory.resolve("response.json");
+        writeAtomic(directory.resolve("ready.json"), record("schema", 1, "status", "ready"));
+        Gson gson = new Gson();
+        while (!Files.exists(directory.resolve("stop"))) {
+            monitor.checkCancelled();
+            if (!Files.exists(request)) {
+                Thread.sleep(50);
+                continue;
+            }
+            Map<?, ?> command = gson.fromJson(Files.readString(request), Map.class);
+            Files.delete(request);
+            Object entry = command == null ? null : command.get("entry");
+            Map<String, Object> output = record("schema", 1);
+            if (!(entry instanceof String)) {
+                output.put("status", "error");
+                output.put("error", "request has no function entry");
+            } else {
+                try {
+                    runFunction(output, (String) entry, decompiler);
+                } catch (Exception error) {
+                    output.put("entry", entry);
+                    output.put("status", "error");
+                    output.put("error", error.toString());
+                }
+            }
+            writeAtomic(response, output);
+        }
+    }
+
     @Override
     protected void run() throws Exception {
         String[] args = getScriptArgs();
@@ -196,7 +229,7 @@ public class ExportEvidence extends GhidraScript {
         Map<String, Object> output = record("schema", 1);
         if (args[1].equals("index")) {
             runIndex(output);
-        } else if (args[1].equals("function") || args[1].equals("all")) {
+        } else if (args[1].equals("function") || args[1].equals("all") || args[1].equals("serve")) {
             DecompInterface decompiler = new DecompInterface();
             try {
                 decompiler.toggleCCode(true);
@@ -205,6 +238,10 @@ public class ExportEvidence extends GhidraScript {
                 }
                 if (args[1].equals("all") && args.length == 2) {
                     runAll(args[0], decompiler);
+                    return;
+                }
+                if (args[1].equals("serve") && args.length == 2) {
+                    runServe(args[0], decompiler);
                     return;
                 }
                 if (args[1].equals("function") && args.length == 3) {
