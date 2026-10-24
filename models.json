@@ -1,0 +1,9 @@
+{
+  "$comment": "Global role -> model routing. Format is OpenCode 'provider/model'. Edit values here to change what model does what. Env overrides per role: MODEL_<ROLE_UPPER> (e.g. MODEL_DECOMP_WORKER). OPENCODE_MODEL remains the legacy override for the default role.",
+  "default": "amazon-bedrock/deepseek.v3.2",
+  "roles": {
+    "decomp_worker": "amazon-bedrock/amazon.nova-lite-v1:0",
+    "spec_writer": "amazon-bedrock/amazon.nova-pro-v1:0",
+    "legal_verification": "amazon-bedrock/anthropic.claude-opus-4-6-v1"
+  }
+}

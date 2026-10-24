@@ -139,7 +139,9 @@ def attempt():
                 if event.get("type") == "text"]
     report = {"status": "saved", "mode": "opencode", "attempt_id": MANIFEST["attempt_id"],
               "address": MANIFEST["address"], "agent_tool_calls": tool_calls,
-              "model": MANIFEST["model"], "opencode_version": version,
+              "model": MANIFEST["model"],
+              "model_role": MANIFEST.get("model_role", "decomp_worker"),
+              "opencode_version": version,
               "agent_output": messages[-1] if messages else "", "usage": usage,
               "events": events_path.name,
               "saved_at": datetime.now(timezone.utc).isoformat()}
