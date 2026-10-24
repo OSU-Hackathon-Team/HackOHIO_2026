@@ -78,6 +78,9 @@ python launch.py queue-review --task-id <validated-task-uuid>
 python launch.py queue-review-drain --campaign <campaign> --workers 2 --max-tasks 2
 python launch.py queue-review-dependency --task-id <reconciliation-task-uuid> \
   --dependency-index 0
+python launch.py queue-adjudicate-gaps --task-id <reconciliation-task-uuid> \
+  --probe-report-artifact <original-probe-report-sha256> \
+  --model amazon-bedrock/amazon.nova-pro-v1:0
 python launch.py queue-resolve-dependencies --task-id <reconciliation-task-uuid> \
   --reviews <review-artifacts.json>
 python launch.py queue-reassess --task-id <partial-task-uuid> \
@@ -138,6 +141,8 @@ The probe runner records binary, runner, and adapter hashes; controlled limits; 
 `python scripts/check_decomp_probes.py` also exercises a regression adapter that calls the original `fold_depth` but discards its return value. The differing observed output must produce `disagreement`.
 
 Assemble an immutable dossier from explicit artifact IDs with `python launch.py dossier --manifest <manifest> --scope-artifact <sha256> --inputs <json-file>`. The input file contains arrays named `draft_artifacts`, `review_artifacts`, `probe_report_artifacts`, and optionally `probe_link_artifacts` and `dependency_resolution_artifacts`. A probe link artifact has `schema: 1` and a `links` array. Each link identifies a `draft_artifact`, `claim_index`, `probe_report_artifact`, `case_id`, JSON `observed_pointer`, `expected_observed` value, and evaluator rationale. The assembler checks the original case's binary identity, outcome, and observed field before recording `case_agreement` or `case_disagreement`. This is agreement for the cited case, not proof of a claim across all inputs. `python scripts/check_decomp_probe_links.py` checks that a wrong expected observation becomes a disagreement and a missing field is rejected. With `--dsn` or `DECOMP_DATABASE_URL`, the dossier records a consistent PostgreSQL snapshot of current helper contract heads; without one, reviewed dependencies retain a head-check blocker. The command writes a readable `decomp-state/dossiers/<scope-id>/latest.md` and returns content-addressed JSON and Markdown hashes. It lists missing function drafts, unresolved scope edges, review gaps, unreviewed or stale dependency contracts, and probe linkage gaps as blockers. Readiness remains `partial` until those gaps are resolved; raw Ghidra output, model claims, static review, and original probes stay distinct.
+
+The dossier inputs may also include `gap_adjudication_artifacts`. Each adjudication must match a supplied draft, review, and original probe report. Its decisions and reasons remain visible; blocking or uncertain decisions remain dossier blockers. `queue-adjudicate-gaps` uses a model different from the claim reviewer and only accepts a task when all current claims have static support and every review gap is independently classified nonblocking.
 
 ## Rename diagnostic
 
