@@ -51,7 +51,7 @@ export function typecheckVirtual(
   const diags = ts.getPreEmitDiagnostics(program).filter((d) => !d.file || vfiles.has(norm(d.file.fileName)));
 
   return diags.slice(0, opts.maxErrors ?? 20).map((d) => {
-    const msg = ts.flattenDiagnosticMessageText(d.messageText, " ");
+    const msg = ts.flattenDiagnosticMessageText(d.messageText, " ").split(VROOT).join("");
     if (!d.file || d.start === undefined) return msg;
     const { line, character } = d.file.getLineAndCharacterOfPosition(d.start);
     return `${fromV(d.file.fileName)}(${line + 1},${character + 1}): ${msg}`;
