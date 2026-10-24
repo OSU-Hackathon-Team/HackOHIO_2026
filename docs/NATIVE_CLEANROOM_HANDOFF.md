@@ -9,6 +9,8 @@ binary, disassembly, source rendering, draft pseudocode, or analysis notes.
 
 1. Analysts may inspect the original and produce an immutable dossier. They resolve
    missing behavior, direct-call contracts, review conflicts, and original-case links.
+   Source-shaped or underspecified claims must be revised into observable rules before
+   the writer runs; a model must not be asked to guess missing constants or meanings.
 2. A ready dossier is reduced to reviewed behavioral facts and input/output examples.
    The regular Step 2 `spec_writer` drafts the public spec. Validation requires every
    supported fact to be covered and rejects source-like text. The draft is held for

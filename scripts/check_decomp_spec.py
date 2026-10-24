@@ -80,6 +80,9 @@ def main() -> None:
     rejected(lambda: generate_spec({**dossier, "claims": [{
         **dossier["claims"][0], "execution_state": "unmapped"}]},
         "0" * 64, writer=writer))
+    rejected(lambda: generate_spec({**dossier, "claims": [{
+        **dossier["claims"][0], "statement": "MOVAPS updates RDI at 0x00104040"}]},
+        "0" * 64, writer=writer))
     spec, audit = generate_spec(dossier, "0" * 64, writer=writer)
     assert spec["schema"] == 2 and spec["status"] == "ready_for_review"
     assert "pseudocode" not in json.dumps(spec)

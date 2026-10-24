@@ -55,6 +55,14 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
                                          for link in c["probe_links"])
                                      for c in claims),
              "all claims need static support and agreeing original cases")
+    source_shaped = [c for c in claims if re.search(
+        r"\b(?:param_\d+|_?DAT_[0-9a-f]+|RDI|RAX|EAX|XMM\d+|MOVAPS|MOVUPS|PXOR)\b|"
+        r"\b0x[0-9a-f]{6,}\b|\bat address\s+[0-9a-f]{6,}\b|"
+        r"\b(?:reads a value from memory|specific memory location|calculated value based on|"
+        r"result of the comparison|several bytes and a constant|predefined global variables)\b",
+        c.get("statement", ""), re.I)]
+    _require(not source_shaped,
+             f"{len(source_shaped)} claims are source-shaped or underspecified; revise them as observable behavior")
     functions = dossier.get("functions", [])
     included = scope.get("included", [])
     _require({f.get("subject") for f in functions} == {f.get("entry") for f in included} and

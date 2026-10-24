@@ -30,9 +30,15 @@ def main() -> None:
         status, claims, reason = "ready", len(handoff["claims"]), None
     except ValueError as error:
         status, claims, reason = "not_ready", 0, str(error)
+    missing_cases = [{"subject": claim["subject"],
+                      "claim_index": claim["claim_index"],
+                      "statement": claim["statement"]}
+                     for claim in dossier.get("claims", [])
+                     if claim.get("execution_state") == "unmapped"]
     print(json.dumps({"dossier_artifact": artifact, "dossier_readiness": dossier["readiness"],
                       "handoff_status": status, "supported_claims": claims,
-                      "blockers": dossier["blockers"], "reason": reason}))
+                      "blockers": dossier["blockers"], "missing_case_links": missing_cases,
+                      "reason": reason}))
 
 
 if __name__ == "__main__":

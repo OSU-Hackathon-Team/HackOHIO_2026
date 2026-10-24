@@ -194,9 +194,16 @@ python scripts/check_decomp_handoff.py --dossier-artifact <dossier-artifact-sha2
 
 A dossier becomes `ready_for_spec` only after its blockers are resolved. The native
 specification command requires that status, static support and agreeing original cases
-for every claim, current dependency contracts, and no unresolved scope edges. The
+for every claim, behavior phrased without raw register/address or vague helper details,
+current dependency contracts, and no unresolved scope edges. The
 sample telemetry dossier at revision 3 is partial (26 claims lack original case links),
 so the command now rejects it instead of publishing a misleading report.
+The handoff check lists unlinked claims by function and claim index. Analysts should
+revise source-level microclaims into observable behavioral claims where appropriate
+(using the reviewed semantic revision path above),
+run targeted original cases, and reassemble a dossier with justified links. Historical
+drafts remain in the analyst audit; unobservable instruction details do not belong in
+the new implementer requirements.
 
 ```sh
 python launch.py spec --dossier-artifact <dossier-artifact-sha256>
