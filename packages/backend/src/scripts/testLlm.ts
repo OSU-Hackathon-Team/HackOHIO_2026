@@ -2,7 +2,7 @@
 // npm run test:llm -w @splice/backend [role]   — one real Bedrock call through llm.ts (costs a few tokens).
 // role: spec_writer (default) | engine_writer | ui_synthesizer
 import { z } from "zod";
-import { structuredCall } from "../llm/llm.js";
+import { structuredCall, formatLlmError } from "../llm/llm.js";
 import { spliceModel } from "../models.js";
 
 const role = (process.argv[2] ?? "spec_writer") as "spec_writer" | "engine_writer" | "ui_synthesizer";
@@ -24,7 +24,8 @@ try {
   console.log(`\n`, r.value, `served by ${r.model} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   process.exit(r.value.answer === 391 ? 0 : 1);
 } catch (e) {
-  console.error(`\ntest:llm failed: ${(e as Error).name}: ${(e as Error).message}`);
+  console.error(`\ntest:llm failed: ${formatLlmError(e)}`);
   console.error("Check packages/backend/.env (AWS_REGION + credentials) and that the model is enabled in the Bedrock console.");
   process.exit(1);
 }
+
