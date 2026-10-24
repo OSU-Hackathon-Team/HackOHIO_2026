@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 
 export interface SseWriter {
-  send(event: { type: string }): void;
+  send(event: { type: string; [key: string]: unknown }): void;
   comment(text: string): void;
   close(): void;
   readonly signal: AbortSignal; // aborts when the client disconnects

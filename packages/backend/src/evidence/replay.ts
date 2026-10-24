@@ -4,6 +4,7 @@ import { RawEvidence } from "@splice/contracts";
 import { REPO_ROOT } from "../config.js";
 import type { SseWriter } from "../http/sse.js";
 import type { TranscriptKind } from "./recorder.js";
+import { loadRecordedSpec } from "../spec/store.js";
 
 const FIX = path.join(REPO_ROOT, "fixtures");
 
@@ -73,8 +74,16 @@ export async function replayTranscript(
   const maxGap = opts.maxGapMs ?? 2500;
   let prevTs = rawEvents[0]?.ts ?? 0;
 
+  const hasSpec = rawEvents.some((e: any) => e.type === "spec");
+
   for (const e of rawEvents) {
     if (sse.signal.aborted) return true;
+    if (e.type === "done" && !hasSpec && kind === "extract") {
+      const spec = await loadRecordedSpec(key);
+      if (spec) {
+        sse.send(markReplay({ type: "spec", run_id: opts.runId, feature_id: key, ts: Date.now(), spec }, opts.runId));
+      }
+    }
     const gap = Math.min((e.ts - prevTs) / speed, maxGap);
     prevTs = e.ts;
     if (gap > 0) await new Promise((r) => setTimeout(r, gap));

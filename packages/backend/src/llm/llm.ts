@@ -35,13 +35,13 @@ let converseClientInstance: ConverseClient | null = null;
 
 /** Bedrock Messages-API client. Credentials: default AWS chain (env / profile / SSO) or AWS_BEARER_TOKEN_BEDROCK. */
 export function claude(): ClaudeClient {
-  client ??= new AnthropicBedrockMantle({ awsRegion: process.env.AWS_REGION });
+  client ??= new AnthropicBedrockMantle({ awsRegion: process.env.AWS_REGION || "us-east-2" });
   return client;
 }
 
 /** Bedrock Converse client for non-Claude models. Credentials: default AWS chain. */
 export function converseClient(): ConverseClient {
-  converseClientInstance ??= new BedrockRuntimeClient({ region: process.env.AWS_REGION });
+  converseClientInstance ??= new BedrockRuntimeClient({ region: process.env.AWS_REGION || "us-east-2" });
   return converseClientInstance;
 }
 
