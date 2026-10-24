@@ -13,11 +13,20 @@ from engine.analysis.ghidra import GhidraAnalysis
 from engine.validation.probes import NativeProbeRunner
 
 def main() -> None:
-    state_dir = ROOT / "decomp-state"
+    import os, time
+    t_start = time.monotonic()
+    state_dir = Path(os.environ.get("DECOMP_STATE", "/home/mitch/Documents/HackOHIO_2026/decomp-state")).resolve()
+    if not state_dir.exists():
+        state_dir = (ROOT / "decomp-state").resolve()
     store = LocalArtifactStore(state_dir / "artifacts")
     
-    # Load the latest specification pointer
-    spec_pointer_file = state_dir / "specifications" / "19e7cf3c3d707284a78c751be79c2f8b963df6a9f69f020df77594c677cf98e6" / "latest.json"
+    # Select scope id: CLI argument, or executable scope, or shared scope
+    scope_id = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else "345b9d9778f9d52da7c185c0097887ca633f3bcf417f3d02f1e6c036045a6639"
+    spec_pointer_file = state_dir / "specifications" / scope_id / "latest.json"
+    if not spec_pointer_file.exists():
+        # Fallback to shared scope
+        scope_id = "19e7cf3c3d707284a78c751be79c2f8b963df6a9f69f020df77594c677cf98e6"
+        spec_pointer_file = state_dir / "specifications" / scope_id / "latest.json"
     assert spec_pointer_file.exists(), f"Missing spec pointer at {spec_pointer_file}"
     pointer = json.loads(spec_pointer_file.read_text())
     
@@ -25,6 +34,7 @@ def main() -> None:
     audit = json.loads(store.get(pointer["audit_artifact"]))
     
     print(f"Loaded generated specification artifact: {pointer['artifact']}")
+    print(f"Scope ID: {scope_id}")
     print(f"Spec title: {spec['title']}")
     print(f"Requirements count: {len(spec['requirements'])}")
     print(f"Status: {spec['status']}")
@@ -178,16 +188,56 @@ int32_t telemetry_apply(const uint8_t *packet, uint32_t length) {
 struct telemetry_state telemetry_snapshot(void) {
     return state;
 }
+
+#ifdef CLEANROOM_EXECUTABLE
+#include <stdio.h>
+int main(int argc, char **argv) {
+    uint32_t kind = argc > 1 ? (uint32_t)strtoul(argv[1], NULL, 0) : 2;
+    uint32_t value = argc > 2 ? (uint32_t)strtoul(argv[2], NULL, 0) : 42;
+    uint32_t flags = argc > 3 ? (uint32_t)strtoul(argv[3], NULL, 0) : 0;
+    uint8_t packet[6] = {0xa5, (uint8_t)kind, (uint8_t)value,
+                         (uint8_t)(value >> 8), 0, (uint8_t)flags};
+    packet[4] = (uint8_t)calculate_check(packet);
+    telemetry_reset();
+    int32_t result = telemetry_apply(packet, sizeof(packet));
+    struct telemetry_state snapshot = telemetry_snapshot();
+    printf("result=%d seen=%u accepted=%u rejected=%u sum=%u low=%u high=%u last=%u\\n",
+           result, snapshot.seen, snapshot.accepted, snapshot.rejected,
+           snapshot.sum, snapshot.low, snapshot.high, snapshot.last);
+    return result < 0 ? 1 : 0;
+}
+#endif
 """
     cleanroom_src = state_dir / "fixtures" / "cleanroom_telemetry.c"
     cleanroom_so = state_dir / "fixtures" / "cleanroom_telemetry.so"
+    cleanroom_bin = state_dir / "fixtures" / "cleanroom_telemetry_bin"
     cleanroom_src.write_text(cleanroom_c_code)
     
-    # Compile
-    cmd = ["gcc", "-shared", "-fPIC", "-O2", str(cleanroom_src), "-o", str(cleanroom_so)]
-    build_res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    # Compile shared library
+    subprocess.run(["gcc", "-shared", "-fPIC", "-O2", str(cleanroom_src), "-o", str(cleanroom_so)],
+                   capture_output=True, text=True, check=True)
     print(f"Compiled cleanroom shared library to {cleanroom_so}")
     
+    # Compile cleanroom executable
+    subprocess.run(["gcc", "-DCLEANROOM_EXECUTABLE", "-O2", str(cleanroom_src), "-o", str(cleanroom_bin)],
+                   capture_output=True, text=True, check=True)
+    print(f"Compiled cleanroom executable to {cleanroom_bin}")
+
+    # Step 1: Probe cleanroom executable directly against CLI probe cases
+    print("\n=== Probing Cleanroom Executable CLI Cases ===")
+    cli_cases = [
+        ([], 0, "result=84 seen=1 accepted=1 rejected=0 sum=84 low=84 high=84 last=84"),
+        (["2", "1024"], 1, "result=-2 seen=1 accepted=0 rejected=1 sum=0 low=4294967295 high=0 last=0"),
+        (["4", "4000", "1"], 0, "result=10000 seen=1 accepted=1 rejected=0 sum=10000 low=10000 high=10000 last=10000"),
+    ]
+    cli_agreements = 0
+    for args, expected_code, expected_stdout in cli_cases:
+        res = subprocess.run([str(cleanroom_bin), *args], capture_output=True, text=True, check=False)
+        assert res.returncode == expected_code, f"Cleanroom executable returncode mismatch for {args}: {res.returncode} vs {expected_code}"
+        assert res.stdout.strip() == expected_stdout, f"Cleanroom executable stdout mismatch for {args}: {res.stdout.strip()} vs {expected_stdout}"
+        cli_agreements += 1
+        print(f"  CLI case args={args or '[]'} -> returncode={res.returncode} [100% AGREEMENT]")
+
     # Create temporary fixture manifest for probe runner pointing to cleanroom_so
     import hashlib
     cleanroom_manifest = {
@@ -203,8 +253,9 @@ struct telemetry_state telemetry_snapshot(void) {
     manifest_path = state_dir / "fixtures" / "cleanroom_manifest.json"
     manifest_path.write_text(json.dumps(cleanroom_manifest, indent=2))
     
-    # Run blackbox probe suite
-    engine = GhidraAnalysis(state_dir, Path("/opt/ghidra/support/analyzeHeadless"))
+    # Step 2: Run blackbox probe suite on cleanroom shared library
+    print("\n=== Probing Cleanroom Shared Library API Cases ===")
+    engine = GhidraAnalysis(state_dir, Path("/opt/ghidra/support/analyzeHeadless"), warm_workers=0)
     adapter_path = ROOT / "scripts" / "telemetry_probe_adapter.py"
     runner = NativeProbeRunner(engine, adapter_path)
     
@@ -226,11 +277,15 @@ struct telemetry_state telemetry_snapshot(void) {
     assert report_bucket["counts"].get("disagreement", 0) == 0
     assert report_bucket["counts"].get("error", 0) == 0
     
+    total_passed = cli_agreements + report_apply['counts']['agreement'] + report_bucket['counts']['agreement']
+    elapsed = time.monotonic() - t_start
     print("\n========================================================")
     print("CLEANROOM REIMPLEMENTATION VERIFICATION: 100% SUCCESSFUL!")
-    print(f"Total Probe Cases Passed: {report_apply['counts']['agreement'] + report_bucket['counts']['agreement']}/15")
+    print(f"Total Probe Cases Passed: {total_passed}/18 (3 CLI Executable + 15 Shared Library)")
     print("Zero disagreements, zero errors.")
+    print(f"Total Execution Time: {elapsed:.2f} seconds (< 15s limit)")
     print("========================================================")
+    assert elapsed < 15.0, f"Execution time {elapsed:.2f}s exceeded 15s threshold"
 
 if __name__ == "__main__":
     main()
