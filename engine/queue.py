@@ -214,9 +214,12 @@ class DurableQueue:
             return "accepted_for_validation"
 
     def fail(self, task_id: str, worker_id: str, epoch: int, reason: str,
-             *, failure_type: str = "infrastructure") -> str:
+             *, failure_type: str = "infrastructure",
+             artifact: str | None = None) -> str:
         if failure_type not in {"infrastructure", "rate_limited", "semantic", "budget"}:
             raise ValueError("invalid failure type")
+        if artifact is not None:
+            self.store.get(artifact)
         with self._connect() as conn:
             pool = conn.execute("SELECT pool FROM decomp_tasks WHERE id = %s",
                                 (task_id,)).fetchone()
@@ -235,17 +238,20 @@ class DurableQueue:
             conn.execute("UPDATE decomp_tasks SET state = %s, leased_by = NULL, "
                          "lease_until = NULL, available_at = now() + "
                          "(%s * interval '1 second'), terminal_reason = %s, "
+                         "result_artifact = CASE WHEN %s::text = 'partial' THEN %s "
+                         "ELSE result_artifact END, "
                          "updated_at = now() WHERE id = %s",
-                         (state, backoff, reason, task_id))
-            conn.execute("UPDATE decomp_attempts SET state = %s, terminal_reason = %s "
+                         (state, backoff, reason, state, artifact, task_id))
+            conn.execute("UPDATE decomp_attempts SET state = %s, terminal_reason = %s, "
+                         "result_artifact = %s "
                          "WHERE task_id = %s AND epoch = %s",
-                         ("retryable_failed" if retry else "terminal_failed", reason,
+                         ("retryable_failed" if retry else "terminal_failed", reason, artifact,
                           task_id, epoch))
             conn.execute("UPDATE decomp_pools SET active = active - 1 WHERE name = %s",
                          (task["pool"],))
             self._event(conn, task["campaign_id"], "task_failed",
                         {"task_id": task_id, "epoch": epoch, "failure_type": failure_type,
-                         "retry": retry, "reason": reason})
+                         "retry": retry, "reason": reason, "artifact": artifact})
             return state
 
     def reclaim_expired(self, *, pool: str = "reasoning", limit: int = 100) -> int:

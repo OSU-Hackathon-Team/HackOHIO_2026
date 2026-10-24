@@ -167,10 +167,19 @@ def main() -> None:
                 assert resumed["task_id"] == killed["task_id"]
                 assert resumed["epoch"] == killed["epoch"] + 1
                 assert resumed["checkpoint_artifact"] == checkpoint
+                failed = active[1]
+                rejected_artifact = put(store, {"state": "rejected",
+                                                "structural_errors": ["missing claim"]})
+                assert queue.fail(failed["task_id"], failed["worker_id"],
+                                  failed["epoch"], "invalid semantic draft",
+                                  failure_type="semantic",
+                                  artifact=rejected_artifact) == "partial"
+                assert queue.task(failed["task_id"])["result_artifact"] == rejected_artifact
                 final_status = queue.status(campaign)
                 print(json.dumps({"active_leases": 16, "recovered_epoch": recovered["epoch"],
                                   "killed_worker_recovered_epoch": resumed["epoch"],
                                   "accepted": 1, "support_level": "static_only",
+                                  "rejected_attempt_preserved": True,
                                   "event_cursor": final_status["event_cursor"]}, indent=2))
         finally:
             admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(

@@ -57,7 +57,7 @@ def run_one(queue: DurableQueue, worker: SemanticWorker, manifest: dict,
         failure_type = "budget" if result["state"] == "partial" else "semantic"
         state = queue.fail(lease["task_id"], worker_id, lease["epoch"],
                            f"semantic attempt ended {result['state']}",
-                           failure_type=failure_type)
+                           failure_type=failure_type, artifact=result["artifact"])
         return {"state": state, "task_id": lease["task_id"],
                 "draft_artifact": result["artifact"]}
 

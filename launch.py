@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import uuid
 from pathlib import Path
 
@@ -182,13 +183,14 @@ def main() -> None:
         ("queue-enqueue", "enqueue all deduplicated tasks from a scope revision"),
         ("queue-status", "show durable task states, capacity, and event cursor"),
         ("queue-run-one", "lease and run one semantic task with heartbeats"),
+        ("queue-drain", "run bounded parallel semantic workers until idle"),
         ("queue-review", "independently review one validated queue task"),
     ):
         command = sub.add_parser(name, help=help_text)
         command.add_argument("--state", type=Path, default=ENGINE_STATE)
         command.add_argument("--dsn", default=os.environ.get("DECOMP_DATABASE_URL"),
                              help="PostgreSQL DSN; defaults to DECOMP_DATABASE_URL")
-        if name in {"queue-init", "queue-run-one"}:
+        if name in {"queue-init", "queue-run-one", "queue-drain"}:
             command.add_argument("--manifest", type=Path, required=True)
         if name == "queue-enqueue":
             command.add_argument("--scope-artifact", required=True)
@@ -204,6 +206,17 @@ def main() -> None:
                                      "OPENCODE_BIN", "/home/mitch/.opencode/bin/opencode")))
         if name == "queue-run-one":
             command.add_argument("--worker-id", required=True)
+            command.add_argument("--lease-seconds", type=int, default=60)
+            command.add_argument("--timeout", type=int, default=180)
+            command.add_argument("--model-role", default="decomp_worker")
+            command.add_argument("--model")
+            command.add_argument("--opencode", type=Path,
+                                 default=Path(os.environ.get(
+                                     "OPENCODE_BIN", "/home/mitch/.opencode/bin/opencode")))
+        if name == "queue-drain":
+            command.add_argument("--worker-prefix", default="decomp-worker")
+            command.add_argument("--workers", type=int, default=4)
+            command.add_argument("--max-tasks", type=int)
             command.add_argument("--lease-seconds", type=int, default=60)
             command.add_argument("--timeout", type=int, default=180)
             command.add_argument("--model-role", default="decomp_worker")
@@ -315,6 +328,43 @@ def main() -> None:
             result = run_queued_one(queue, semantic, manifest, args.worker_id,
                                     lease_seconds=args.lease_seconds,
                                     model=args.model, model_role=args.model_role)
+        elif args.command == "queue-drain":
+            if not 1 <= args.workers <= 32 or (args.max_tasks is not None and
+                                                 args.max_tasks < 1):
+                parser.error("queue-drain needs 1..32 workers and positive max-tasks")
+            engine = GhidraAnalysis(args.state, Path(os.environ.get(
+                "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+            manifest = json.loads(args.manifest.read_text())
+            exported = engine.export_all(manifest)
+            lock = threading.Lock()
+            dispatched = 0
+
+            def worker_loop(number: int) -> list[dict]:
+                nonlocal dispatched
+                semantic = SemanticWorker(engine, args.opencode, timeout=args.timeout)
+                completed = []
+                while True:
+                    with lock:
+                        if args.max_tasks is not None and dispatched >= args.max_tasks:
+                            return completed
+                        dispatched += 1
+                    item = run_queued_one(queue, semantic, manifest,
+                                          f"{args.worker_prefix}-{number}",
+                                          lease_seconds=args.lease_seconds,
+                                          model=args.model, model_role=args.model_role)
+                    if item["state"] == "idle":
+                        return completed
+                    completed.append(item)
+                    print(json.dumps({"queue_progress": item}), flush=True)
+
+            with ThreadPoolExecutor(max_workers=args.workers) as executor:
+                futures = [executor.submit(worker_loop, i) for i in range(args.workers)]
+                completed = [item for future in futures for item in future.result()]
+            result = {"workers": args.workers, "completed_attempts": len(completed),
+                      "outcomes": {state: sum(item["state"] == state for item in completed)
+                                   for state in sorted({item["state"] for item in completed})},
+                      "exported_functions": exported["counts"],
+                      "queue": queue.status(manifest["campaign"])}
         elif args.command == "queue-review":
             task = queue.task(args.task_id)
             if task is None or task["state"] != "validated":
