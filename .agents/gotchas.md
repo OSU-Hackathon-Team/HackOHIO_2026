@@ -30,11 +30,17 @@
 - Client: `AnthropicBedrockMantle` from `@anthropic-ai/bedrock-sdk`. No Anthropic API key exists.
 - Models are routed **per role** in root `models.json`, overridable with `MODEL_<ROLE>` env vars,
   and resolved by `packages/backend/src/models.ts` (TS) / `model_config.py` (Python). Splice roles
-  (`spec_writer`, `engine_writer`, `ui_synthesizer`, `refusal_fallback`) are **Claude only**: get
-  their Bedrock ID with `bedrockModelId(role)`, which strips OpenCode's `amazon-bedrock/` prefix and
-  throws on non-Claude IDs. The Mantle client speaks the Anthropic Messages API (structured
-  outputs, effort), so Qwen3 Coder 480B, Nova and DeepSeek (listed in `models.json` `options`) are
-  for the Python/OpenCode roles only.
+  (`spec_writer`, `engine_writer`, `ui_synthesizer`, `refusal_fallback`) resolve with
+  `spliceModel(role)` → `{ id, api }`. Claude IDs use the Anthropic Messages API (Mantle client:
+  structured outputs, effort). A non-Claude ID is allowed only if its `models.json` option has
+  `splice_compatible: true`; `llm.ts` then uses the **Bedrock Converse API** with a forced `respond`
+  tool for schema-shaped JSON (no effort, no prompt caching). `refusal_fallback` must stay Claude
+  (`bedrockModelId` throws otherwise).
+- **Account access (verified 2026-10-24, team SSO session creds, us-east-2):** an org SCP denies
+  `bedrock-mantle:CreateInference`, and Opus 5.5 / Opus 4.8 / Sonnet 5.5 are "not available for this
+  account". **Qwen3 Coder 480B works** (`qwen.qwen3-coder-480b-a35b-v1:0`, bare ID, us-east-2;
+  the `us.` profile is rejected), so `engine_writer` is routed to it. `npm run test:llm -w
+  @splice/backend -- <role>` checks any role in one call.
 - Bedrock has **no server-side `fallbacks`**. `llm.ts` retries a `stop_reason: "refusal"` once on
   the `refusal_fallback` role. Describe tasks as analyzing *our own demo apps*, to avoid tripping the
   cyber safety classifier.

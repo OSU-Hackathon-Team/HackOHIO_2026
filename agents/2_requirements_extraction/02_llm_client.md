@@ -223,6 +223,17 @@ Notes:
   repo's `examples/` folder. Don't improvise the import, and confirm it works with the Mantle
   client first. The manual retry above is enough for the hackathon.
 
+> **Implementation note (as built by Eng 3, 2026-10-24):** `structuredCall` resolves each role with
+> `spliceModel(role)` (`models.ts`). Claude models take the path above. Non-Claude models marked
+> `splice_compatible: true` in `models.json` go through the **Bedrock Converse API**
+> (`ConverseStreamCommand`): the schema becomes a forced `respond` tool, its streamed input is the JSON,
+> and the result has the same `StructuredResult` shape (`assistantContent` is the JSON as one text
+> block, so repair loops are unchanged). `effort` and prompt caching don't apply there.
+> `content_filtered`/`guardrail_intervened` map to `LlmRefusalError`, `max_tokens` to
+> `LlmTruncatedError`. Why: this account's org policy denies the Mantle endpoint and the Claude models
+> aren't enabled, while Qwen3 Coder 480B is (see `.agents/gotchas.md`). `engine_writer` is routed to
+> it. The client is created lazily and env comes from `packages/backend/.env` until `config.ts` exists.
+
 ## 5. Manual tool-use loop helper (only for Eng 1's agentic stretch mode)
 
 ```ts
