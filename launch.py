@@ -177,6 +177,40 @@ def main() -> None:
     status = sub.add_parser("status", help="show persisted decomp campaign progress")
     status.add_argument("--state", type=Path, default=ENGINE_STATE)
     status.add_argument("--campaign", help="limit output to one campaign hash")
+    for name, help_text in (
+        ("queue-init", "migrate PostgreSQL and register a native campaign"),
+        ("queue-enqueue", "enqueue all deduplicated tasks from a scope revision"),
+        ("queue-status", "show durable task states, capacity, and event cursor"),
+        ("queue-run-one", "lease and run one semantic task with heartbeats"),
+        ("queue-review", "independently review one validated queue task"),
+    ):
+        command = sub.add_parser(name, help=help_text)
+        command.add_argument("--state", type=Path, default=ENGINE_STATE)
+        command.add_argument("--dsn", default=os.environ.get("DECOMP_DATABASE_URL"),
+                             help="PostgreSQL DSN; defaults to DECOMP_DATABASE_URL")
+        if name in {"queue-init", "queue-run-one"}:
+            command.add_argument("--manifest", type=Path, required=True)
+        if name == "queue-enqueue":
+            command.add_argument("--scope-artifact", required=True)
+        if name == "queue-status":
+            command.add_argument("--campaign", required=True)
+        if name == "queue-review":
+            command.add_argument("--task-id", required=True)
+            command.add_argument("--timeout", type=int, default=180)
+            command.add_argument("--model-role", default="legal_verification")
+            command.add_argument("--model")
+            command.add_argument("--opencode", type=Path,
+                                 default=Path(os.environ.get(
+                                     "OPENCODE_BIN", "/home/mitch/.opencode/bin/opencode")))
+        if name == "queue-run-one":
+            command.add_argument("--worker-id", required=True)
+            command.add_argument("--lease-seconds", type=int, default=60)
+            command.add_argument("--timeout", type=int, default=180)
+            command.add_argument("--model-role", default="decomp_worker")
+            command.add_argument("--model")
+            command.add_argument("--opencode", type=Path,
+                                 default=Path(os.environ.get(
+                                     "OPENCODE_BIN", "/home/mitch/.opencode/bin/opencode")))
     sub.add_parser("build", help="build the Ghidra worker image with Podman inside Docker")
     rename = sub.add_parser("rename", help="run one autonomous rename attempt")
     rename.add_argument("--binary", type=Path, required=True)
@@ -254,6 +288,48 @@ def main() -> None:
                           "readiness": result["readiness"],
                           "coverage": result["coverage"],
                           "blockers": result["blockers"]}, indent=2))
+    elif args.command.startswith("queue-"):
+        from engine.artifacts import LocalArtifactStore
+        from engine.queue import DurableQueue
+        from engine.queue_runner import run_one as run_queued_one
+
+        if not args.dsn:
+            parser.error("queue commands require --dsn or DECOMP_DATABASE_URL")
+        queue = DurableQueue(args.dsn, LocalArtifactStore(args.state / "artifacts"))
+        if args.command == "queue-init":
+            manifest = json.loads(args.manifest.read_text())
+            queue.migrate()
+            queue.create_campaign(manifest["campaign"], manifest["binary_sha256"])
+            result = queue.status(manifest["campaign"])
+        elif args.command == "queue-enqueue":
+            ids = queue.enqueue_scope(args.scope_artifact)
+            result = {"enqueued": len(ids), "task_ids": ids}
+        elif args.command == "queue-status":
+            result = queue.status(args.campaign)
+        elif args.command == "queue-run-one":
+            engine = GhidraAnalysis(args.state, Path(os.environ.get(
+                "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+            manifest = json.loads(args.manifest.read_text())
+            semantic = SemanticWorker(engine, args.opencode, timeout=args.timeout)
+            result = run_queued_one(queue, semantic, manifest, args.worker_id,
+                                    lease_seconds=args.lease_seconds,
+                                    model=args.model, model_role=args.model_role)
+        elif args.command == "queue-review":
+            task = queue.task(args.task_id)
+            if task is None or task["state"] != "validated":
+                parser.error("queue-review requires an existing validated task")
+            engine = GhidraAnalysis(args.state, Path(os.environ.get(
+                "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+            reviewer = IndependentReviewer(engine, args.opencode, timeout=args.timeout)
+            review_result = reviewer.run(task["result_artifact"],
+                                         model=args.model, model_role=args.model_role)
+            accepted = (review_result["state"] == "reviewed" and
+                        queue.accept(args.task_id, review_result["artifact"]))
+            result = {"task_id": args.task_id, "accepted_static": accepted,
+                      "review_state": review_result["state"],
+                      "review_artifact": review_result["artifact"],
+                      "outcomes": review_result.get("outcomes", {})}
+        print(json.dumps(result, indent=2))
     elif args.command == "status":
         events_path = args.state / "progress.jsonl"
         events = [json.loads(line) for line in events_path.read_text().splitlines()] if events_path.exists() else []

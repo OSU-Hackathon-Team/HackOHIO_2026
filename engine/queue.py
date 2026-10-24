@@ -84,7 +84,7 @@ class DurableQueue:
         return inserted
 
     def lease(self, worker_id: str, *, pool: str = "reasoning",
-              lease_seconds: int = 60) -> dict | None:
+              campaign: str | None = None, lease_seconds: int = 60) -> dict | None:
         if not worker_id or lease_seconds < 1:
             raise ValueError("worker_id and positive lease_seconds required")
         with self._connect() as conn:
@@ -97,12 +97,13 @@ class DurableQueue:
             task = conn.execute(
                 "SELECT t.* FROM decomp_tasks t JOIN decomp_campaigns c "
                 "ON c.id = t.campaign_id WHERE t.pool = %s AND t.state = 'queued' "
+                "AND (%s::text IS NULL OR t.campaign_id = %s) "
                 "AND t.available_at <= now() AND t.attempts_count < t.max_attempts "
                 "AND c.state = 'active' "
                 "ORDER BY (t.priority_class - LEAST(3, FLOOR(EXTRACT(EPOCH FROM "
                 "(now() - t.created_at)) / 900))) ASC, t.priority DESC, "
                 "t.created_at ASC FOR UPDATE OF t SKIP LOCKED LIMIT 1",
-                (pool,)).fetchone()
+                (pool, campaign, campaign)).fetchone()
             if task is None:
                 return None
             attempt_id = uuid.uuid4()
@@ -375,6 +376,15 @@ class DurableQueue:
             return {"campaign": campaign, "tasks": {r["state"]: r["total"] for r in states},
                     "support_levels": {r["support_level"]: r["total"] for r in support},
                     "attempts": attempts, "pools": pools, "event_cursor": cursor}
+
+    def task(self, task_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT id, campaign_id, subject, state, result_artifact, "
+                               "review_artifact, support_level FROM decomp_tasks "
+                               "WHERE id = %s", (task_id,)).fetchone()
+            if row is None:
+                return None
+            return {**row, "id": str(row["id"])}
 
     def events(self, campaign: str, after_id: int = 0, limit: int = 100) -> list[dict]:
         with self._connect() as conn:
