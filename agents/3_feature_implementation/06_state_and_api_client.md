@@ -1,5 +1,7 @@
 # 06 — State, API Client & Pipeline Orchestration
 
+> **Core Studio milestone:** setup, typed API/SSE, Zustand orchestration, development seeds, pantry/log/cards/evidence/fusion, and Sandpack preview/code are implemented. The vanilla store in `store/studioState.ts` is wrapped by `useStudio.ts`; live and development adapters share `Api`. Live integration still waits on upstream helpers. Refinement/auto-fix/export and isolation URLs remain later work. See [measured acceptance](../../docs/STEP3_MILESTONE.md). The examples below remain the design reference; implementation details are adapted to the existing contracts.
+
 ## 1. `src/api/sse.ts` — POST + Server-Sent Events
 
 `EventSource` can't POST, so we read the stream with `fetch`.

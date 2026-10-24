@@ -3,7 +3,7 @@
 ## Requirements
 
 - **Node 22.19+**. `rea-agents@6.7.0` refuses older versions. Check with `node -v`.
-- **AWS credentials with Bedrock access to Claude** (for any live LLM step). Use the default AWS
+- **AWS credentials with Bedrock access to the configured model (Qwen by default)** (for any live LLM step). Use the default AWS
   chain: `AWS_PROFILE` or session env vars in `packages/backend/.env`, copied from
   `packages/backend/.env.example`. Check with `aws sts get-caller-identity`.
 - Windows works. Commands below are for Git Bash or PowerShell; the team develops on Windows.
@@ -95,3 +95,11 @@ npm run dev:backend
 curl http://localhost:3001/api/health            # 200 JSON
 curl -X POST http://localhost:3001/api/extract   # 404 JSON until Step 2 implements it
 ```
+
+## Core Studio milestone
+
+- `npm run seed:studio -w @splice/backend`: regenerate authored development seeds and run six local engine checks plus purity/conformance/bundle validation. No original-code oracle is run.
+- Open `http://localhost:5173/?mode=development` for the fixed two-feature study-room demo. Live mode never silently falls back to this data.
+- `npm run test:unit -w @splice/frontend`: POST-SSE and state regression tests.
+- `npm run test:studio`: headless Edge browser checks on isolated port 5175; Sandpack needs internet.
+- Current acceptance and blockers: `docs/STEP3_MILESTONE.md`.

@@ -19,7 +19,7 @@ packages/
 targets/                    demo apps that REA analyzes (source + built .asar)
 fixtures/                   recorded runs used for replay mode and tests
 scripts/build-targets.mjs   packs targets/src/<app> into targets/build/<app>/app.asar
-models.json                 role → model routing for BOTH tracks (Splice roles must be Claude)
+models.json                 role → model routing for BOTH tracks (Splice defaults use Qwen via Converse)
 Dockerfile                  Node app image (contracts → backend → frontend), used by CI
 .github/workflows/ci.yml    CI: npm ci + build on Node 22, then Docker smoke test (/api/health, SPA, 404 guard)
 
@@ -58,8 +58,7 @@ engine/                     (planned, does not exist yet)
 pipeline orchestration) → `components/` (TopBar, PantryPanel, Terminal, FeatureCard, CardTray,
 EvidenceDrawer, FusionPanel, `studio/*`, `ui/*`). Also `lib/` (exportZip, format) and
 `dev/IsolationRoute.tsx` (`?test=card|terminal|sandpack|drawer`). Specs:
-`3_feature_implementation/05–08_*.md`. `App.tsx` is still the old placeholder layout; replace it
-per `05_frontend_setup.md` §5.
+`3_feature_implementation/05–08_*.md`. The core Studio is implemented; see `docs/STEP3_MILESTONE.md` for the development demo and pending integration.
 
 ## Data flow and HTTP API
 

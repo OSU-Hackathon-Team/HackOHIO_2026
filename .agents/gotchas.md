@@ -26,7 +26,7 @@
   `DecompPileline.md` for that work, not this file.
 - Requires Node 22.19+. Pin `rea-agents@6.7.0` everywhere; never `@latest`.
 
-## Claude on Amazon Bedrock
+## Models on Amazon Bedrock
 - Client: `AnthropicBedrockMantle` from `@anthropic-ai/bedrock-sdk`. No Anthropic API key exists.
 - Models are routed **per role** in root `models.json`, overridable with `MODEL_<ROLE>` env vars,
   and resolved by `packages/backend/src/models.ts` (TS) / `model_config.py` (Python). Splice roles
@@ -34,16 +34,13 @@
   `spliceModel(role)` → `{ id, api }`. Claude IDs use the Anthropic Messages API (Mantle client:
   structured outputs, effort). A non-Claude ID is allowed only if its `models.json` option has
   `splice_compatible: true`; `llm.ts` then uses the **Bedrock Converse API** with a forced `respond`
-  tool for schema-shaped JSON (no effort, no prompt caching). `refusal_fallback` must stay Claude
-  (`bedrockModelId` throws otherwise).
+  tool for schema-shaped JSON (no effort, no prompt caching). All four Splice roles now default to Qwen. Refusal fallback resolves through `spliceModel`; a distinct fallback is attempted once, and same-model retries are skipped. `bedrockModelId` remains the Claude-specific guard for overrides.
 - **Account access (verified 2026-10-24, team SSO session creds, us-east-2):** an org SCP denies
   `bedrock-mantle:CreateInference`, and Opus 5.5 / Opus 4.8 / Sonnet 5.5 are "not available for this
   account". **Qwen3 Coder 480B works** (`qwen.qwen3-coder-480b-a35b-v1:0`, bare ID, us-east-2;
-  the `us.` profile is rejected), so `engine_writer` is routed to it. `npm run test:llm -w
+  the `us.` profile is rejected), so all four Splice roles are routed to it. `npm run test:llm -w
   @splice/backend -- <role>` checks any role in one call.
-- Bedrock has **no server-side `fallbacks`**. `llm.ts` retries a `stop_reason: "refusal"` once on
-  the `refusal_fallback` role. Describe tasks as analyzing *our own demo apps*, to avoid tripping the
-  cyber safety classifier.
+- Bedrock has **no server-side `fallbacks`**. Shared dispatch retries refusals once on a distinct `refusal_fallback` model, through either API. Identical defaults are not retried. Describe tasks as analyzing our own demo apps.
 - Opus 5.5: **don't send `thinking`** (disabled / `budget_tokens` → 400). Control depth with
   `output_config.effort`; the default is `medium`, so set it explicitly. Forced `tool_choice` → 400,
   and assistant prefill → 400. Get JSON via `output_config.format: { type: "json_schema", schema }`.
@@ -52,6 +49,8 @@
 - Repair loops must be **append-only**: push the assistant's full `content` back unchanged
   (`continueWith`), never edit earlier turns.
 - Session credentials (`ASIA…`) expire. `ExpiredTokenException` means refresh them, not a bug.
+
+- Converse requests are capped at 16,384 output tokens, matching the [AWS Qwen model card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-coder-480b-a35b-instruct.html). Truncation remains a typed error; shorten output rather than requesting above the cap.
 
 ## Streaming (SSE)
 - Our streams are **POST** responses, so the browser can't use `EventSource`. Use

@@ -51,3 +51,14 @@ One row per commit, with the verification that actually ran. Nothing is logged a
 - CP2: bundle boots in Sandpack (3 runs in a row per recipe). Needs the above plus Eng 1 `http/sse.ts`,
   `evidence/recorder.ts`, `evidence/replay.ts`, and the Studio frontend.
 - Timings (engine < 45 s, synthesis < 75 s, refine < 45 s): not measured; requires live Bedrock.
+
+## Qwen and core Studio milestone (2026-10-24)
+
+The earlier entries above are historical. Current scope, commands, measured gates, and remaining blockers are in [STEP3_MILESTONE.md](../../STEP3_MILESTONE.md).
+
+| Commit / unit | Result | Verification |
+|---|---|---|
+| `3dbbe97` Qwen routing | Four Splice defaults on Qwen, provider-independent bounded fallback, 16,384 Converse cap; Python unchanged | 14 LLM tests; three live role smoke tests returned 391 in 0.5s / 0.5s / 0.6s |
+| Studio seed preparation | Two authored specs/engines and fixed study-room bundle, original oracle unrun | Six real local acceptance checks, zero purity/conformance errors, bundle validates |
+| Core Studio | Typed POST-SSE, Zustand, live/development adapters, pantry/log/cards/evidence/fusion/Sandpack | Frontend 10/10, Edge 5/5 with three consecutive Sandpack boots and interactions |
+| Integration gate | Production build and backend regressions remain green | 65/65 backend tests; health/SPA/blueprints 200, API 404, implement 400/503 |

@@ -1,5 +1,8 @@
 # 01 — Environment & REA Verification (H0–H1)
 
+> **Current routing:** Splice defaults to Qwen3 Coder 480B via Bedrock Converse. Claude-specific SDK examples describe optional overrides. `llm.ts` preserves the caller interface and append-only repair history; Converse ignores effort/cache settings.
+
+
 Goal: by the end of hour 1, the team knows **exactly** which REA tools exist and what arguments
 they take, so nobody writes code against guesses.
 
@@ -99,12 +102,11 @@ output looks like.
 ```bash
 AWS_REGION=us-east-2       # region with Claude model access enabled in Bedrock
 AWS_PROFILE=splice         # or AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN
-# Splice roles are routed in root models.json and MUST be Claude models (llm.ts = Anthropic
-# Messages API on Bedrock). Override a role without editing models.json:
-# MODEL_SPEC_WRITER=amazon-bedrock/anthropic.claude-opus-5-5
-# MODEL_ENGINE_WRITER=amazon-bedrock/anthropic.claude-opus-5-5
-# MODEL_UI_SYNTHESIZER=amazon-bedrock/anthropic.claude-opus-5-5
-# MODEL_REFUSAL_FALLBACK=amazon-bedrock/anthropic.claude-opus-4-8
+# Splice defaults use Qwen via Bedrock Converse; Claude overrides remain supported. Override a role without editing models.json:
+# MODEL_SPEC_WRITER=amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0
+# MODEL_ENGINE_WRITER=amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0
+# MODEL_UI_SYNTHESIZER=amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0
+# MODEL_REFUSAL_FALLBACK=amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0
 LLM_DEBUG=0
 PORT=3001
 REA_MODE=auto              # live | replay | auto

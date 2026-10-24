@@ -1,5 +1,8 @@
 # 02 — Shared LLM Client on Amazon Bedrock (`llm/llm.ts`) — ship to Eng 3 by H4
 
+> **Current routing:** Splice defaults to Qwen3 Coder 480B via Bedrock Converse. Claude-specific SDK examples describe optional overrides. `llm.ts` preserves the caller interface and append-only repair history; Converse ignores effort/cache settings.
+
+
 Every Claude call in Splice goes through this file: specs (Eng 2), engines, UI synthesis and
 refine (Eng 3). It's the one place for the Bedrock client, model ID, structured output,
 streaming progress, refusal handling and prompt caching.
@@ -28,12 +31,11 @@ AWS_PROFILE=splice                   # preferred: profile in ~/.aws/credentials 
 # AWS_ACCESS_KEY_ID=...
 # AWS_SECRET_ACCESS_KEY=...
 # AWS_SESSION_TOKEN=...
-# Splice roles are routed in root models.json and MUST be Claude models (llm.ts = Anthropic
-# Messages API on Bedrock). Override a role without editing models.json:
-# MODEL_SPEC_WRITER=amazon-bedrock/anthropic.claude-opus-5-5
-# MODEL_ENGINE_WRITER=amazon-bedrock/anthropic.claude-opus-5-5
-# MODEL_UI_SYNTHESIZER=amazon-bedrock/anthropic.claude-opus-5-5
-# MODEL_REFUSAL_FALLBACK=amazon-bedrock/anthropic.claude-opus-4-8
+# Splice defaults use Qwen via Bedrock Converse; Claude overrides remain supported. Override a role without editing models.json:
+# MODEL_SPEC_WRITER=amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0
+# MODEL_ENGINE_WRITER=amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0
+# MODEL_UI_SYNTHESIZER=amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0
+# MODEL_REFUSAL_FALLBACK=amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0
 ```
 
 > ⚠️ The AWS keys that were committed in `.env` (`83f811b`) are almost certainly these Bedrock
@@ -56,7 +58,7 @@ AWS_PROFILE=splice                   # preferred: profile in ~/.aws/credentials 
 | Decision | Why |
 |---|---|
 | `AnthropicBedrockMantle` client, region from `AWS_REGION` | Bedrock's Messages-API endpoint. Same request shapes as the first-party SDK |
-| Per-role models via root `models.json` (`MODEL_<ROLE>` env wins). Splice roles: `spec_writer` (Step 2), `engine_writer` (Step 3a), `ui_synthesizer` (Step 3b + refine), `refusal_fallback`. **All Claude** (Opus 5.5 by default) | One file answers "what model does what". `bedrockModelId(role)` strips OpenCode's `amazon-bedrock/` prefix and refuses non-Claude IDs, because structured outputs, effort and the rest of this design are Anthropic Messages API features. Other models (Qwen3 Coder 480B, Nova, DeepSeek) are listed in `models.json` `options` for the OpenCode roles only |
+| Per-role models via root `models.json` (`MODEL_<ROLE>` env wins). All four Splice roles default to Qwen3 Coder 480B. | `spliceModel(role)` selects Converse for approved non-Claude models and the Messages API for Claude overrides. `bedrockModelId` is retained only for Claude-specific callers. Python roles are unchanged. |
 | **Structured outputs** (`output_config.format: { type: "json_schema", schema }`) | Supported on Bedrock. Guarantees parseable JSON. Forced `tool_choice` returns a 400 on Opus 5.5, and assistant prefill is gone |
 | **Streaming** + `finalMessage()` | Long outputs (full TS files) would otherwise risk HTTP timeouts. Also gives us `output_chars` progress for the UI |
 | **No `thinking` param** | Opus 5.5 always uses adaptive thinking; `disabled` / `budget_tokens` return a 400. Depth is set with `output_config.effort` |
@@ -301,3 +303,7 @@ console.log("\n", r.value, "served by", r.model);
 
 This must pass on every teammate's machine at H4. If it fails on one machine only, it's almost
 always that machine's AWS credentials or region.
+
+## Qwen migration milestone
+
+`structuredCall` dispatches a refusal fallback through either API once, skipping an identical model. Converse output is centrally capped at 16,384 tokens, per the [AWS model card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-coder-480b-a35b-instruct.html). Callers retain their current `maxTokens` requests; the client bounds them before sending. Actual output truncation throws `LlmTruncatedError`. The three primary roles returned 391 in live smoke checks (0.5s, 0.5s, 0.6s); this does not establish spec or synthesis quality.

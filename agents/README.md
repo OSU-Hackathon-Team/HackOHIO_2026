@@ -1,5 +1,8 @@
 # Splice — Engineering Playbook (start here)
 
+> **Current Splice routing:** all four Splice roles default to Qwen3 Coder 480B via Bedrock Converse in `models.json`. Claude-specific examples below describe the retained override path, not the default. Effort/caching apply only to Claude. See [the current milestone](../docs/STEP3_MILESTONE.md) for verified state.
+
+
 ## Current decompilation direction
 
 For native decompilation architecture, scope, concurrency, completion policy, and validation,
@@ -38,7 +41,7 @@ The user picks features from a **pantry** of desktop apps. **Step 1** drives **R
 **Step 2** turns that evidence into a **requirements spec**: numbered behaviours that cite source
 lines, a TypeScript interface, and acceptance tests. For JavaScript targets, those tests are
 **checked against the original code** through a small adapter, so the spec matches what the app
-actually does. **Step 3** has Claude implement a pure TypeScript engine that passes those tests,
+actually does. **Step 3** has the configured model implement a pure TypeScript engine that passes those tests,
 then generates a React UI around the **unchanged** engines. The UI runs live in Sandpack and can
 be refined by chat.
 
@@ -220,7 +223,7 @@ evidence drawer tabs (keep the card back only) → refine chat (keep auto-fix on
 - Every backend module ships with a CLI script under `packages/backend/src/scripts/` that runs it
   alone. "It works" means that script passes.
 - Pin exact versions with a committed `package-lock.json`. Never write `"latest"` anywhere (code or prompts).
-- Models are routed per role in root `models.json`. Splice roles are Claude on Bedrock: `spec_writer`, `engine_writer` and `ui_synthesizer` → Claude Opus 5.5, `refusal_fallback` → Claude Opus 4.8. Python-pipeline roles: `decomp_worker` → Nova Lite, `legal_verification` → Claude Opus 4.6. `models.json` `options` lists alternatives, including Qwen3 Coder 480B for OpenCode roles. Override a role with `MODEL_<ROLE>` env (e.g. `MODEL_SPEC_WRITER`); `OPENCODE_MODEL` remains the legacy default override. Do not hard-code model IDs; Python resolves via `model_config.py`, TS via `packages/backend/src/models.ts`, and all Claude calls go through `llm/llm.ts`.
+- Models are routed per role in root `models.json`. Splice roles (`spec_writer`, `engine_writer`, `ui_synthesizer`, `refusal_fallback`) default to Qwen3 Coder 480B through Bedrock Converse. Claude overrides remain supported through the Messages API. Non-Claude overrides require `splice_compatible: true`. Python roles remain unchanged. All Splice calls go through `llm/llm.ts`; never hard-code model IDs.
 
 ---
 

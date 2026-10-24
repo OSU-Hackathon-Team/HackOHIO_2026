@@ -1,5 +1,8 @@
 # 09 — Demo Runbook (whole team; owner: Eng 3)
 
+> **Current routing:** Splice defaults to Qwen3 Coder 480B via Bedrock Converse. Claude-specific SDK examples describe optional overrides. `llm.ts` preserves the caller interface and append-only repair history; Converse ignores effort/cache settings.
+
+
 ## 1. Measure first (fill in at CP2, H14)
 
 | Step (live) | Feature A: wiki graph | Feature B: SM-2 | Target |
@@ -101,7 +104,7 @@ Build a study app for a medical student: notes link to each other with [[wiki li
 | "Is this clean-room?" | "Not in the legal sense. It's spec-first: the code-writing step never sees the original source, and the spec is checked against the original's behaviour. A legal clean room needs separate teams and process." |
 | "How do you know the spec is right?" | "Every acceptance test runs against the original code through a thin adapter, and the sandbox counts calls into the original, so a test can't pass without exercising it." |
 | "What about compiled binaries?" | "REA supports native and .NET targets. Our live path is JavaScript because native decompilers on Windows are experimental, and an un-executable target gets marked 'unverified' rather than faked." (Show the stretch card if built.) |
-| "Which model?" | "Claude Opus 5.5 on Amazon Bedrock, with structured outputs. Each card records which model answered." |
+| "Which model?" | "Qwen3 Coder 480B on Amazon Bedrock Converse. Each card records the model that answered; development seeds are labeled separately." |
 | "What if it's wrong?" | "Then the card says so: amber 'unverified', with the open issues listed. We never show a green check we didn't earn." |
 | "Legal / IP concerns?" | "Only use it on software you have the right to analyze. Splice reconstructs behaviour from a spec; it doesn't copy code." |
 

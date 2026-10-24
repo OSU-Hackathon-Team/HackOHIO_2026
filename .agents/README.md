@@ -14,7 +14,7 @@ first, then whichever of the files below your task needs.
 
 | Track | Language | Status | Source of truth |
 |---|---|---|---|
-| **Splice app (Electron demo pipeline)** | TypeScript (`packages/`) | Scaffolded; step modules are stubs | `agents/` (README, CONTRACTS, step folders) |
+| **Splice app (Electron demo pipeline)** | TypeScript (`packages/`) | Step 3 backend + Studio core implemented; upstream integration pending | `agents/` (README, CONTRACTS, step folders) |
 | **Subsystem decompilation engine** (native binaries, 16+ parallel workers, behavioral dossiers) | Python (`launch.py`, `agent_worker.py`, `model_config.py`; planned `engine/`) | Planned; today only a Ghidra rename-attempt scaffold runs (Docker + Podman) | `DecompPileline.md` (architecture, wins for native work), then `DECOMP_IMPLEMENTATION_PLAN.md` (phases, acceptance gates) |
 
 They meet later: the TypeScript backend will consume the engine's job state and dossiers, after
@@ -29,10 +29,10 @@ The user picks features from a pantry of desktop apps. The pipeline then runs th
 
 1. **Step 1 · REA (Eng 1).** The `rea-agents` MCP server locates and traces the feature's code
    inside a packaged Electron `.asar`. Output: `RawEvidence`.
-2. **Step 2 · Requirements (Eng 2).** Claude (on **Amazon Bedrock**) writes a spec: numbered
+2. **Step 2 · Requirements (Eng 2).** The configured model (default Qwen on **Amazon Bedrock**) writes a spec: numbered
    requirements that cite source lines, a TS interface, and acceptance tests. The tests are run
    **against the original code** through an adapter in a sandbox. Output: `FeatureSpec`.
-3. **Step 3 · Implementation (Eng 3).** Claude writes a pure TS engine **from the spec only**
+3. **Step 3 · Implementation (Eng 3).** The configured model writes a pure TS engine **from the spec only**
    (it never sees the original source), and the same tests must pass. Then a React UI is
    generated around the locked engines and run in Sandpack. Output: `FeatureBlueprint`,
    `SynthesisBundle`. Eng 3 also owns the Studio frontend.
@@ -68,27 +68,21 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   truncated and has been restored from its spec).
 - **Step 3 backend (Eng 3, `feat/step3-backend`):** engine purity/conformance/implement loop,
   bundle assembly + validator + virtual `tsc`, synthesize, refine, routes and scripts are implemented
-  with 51 unit tests passing. Built against injected ports (`engine/ports.ts`). Valid
+  with 65 backend unit tests (61 baseline + 4 Qwen migration checks). Built against injected ports (`engine/ports.ts`). Valid
   `/api/implement|synthesize|refine` requests return **503** until Eng 1/2 helpers are wired in
   `routes/step3/deps.ts`. Log: `docs/archive/implementation_frontend/accomplishments.md`.
 - **Shared LLM client:** `llm/llm.ts` is implemented per `02_llm_client.md` (Bedrock Mantle for Claude,
-  plus a Converse path for `splice_compatible` non-Claude models). **Live on this account:** `engine_writer`
-  → Qwen3 Coder 480B works (`npm run test:llm -w @splice/backend -- engine_writer`). The Claude roles are
-  blocked by account access (see `gotchas.md`).
-- **Stubs:** every other file under `packages/backend/src/` (including the shared `sandbox/`,
-  `http/sse.ts`, `config.ts`, `evidence/`) and all of `packages/frontend/src/` (`export {};` plus
-  an owner/spec header). Nothing in the pipeline runs end to end yet.
+  plus a Converse path for `splice_compatible` non-Claude models). **Splice defaults:** all four roles use Qwen3 Coder 480B over Converse. All three primary role smoke tests returned 391 in 0.5–0.6 seconds on this account. Claude overrides remain available but account access is blocked (see `gotchas.md`).
+- **Studio core:** typed POST-SSE client, Zustand orchestration, development adapter, pantry, activity terminal, cards/X-Ray, evidence drawer, fusion, and Sandpack preview/code are implemented. Use `?mode=development` or `VITE_API_MODE=mock`. Authored `_seed` fixtures have real local engine checks and unrun original-code oracle; simulated activity is labeled development data. Refinement/auto-fix/export remain next milestone.
+- **Remaining stubs:** shared `sandbox/`, `http/sse.ts`, `config.ts`, `evidence/`, REA and extraction services. No live pipeline end to end yet; valid Step 3 requests still return 503 until `deps.ts` is wired.
 - **Decompilation engine:** planned (no `engine/` package yet). The runnable piece is the
   Ghidra rename-attempt scaffold (`python launch.py rename|batch` inside Docker).
-- **Not yet installed:** the per-step dependencies (Bedrock SDK, esbuild, `rea-agents`, zustand,
-  jszip, …). Each spec doc lists the ones it needs. (`@electron/asar` and the Step 3 type-check
-  deps are installed.)
+- **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
   `trace_application_feature` and `binary_session` (live probe; catalog and samples in `fixtures/rea/`),
   and Sandpack 2.20 error/file types.
 - **Not yet verified:** `trace_javascript_semantics` / `inspect_analysis_view` argument shapes
-  (`// VERIFY` in `rea/reaArgs.ts` spec), Bedrock region + model IDs + model access (no AWS
-  CLI was available to check), and live end-to-end timings.
+  (`// VERIFY` in `rea/reaArgs.ts` spec), live end-to-end timings, and production integration. Bedrock Qwen role smoke tests have passed in us-east-2; see `docs/STEP3_MILESTONE.md`.
 
 ## Non-negotiable rules
 
@@ -98,6 +92,6 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
 - Never fake evidence. Replay fixtures must be recordings of real runs, and replayed data must
   show `mode: "replay"` so the UI badges it.
 - Never hard-code model IDs or write `"latest"` versions. Models come from root `models.json`
-  (per role, `MODEL_<ROLE>` env overrides) via `packages/backend/src/models.ts`. All Claude calls
+  (per role, `MODEL_<ROLE>` env overrides) via `packages/backend/src/models.ts`. All Splice model calls
   go through `packages/backend/src/llm/llm.ts`.
 - Don't edit another step's files without saying so. Ownership is in `project-map.md`.

@@ -1,0 +1,66 @@
+# Qwen and core Studio milestone
+
+## What works
+
+All four Splice roles default to Qwen3 Coder 480B over Bedrock Converse. Python roles are unchanged.
+Claude overrides remain supported. A refusal can use one distinct fallback, even across APIs;
+the identical Qwen default is not called twice. Converse output is capped centrally at 16,384 tokens
+according to the [AWS model card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-coder-480b-a35b-instruct.html).
+
+The Studio implements pantry selection, parallel Harvest orchestration, activity logs, feature
+cards and X-Ray, an accessible evidence drawer, fusion, and Sandpack preview/code views. Passing
+engine verification is separate from specification verification. Unverified specs remain visible.
+Failed streams cannot mark a feature ready; cancellation ignores late responses. Failed fusion
+retains the previous working bundle. Generated engine files are read-only in the Studio.
+
+## Run and reproduce
+
+1. `npm ci`, then `npm run build:contracts`.
+2. `npm run seed:studio -w @splice/backend` regenerates the authored seeds and validates them.
+3. `npm run dev:frontend`; open `http://localhost:5173/?mode=development`.
+4. Select **Wiki-link graph & backlinks** and **SM-2 spaced repetition**, then **Harvest 2 features**.
+5. Inspect X-Ray and evidence; the original-code oracle is explicitly **Not run**.
+6. Fuse both engines. Review a card, add a note containing `[[Cardiology]]`, then switch Code → Preview.
+
+`VITE_API_MODE=mock` selects the same development adapter. This runs without a backend, but Sandpack
+and Tailwind CDN still require internet. Live mode is the default and never falls back silently.
+Development mode supports a fixed authored study room, not arbitrary prompt-driven generation.
+
+## Measured checks
+
+| Check | Observed result |
+|---|---|
+| Initial backend baseline | 61/61 tests; typecheck and production build passed |
+| Qwen migration unit checks | 14/14 LLM tests, including four new cases |
+| Live `spec_writer` smoke | Converse, answer 391, 0.5s |
+| Live `engine_writer` smoke | Converse, answer 391, 0.5s |
+| Live `ui_synthesizer` smoke | Converse, answer 391, 0.6s |
+| Development seed checks | Six local acceptance checks, zero purity/conformance errors; bundle validation passed |
+| Frontend regression suite | 10/10 tests, about 3.9s; split UTF-8/CRLF SSE, backend errors, incomplete streams, parallel features, cancellation, duplicate/stale work, failed fusion |
+| Headless Edge | 5/5 tests, 19.3s on the final visual check; 390px layout, modal focus/Escape, live 503 visibility, three consecutive Sandpack boots with engine interaction and preserved tab state |
+| Final backend suite | 65/65 tests, about 18.8s |
+| Production checks | Health/SPA/blueprints 200; unknown API 404; malformed implement 400; valid implement 503 |
+
+The seed checks use a small local VM harness for authored inputs, not the production sandbox.
+They establish only those checked cases. Fixtures are under `_seed`, carry replay mode plus
+development-specific labels, and have no invented REA calls, original source, or oracle successes. The authored example uses a few inline layout styles so the basic app remains usable if the Tailwind CDN is unavailable; model-generated UI still follows the documented Tailwind prompt.
+Their targets use real archive hashes as identifiers; no original behavior was checked.
+
+Run `npm run test:unit -w @splice/frontend`, `npm run test:unit -w @splice/backend`,
+`npm run typecheck`, `npm run build`, and `npm run test:studio` to reproduce the automated gates.
+Browser tests use installed Microsoft Edge on isolated port 5175, leaving port 5173 alone.
+
+## Still pending
+
+- Shared sandbox, SSE/configuration, record/replay and extraction helpers, followed by production
+  wiring in `routes/step3/deps.ts`. Valid Step 3 requests currently return 503.
+- The upstream health payload is still temporary; the Studio reports unknown status instead of
+  claiming REA or Bedrock readiness. Pantry loading errors are shown with retry.
+- Genuine extraction recordings, golden specs/blueprints, live synthesis quality and timings,
+  and full live Harvest → Fuse acceptance. Smoke arithmetic is not generation-quality evidence.
+- Refinement chat, automatic repair, ZIP export, additional development feature seeds, and component
+  isolation URLs remain later work. Existing backend refinement is retained.
+- Team approval of the existing `HealthResponse.models` contract addition remains outstanding.
+
+Existing hand-authored fixtures or historical journal rows are not recordings of live runs.
+User-authored PLAN.md and the frontend-guidelines move are preserved separately from this milestone.
