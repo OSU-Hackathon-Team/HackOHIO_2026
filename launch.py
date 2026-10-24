@@ -176,6 +176,8 @@ def main() -> None:
     dossier.add_argument("--inputs", type=Path, required=True,
                          help="JSON arrays: draft_artifacts, review_artifacts, probe_report_artifacts")
     dossier.add_argument("--state", type=Path, default=ENGINE_STATE)
+    dossier.add_argument("--dsn", default=os.environ.get("DECOMP_DATABASE_URL"),
+                         help="PostgreSQL DSN for a current helper-contract snapshot")
     status = sub.add_parser("status", help="show persisted decomp campaign progress")
     status.add_argument("--state", type=Path, default=ENGINE_STATE)
     status.add_argument("--campaign", help="limit output to one campaign hash")
@@ -324,11 +326,21 @@ def main() -> None:
             "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
         manifest = json.loads(args.manifest.read_text())
         inputs = json.loads(args.inputs.read_text())
+        contract_snapshot = None
+        if args.dsn:
+            from engine.artifacts import LocalArtifactStore
+            from engine.queue import DurableQueue
+
+            contract_snapshot = DurableQueue(
+                args.dsn, LocalArtifactStore(args.state / "artifacts")
+            ).contract_snapshot(manifest["campaign"])
         result = persist_dossier(engine, manifest, args.scope_artifact,
                                  inputs.get("draft_artifacts", []),
                                  inputs.get("review_artifacts", []),
                                  inputs.get("probe_report_artifacts", []),
-                                 inputs.get("probe_link_artifacts", []))
+                                 inputs.get("probe_link_artifacts", []),
+                                 inputs.get("dependency_resolution_artifacts", []),
+                                 contract_snapshot)
         print(json.dumps({"revision": result["revision"],
                           "artifact": result["artifact"],
                           "markdown_artifact": result["markdown_artifact"],

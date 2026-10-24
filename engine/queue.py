@@ -532,6 +532,19 @@ class DurableQueue:
                 return None
             return {**row, "id": str(row["id"])}
 
+    def contract_snapshot(self, campaign: str) -> dict:
+        with self._connect() as conn:
+            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            heads = conn.execute("SELECT contract_key, version, artifact, state "
+                                 "FROM decomp_contract_heads WHERE campaign_id = %s "
+                                 "ORDER BY contract_key", (campaign,)).fetchall()
+            cursor = conn.execute("SELECT coalesce(max(id), 0) AS id FROM decomp_outbox "
+                                  "WHERE campaign_id = %s", (campaign,)).fetchone()["id"]
+            return {"campaign": campaign, "event_cursor": cursor,
+                    "heads": {row["contract_key"]: {"version": row["version"],
+                                                   "artifact": row["artifact"],
+                                                   "state": row["state"]} for row in heads}}
+
     def reassess(self, task_id: str, reason: str) -> bool:
         if not reason.strip():
             raise ValueError("reassessment reason is required")

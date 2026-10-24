@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import uuid
 
 import psycopg
@@ -14,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from engine.artifacts import LocalArtifactStore  # noqa: E402
+from engine.dossier import assemble  # noqa: E402
 from engine.findings import FindingsStore  # noqa: E402
 from engine.queue import DurableQueue  # noqa: E402
 
@@ -52,7 +54,12 @@ def main() -> None:
                           "deduplication_key": f"{position:064x}",
                           "index_artifact": index}
                          for position, (name, address, statement) in enumerate(entries)]
-                scope = {"campaign": campaign, "scope_id": "s" * 64, "tasks": tasks}
+                scope = {"campaign": campaign, "scope_id": "s" * 64, "revision": 1,
+                         "tasks": tasks, "included": [{"entry": "00100030",
+                                                      "name": "dependent"}],
+                         "unresolved": [], "boundaries": [],
+                         "request": {"query": "dependent", "mode": "subsystem",
+                                     "seeds": ["dependent"], "expected_observables": []}}
                 scope_artifact = put(store, scope)
                 assert len(queue.enqueue_scope(scope_artifact)) == len(entries)
 
@@ -150,6 +157,25 @@ def main() -> None:
                 else:
                     raise AssertionError("dependent accepted pins were changed")
                 dependent_finding = findings.publish_claims(dependent, {0: "return_value"})[0]
+                dependent_task = queue.task(dependent)
+                dossier = assemble(SimpleNamespace(store=store),
+                                   {"campaign": campaign, "binary_sha256": "b" * 64},
+                                   scope_artifact, [dependent_task["result_artifact"]],
+                                   [dependent_task["review_artifact"]], [], [],
+                                   [dependent_task["dependency_resolution_artifact"]],
+                                   queue.contract_snapshot(campaign))
+                assert dossier["coverage"]["reviewed_dependency_contracts"] == 1
+                assert dossier["coverage"]["current_dependency_contracts"] == 1
+                assert not any(item["kind"] == "dependency_contracts_need_review"
+                               for item in dossier["blockers"])
+                offline_dossier = assemble(
+                    SimpleNamespace(store=store),
+                    {"campaign": campaign, "binary_sha256": "b" * 64},
+                    scope_artifact, [dependent_task["result_artifact"]],
+                    [dependent_task["review_artifact"]], [], [],
+                    [dependent_task["dependency_resolution_artifact"]])
+                assert any(item["kind"] == "dependency_contract_heads_unchecked"
+                           for item in offline_dossier["blockers"])
                 unrelated = complete(3)
                 unrelated_finding = findings.publish_claims(unrelated, {0: "return_value"})[0]
                 helper2 = complete(4)
@@ -171,6 +197,16 @@ def main() -> None:
                 by_id = {item["id"]: item for item in inventory["findings"]}
                 assert by_id[consumer_finding["finding_id"]]["state"] == "stale"
                 assert by_id[dependent_finding["finding_id"]]["state"] == "stale"
+                stale_dossier = assemble(
+                    SimpleNamespace(store=store),
+                    {"campaign": campaign, "binary_sha256": "b" * 64},
+                    scope_artifact, [dependent_task["result_artifact"]],
+                    [dependent_task["review_artifact"]], [], [],
+                    [dependent_task["dependency_resolution_artifact"]],
+                    queue.contract_snapshot(campaign))
+                assert stale_dossier["coverage"]["current_dependency_contracts"] == 0
+                assert any(item["kind"] == "dependency_contract_heads_stale"
+                           for item in stale_dossier["blockers"])
                 assert by_id[unrelated_finding["finding_id"]]["state"] == "active"
                 assert inventory["contract_heads"][0]["state"] == "disputed"
                 try:

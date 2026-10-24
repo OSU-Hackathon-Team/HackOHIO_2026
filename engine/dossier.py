@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 
 from engine.analysis.ghidra import GhidraAnalysis
+from engine.validation.dependencies import validate_dependency_review
 
 
 def canonical(value: object) -> bytes:
@@ -42,10 +43,14 @@ def _pointer(value: object, path: str) -> object:
 def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
              draft_artifacts: list[str], review_artifacts: list[str],
              probe_report_artifacts: list[str],
-             probe_link_artifacts: list[str] = ()) -> dict:
+             probe_link_artifacts: list[str] = (),
+             dependency_resolution_artifacts: list[str] = (),
+             contract_snapshot: dict | None = None) -> dict:
     scope = json.loads(engine.store.get(scope_artifact))
     if scope["campaign"] != manifest["campaign"]:
         raise ValueError("scope and manifest campaign differ")
+    if contract_snapshot is not None and contract_snapshot.get("campaign") != manifest["campaign"]:
+        raise ValueError("contract snapshot and manifest campaign differ")
     included = {item["entry"] for item in scope["included"]}
     drafts = {}
     for artifact in draft_artifacts:
@@ -61,6 +66,54 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
         if review["draft_artifact"] not in drafts or review["state"] != "reviewed":
             raise ValueError(f"review {artifact} does not cover a provided draft")
         reviews.setdefault(review["draft_artifact"], []).append((artifact, review))
+    resolutions = {}
+    for artifact in dependency_resolution_artifacts:
+        resolution = json.loads(engine.store.get(artifact))
+        draft_artifact = resolution.get("draft_artifact")
+        draft = drafts.get(draft_artifact)
+        if (resolution.get("schema") != 1 or
+                resolution.get("campaign") != manifest["campaign"] or
+                draft is None or
+                resolution.get("claim_review_artifact") not in review_artifacts or
+                draft_artifact in resolutions):
+            raise ValueError(f"dependency resolution {artifact} does not cover a provided draft")
+        dependency_claims = draft["answer"]["dependencies"]
+        review_ids = resolution.get("dependency_reviews")
+        if not isinstance(review_ids, list) or len(review_ids) != len(dependency_claims):
+            raise ValueError(f"dependency resolution {artifact} has missing reviews")
+        caller = json.loads(engine.store.get(draft["evidence_artifact"]))
+        pins = {}
+        reviewed = []
+        for index, review_id in enumerate(review_ids):
+            review = json.loads(engine.store.get(review_id))
+            dependency = dependency_claims[index]
+            contract = json.loads(engine.store.get(review["contract_artifact"]))
+            callee = json.loads(engine.store.get(contract["evidence_artifact"]))
+            key = dependency["target"]
+            version = review.get("contract_version")
+            if (review.get("state") != "reviewed" or
+                    review.get("structural_errors") != [] or
+                    review.get("campaign") != manifest["campaign"] or
+                    review.get("draft_artifact") != draft_artifact or
+                    review.get("dependency_index") != index or
+                    review.get("target") != key or
+                    review.get("contract_key") != key or
+                    review.get("caller_evidence_artifact") != draft["evidence_artifact"] or
+                    review.get("callee_evidence_artifact") != contract["evidence_artifact"] or
+                    contract.get("campaign") != manifest["campaign"] or
+                    contract.get("contract_key") != key or
+                    review.get("answer", {}).get("outcome") != "supported_static" or
+                    validate_dependency_review(review["answer"], caller, callee) or
+                    not isinstance(version, int) or version < 1 or
+                    (key in pins and pins[key] != version)):
+                raise ValueError(f"dependency review {review_id} does not support {key}")
+            pins[key] = version
+            reviewed.append({"artifact": review_id, "version": version,
+                             "contract_artifact": review["contract_artifact"],
+                             "reason": review["answer"]["reason"]})
+        if pins != resolution.get("dependency_versions"):
+            raise ValueError(f"dependency resolution {artifact} has inconsistent pins")
+        resolutions[draft_artifact] = (artifact, reviewed)
     probes = []
     probe_by_key = {}
     for artifact in probe_report_artifacts:
@@ -110,14 +163,27 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                            "review_state": _claim_state(claim_reviews),
                            "reviews": claim_reviews,
                            "execution_state": "unmapped"})
-        for dependency in answer["dependencies"]:
+        for index, dependency in enumerate(answer["dependencies"]):
+            resolution = resolutions.get(artifact)
+            review = resolution[1][index] if resolution else None
+            head = ((contract_snapshot.get("heads", {}).get(dependency["target"])
+                     if contract_snapshot is not None else None) if review else None)
+            current = (head is not None and head.get("state") == "active" and
+                       head.get("version") == review["version"] and
+                       head.get("artifact") == review["contract_artifact"]) if review else False
             dependencies.append({"subject": subject, "target": dependency["target"],
                                  "contract": dependency["contract"],
                                  "evidence": [{"artifact": draft["evidence_artifact"],
                                                "address": address}
                                               for address in dependency.get("evidence_addresses", [])],
                                  "assumptions": dependency.get("assumptions", []),
-                                 "review_state": "unreviewed"})
+                                 "review_state": "supported_static" if review else "unreviewed",
+                                 "resolution_artifact": resolution[0] if resolution else None,
+                                 "review_artifact": review["artifact"] if review else None,
+                                 "contract_version": review["version"] if review else None,
+                                 "contract_artifact": review["contract_artifact"] if review else None,
+                                 "current_at_snapshot": current if contract_snapshot is not None
+                                 and review else None})
     claim_by_key = {(item["draft_artifact"], item["claim_index"]): item
                     for item in claims}
     seen_links = set()
@@ -167,9 +233,22 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
             blockers.append({"kind": "claim_needs_resolution", "subject": claim["subject"],
                              "claim_index": claim["claim_index"],
                              "review_state": claim["review_state"]})
-    if dependencies:
+    unreviewed_dependencies = [item for item in dependencies
+                               if item["review_state"] != "supported_static"]
+    if unreviewed_dependencies:
         blockers.append({"kind": "dependency_contracts_need_review",
-                         "count": len(dependencies)})
+                         "count": len(unreviewed_dependencies)})
+    unchecked_dependencies = [item for item in dependencies
+                              if item["review_state"] == "supported_static" and
+                              item["current_at_snapshot"] is None]
+    if unchecked_dependencies:
+        blockers.append({"kind": "dependency_contract_heads_unchecked",
+                         "count": len(unchecked_dependencies)})
+    stale_dependencies = [item for item in dependencies
+                          if item["current_at_snapshot"] is False]
+    if stale_dependencies:
+        blockers.append({"kind": "dependency_contract_heads_stale",
+                         "targets": sorted({item["target"] for item in stale_dependencies})})
     uncited_dependencies = [item["target"] for item in dependencies if not item["evidence"]]
     if uncited_dependencies:
         blockers.append({"kind": "dependency_contracts_missing_citations",
@@ -192,6 +271,8 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
               "review_artifacts": sorted(review_artifacts),
               "probe_report_artifacts": sorted(probe_report_artifacts),
               "probe_link_artifacts": sorted(probe_link_artifacts),
+              "dependency_resolution_artifacts": sorted(dependency_resolution_artifacts),
+              "contract_snapshot": contract_snapshot,
               "functions": sorted(function_summaries, key=lambda item: item["subject"]),
               "claims": claims, "dependency_contracts": dependencies,
               "probes": probes, "blockers": blockers,
@@ -200,6 +281,10 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                            "claims": len(claims),
                            "static_supported_claims": sum(
                                claim["review_state"] == "supported_static" for claim in claims),
+                           "reviewed_dependency_contracts": len(dependencies) -
+                               len(unreviewed_dependencies),
+                           "current_dependency_contracts": sum(
+                               item["current_at_snapshot"] is True for item in dependencies),
                            "claims_with_case_agreement": sum(
                                claim["execution_state"] == "case_agreement" for claim in claims),
                            "claims_with_case_disagreement": len(disagreements),
@@ -270,6 +355,13 @@ def render_markdown(dossier: dict) -> str:
                          for ref in dependency["evidence"]) or "no citation"
         lines.append(f"- `{dependency['subject']}` → {dependency['target']}: "
                      f"{dependency['contract']} ({dependency['review_state']}; {refs})")
+        if dependency["review_artifact"]:
+            lines.append(f"  - Reviewed against contract v{dependency['contract_version']} "
+                         f"(`{dependency['contract_artifact']}`); review "
+                         f"`{dependency['review_artifact']}`; resolution "
+                         f"`{dependency['resolution_artifact']}`")
+            lines.append(f"  - Current at recorded head snapshot: "
+                         f"{dependency['current_at_snapshot']}")
     lines += ["", "## Original-execution probes", ""]
     for probe in dossier["probes"]:
         lines.append(f"- **{probe['outcome']}** · {probe['case_id']} · "
@@ -287,9 +379,12 @@ def render_markdown(dossier: dict) -> str:
 def persist_dossier(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                     draft_artifacts: list[str], review_artifacts: list[str],
                     probe_report_artifacts: list[str],
-                    probe_link_artifacts: list[str] = ()) -> dict:
+                    probe_link_artifacts: list[str] = (),
+                    dependency_resolution_artifacts: list[str] = (),
+                    contract_snapshot: dict | None = None) -> dict:
     record = assemble(engine, manifest, scope_artifact, draft_artifacts,
-                      review_artifacts, probe_report_artifacts, probe_link_artifacts)
+                      review_artifacts, probe_report_artifacts, probe_link_artifacts,
+                      dependency_resolution_artifacts, contract_snapshot)
     scope_id = record["scope_id"]
     folder = engine.root / "dossiers" / scope_id
     folder.mkdir(parents=True, exist_ok=True)
