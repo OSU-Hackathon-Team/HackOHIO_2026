@@ -266,7 +266,10 @@ def main() -> None:
             command.add_argument("--dependency-versions", type=Path,
                                  help="JSON mapping of contract key to pinned version")
         if name == "queue-publish-contract":
-            command.add_argument("--claim-index", type=int, required=True)
+            claims = command.add_mutually_exclusive_group(required=True)
+            claims.add_argument("--claim-index", type=int)
+            claims.add_argument("--claim-indices",
+                                help="comma-separated reviewed claim indices")
             command.add_argument("--contract-key", required=True)
             command.add_argument("--expected-version", type=int, required=True)
         if name == "queue-run-one":
@@ -569,9 +572,19 @@ def main() -> None:
                                                  {int(key): value for key, value in slots.items()},
                                                  dependency_versions=pins)
             else:
-                result = findings.publish_contract(args.task_id, args.claim_index,
-                                                   args.contract_key,
-                                                   expected_version=args.expected_version)
+                if args.claim_indices is not None:
+                    try:
+                        indices = [int(value.strip()) for value in
+                                   args.claim_indices.split(",")]
+                    except ValueError:
+                        parser.error("--claim-indices needs comma-separated integers")
+                    result = findings.publish_contract_set(
+                        args.task_id, indices, args.contract_key,
+                        expected_version=args.expected_version)
+                else:
+                    result = findings.publish_contract(args.task_id, args.claim_index,
+                                                       args.contract_key,
+                                                       expected_version=args.expected_version)
         print(json.dumps(result, indent=2))
     elif args.command == "status":
         events_path = args.state / "progress.jsonl"

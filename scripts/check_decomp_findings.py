@@ -47,6 +47,8 @@ def main() -> None:
                     ("unrelated", "00100020", "unrelated returns three"),
                     ("helper_revision", "00100000", "helper returns one"),
                     ("helper_conflict", "00100000", "helper returns two"),
+                    ("multi_helper", "00100040", "first effect"),
+                    ("multi_helper_conflict", "00100040", "second effect differs"),
                 ]
                 tasks = [{"kind": "behavior", "subject": address,
                           "question": f"Explain {name}: {statement}",
@@ -63,8 +65,10 @@ def main() -> None:
                 scope_artifact = put(store, scope)
                 assert len(queue.enqueue_scope(scope_artifact)) == len(entries)
 
-                def complete(position: int, dependencies: list | None = None) -> str:
+                def complete(position: int, dependencies: list | None = None,
+                             statements: list[str] | None = None) -> str:
                     name, address, statement = entries[position]
+                    statements = statements or [statement]
                     lease = queue.lease(name, campaign=campaign)
                     assert lease and lease["subject"] == address
                     evidence_artifact = put(store, {"entry": address,
@@ -72,9 +76,10 @@ def main() -> None:
                     answer = {"inputs": "No explicit parameters", "outputs": statement,
                               "state": "No observed state", "side_effects": "None observed",
                               "errors": "No observed error path", "pseudocode": "return value",
-                              "claims": [{"statement": statement,
+                              "claims": [{"statement": item,
                                           "evidence_addresses": [address],
-                                          "assumptions": [], "alternatives": []}],
+                                          "assumptions": [], "alternatives": []}
+                                         for item in statements],
                               "dependencies": dependencies or [], "unknowns": [],
                               "evidence_requests": []}
                     draft = {"state": "unreviewed", "structural_errors": [],
@@ -92,12 +97,13 @@ def main() -> None:
                               "draft_artifact": draft_artifact,
                               "evidence_artifact": evidence_artifact,
                               "campaign": campaign, "subject": address,
-                              "answer": {"reviews": [{"claim_index": 0,
+                              "answer": {"reviews": [{"claim_index": index,
                                                        "outcome": "supported_static",
                                                        "reason": "synthetic queue finding check",
-                                                       "evidence_addresses": [address]}],
+                                                       "evidence_addresses": [address]}
+                                                      for index in range(len(statements))],
                                          "missing_behavior": [], "unresolved": []},
-                              "outcomes": {"supported_static": 1}}
+                              "outcomes": {"supported_static": len(statements)}}
                     outcome = queue.publish_review(lease["task_id"], put(store, review))
                     assert outcome == ("needs_reconciliation" if dependencies else "accepted")
                     return lease["task_id"]
@@ -218,10 +224,23 @@ def main() -> None:
                     raise AssertionError("disputed contract was used for publication")
                 assert len([item for item in inventory["conflicts"]
                             if item["state"] == "open"]) == 2
-                print(json.dumps({"findings": len(inventory["findings"]),
-                                  "open_conflicts": len(inventory["conflicts"]),
+                multi = complete(6, statements=["first effect", "second effect"])
+                findings.publish_claims(multi, {0: "first_effect", 1: "second_effect"})
+                multi_contract = findings.publish_contract_set(
+                    multi, [0, 1], "multi_helper", expected_version=0)
+                multi_content = json.loads(store.get(multi_contract["artifact"]))
+                assert multi_content["claim_indices"] == [0, 1]
+                assert len(multi_content["claims"]) == 2
+                rival = complete(7)
+                findings.publish_claims(rival, {0: "second_effect"})
+                final_inventory = findings.inventory(campaign)
+                assert next(head for head in final_inventory["contract_heads"]
+                            if head["contract_key"] == "multi_helper")["state"] == "disputed"
+                print(json.dumps({"findings": len(final_inventory["findings"]),
+                                  "open_conflicts": len(final_inventory["conflicts"]),
                                   "contract_version": version2["version"],
                                   "contract_state": "disputed",
+                                  "multi_claim_contract_disputed": True,
                                   "dependent_state": "stale",
                                   "unrelated_state": "active"}, indent=2))
         finally:

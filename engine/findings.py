@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import uuid
 
+from psycopg.types.json import Jsonb
+
 from engine.queue import DurableQueue
 
 
@@ -59,23 +61,35 @@ class FindingsStore:
 
     def publish_contract(self, task_id: str, claim_index: int, contract_key: str,
                          *, expected_version: int) -> dict:
+        return self.publish_contract_set(task_id, [claim_index], contract_key,
+                                         expected_version=expected_version)
+
+    def publish_contract_set(self, task_id: str, claim_indices: list[int],
+                             contract_key: str, *, expected_version: int) -> dict:
         if not contract_key.strip() or expected_version < 0:
             raise ValueError("contract key and expected version required")
         task, draft, review = self._accepted_source(task_id)
         claims = draft["answer"]["claims"]
-        if claim_index < 0 or claim_index >= len(claims):
-            raise ValueError("claim index outside reviewed draft")
-        if not any(item["claim_index"] == claim_index and
-                   item["outcome"] == "supported_static"
-                   for item in review["answer"]["reviews"]):
-            raise ValueError("contract source claim lacks static support")
-        claim = claims[claim_index]
+        indices = sorted(set(claim_indices))
+        if (not indices or len(indices) != len(claim_indices) or
+                any(not isinstance(index, int) or index < 0 or index >= len(claims)
+                    for index in indices)):
+            raise ValueError("contract needs distinct reviewed claim indices")
+        supported = {item["claim_index"] for item in review["answer"]["reviews"]
+                     if item["outcome"] == "supported_static"}
+        if not set(indices) <= supported:
+            raise ValueError("contract source claims lack static support")
+        included = [{"claim_index": index, "statement": claims[index]["statement"],
+                     "evidence_addresses": claims[index]["evidence_addresses"]}
+                    for index in indices]
         content = {"schema": 1, "campaign": task["campaign_id"],
                    "contract_key": contract_key, "source_task_id": str(task["id"]),
-                   "subject": task["subject"], "claim_index": claim_index,
-                   "statement": claim["statement"],
+                   "subject": task["subject"], "claim_index": indices[0],
+                   "claim_indices": indices, "claims": included,
+                   "statement": "; ".join(item["statement"] for item in included),
                    "evidence_artifact": draft["evidence_artifact"],
-                   "evidence_addresses": claim["evidence_addresses"],
+                   "evidence_addresses": sorted({address for item in included
+                                                 for address in item["evidence_addresses"]}),
                    "draft_artifact": task["result_artifact"],
                    "review_artifact": task["review_artifact"],
                    "dependency_resolution_artifact": task["dependency_resolution_artifact"],
@@ -90,17 +104,21 @@ class FindingsStore:
                     current["result_artifact"] != task["result_artifact"] or
                     current["review_artifact"] != task["review_artifact"]):
                 raise ValueError("source task changed before contract publication")
-            source = conn.execute("SELECT id, semantic_slot, state "
-                                  "FROM decomp_findings WHERE task_id = %s AND claim_index = %s",
-                                  (task_id, claim_index)).fetchone()
-            if source is None:
-                raise ValueError("publish the source finding before its contract")
-            conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-                         (f"{campaign}:{task['subject']}:{source['semantic_slot']}",))
-            source = conn.execute("SELECT state FROM decomp_findings WHERE id = %s FOR UPDATE",
-                                  (source["id"],)).fetchone()
-            if source["state"] != "active":
-                raise ValueError("contract source finding is disputed or stale")
+            sources = conn.execute("SELECT id, claim_index, semantic_slot, state "
+                                   "FROM decomp_findings WHERE task_id = %s "
+                                   "AND claim_index = ANY(%s)",
+                                   (task_id, indices)).fetchall()
+            if len(sources) != len(indices):
+                raise ValueError("publish all source findings before their contract")
+            for slot in sorted(source["semantic_slot"] for source in sources):
+                conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                             (f"{campaign}:{task['subject']}:{slot}",))
+            for source in sorted(sources, key=lambda item: item["claim_index"]):
+                current_source = conn.execute(
+                    "SELECT state FROM decomp_findings WHERE id = %s FOR UPDATE",
+                    (source["id"],)).fetchone()
+                if current_source["state"] != "active":
+                    raise ValueError("contract source finding is disputed or stale")
             conn.execute("INSERT INTO decomp_contract_heads (campaign_id, contract_key) "
                          "VALUES (%s, %s) ON CONFLICT DO NOTHING", (campaign, contract_key))
             head = conn.execute("SELECT * FROM decomp_contract_heads "
@@ -115,9 +133,11 @@ class FindingsStore:
                 raise ValueError("contract version changed before publication")
             version = head["version"] + 1
             conn.execute("INSERT INTO decomp_contract_versions "
-                         "(campaign_id, contract_key, version, artifact, source_task_id, claim_index) "
-                         "VALUES (%s,%s,%s,%s,%s,%s)",
-                         (campaign, contract_key, version, artifact, task_id, claim_index))
+                         "(campaign_id, contract_key, version, artifact, source_task_id, "
+                         "claim_index, claim_indices) "
+                         "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                         (campaign, contract_key, version, artifact, task_id,
+                          indices[0], Jsonb(indices)))
             conn.execute("UPDATE decomp_contract_heads SET version = %s, artifact = %s, "
                          "state = 'active', "
                          "updated_at = now() WHERE campaign_id = %s AND contract_key = %s",
@@ -126,7 +146,8 @@ class FindingsStore:
                 conn, campaign, contract_key, version - 1, "contract_revised")
             self.queue._event(conn, campaign, "contract_published",
                               {"contract_key": contract_key, "version": version,
-                               "artifact": artifact, "invalidated": invalidated})
+                               "artifact": artifact, "claim_indices": indices,
+                               "invalidated": invalidated})
             return {"artifact": artifact, "version": version,
                     "invalidated": invalidated, "duplicate": False}
 
@@ -240,8 +261,9 @@ class FindingsStore:
                             "JOIN decomp_contract_versions v ON v.campaign_id = h.campaign_id "
                             "AND v.contract_key = h.contract_key AND v.version = h.version "
                             "WHERE h.campaign_id = %s AND h.state = 'active' "
-                            "AND v.source_task_id = %s AND v.claim_index = %s FOR UPDATE OF h",
-                            (campaign, source_task, source_index)).fetchall()
+                            "AND v.source_task_id = %s AND v.claim_indices @> %s "
+                            "FOR UPDATE OF h",
+                            (campaign, source_task, Jsonb([source_index]))).fetchall()
                         for head in heads:
                             conn.execute("UPDATE decomp_contract_heads SET state = 'disputed', "
                                          "updated_at = now() WHERE campaign_id = %s "
