@@ -49,6 +49,41 @@ def uncovered_direct_calls(dependencies: list[dict], caller: dict,
     return uncovered
 
 
+def repair_dependency_citations(dependencies: list[dict], caller: dict,
+                                scope: dict) -> tuple[list[dict], list[dict], list[str]]:
+    """Rebind declared helper names using only unique scoped entry and call evidence."""
+    entries: dict[str, set[str]] = {}
+    for item in scope.get("included", []) + scope.get("boundaries", []):
+        entries.setdefault(item["name"], set()).add(item["entry"])
+    calls: dict[str, list[str]] = {}
+    for ref in caller.get("references", []):
+        if "CALL" in ref.get("type", "") and not ref.get("external"):
+            calls.setdefault(ref["to"], []).append(ref["from"])
+    call_sites = {site for sites in calls.values() for site in sites}
+    repaired = json.loads(json.dumps(dependencies))
+    changes = []
+    errors = []
+    for index, item in enumerate(repaired):
+        name = item["target"]
+        targets = entries.get(name, set())
+        if len(targets) != 1:
+            errors.append(f"dependency {index} target {name} is absent or ambiguous in scope")
+            continue
+        sites = sorted(set(calls.get(next(iter(targets)), [])))
+        if not sites:
+            errors.append(f"dependency {index} target {name} has no direct call")
+            continue
+        old = item["evidence_addresses"]
+        new = sorted(set(sites) | {address for address in old
+                                   if address not in call_sites})
+        if new == old:
+            continue
+        item["evidence_addresses"] = new
+        changes.append({"dependency_index": index, "target": name,
+                        "old_addresses": old, "new_addresses": new})
+    return repaired, changes, errors
+
+
 def validate_dependency_review(answer: dict, caller: dict, callee: dict) -> list[str]:
     if not isinstance(answer, dict):
         return ["dependency review answer must be an object"]

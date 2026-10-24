@@ -52,6 +52,7 @@ def main() -> None:
                     ("multi_helper", "00100040", "first effect"),
                     ("multi_helper_conflict", "00100040", "second effect differs"),
                     ("unbound_caller", "00100050", "calls helper without a dependency"),
+                    ("misbound_caller", "00100060", "cites the wrong direct call"),
                 ]
                 tasks = [{"kind": "behavior", "subject": address,
                           "question": f"Explain {name}: {statement}",
@@ -62,7 +63,9 @@ def main() -> None:
                 scope = {"campaign": campaign, "scope_id": "s" * 64, "revision": 1,
                          "tasks": tasks, "included": [{"entry": "00100030",
                                                       "name": "dependent"}],
-                         "unresolved": [], "boundaries": [],
+                         "unresolved": [], "boundaries": [{"entry": "00100000",
+                                                            "name": "helper",
+                                                            "contract": "returns one"}],
                          "request": {"query": "dependent", "mode": "subsystem",
                                      "seeds": ["dependent"], "expected_observables": []}}
                 scope_artifact = put(store, scope)
@@ -78,6 +81,12 @@ def main() -> None:
                     references = ([{"from": address, "to": "00100000",
                                     "type": "UNCONDITIONAL_CALL", "external": False}]
                                   if position in (2, 8) else [])
+                    if position == 9:
+                        references = [
+                            {"from": "00100060", "to": "00100020",
+                             "type": "UNCONDITIONAL_CALL", "external": False},
+                            {"from": "00100061", "to": "00100000",
+                             "type": "UNCONDITIONAL_CALL", "external": False}]
                     evidence_artifact = put(store, {"entry": address,
                                                     "instructions": [],
                                                     "references": references})
@@ -261,6 +270,16 @@ def main() -> None:
                             if head["contract_key"] == "multi_helper")["state"] == "disputed"
                 unbound = complete(8, expected_state="needs_reconciliation")
                 assert queue.task(unbound)["terminal_reason"] == "direct_calls_unbound"
+                misbound = complete(9, [{"target": "helper", "contract": "returns one",
+                                         "evidence_addresses": ["00100060"],
+                                         "assumptions": []}])
+                repaired = queue.repair_dependency_citations(misbound)
+                assert repaired["state"] == "validated"
+                assert repaired["remaining_unbound_calls"] == 1
+                repaired_draft = json.loads(store.get(repaired["result_artifact"]))
+                assert repaired_draft["answer"]["dependencies"][0][
+                    "evidence_addresses"] == ["00100061"]
+                assert queue.repair_dependency_citations(misbound)["state"] == "invalid"
                 print(json.dumps({"findings": len(final_inventory["findings"]),
                                   "open_conflicts": len(final_inventory["conflicts"]),
                                   "contract_version": version2["version"],

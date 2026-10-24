@@ -1001,6 +1001,79 @@ class DurableQueue:
                 "result_artifact": artifact,
                 "reclassified_count": len(dependencies)}
 
+    def repair_dependency_citations(self, task_id: str) -> dict:
+        from engine.validation.dependencies import (repair_dependency_citations,
+                                                    uncovered_direct_calls)
+
+        with self._connect() as conn:
+            task = conn.execute("SELECT * FROM decomp_tasks WHERE id = %s",
+                                (task_id,)).fetchone()
+        if (task is None or task["state"] != "needs_reconciliation" or
+                not task["review_artifact"] or
+                task["dependency_citation_repair_count"] >= 1):
+            return {"state": "invalid"}
+        source_artifact = task["result_artifact"]
+        draft = json.loads(self.store.get(source_artifact))
+        caller = json.loads(self.store.get(draft["evidence_artifact"]))
+        scope = json.loads(self.store.get(task["scope_artifact"]))
+        dependencies, changes, errors = repair_dependency_citations(
+            draft["answer"]["dependencies"], caller, scope)
+        if errors:
+            return {"state": "blocked", "errors": errors}
+        if not changes:
+            return {"state": "unchanged"}
+        answer = json.loads(json.dumps(draft["answer"]))
+        answer["dependencies"] = dependencies
+        if validate_answer(answer, caller):
+            return {"state": "invalid"}
+        candidate = {**draft, "answer": answer, "state": "unreviewed",
+                     "structural_errors": [],
+                     "dependency_citation_repair_of": source_artifact,
+                     "source_review_artifact": task["review_artifact"],
+                     "dependency_citation_changes": changes}
+        artifact = self.store.put(json.dumps(candidate, sort_keys=True).encode())
+        remaining = uncovered_direct_calls(dependencies, caller, scope)
+        with self._connect() as conn:
+            current = conn.execute("SELECT * FROM decomp_tasks WHERE id = %s FOR UPDATE",
+                                   (task_id,)).fetchone()
+            if (current["state"] != "needs_reconciliation" or
+                    current["result_artifact"] != source_artifact or
+                    current["review_artifact"] != task["review_artifact"] or
+                    current["dependency_citation_repair_count"] >= 1):
+                return {"state": "stale"}
+            if conn.execute("SELECT 1 FROM decomp_findings WHERE task_id = %s LIMIT 1",
+                            (task_id,)).fetchone():
+                return {"state": "blocked", "reason": "published findings need invalidation"}
+            job = conn.execute("SELECT state FROM decomp_review_jobs WHERE task_id = %s "
+                               "FOR UPDATE", (task_id,)).fetchone()
+            if job is None or job["state"] != "completed":
+                return {"state": "blocked", "reason": "prior review job is not completed"}
+            inserted = conn.execute(
+                "INSERT INTO decomp_dependency_citation_repairs "
+                "(task_id, source_draft_artifact, source_review_artifact, "
+                "repaired_draft_artifact) VALUES (%s,%s,%s,%s) "
+                "ON CONFLICT DO NOTHING RETURNING task_id",
+                (task_id, source_artifact, task["review_artifact"], artifact)).fetchone()
+            if not inserted:
+                return {"state": "stale"}
+            conn.execute("UPDATE decomp_tasks SET state = 'validated', "
+                         "result_artifact = %s, review_artifact = NULL, "
+                         "support_level = 'none', terminal_reason = NULL, "
+                         "dependency_citation_repair_count = 1, "
+                         "updated_at = now() WHERE id = %s", (artifact, task_id))
+            conn.execute("UPDATE decomp_review_jobs SET state = 'queued', "
+                         "attempts_count = 0, review_artifact = NULL, "
+                         "terminal_reason = NULL, available_at = now(), "
+                         "updated_at = now() WHERE task_id = %s", (task_id,))
+            self._event(conn, task["campaign_id"], "dependency_citations_repaired",
+                        {"task_id": task_id, "source_artifact": source_artifact,
+                         "source_review_artifact": task["review_artifact"],
+                         "result_artifact": artifact, "changes": changes,
+                         "remaining_unbound_calls": len(remaining)})
+        return {"state": "validated", "source_artifact": source_artifact,
+                "result_artifact": artifact, "changes": changes,
+                "remaining_unbound_calls": len(remaining)}
+
     def reopen_review(self, task_id: str, reason: str) -> bool:
         if not reason.strip():
             raise ValueError("re-review reason is required")

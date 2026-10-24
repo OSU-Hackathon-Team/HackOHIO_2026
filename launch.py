@@ -195,6 +195,7 @@ def main() -> None:
         ("queue-reassess", "requeue one partial task with its prior draft"),
         ("queue-normalize-partial", "revalidate a partial draft after safe shape normalization"),
         ("queue-reclassify-intrinsic", "move no-call state dependencies into visible unknowns"),
+        ("queue-repair-dependency-citations", "rebind helper citations to raw direct calls"),
         ("queue-reopen-review", "recheck one unresolved draft against updated review criteria"),
         ("queue-revise-semantics", "rerun a contradicted or incomplete draft with review context"),
         ("queue-expand-coverage", "add cited claims for independently identified omissions"),
@@ -251,7 +252,8 @@ def main() -> None:
         if name == "queue-revise-semantics":
             command.add_argument("--task-id", required=True)
             command.add_argument("--reason", required=True)
-        if name in {"queue-normalize-partial", "queue-reclassify-intrinsic"}:
+        if name in {"queue-normalize-partial", "queue-reclassify-intrinsic",
+                    "queue-repair-dependency-citations"}:
             command.add_argument("--task-id", required=True)
         if name in {"queue-task", "queue-publish-claims", "queue-publish-contract"}:
             command.add_argument("--task-id", required=True)
@@ -528,6 +530,8 @@ def main() -> None:
             result = queue.normalize_partial(args.task_id)
         elif args.command == "queue-reclassify-intrinsic":
             result = queue.reclassify_intrinsic_dependencies(args.task_id)
+        elif args.command == "queue-repair-dependency-citations":
+            result = queue.repair_dependency_citations(args.task_id)
         elif args.command == "queue-reopen-review":
             reopened = queue.reopen_review(args.task_id, args.reason)
             result = {"task_id": args.task_id, "reopened": reopened,
