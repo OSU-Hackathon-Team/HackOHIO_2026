@@ -37,3 +37,5 @@
   4. Push directly to `origin/dev`: `git push origin dev`
   5. Clean up the merged local feature branch: `git branch -d <branch-name>`
 - **Never Touch `main`:** `main` remains strictly reserved for final milestone/judging releases when explicitly instructed.
+
+"Before touching any files, you MUST run git checkout -b <type>/<name> off dev and confirm git branch --show-current. Do not make any edits on dev directly."
