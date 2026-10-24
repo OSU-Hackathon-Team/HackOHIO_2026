@@ -1,8 +1,10 @@
 # Module Specification: Impress & Draw (Presentations & Graphics)
 
-## 1. Overview & Purpose
+> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No `sd/`, `slideshow/`, `animations/` or `sdext/source/presenter/` sources (e.g. `sd/source/core/drawdoc.cxx`, `slideshow/source/engine/eventqueue.cxx`) exist here. All `SdDrawDocument`/`SdPage`/`SlideShow`/`AnimationNode` definitions, master-inheritance/tick-scheduling pseudocode, SMIL/presenter-console/transition claims below are **UNVERIFIED**.
 
-**LibreOffice Impress & Draw** (`sd`, `slideshow`, `animations`) manage presentation authoring, slide show delivery, and vector drawing. While sharing a common document model, Impress specializes in slide sequencing, transitions, speaker notes, and interactive animations, whereas Draw focuses on technical drafting, page flowcharts, and multi-layer graphics.
+## 1. Overview & Purpose (UNVERIFIED)
+
+The spec claims **LibreOffice Impress & Draw** (`sd`, `slideshow`, `animations`) manage presentation authoring, slide show delivery, and vector drawing. While sharing a common document model, Impress specializes in slide sequencing, transitions, speaker notes, and interactive animations, whereas Draw focuses on technical drafting, page flowcharts, and multi-layer graphics.
 
 ### Subsystems Covered
 - **Document Model (`sd/source/core/`):**
@@ -62,7 +64,7 @@ classDiagram
     SlideShow --> AnimationNode : schedules and ticks
 ```
 
-### Conceptual Data Structures
+### Conceptual Data Structures (UNVERIFIED — no `SdPage`/SMIL sources found)
 
 #### 1. Page Multi-Model Layout (`SdPage`)
 Each slide page maintains three auxiliary twin pages:
@@ -77,7 +79,7 @@ Effects (Entrance, Emphasis, Exit, Motion Paths) are modeled as declarative SMIL
 
 ---
 
-## 3. Behavioral Rules & Algorithms
+## 3. Behavioral Rules & Algorithms (UNVERIFIED — pseudocode not verified)
 
 ### 3.1 Master Page Style & Attribute Inheritance
 
@@ -138,7 +140,7 @@ Output: None
 
 ---
 
-## 4. State Transitions & Presentation Flow
+## 4. State Transitions & Presentation Flow (UNVERIFIED — F5/Escape/presenter-console flow not observed)
 
 ```mermaid
 stateDiagram-v2
@@ -161,7 +163,7 @@ stateDiagram-v2
 
 ---
 
-## 5. Error Handling & Edge Cases
+## 5. Error Handling & Edge Cases (UNVERIFIED — codec/master-cycle/3D-fallback claims not observed)
 
 1. **Embedded Video Codec Missing:** If an inserted media file (`avmedia`) requires a codec not supported by the OS media framework (e.g., GStreamer, Media Foundation, AVFoundation):
    - Media playback fails gracefully.

@@ -1,8 +1,10 @@
 # Module Specification: Math & Base (Formula Editor & Database Subsystems)
 
-## 1. Overview & Purpose
+> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No `starmath/`, `dbaccess/`, `connectivity/`, `reportdesign/` sources (e.g. `starmath/source/parse.cxx`, `dbaccess/source/core/dataaccess/Model.cxx`, `connectivity/source/manager/vclman.cxx`) exist here. All `SmNode`/`XConnection`/`XResultSet` definitions, fraction-layout/SDBC-dispatch pseudocode, `.odb`/Firebird lifecycle and `¿`/WAL-recovery claims below are **UNVERIFIED**.
 
-This module covers two specialized LibreOffice applications: **Math** (`starmath`), the equation typography engine, and **Base** (`dbaccess`, `connectivity`, `reportdesign`), the relational database management and visual reporting suite.
+## 1. Overview & Purpose (UNVERIFIED)
+
+The spec claims this module covers two specialized LibreOffice applications: **Math** (`starmath`), the equation typography engine, and **Base** (`dbaccess`, `connectivity`, `reportdesign`), the relational database management and visual reporting suite.
 
 ### Subsystems Covered
 - **Math (`starmath/`):**
@@ -63,7 +65,7 @@ classDiagram
     XConnection --> XResultSet : queries return
 ```
 
-### Conceptual Data Structures
+### Conceptual Data Structures (UNVERIFIED — no `SmNode`/SDBC sources found)
 
 #### 1. Formula Node Tree (`SmNode`)
 Equations are parsed into a recursive typographical tree:
@@ -81,7 +83,7 @@ Modeled closely on JDBC/ODBC, SDBC exposes relational data through pure UNO inte
 
 ---
 
-## 3. Behavioral Rules & Algorithms
+## 3. Behavioral Rules & Algorithms (UNVERIFIED — pseudocode not verified)
 
 ### 3.1 Mathematical Layout & Baseline Alignment
 
@@ -131,7 +133,7 @@ Output: XConnection
 
 ---
 
-## 4. State Transitions & Embedded Database Lifecycle
+## 4. State Transitions & Embedded Database Lifecycle (UNVERIFIED — temp-extract/repack lifecycle not observed)
 
 ```mermaid
 stateDiagram-v2
@@ -155,7 +157,7 @@ stateDiagram-v2
 
 ---
 
-## 5. Error Handling & Edge Cases
+## 5. Error Handling & Edge Cases (UNVERIFIED — syntax-error/SQL-dialect/crash-recovery claims not observed)
 
 1. **Math Syntax Errors:** When the formula parser encounters illegal syntax (e.g., `x over` without a denominator):
    - The parser constructs an `SmErrorNode` at the error offset.

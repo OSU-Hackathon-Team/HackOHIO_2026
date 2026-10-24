@@ -1,8 +1,10 @@
 # LibreOffice Repository File Index & Inventory
 
-## 1. System-Wide Module Directory Catalog
+> **Verification Status (2026-10-24): UNVERIFIED against this repository — inventory does not match.** This repository has 197 tracked files and no LibreOffice top-level directories (`sal`, `sw`, `sc`, `sd`, `sfx2`, `vcl`, `xmloff`, `oox`, etc. all absent; verified via directory listing). Representative source paths listed below (e.g. `sal/osl/unx/thread.cxx`, `sw/source/core/doc/doc.cxx`, `libreofficekit/source/gtk/lokdocview.c`) were all checked and **do not exist**. All entry counts, production-file counts, role descriptions, file paths, and identifier claims below are **UNVERIFIED** and must not be cited as verified. The `spec/` directory is `spec/`, not `specs/`.
 
-This inventory accounts for all top-level repository modules and directories in LibreOffice (149,761 total cataloged entries). Each module is classified by role, file count, and linked directly to its governing architectural specification document.
+## 1. System-Wide Module Directory Catalog (UNVERIFIED)
+
+The spec claims this inventory accounts for all top-level repository modules and directories in LibreOffice (149,761 total cataloged entries). **UNVERIFIED and contradicted by this repository (197 tracked files).** Each module below is classified by claimed role and file count — all counts **UNVERIFIED**:
 
 | Module Directory | Primary Role & Responsibility | Total Entries | Production Files | Governing Specification |
 | :--- | :--- | :--- | :--- | :--- |
@@ -57,9 +59,9 @@ This inventory accounts for all top-level repository modules and directories in 
 
 ---
 
-## 2. Key Production Source File Inventory
+## 2. Key Production Source File Inventory (UNVERIFIED — none of these paths exist in this repository)
 
-The following index categorizes critical production source files across the repository, summarizing their conceptual responsibility and linking to the relevant behavioral specification:
+The following index *claims to* categorize critical production source files. **UNVERIFIED: every path below was checked (`sal/osl/unx/thread.cxx`, `cppu/source/uno/any.cxx`, `sfx2/source/control/dispatch.cxx`, `sw/source/core/doc/doc.cxx`, `sc/source/core/data/document.cxx`, `sd/source/core/drawdoc.cxx`, `starmath/source/parse.cxx`, `basic/source/comp/parser.cxx`, etc.) and none exists in this repository. File responsibilities, function/class names, and spec links are UNVERIFIED:**
 
 ### Foundation & Platform Abstraction Layer
 - `sal/osl/unx/thread.cxx` / `sal/osl/w32/thread.cxx`: Implements OS thread creation, priority mapping, and thread-local storage. -> [modules/foundation.md#2-component-architecture--data-structures](./modules/foundation.md)
@@ -135,9 +137,9 @@ The following index categorizes critical production source files across the repo
 
 ---
 
-## 3. Non-Production Directory Inventory
+## 3. Non-Production Directory Inventory (UNVERIFIED — none of these directories exist in this repository)
 
-Directories outside the production compilation path are categorized below:
+The spec claims directories outside the production compilation path are categorized below. **UNVERIFIED: `icon-themes/`, `extras/`, `dictionaries/`, `helpcontent2/`, `external/`, `qadevOOo/`, `test/`, `uitest/`, `solenv/`, `compilerplugins/`, `codemaker/`, `sysui/`/`scp2` as described do not exist as LibreOffice infrastructure in this repository (this repo has `fixtures/`, `targets/`, `packages/`, `agents/` for the Splice project instead):**
 
 | Directory | Classification | Content Description | Handling in Specification |
 | :--- | :--- | :--- | :--- |

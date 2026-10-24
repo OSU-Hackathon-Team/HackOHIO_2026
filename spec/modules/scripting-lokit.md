@@ -1,8 +1,10 @@
 # Module Specification: Scripting & Headless Embedding Subsystems
 
-## 1. Overview & Purpose
+> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No `basic/`, `basctl/`, `vbahelper/`, `oovbaapi/`, `pyuno/`, `scripting/`, `libreofficekit/` sources (e.g. `basic/source/comp/parser.cxx`, `pyuno/source/module/pyuno_runtime.cxx`, `libreofficekit/source/gtk/lokdocview.c`) exist here. All P-code/LOKit-tile/PyUNO claims, `paintTile`/`postMouseEvent`/`createView` signatures, rendering-pipeline/conversion pseudocode, and callback names below are **UNVERIFIED**.
 
-The **Scripting & Embedding Layer** enables external automation, macro scripting, and headless document manipulation. It allows third-party developers, cloud platforms, and desktop extensions to interact with LibreOffice through high-level languages (Python, StarBasic) or directly embed the office engine into web servers and mobile viewers via the **LibreOfficeKit** C API.
+## 1. Overview & Purpose (UNVERIFIED)
+
+The spec claims the **Scripting & Embedding Layer** enables external automation, macro scripting, and headless document manipulation. It allows third-party developers, cloud platforms, and desktop extensions to interact with LibreOffice through high-level languages (Python, StarBasic) or directly embed the office engine into web servers and mobile viewers via the **LibreOfficeKit** C API.
 
 ### Subsystems Covered
 - **StarBasic Engine (`basic/`, `basctl/`):**
@@ -51,7 +53,7 @@ classDiagram
     PyUnoBridge ..> LibreOfficeKitDocument : complementary external APIs
 ```
 
-### Conceptual Data Structures
+### Conceptual Data Structures (UNVERIFIED — no P-code/LOKit sources found)
 
 #### 1. StarBasic Bytecode (P-Code)
 - **Concept:** Stack-oriented intermediate representation.
@@ -64,7 +66,7 @@ classDiagram
 
 ---
 
-## 3. Behavioral Rules & Algorithms
+## 3. Behavioral Rules & Algorithms (UNVERIFIED — pseudocode not verified)
 
 ### 3.1 LibreOfficeKit Tiled Rendering Pipeline
 
@@ -137,7 +139,7 @@ Output: uno.Any
 
 ---
 
-## 4. State Transitions & Multi-View Collaborative Editing
+## 4. State Transitions & Multi-View Collaborative Editing (UNVERIFIED — `lok_init`/view/callback flow not observed)
 
 ```mermaid
 stateDiagram-v2
@@ -161,7 +163,7 @@ stateDiagram-v2
 
 ---
 
-## 5. Error Handling & Edge Cases
+## 5. Error Handling & Edge Cases (UNVERIFIED — VBA/PyUNO/LOKit out-of-bounds claims not observed)
 
 1. **VBA Unsupported Method Calls:** When running a macro calling an unsupported Microsoft Excel VBA method:
    - If `Option VBASupport 1` is set, `vbahelper` logs a missing API warning to the console.

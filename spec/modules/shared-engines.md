@@ -1,8 +1,10 @@
 # Module Specification: Shared Document & Formatting Engines
 
-## 1. Overview & Purpose
+> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No `editeng`, `svx`, `xmloff`, `oox`, `filter`, `linguistic`, `chart2`, `forms` sources (e.g. `editeng/source/editeng/editeng.cxx`, `xmloff/source/core/xmlimp.cxx`, `filter/source/config/cache/typedetection.cxx`) exist here. All `EditEngine`/`SdrModel`/`TypeDetection` definitions, magic-byte sniffing and ODF-export pseudocode, spell-check/hyphenation and placeholder claims below are **UNVERIFIED**.
 
-The **Shared Document Engines Layer** provides cross-application features: rich-text editing, vector shape manipulation, file format parsing and serialization, linguistic verification, charting, and embedded form controls. These engines ensure that features like vector shapes or spell checking operate identically whether embedded in a Writer document, a Calc sheet, or an Impress presentation.
+## 1. Overview & Purpose (UNVERIFIED)
+
+The spec claims the **Shared Document Engines Layer** provides cross-application features: rich-text editing, vector shape manipulation, file format parsing and serialization, linguistic verification, charting, and embedded form controls. These engines ensure that features like vector shapes or spell checking operate identically whether embedded in a Writer document, a Calc sheet, or an Impress presentation.
 
 ### Subsystems Covered
 - **EditEngine & Outliner (`editeng`):** Core multi-line rich text editor supporting inline formatting attributes, spell checking markers, and hierarchical outline indentation.
@@ -60,7 +62,7 @@ classDiagram
     OdfExportFilter ..> SdrModel : serializes drawing shapes
 ```
 
-### Conceptual Data Structures
+### Conceptual Data Structures (UNVERIFIED — no corresponding sources found)
 
 #### 1. `EditEngine` Paragraph & Character Portions
 - **Paragraphs:** Ordered list of paragraph objects. Each paragraph owns an `SfxItemSet` for paragraph-level styling (margins, alignment, tab stops) and a list of `EditCharAttrib` spans.
@@ -72,7 +74,7 @@ classDiagram
 
 ---
 
-## 3. Behavioral Rules & Algorithms
+## 3. Behavioral Rules & Algorithms (UNVERIFIED — magic-byte values, ZIP-entry names, export order not verified)
 
 ### 3.1 Content-Based Format Sniffing Algorithm
 
@@ -142,7 +144,7 @@ Output: None
 
 ---
 
-## 4. Linguistic Verification & Spell Checking Pipeline
+## 4. Linguistic Verification & Spell Checking Pipeline (UNVERIFIED — Hunspell/Libhyphen integration not observed)
 
 ```mermaid
 flowchart LR
@@ -161,7 +163,7 @@ flowchart LR
 
 ---
 
-## 5. Error Handling & Edge Cases
+## 5. Error Handling & Edge Cases (UNVERIFIED — unknown-element, missing-dictionary, corrupt-graphic claims not observed)
 
 1. **Unsupported XML Elements in ODF/OOXML:** When parsing future format versions containing unrecognized XML tags:
    - The XML parser ignores unknown elements without aborting the parse loop.

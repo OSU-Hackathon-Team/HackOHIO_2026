@@ -1,8 +1,10 @@
 # Module Specification: Application Framework & Document Shell
 
-## 1. Overview & Purpose
+> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No `sfx2`, `framework`, `cui`, `desktop` sources (e.g. `sfx2/source/control/dispatch.cxx`, `framework/source/layoutmanager/layoutmanager.cxx`, `desktop/source/app/app.cxx`) exist here. All `SfxObjectShell`/`SfxDispatcher`/`LayoutManager` definitions, slot-routing/docking pseudocode, `--headless`/`--convert-to` startup claims, and recovery behaviors below are **UNVERIFIED**.
 
-The **Application Framework Layer** coordinates the high-level life cycle of LibreOffice: launching processes, constructing desktop frames, routing user interface commands, managing document views, and maintaining persistent undo/redo history. It connects generic visual widgets with specific document applications.
+## 1. Overview & Purpose (UNVERIFIED)
+
+The spec claims the **Application Framework Layer** coordinates the high-level life cycle of LibreOffice: launching processes, constructing desktop frames, routing user interface commands, managing document views, and maintaining persistent undo/redo history. It connects generic visual widgets with specific document applications.
 
 ### Subsystems Covered
 - **SFX2 (Star Framework 2) (`sfx2`):** Classic document-frame-view coordination: `SfxObjectShell` (document model wrapper), `SfxViewShell` (view controller), `SfxDispatcher` (slot execution router), `SfxUndoManager` (multi-level undo/redo), and `SfxMedium` (storage stream wrapper).
@@ -58,7 +60,7 @@ classDiagram
     SfxDispatcher --> SfxObjectShell : dispatches slots to
 ```
 
-### Conceptual Data Structures
+### Conceptual Data Structures (UNVERIFIED — no corresponding sources found)
 
 #### 1. `SfxSlot` & Slot Pool
 - **Fields:** Unique integer `SlotId`, UNO command URL (`.uno:CommandName`), shell member function pointer, status query function pointer, permission flags (Read-only allowed, Asynchronous, Recordable).
@@ -73,7 +75,7 @@ classDiagram
 
 ---
 
-## 3. Behavioral Rules & Algorithms
+## 3. Behavioral Rules & Algorithms (UNVERIFIED — pseudocode not verified)
 
 ### 3.1 SfxDispatcher Slot Routing Algorithm
 
@@ -121,7 +123,7 @@ Output: None
 
 ---
 
-## 4. Desktop Startup & Command-Line Processing
+## 4. Desktop Startup & Command-Line Processing (UNVERIFIED — `soffice.bin`, lock socket, splash, crash-recovery flow not observed)
 
 The `desktop` module controls startup execution before document windows appear:
 
@@ -153,7 +155,7 @@ flowchart TD
 
 ---
 
-## 5. Error Handling & Edge Cases
+## 5. Error Handling & Edge Cases (UNVERIFIED — recovery/read-only/modal claims not observed)
 
 1. **Document Recovery on Abrupt Termination:** If the office process experiences an unhandled signal (`SIGSEGV`, `SIGILL`) or power loss:
    - The crash signal handler traps the event and flushes emergency recovery XML manifests containing pointers to auto-saved temporary files.

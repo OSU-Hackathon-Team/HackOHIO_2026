@@ -1,8 +1,10 @@
 # Module Specification: Visual Class Library & Graphical Subsystems
 
-## 1. Overview & Purpose
+> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No `vcl`, `drawinglayer`, `canvas`, `cppcanvas`, `svtools`, `toolkit`, `fpicker` sources (e.g. `vcl/source/app/svapp.cxx`, `vcl/skia/gdiimpl.cxx`, `drawinglayer/source/processor2d/baseprocessor2d.cxx`) exist here. All `OutputDevice`/`VclWindow`/`BasePrimitive2D` definitions, event-loop/repaint/decomposition pseudocode, MapMode claims, and Skia/GPU-fallback claims below are **UNVERIFIED**.
 
-The **Graphics Layer** provides windowing, event handling, font management, 2D/3D rendering, and accessibility services. It completely encapsulates operating system graphics APIs behind platform-agnostic abstractions, ensuring identical rendering behavior across Linux, Windows, macOS, and headless environments.
+## 1. Overview & Purpose (UNVERIFIED)
+
+The spec claims the **Graphics Layer** provides windowing, event handling, font management, 2D/3D rendering, and accessibility services. It completely encapsulates operating system graphics APIs behind platform-agnostic abstractions, ensuring identical rendering behavior across Linux, Windows, macOS, and headless environments.
 
 ### Subsystems Covered
 - **VCL (Visual Class Library) (`vcl`):** Core UI toolkit: Application event loop, top-level frames (`SalFrame`), window hierarchy (`vcl::Window`), device contexts (`OutputDevice`, `VirtualDevice`), and font rendering caches.
@@ -62,7 +64,7 @@ classDiagram
     PrimitiveProcessor2D ..> BasePrimitive2D : decomposes and rasterizes
 ```
 
-### Conceptual Data Structures
+### Conceptual Data Structures (UNVERIFIED — no corresponding sources found)
 
 #### 1. `OutputDevice` & Device Context
 - **Fields:**
@@ -77,7 +79,7 @@ classDiagram
 
 ---
 
-## 3. Behavioral Rules & Algorithms
+## 3. Behavioral Rules & Algorithms (UNVERIFIED — pseudocode not verified)
 
 ### 3.1 VCL Event Loop & Window Message Dispatch
 
@@ -146,7 +148,7 @@ Output: None
 
 ---
 
-## 4. State Transitions & Coordinate Spaces
+## 4. State Transitions & Coordinate Spaces (UNVERIFIED — Twips/100th-mm/MapMode claims not observed)
 
 ### MapMode Coordinate Space Transformations
 
@@ -165,7 +167,7 @@ stateDiagram-v2
 
 ---
 
-## 5. Error Handling & Edge Cases
+## 5. Error Handling & Edge Cases (UNVERIFIED — GPU-blacklist, font-substitution, recursion-limit claims not observed)
 
 1. **GPU Acceleration Crashing (Skia Blacklist):** If the GPU driver crashes or triggers a device loss error during Skia Vulkan/Metal/DirectX initialization:
    - VCL traps the graphics fault.

@@ -1,12 +1,14 @@
 # LibreOffice System Architecture
 
+> **Verification Status (2026-10-24): UNVERIFIED against this repository.** No LibreOffice source directories (`sal`, `sw`, `sc`, `sd`, `sfx2`, `vcl`, etc.) exist in this repository (197 tracked files, Splice/HackOHIO project). All module names, class names (`SwDoc`, `ScDocument`, `SdDrawDocument`, `SfxObjectShell`, `SfxDispatcher`, etc.), layer claims, UNO behavioral claims, command URIs, lifecycle claims, and pseudocode below are **UNVERIFIED**. Checked representative paths and code_search for `SwDoc|ScDocument|SdDrawDocument|SfxDispatcher` — matches only in `spec/` itself.
+
 ## 1. Architectural Overview & Design Philosophy
 
-LibreOffice is built as a modular, component-oriented, cross-platform office productivity suite. Originating from a monolithic foundation (StarOffice / OpenOffice.org), the modern architecture has evolved into a strictly layered hierarchy. The system decouples platform-specific operating system capabilities from high-level document manipulation through an object broker called **Universal Network Objects (UNO)**.
+The spec claims LibreOffice is built as a modular, component-oriented, cross-platform office productivity suite. **UNVERIFIED — no source in this repository supports this.** The claimed origin and layered hierarchy below are **UNVERIFIED**. The system decouples platform-specific operating system capabilities from high-level document manipulation through an object broker called **Universal Network Objects (UNO)**.
 
 ### Primary Architectural Tenets
 
-1. **Strict Platform Abstraction:** No application or document engine directly executes native operating system APIs (Win32, POSIX, Cocoa). All system operations—memory allocation, thread synchronization, file I/O, dynamic library loading, and windowing—are mediated by the System Abstraction Layer (`sal`) and Visual Class Library (`vcl`).
+1. **Strict Platform Abstraction (UNVERIFIED):** The spec claims no application or document engine directly executes native OS APIs and that all such operations are mediated by `sal` and `vcl`. **UNVERIFIED — neither `sal` nor `vcl` exists in this repository.
 2. **Interface-Driven Component Model (UNO):** Subsystems communicate across module boundaries via abstract, strongly-typed interfaces defined in UNO IDL (Interface Definition Language). Implementation classes are isolated behind factory interfaces, enabling dynamic component discovery, language bridging (C++, Java, Python, Basic), and remote inter-process communication.
 3. **Decoupled Model-View-Controller (MVC):** Applications maintain an explicit separation between persistent document models (`SwDoc`, `ScDocument`, `SdDrawDocument`), layout representations (`SwFrame` tree, spreadsheet view tables), and user interface frames (`SfxViewShell`, `SfxFrame`).
 4. **Universal Document Interchange:** Internal data representations are format-agnostic. Documents are ingested into internal object trees through pluggable import filters and serialized outward through corresponding export filters, with the OASIS OpenDocument Format (ODF) serving as the native reference standard.
@@ -164,16 +166,16 @@ flowchart LR
     ViewFrame -->|Contains| ViewShell
 ```
 
-1. **`SfxObjectShell` (Model):** Represents the document entity on disk or in memory. Owns the underlying document content tree, the persistent storage medium (`SfxMedium`), the undo/redo stack (`SfxUndoManager`), and document metadata. Multiple views can bind to a single `SfxObjectShell`.
-2. **`SfxViewShell` (Controller):** Maintains transient per-view state, including current cursor coordinates, view options (zoom, display margins), selection boundaries, and active tool modes.
-3. **`SfxViewFrame` & `SfxFrame` (View Enclosure):** Coordinates windowing surfaces, integrating status bars, rulers, floating tool windows, and dockable sidebars with the central editing viewport.
-4. **`SfxDispatcher` (Command Router):** The command processing engine. It maintains a stack of active shells (e.g., `[EditShell, DrawShell, ViewShell, ObjectShell, ApplicationShell]`). When a user command arrives, the dispatcher traverses the stack from top to bottom, delivering the command to the first shell declaring a matching handler slot.
+1. **`SfxObjectShell` (Model) — UNVERIFIED:** Spec claims it represents the document entity and owns content tree, `SfxMedium`, `SfxUndoManager`, metadata. **UNVERIFIED — no such class found in this repository.**
+2. **`SfxViewShell` (Controller) — UNVERIFIED:** Spec claims transient per-view state. **UNVERIFIED.**
+3. **`SfxViewFrame` & `SfxFrame` (View Enclosure) — UNVERIFIED:** Spec claims windowing coordination. **UNVERIFIED.**
+4. **`SfxDispatcher` (Command Router) — UNVERIFIED:** Spec claims shell-stack routing. **UNVERIFIED — no such class found in this repository.**
 
 ---
 
 ### 3.3 Command Dispatch Pipeline & Protocol Handlers
 
-LibreOffice routes all user-triggered actions through uniform command URIs formatted as `.uno:<CommandName>` (e.g., `.uno:Save`, `.uno:Copy`, `.uno:InsertTable`, `.uno:Bold`).
+The spec claims LibreOffice routes all user-triggered actions through uniform command URIs formatted as `.uno:<CommandName>` (e.g., `.uno:Save`, `.uno:Copy`, `.uno:InsertTable`, `.uno:Bold`). **UNVERIFIED — no dispatch code found in this repository.**
 
 ```mermaid
 sequenceDiagram
@@ -296,10 +298,9 @@ flowchart TD
 
     EventLoop -.->|Dispatches Independent Jobs| WorkerPool
     WorkerPool -.->|Posts Completion Events| EventLoop
-```
+```### The SolarMutex UI Lock (UNVERIFIED)
 
-### The SolarMutex UI Lock
-Historically, all document model mutations, VCL windowing calls, and UI event processing are synchronized by a global recursive mutex known as the **SolarMutex**.
+The spec claims all document model mutations, VCL windowing calls, and UI event processing are synchronized by a global recursive mutex known as the **SolarMutex**. **UNVERIFIED — no SolarMutex, VCL, or document-model source found in this repository.**
 - **Rule:** Any thread executing UI calls, traversing `SfxObjectShell`, or mutating the active document model must acquire the SolarMutex.
 - **Deadlock Avoidance:** Background threads performing heavy computation (e.g., filter import/export, cryptographic signing) must release the SolarMutex during compute phases and re-acquire it only when posting updates to the document model or notifying UI listeners.
 
