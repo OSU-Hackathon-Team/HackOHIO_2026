@@ -71,7 +71,7 @@ function fields(d: NativeDraft): [string, string][] {
 }
 
 export function nativeDraftProblems(d: NativeDraft, claimIds: string[], input?: {
-  excluded_behavior?: unknown; deviations?: unknown;
+  excluded_behavior?: unknown; deviations?: unknown; [key: string]: unknown;
 }): string[] {
   const errors: string[] = [];
   const expected = new Set(claimIds);
