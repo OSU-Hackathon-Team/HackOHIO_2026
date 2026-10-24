@@ -62,5 +62,6 @@ export const HealthResponse = z.object({
   rea_mode: z.enum(["live", "replay", "auto"]),
   llm_mode: z.enum(["live", "replay"]),
   model: z.string(),
+  models: z.record(z.string(), z.string()), // resolved role -> model table from models.json
 });
 export type HealthResponse = z.infer<typeof HealthResponse>;
