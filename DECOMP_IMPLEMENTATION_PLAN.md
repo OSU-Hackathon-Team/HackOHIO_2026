@@ -44,7 +44,7 @@ engine/
   models.py             # internal records and validation (implemented)
   intake.py             # campaign intake (planned)
   artifacts.py          # immutable local artifacts (implemented)
-  analysis/             # Ghidra import and evidence export (implemented); warm pool (planned)
+  analysis/             # Ghidra evidence and local warm pool (implemented; M1 gate open)
   scope.py              # seed discovery and bounded expansion (implemented)
   queue.py              # leases, retries, fencing, deduplication (implemented)
   worker.py             # bounded semantic analysis and checkpoints (implemented)
