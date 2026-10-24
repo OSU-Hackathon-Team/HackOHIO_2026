@@ -31,6 +31,16 @@ python scripts/check_decomp_scope.py
 
 The generated manifest, debug companions, and probe report stay in ignored `decomp-state/fixtures/`. Analysis workers should receive only the stripped `analysis_path` entries. The source and debug companions are evaluator material.
 
+The larger telemetry fixture exercises a bounded native subsystem with parsing, policy checks, and shared-state updates:
+
+```sh
+python scripts/build_telemetry_fixture.py
+python scripts/probe_telemetry_fixture.py
+python scripts/check_decomp_meaningful_leases.py
+```
+
+The scope request is `fixtures/decomp/telemetry_scope_request.json`. On the recorded `-O2` shared build, Ghidra indexed 39 functions, exported 39/39 statuses as `ok`, and discovered 21 functions in the telemetry scope with no unresolved edge. The disposable PostgreSQL check held 16 leases at once for 16 distinct telemetry functions and worker IDs. These checks establish task availability and lease concurrency; throughput, semantic quality at scale, and two-host recovery still need measurement.
+
 Discover a bounded subsystem from indexed evidence:
 
 ```sh
