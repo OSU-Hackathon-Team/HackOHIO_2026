@@ -256,6 +256,22 @@ def main() -> None:
                 normalized_draft = json.loads(store.get(normalized["result_artifact"]))
                 assert normalized_draft["source_artifact"] == shape_artifact
                 assert not validate_answer(normalized_draft["answer"], shape_evidence)
+                review_lease = queue.lease_review("review-worker", campaign=campaign)
+                assert review_lease["task_id"] == shape_task["task_id"]
+                assert queue.heartbeat_review(shape_task["task_id"], "review-worker",
+                                              review_lease["epoch"])
+                shape_review = {**review, "subject": shape_task["subject"],
+                                "draft_artifact": normalized["result_artifact"],
+                                "evidence_artifact": shape_evidence_artifact,
+                                "answer": {**review_answer, "reviews": [{
+                                    **review_answer["reviews"][0],
+                                    "evidence_addresses": [shape_task["subject"]]}]}}
+                shape_review_artifact = put(store, shape_review)
+                assert queue.publish_review(shape_task["task_id"],
+                                            shape_review_artifact) == "accepted"
+                assert queue.finish_review(shape_task["task_id"], "review-worker",
+                                           review_lease["epoch"], shape_review_artifact)
+                assert queue.status(campaign)["reviews"]["completed"] >= 2
                 malformed = active[4]
                 failed_artifact = put(store, {"state": "failed", "error": "malformed JSON"})
                 assert queue.fail(malformed["task_id"], malformed["worker_id"],
@@ -271,6 +287,32 @@ def main() -> None:
                                   no_artifact["epoch"], "no model artifact",
                                   failure_type="semantic") == "partial"
                 assert queue.reassess(no_artifact["task_id"], "retry without prior output")
+                review_recovery = active[6]
+                recovery_evidence = put(store, {**evidence,
+                                                "entry": review_recovery["subject"]})
+                recovery_draft = {**draft, "subject": review_recovery["subject"],
+                                  "task_key": next(t["deduplication_key"] for t in tasks
+                                                   if t["subject"] == review_recovery["subject"]),
+                                  "evidence_artifact": recovery_evidence,
+                                  "answer": {**answer, "claims": [{**answer["claims"][0],
+                                      "evidence_addresses": [review_recovery["subject"]]}]}}
+                recovery_artifact = put(store, recovery_draft)
+                assert queue.submit(review_recovery["task_id"], review_recovery["worker_id"],
+                                    review_recovery["epoch"], recovery_artifact,
+                                    "review-recovery") == "accepted_for_validation"
+                assert queue.validate_result(review_recovery["task_id"], recovery_artifact,
+                                             "validated")
+                expired_review = queue.lease_review("review-killed", campaign=campaign,
+                                                    lease_seconds=1)
+                assert expired_review["task_id"] == review_recovery["task_id"]
+                with queue._connect() as conn:
+                    conn.execute("UPDATE decomp_review_jobs SET lease_until = "
+                                 "now() - interval '1 second' WHERE task_id = %s",
+                                 (review_recovery["task_id"],))
+                assert queue.reclaim_expired_reviews() == 1
+                resumed_review = queue.lease_review("review-replacement", campaign=campaign)
+                assert resumed_review["task_id"] == review_recovery["task_id"]
+                assert resumed_review["epoch"] == expired_review["epoch"] + 1
                 final_status = queue.status(campaign)
                 print(json.dumps({"active_leases": 16, "recovered_epoch": recovered["epoch"],
                                   "killed_worker_recovered_epoch": resumed["epoch"],

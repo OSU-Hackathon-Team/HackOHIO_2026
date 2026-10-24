@@ -189,6 +189,7 @@ def main() -> None:
         ("queue-run-one", "lease and run one semantic task with heartbeats"),
         ("queue-drain", "run bounded parallel semantic workers until idle"),
         ("queue-review", "independently review one validated queue task"),
+        ("queue-review-drain", "review validated tasks with bounded durable leases"),
         ("queue-review-dependency", "review one caller dependency against a helper contract"),
         ("queue-resolve-dependencies", "accept a caller after all dependency reviews"),
         ("queue-reassess", "requeue one partial task with its prior draft"),
@@ -207,21 +208,27 @@ def main() -> None:
             command.add_argument("--manifest", type=Path, required=True)
         if name == "queue-enqueue":
             command.add_argument("--scope-artifact", required=True)
-        if name in {"queue-status", "queue-metrics"}:
+        if name in {"queue-status", "queue-metrics", "queue-review-drain"}:
             command.add_argument("--campaign", required=True)
         if name == "queue-metrics":
             command.add_argument("--worker-prefix",
                                  help="limit the report to matching worker IDs")
             command.add_argument("--after-event-id", type=int,
                                  help="include attempts leased after this event cursor")
-        if name in {"queue-review", "queue-review-dependency"}:
-            command.add_argument("--task-id", required=True)
+        if name in {"queue-review", "queue-review-dependency", "queue-review-drain"}:
+            if name != "queue-review-drain":
+                command.add_argument("--task-id", required=True)
             command.add_argument("--timeout", type=int, default=180)
             command.add_argument("--model-role", default="legal_verification")
             command.add_argument("--model")
             command.add_argument("--opencode", type=Path,
                                  default=Path(os.environ.get(
                                      "OPENCODE_BIN", "/home/mitch/.opencode/bin/opencode")))
+        if name == "queue-review-drain":
+            command.add_argument("--worker-prefix", default="decomp-reviewer")
+            command.add_argument("--workers", type=int, default=2)
+            command.add_argument("--max-tasks", type=int)
+            command.add_argument("--lease-seconds", type=int, default=60)
         if name == "queue-review-dependency":
             command.add_argument("--dependency-index", type=int, required=True)
         if name == "queue-resolve-dependencies":
@@ -371,8 +378,10 @@ def main() -> None:
             queue.migrate()
             queue.create_campaign(manifest["campaign"], manifest["binary_sha256"])
             revised = queue.audit_accepted_dependencies(manifest["campaign"])
+            queued_reviews = queue.enqueue_pending_reviews(manifest["campaign"])
             result = {**queue.status(manifest["campaign"]),
-                      "revised_legacy_acceptances": revised}
+                      "revised_legacy_acceptances": revised,
+                      "queued_reviews": queued_reviews}
         elif args.command == "queue-enqueue":
             ids = queue.enqueue_scope(args.scope_artifact)
             result = {"enqueued": len(ids), "task_ids": ids}
@@ -441,6 +450,45 @@ def main() -> None:
                       "review_state": review_result["state"],
                       "review_artifact": review_result["artifact"],
                       "outcomes": review_result.get("outcomes", {})}
+        elif args.command == "queue-review-drain":
+            from engine.review_runner import run_one as run_review_one
+
+            if not 1 <= args.workers <= 32 or (args.max_tasks is not None and
+                                                 args.max_tasks < 1):
+                parser.error("queue-review-drain needs 1..32 workers and positive max-tasks")
+            queue.reclaim_expired_reviews()
+            queued_reviews = queue.enqueue_pending_reviews(args.campaign)
+            engine = GhidraAnalysis(args.state, Path(os.environ.get(
+                "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+            lock = threading.Lock()
+            dispatched = 0
+
+            def review_loop(number: int) -> list[dict]:
+                nonlocal dispatched
+                reviewer = IndependentReviewer(engine, args.opencode, timeout=args.timeout)
+                completed = []
+                while True:
+                    with lock:
+                        if args.max_tasks is not None and dispatched >= args.max_tasks:
+                            return completed
+                        dispatched += 1
+                    item = run_review_one(queue, reviewer, args.campaign,
+                                          f"{args.worker_prefix}-{number}",
+                                          lease_seconds=args.lease_seconds,
+                                          model=args.model, model_role=args.model_role)
+                    if item["state"] == "idle":
+                        return completed
+                    completed.append(item)
+                    print(json.dumps({"review_progress": item}), flush=True)
+
+            with ThreadPoolExecutor(max_workers=args.workers) as executor:
+                futures = [executor.submit(review_loop, i) for i in range(args.workers)]
+                completed = [item for future in futures for item in future.result()]
+            result = {"workers": args.workers, "queued_reviews": queued_reviews,
+                      "completed_attempts": len(completed),
+                      "outcomes": {state: sum(item["state"] == state for item in completed)
+                                   for state in sorted({item["state"] for item in completed})},
+                      "queue": queue.status(args.campaign)}
         elif args.command == "queue-review-dependency":
             from engine.validation.dependencies import IndependentDependencyReviewer
 

@@ -331,6 +331,10 @@ class DurableQueue:
                     return False
             conn.execute("UPDATE decomp_tasks SET state = %s, updated_at = now() "
                          "WHERE id = %s", (verdict, task_id))
+            if verdict == "validated":
+                conn.execute("INSERT INTO decomp_review_jobs (task_id, campaign_id) "
+                             "VALUES (%s, %s) ON CONFLICT (task_id) DO NOTHING",
+                             (task_id, task["campaign_id"]))
             self._event(conn, task["campaign_id"], "result_validated",
                         {"task_id": task_id, "verdict": verdict})
             return True
@@ -379,6 +383,11 @@ class DurableQueue:
                          "support_level = %s, terminal_reason = %s, updated_at = now() "
                          "WHERE id = %s", (state, review_artifact, support,
                                            ",".join(reasons) if reasons else None, task_id))
+            conn.execute("UPDATE decomp_review_jobs SET state = 'completed', "
+                         "review_artifact = %s, terminal_reason = NULL, "
+                         "updated_at = now() WHERE task_id = %s "
+                         "AND state IN ('queued', 'failed')",
+                         (review_artifact, task_id))
             self._event(conn, task["campaign_id"], "review_recorded",
                         {"task_id": task_id, "state": state, "support_level": support,
                          "review_artifact": review_artifact, "reasons": reasons})
@@ -509,6 +518,160 @@ class DurableQueue:
                 revised += 1
         return revised
 
+    def enqueue_pending_reviews(self, campaign: str) -> int:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "INSERT INTO decomp_review_jobs (task_id, campaign_id) "
+                "SELECT t.id, t.campaign_id FROM decomp_tasks t "
+                "WHERE t.campaign_id = %s AND t.state = 'validated' "
+                "ON CONFLICT (task_id) DO NOTHING RETURNING task_id",
+                (campaign,)).fetchall()
+            for row in rows:
+                self._event(conn, campaign, "review_queued",
+                            {"task_id": str(row["task_id"])})
+            return len(rows)
+
+    def lease_review(self, worker_id: str, *, campaign: str,
+                     lease_seconds: int = 60) -> dict | None:
+        if not worker_id or lease_seconds < 1:
+            raise ValueError("worker_id and positive lease_seconds required")
+        with self._connect() as conn:
+            pool = conn.execute("SELECT capacity, active FROM decomp_pools "
+                                "WHERE name = 'review' FOR UPDATE").fetchone()
+            if pool["active"] >= pool["capacity"]:
+                return None
+            job = conn.execute(
+                "SELECT j.task_id, j.campaign_id, j.lease_epoch, t.result_artifact "
+                "FROM decomp_review_jobs j JOIN decomp_tasks t ON t.id = j.task_id "
+                "JOIN decomp_campaigns c ON c.id = j.campaign_id "
+                "WHERE j.campaign_id = %s AND j.state = 'queued' "
+                "AND j.available_at <= now() AND j.attempts_count < j.max_attempts "
+                "AND t.state = 'validated' AND c.state = 'active' "
+                "ORDER BY j.created_at, j.task_id FOR UPDATE OF j SKIP LOCKED LIMIT 1",
+                (campaign,)).fetchone()
+            if job is None:
+                return None
+            leased = conn.execute(
+                "UPDATE decomp_review_jobs SET state = 'leased', "
+                "lease_epoch = lease_epoch + 1, attempts_count = attempts_count + 1, "
+                "leased_by = %s, lease_until = now() + (%s * interval '1 second'), "
+                "updated_at = now() WHERE task_id = %s "
+                "RETURNING lease_epoch, lease_until",
+                (worker_id, lease_seconds, job["task_id"])).fetchone()
+            conn.execute("UPDATE decomp_pools SET active = active + 1 "
+                         "WHERE name = 'review'")
+            self._event(conn, campaign, "review_leased",
+                        {"task_id": str(job["task_id"]), "worker_id": worker_id,
+                         "epoch": leased["lease_epoch"]})
+            return {"task_id": str(job["task_id"]), "campaign": campaign,
+                    "draft_artifact": job["result_artifact"],
+                    "worker_id": worker_id, "epoch": leased["lease_epoch"],
+                    "lease_until": leased["lease_until"].isoformat()}
+
+    @staticmethod
+    def _review_current(job: dict | None, worker_id: str, epoch: int) -> bool:
+        return bool(job and job["state"] == "leased" and
+                    job["leased_by"] == worker_id and job["lease_epoch"] == epoch and
+                    job["lease_until"] > job["db_now"])
+
+    def heartbeat_review(self, task_id: str, worker_id: str, epoch: int,
+                         *, lease_seconds: int = 60) -> bool:
+        if lease_seconds < 1:
+            raise ValueError("lease_seconds must be positive")
+        with self._connect() as conn:
+            job = conn.execute("SELECT j.*, now() AS db_now FROM decomp_review_jobs j "
+                               "WHERE task_id = %s FOR UPDATE", (task_id,)).fetchone()
+            if not self._review_current(job, worker_id, epoch):
+                return False
+            conn.execute("UPDATE decomp_review_jobs SET lease_until = now() + "
+                         "(%s * interval '1 second'), updated_at = now() "
+                         "WHERE task_id = %s", (lease_seconds, task_id))
+            return True
+
+    def finish_review(self, task_id: str, worker_id: str, epoch: int,
+                      artifact: str) -> bool:
+        self.store.get(artifact)
+        with self._connect() as conn:
+            conn.execute("SELECT 1 FROM decomp_pools WHERE name = 'review' FOR UPDATE")
+            job = conn.execute("SELECT j.*, now() AS db_now FROM decomp_review_jobs j "
+                               "WHERE task_id = %s FOR UPDATE", (task_id,)).fetchone()
+            if not self._review_current(job, worker_id, epoch):
+                return False
+            task = conn.execute("SELECT state, review_artifact FROM decomp_tasks "
+                                "WHERE id = %s", (task_id,)).fetchone()
+            if (task["state"] not in {"accepted", "needs_reconciliation"} or
+                    task["review_artifact"] != artifact):
+                return False
+            conn.execute("UPDATE decomp_review_jobs SET state = 'completed', "
+                         "leased_by = NULL, lease_until = NULL, review_artifact = %s, "
+                         "terminal_reason = NULL, updated_at = now() "
+                         "WHERE task_id = %s", (artifact, task_id))
+            conn.execute("UPDATE decomp_pools SET active = active - 1 "
+                         "WHERE name = 'review'")
+            self._event(conn, job["campaign_id"], "review_completed",
+                        {"task_id": task_id, "epoch": epoch, "artifact": artifact,
+                         "task_state": task["state"]})
+            return True
+
+    def fail_review(self, task_id: str, worker_id: str, epoch: int,
+                    reason: str, artifact: str | None = None) -> str:
+        if artifact is not None:
+            self.store.get(artifact)
+        with self._connect() as conn:
+            conn.execute("SELECT 1 FROM decomp_pools WHERE name = 'review' FOR UPDATE")
+            job = conn.execute("SELECT j.*, now() AS db_now FROM decomp_review_jobs j "
+                               "WHERE task_id = %s FOR UPDATE", (task_id,)).fetchone()
+            if not self._review_current(job, worker_id, epoch):
+                return "stale"
+            task = conn.execute("SELECT state, review_artifact FROM decomp_tasks "
+                                "WHERE id = %s", (task_id,)).fetchone()
+            if task["state"] != "validated" and task["review_artifact"]:
+                state = "completed"
+                artifact = task["review_artifact"]
+            else:
+                state = "queued" if job["attempts_count"] < job["max_attempts"] else "failed"
+            backoff = min(60, 2 ** job["attempts_count"]) if state == "queued" else 0
+            conn.execute("UPDATE decomp_review_jobs SET state = %s, leased_by = NULL, "
+                         "lease_until = NULL, available_at = now() + "
+                         "(%s * interval '1 second'), review_artifact = %s, "
+                         "terminal_reason = %s, updated_at = now() WHERE task_id = %s",
+                         (state, backoff, artifact, reason, task_id))
+            conn.execute("UPDATE decomp_pools SET active = active - 1 "
+                         "WHERE name = 'review'")
+            self._event(conn, job["campaign_id"], "review_failed",
+                        {"task_id": task_id, "epoch": epoch, "state": state,
+                         "reason": reason, "artifact": artifact})
+            return state
+
+    def reclaim_expired_reviews(self, *, limit: int = 100) -> int:
+        reclaimed = 0
+        with self._connect() as conn:
+            conn.execute("SELECT 1 FROM decomp_pools WHERE name = 'review' FOR UPDATE")
+            jobs = conn.execute(
+                "SELECT j.*, t.state AS task_state, t.review_artifact AS task_review "
+                "FROM decomp_review_jobs j JOIN decomp_tasks t ON t.id = j.task_id "
+                "WHERE j.state = 'leased' AND j.lease_until <= now() "
+                "ORDER BY j.lease_until FOR UPDATE OF j SKIP LOCKED LIMIT %s",
+                (limit,)).fetchall()
+            for job in jobs:
+                if job["task_state"] != "validated" and job["task_review"]:
+                    state = "completed"
+                else:
+                    state = "queued" if job["attempts_count"] < job["max_attempts"] else "failed"
+                conn.execute("UPDATE decomp_review_jobs SET state = %s, "
+                             "leased_by = NULL, lease_until = NULL, "
+                             "available_at = now(), review_artifact = coalesce(%s, review_artifact), "
+                             "terminal_reason = 'lease_expired', updated_at = now() "
+                             "WHERE task_id = %s",
+                             (state, job["task_review"], job["task_id"]))
+                conn.execute("UPDATE decomp_pools SET active = active - 1 "
+                             "WHERE name = 'review'")
+                self._event(conn, job["campaign_id"], "review_lease_expired",
+                            {"task_id": str(job["task_id"]), "epoch": job["lease_epoch"],
+                             "state": state})
+                reclaimed += 1
+        return reclaimed
+
     def status(self, campaign: str) -> dict:
         with self._connect() as conn:
             states = conn.execute("SELECT state, count(*) AS total FROM decomp_tasks "
@@ -521,10 +684,14 @@ class DurableQueue:
             support = conn.execute("SELECT support_level, count(*) AS total "
                                    "FROM decomp_tasks WHERE campaign_id = %s "
                                    "GROUP BY support_level", (campaign,)).fetchall()
+            reviews = conn.execute("SELECT state, count(*) AS total "
+                                   "FROM decomp_review_jobs WHERE campaign_id = %s "
+                                   "GROUP BY state", (campaign,)).fetchall()
             cursor = conn.execute("SELECT coalesce(max(id), 0) AS id FROM decomp_outbox "
                                   "WHERE campaign_id = %s", (campaign,)).fetchone()["id"]
             return {"campaign": campaign, "tasks": {r["state"]: r["total"] for r in states},
                     "support_levels": {r["support_level"]: r["total"] for r in support},
+                    "reviews": {r["state"]: r["total"] for r in reviews},
                     "attempts": attempts, "pools": pools, "event_cursor": cursor}
 
     def metrics(self, campaign: str, *, worker_prefix: str | None = None,
@@ -540,7 +707,8 @@ class DurableQueue:
             events = conn.execute(
                 "SELECT id, event_type, payload, created_at FROM decomp_outbox "
                 "WHERE campaign_id = %s AND event_type IN "
-                "('task_leased', 'result_submitted', 'task_failed', 'lease_expired') "
+                "('task_leased', 'result_submitted', 'task_failed', 'lease_expired', "
+                "'review_failed', 'review_completed', 'review_recorded') "
                 "ORDER BY id", (campaign,)).fetchall()
         if after_event_id is not None:
             leased = {event["payload"].get("attempt_id") for event in events
@@ -551,7 +719,27 @@ class DurableQueue:
             rows = [row for row in rows if row["worker_id"].startswith(worker_prefix)]
         event_finishes = {(event["payload"].get("task_id"),
                            event["payload"].get("epoch")): event["created_at"]
-                          for event in events if event["event_type"] != "task_leased"}
+                          for event in events if event["event_type"] in
+                          {"result_submitted", "task_failed", "lease_expired"}}
+        review_artifacts = {event["payload"].get("artifact") or
+                            event["payload"].get("review_artifact")
+                            for event in events if event["event_type"] in
+                            {"review_failed", "review_completed", "review_recorded"} and
+                            (after_event_id is None or event["id"] > after_event_id)}
+        review_artifacts.discard(None)
+        review_usage = {"input": 0, "output": 0, "reasoning": 0, "cost": 0.0}
+        review_states = {}
+        missing_review_artifacts = 0
+        for artifact in sorted(review_artifacts):
+            try:
+                review = json.loads(self.store.get(artifact))
+            except (FileNotFoundError, ValueError):
+                missing_review_artifacts += 1
+                continue
+            state = review.get("state", "unknown")
+            review_states[state] = review_states.get(state, 0) + 1
+            for key in review_usage:
+                review_usage[key] += (review.get("usage") or {}).get(key, 0)
         outcomes = {}
         task_outcomes = {}
         usage = {"input": 0, "output": 0, "reasoning": 0, "cost": 0.0}
@@ -597,7 +785,11 @@ class DurableQueue:
                 "median_attempt_seconds": round(statistics.median(durations), 3)
                 if durations else None,
                 "attempts_with_timing": len(durations),
-                "missing_result_artifacts": missing_artifacts}
+                "missing_result_artifacts": missing_artifacts,
+                "review_artifacts": len(review_artifacts),
+                "review_states": review_states,
+                "review_usage": review_usage,
+                "missing_review_artifacts": missing_review_artifacts}
 
     def task(self, task_id: str) -> dict | None:
         with self._connect() as conn:
@@ -608,7 +800,16 @@ class DurableQueue:
                                "WHERE id = %s", (task_id,)).fetchone()
             if row is None:
                 return None
-            return {**row, "id": str(row["id"])}
+            review_job = conn.execute(
+                "SELECT state, lease_epoch, leased_by, lease_until, attempts_count, "
+                "max_attempts, available_at, review_artifact, terminal_reason "
+                "FROM decomp_review_jobs WHERE task_id = %s", (task_id,)).fetchone()
+            if review_job:
+                review_job = {**review_job,
+                              "lease_until": review_job["lease_until"].isoformat()
+                              if review_job["lease_until"] else None,
+                              "available_at": review_job["available_at"].isoformat()}
+            return {**row, "id": str(row["id"]), "review_job": review_job}
 
     def contract_snapshot(self, campaign: str) -> dict:
         with self._connect() as conn:
@@ -696,6 +897,9 @@ class DurableQueue:
             conn.execute("UPDATE decomp_tasks SET state = 'validated', "
                          "result_artifact = %s, terminal_reason = NULL, "
                          "updated_at = now() WHERE id = %s", (artifact, task_id))
+            conn.execute("INSERT INTO decomp_review_jobs (task_id, campaign_id) "
+                         "VALUES (%s, %s) ON CONFLICT (task_id) DO NOTHING",
+                         (task_id, task["campaign_id"]))
             self._event(conn, task["campaign_id"], "partial_normalized",
                         {"task_id": task_id, "source_artifact": source_artifact,
                          "result_artifact": artifact,
