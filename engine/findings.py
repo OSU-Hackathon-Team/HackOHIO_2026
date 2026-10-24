@@ -41,9 +41,20 @@ class FindingsStore:
         review = json.loads(self.store.get(task["review_artifact"]))
         if (draft["campaign"] != task["campaign_id"] or
                 draft["subject"] != task["subject"] or
-                review["draft_artifact"] != task["result_artifact"] or
-                draft["answer"]["dependencies"]):
+                review["draft_artifact"] != task["result_artifact"]):
             raise ValueError("source task identity or dependency gate failed")
+        if draft["answer"]["dependencies"]:
+            if not task["dependency_resolution_artifact"]:
+                raise ValueError("source task has no dependency resolution")
+            resolution = json.loads(self.store.get(task["dependency_resolution_artifact"]))
+            if (resolution.get("campaign") != task["campaign_id"] or
+                    resolution.get("task_id") != str(task["id"]) or
+                    resolution.get("draft_artifact") != task["result_artifact"] or
+                    resolution.get("claim_review_artifact") != task["review_artifact"] or
+                    resolution.get("dependency_versions") != task["dependency_versions"] or
+                    len(resolution.get("dependency_reviews", [])) !=
+                    len(draft["answer"]["dependencies"])):
+                raise ValueError("source dependency resolution does not match task")
         return task, draft, review
 
     def publish_contract(self, task_id: str, claim_index: int, contract_key: str,
@@ -66,7 +77,9 @@ class FindingsStore:
                    "evidence_artifact": draft["evidence_artifact"],
                    "evidence_addresses": claim["evidence_addresses"],
                    "draft_artifact": task["result_artifact"],
-                   "review_artifact": task["review_artifact"]}
+                   "review_artifact": task["review_artifact"],
+                   "dependency_resolution_artifact": task["dependency_resolution_artifact"],
+                   "dependency_versions": task["dependency_versions"]}
         artifact = self.store.put(json.dumps(content, sort_keys=True).encode())
         campaign = task["campaign_id"]
         with self.queue._connect() as conn:
@@ -130,7 +143,9 @@ class FindingsStore:
                        for item in review["answer"]["reviews"])
                    for index in range(len(claims))):
             raise ValueError("all published claims need static support")
-        pins = dependency_versions or {}
+        pins = dependency_versions if dependency_versions is not None else task["dependency_versions"]
+        if draft["answer"]["dependencies"] and pins != task["dependency_versions"]:
+            raise ValueError("dependency versions must match accepted resolution")
         if not all(isinstance(key, str) and key and isinstance(version, int) and
                    version > 0 for key, version in pins.items()):
             raise ValueError("dependency versions must be positive integers")
@@ -145,6 +160,7 @@ class FindingsStore:
                        "assumptions": claim["assumptions"],
                        "alternatives": claim["alternatives"],
                        "dependency_versions": pins,
+                       "dependency_resolution_artifact": task["dependency_resolution_artifact"],
                        "draft_artifact": task["result_artifact"],
                        "review_artifact": task["review_artifact"]}
             artifact = self.store.put(json.dumps(content, sort_keys=True).encode())

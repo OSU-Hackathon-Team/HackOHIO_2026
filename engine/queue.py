@@ -381,15 +381,118 @@ class DurableQueue:
     def accept(self, task_id: str, review_artifact: str) -> bool:
         return self.publish_review(task_id, review_artifact) == "accepted"
 
+    def record_dependency_review(self, task_id: str, review_artifact: str) -> bool:
+        try:
+            review = json.loads(self.store.get(review_artifact))
+        except (ValueError, TypeError):
+            return False
+        with self._connect() as conn:
+            task = conn.execute("SELECT campaign_id, state, result_artifact FROM decomp_tasks "
+                                "WHERE id = %s FOR UPDATE", (task_id,)).fetchone()
+            if (task is None or task["state"] != "needs_reconciliation" or
+                    review.get("campaign") != task["campaign_id"] or
+                    review.get("task_id") != task_id or
+                    review.get("draft_artifact") != task["result_artifact"]):
+                return False
+            self._event(conn, task["campaign_id"], "dependency_review_recorded",
+                        {"task_id": task_id, "dependency_index": review.get("dependency_index"),
+                         "target": review.get("target"), "state": review.get("state"),
+                         "outcome": review.get("answer", {}).get("outcome"),
+                         "artifact": review_artifact})
+            return True
+
+    def resolve_dependencies(self, task_id: str, review_artifacts: list[str]) -> str:
+        from engine.validation.dependencies import validate_dependency_review
+
+        with self._connect() as conn:
+            task = conn.execute("SELECT * FROM decomp_tasks WHERE id = %s",
+                                (task_id,)).fetchone()
+        if task is None or task["state"] != "needs_reconciliation":
+            return "invalid"
+        if task["terminal_reason"] != "dependency_contracts_unreviewed":
+            return "blocked"
+        draft = json.loads(self.store.get(task["result_artifact"]))
+        dependencies = draft["answer"]["dependencies"]
+        if not dependencies or len(review_artifacts) != len(dependencies):
+            return "invalid"
+        caller = json.loads(self.store.get(draft["evidence_artifact"]))
+        reviews = []
+        pins = {}
+        for artifact in review_artifacts:
+            review = json.loads(self.store.get(artifact))
+            index = review.get("dependency_index")
+            if not isinstance(index, int) or index < 0 or index >= len(dependencies):
+                return "invalid"
+            dependency = dependencies[index]
+            key = dependency["target"]
+            contract = json.loads(self.store.get(review["contract_artifact"]))
+            callee = json.loads(self.store.get(contract["evidence_artifact"]))
+            if (review.get("state") != "reviewed" or
+                    review.get("structural_errors") != [] or
+                    review.get("campaign") != task["campaign_id"] or
+                    review.get("task_id") != task_id or
+                    review.get("draft_artifact") != task["result_artifact"] or
+                    review.get("target") != key or review.get("contract_key") != key or
+                    review.get("caller_evidence_artifact") != draft["evidence_artifact"] or
+                    review.get("callee_evidence_artifact") != contract["evidence_artifact"] or
+                    contract.get("campaign") != task["campaign_id"] or
+                    contract.get("contract_key") != key or
+                    validate_dependency_review(review["answer"], caller, callee)):
+                return "invalid"
+            if review["answer"]["outcome"] != "supported_static":
+                return "blocked"
+            version = review.get("contract_version")
+            if not isinstance(version, int) or version < 1 or (
+                    key in pins and pins[key] != version):
+                return "invalid"
+            pins[key] = version
+            reviews.append((index, artifact, key, version, review["contract_artifact"]))
+        if {item[0] for item in reviews} != set(range(len(dependencies))):
+            return "invalid"
+        resolution = {"schema": 1, "campaign": task["campaign_id"],
+                      "task_id": task_id, "draft_artifact": task["result_artifact"],
+                      "claim_review_artifact": task["review_artifact"],
+                      "dependency_reviews": [artifact for _, artifact, _, _, _ in
+                                             sorted(reviews)],
+                      "dependency_versions": pins}
+        resolution_artifact = self.store.put(json.dumps(resolution, sort_keys=True).encode())
+        with self._connect() as conn:
+            current = conn.execute("SELECT * FROM decomp_tasks WHERE id = %s FOR UPDATE",
+                                   (task_id,)).fetchone()
+            if (current["state"] != "needs_reconciliation" or
+                    current["result_artifact"] != task["result_artifact"] or
+                    current["review_artifact"] != task["review_artifact"] or
+                    current["terminal_reason"] != "dependency_contracts_unreviewed"):
+                return "stale"
+            for key, version in sorted(pins.items()):
+                head = conn.execute("SELECT version, artifact, state "
+                                    "FROM decomp_contract_heads WHERE campaign_id = %s "
+                                    "AND contract_key = %s FOR UPDATE",
+                                    (task["campaign_id"], key)).fetchone()
+                matching = [item for item in reviews if item[2] == key]
+                if (head is None or head["state"] != "active" or
+                        head["version"] != version or any(
+                            item[4] != head["artifact"] for item in matching)):
+                    return "stale"
+            conn.execute("UPDATE decomp_tasks SET state = 'accepted', "
+                         "dependency_versions = %s, dependency_resolution_artifact = %s, "
+                         "terminal_reason = NULL, updated_at = now() WHERE id = %s",
+                         (Jsonb(pins), resolution_artifact, task_id))
+            self._event(conn, task["campaign_id"], "dependencies_resolved",
+                        {"task_id": task_id, "resolution_artifact": resolution_artifact,
+                         "dependency_versions": pins})
+            return "accepted"
+
     def audit_accepted_dependencies(self, campaign: str) -> int:
         revised = 0
         with self._connect() as conn:
-            tasks = conn.execute("SELECT id, result_artifact FROM decomp_tasks "
+            tasks = conn.execute("SELECT id, result_artifact, dependency_resolution_artifact "
+                                 "FROM decomp_tasks "
                                  "WHERE campaign_id = %s AND state = 'accepted' "
                                  "FOR UPDATE", (campaign,)).fetchall()
             for task in tasks:
                 draft = json.loads(self.store.get(task["result_artifact"]))
-                if not draft["answer"].get("dependencies"):
+                if not draft["answer"].get("dependencies") or task["dependency_resolution_artifact"]:
                     continue
                 conn.execute("UPDATE decomp_tasks SET state = 'needs_reconciliation', "
                              "terminal_reason = 'dependency_contracts_unreviewed', "
@@ -421,7 +524,9 @@ class DurableQueue:
     def task(self, task_id: str) -> dict | None:
         with self._connect() as conn:
             row = conn.execute("SELECT id, campaign_id, subject, state, result_artifact, "
-                               "review_artifact, support_level, terminal_reason FROM decomp_tasks "
+                               "review_artifact, support_level, terminal_reason, "
+                               "dependency_versions, dependency_resolution_artifact "
+                               "FROM decomp_tasks "
                                "WHERE id = %s", (task_id,)).fetchone()
             if row is None:
                 return None

@@ -186,6 +186,8 @@ def main() -> None:
         ("queue-run-one", "lease and run one semantic task with heartbeats"),
         ("queue-drain", "run bounded parallel semantic workers until idle"),
         ("queue-review", "independently review one validated queue task"),
+        ("queue-review-dependency", "review one caller dependency against a helper contract"),
+        ("queue-resolve-dependencies", "accept a caller after all dependency reviews"),
         ("queue-reassess", "requeue one partial task with its prior draft"),
         ("queue-task", "inspect a durable native task and its blocker"),
         ("queue-events", "read ordered transactional campaign events"),
@@ -203,7 +205,7 @@ def main() -> None:
             command.add_argument("--scope-artifact", required=True)
         if name == "queue-status":
             command.add_argument("--campaign", required=True)
-        if name == "queue-review":
+        if name in {"queue-review", "queue-review-dependency"}:
             command.add_argument("--task-id", required=True)
             command.add_argument("--timeout", type=int, default=180)
             command.add_argument("--model-role", default="legal_verification")
@@ -211,6 +213,12 @@ def main() -> None:
             command.add_argument("--opencode", type=Path,
                                  default=Path(os.environ.get(
                                      "OPENCODE_BIN", "/home/mitch/.opencode/bin/opencode")))
+        if name == "queue-review-dependency":
+            command.add_argument("--dependency-index", type=int, required=True)
+        if name == "queue-resolve-dependencies":
+            command.add_argument("--task-id", required=True)
+            command.add_argument("--reviews", type=Path, required=True,
+                                 help="JSON array of dependency review artifact IDs")
         if name == "queue-reassess":
             command.add_argument("--task-id", required=True)
             command.add_argument("--reason", required=True)
@@ -409,6 +417,21 @@ def main() -> None:
                       "review_state": review_result["state"],
                       "review_artifact": review_result["artifact"],
                       "outcomes": review_result.get("outcomes", {})}
+        elif args.command == "queue-review-dependency":
+            from engine.validation.dependencies import IndependentDependencyReviewer
+
+            engine = GhidraAnalysis(args.state, Path(os.environ.get(
+                "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+            reviewer = IndependentDependencyReviewer(engine, queue, args.opencode,
+                                                     timeout=args.timeout)
+            result = reviewer.run(args.task_id, args.dependency_index,
+                                  model=args.model, model_role=args.model_role)
+        elif args.command == "queue-resolve-dependencies":
+            reviews = json.loads(args.reviews.read_text())
+            if not isinstance(reviews, list) or not all(isinstance(x, str) for x in reviews):
+                parser.error("--reviews must contain a JSON array of artifact IDs")
+            state = queue.resolve_dependencies(args.task_id, reviews)
+            result = {"state": state, "task": queue.task(args.task_id)}
         elif args.command == "queue-reassess":
             requeued = queue.reassess(args.task_id, args.reason)
             result = {"task_id": args.task_id, "requeued": requeued,
