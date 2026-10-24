@@ -25,6 +25,7 @@
   "dependencies": {
     "@anthropic-ai/bedrock-sdk": "^1.1.0",
     "@anthropic-ai/sdk": "^1.3.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.1156.0",
     "@modelcontextprotocol/sdk": "^1.6.1",
     "@splice/contracts": "*",
     "compression": "^1.7.5",
