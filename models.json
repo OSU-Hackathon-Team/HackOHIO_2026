@@ -1,30 +1,71 @@
 {
-  "$comment": "Global role -> model routing. Format is OpenCode 'provider/model'; the Splice backend strips the 'amazon-bedrock/' prefix (bedrockModelId() in packages/backend/src/models.ts). Env overrides per role: MODEL_<ROLE_UPPER> (e.g. MODEL_SPEC_WRITER). OPENCODE_MODEL remains the legacy override for the default role. Splice roles (spec_writer, engine_writer, ui_synthesizer, refusal_fallback) go through llm.ts: Claude models use the Anthropic Messages API on Bedrock with structured outputs; a non-Claude model is allowed only if its options entry has splice_compatible: true (llm.ts calls it through the Bedrock Converse API with a forced tool call for JSON). refusal_fallback must be Claude. Verify each ID is enabled in the Bedrock console for your AWS_REGION.",
+  "$comment": "Global provider/model routing. MODEL_<ROLE> overrides models.json. Splice defaults use Qwen via Bedrock Converse; Claude overrides use the Anthropic Messages API. Non-Claude models require splice_compatible in options. Python roles are unchanged.",
   "default": "amazon-bedrock/deepseek.v3.2",
   "roles": {
     "decomp_worker": "amazon-bedrock/amazon.nova-lite-v1:0",
-    "spec_writer": "amazon-bedrock/anthropic.claude-opus-5-5",
+    "spec_writer": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
     "engine_writer": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
-    "ui_synthesizer": "amazon-bedrock/anthropic.claude-opus-5-5",
-    "refusal_fallback": "amazon-bedrock/anthropic.claude-opus-4-8",
+    "ui_synthesizer": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "refusal_fallback": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
     "legal_verification": "amazon-bedrock/anthropic.claude-opus-4-6-v1"
   },
   "role_notes": {
     "decomp_worker": "Python OpenCode/Ghidra worker (launch.py). Any OpenCode-supported model.",
-    "spec_writer": "Splice Step 2: requirements + acceptance tests + oracle adapter. Claude only.",
-    "engine_writer": "Splice Step 3a implementor agent: writes the engine from the spec. Qwen3 Coder 480B via Bedrock Converse (verified on this account in us-east-2, 2026-10-24); Claude Opus 5.5 when the account has access.",
-    "ui_synthesizer": "Splice Step 3b: UI synthesis + refine/auto-fix. Claude only.",
-    "refusal_fallback": "Retried once when a Splice role's model returns stop_reason 'refusal' (Bedrock has no server-side fallbacks). Claude only.",
+    "spec_writer": "Splice spec_writer: Qwen3 Coder 480B via Bedrock Converse. Environment overrides remain supported.",
+    "engine_writer": "Splice engine_writer: Qwen3 Coder 480B via Bedrock Converse. Environment overrides remain supported.",
+    "ui_synthesizer": "Splice ui_synthesizer: Qwen3 Coder 480B via Bedrock Converse. Environment overrides remain supported.",
+    "refusal_fallback": "Splice refusal_fallback: Qwen3 Coder 480B via Bedrock Converse. Environment overrides remain supported. Retry once on a distinct configured model; identical-model retries are skipped.",
     "legal_verification": "Python pipeline verification role."
   },
   "options": [
-    { "id": "amazon-bedrock/anthropic.claude-opus-5-5", "label": "Claude Opus 5.5", "family": "claude", "splice_compatible": true },
-    { "id": "amazon-bedrock/anthropic.claude-sonnet-5-5", "label": "Claude Sonnet 5.5 (faster, cheaper)", "family": "claude", "splice_compatible": true },
-    { "id": "amazon-bedrock/anthropic.claude-opus-4-8", "label": "Claude Opus 4.8", "family": "claude", "splice_compatible": true },
-    { "id": "amazon-bedrock/anthropic.claude-opus-4-6-v1", "label": "Claude Opus 4.6", "family": "claude", "splice_compatible": true },
-    { "id": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0", "label": "Qwen3 Coder 480B (A35B)", "family": "qwen", "splice_compatible": true, "note": "Coding model. Splice's implementor agent (engine_writer) through llm.ts's Bedrock Converse path; also usable by OpenCode roles. Verified in us-east-2 with the bare ID (the us. inference profile is rejected)." },
-    { "id": "amazon-bedrock/amazon.nova-pro-v1:0", "label": "Amazon Nova Pro", "family": "nova", "splice_compatible": false },
-    { "id": "amazon-bedrock/amazon.nova-lite-v1:0", "label": "Amazon Nova Lite", "family": "nova", "splice_compatible": false },
-    { "id": "amazon-bedrock/deepseek.v3.2", "label": "DeepSeek V3.2", "family": "deepseek", "splice_compatible": false }
+    {
+      "id": "amazon-bedrock/anthropic.claude-opus-5-5",
+      "label": "Claude Opus 5.5",
+      "family": "claude",
+      "splice_compatible": true
+    },
+    {
+      "id": "amazon-bedrock/anthropic.claude-sonnet-5-5",
+      "label": "Claude Sonnet 5.5 (faster, cheaper)",
+      "family": "claude",
+      "splice_compatible": true
+    },
+    {
+      "id": "amazon-bedrock/anthropic.claude-opus-4-8",
+      "label": "Claude Opus 4.8",
+      "family": "claude",
+      "splice_compatible": true
+    },
+    {
+      "id": "amazon-bedrock/anthropic.claude-opus-4-6-v1",
+      "label": "Claude Opus 4.6",
+      "family": "claude",
+      "splice_compatible": true
+    },
+    {
+      "id": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+      "label": "Qwen3 Coder 480B (A35B)",
+      "family": "qwen",
+      "splice_compatible": true,
+      "note": "Coding model. Splice's implementor agent (engine_writer) through llm.ts's Bedrock Converse path; also usable by OpenCode roles. Verified in us-east-2 with the bare ID (the us. inference profile is rejected)."
+    },
+    {
+      "id": "amazon-bedrock/amazon.nova-pro-v1:0",
+      "label": "Amazon Nova Pro",
+      "family": "nova",
+      "splice_compatible": false
+    },
+    {
+      "id": "amazon-bedrock/amazon.nova-lite-v1:0",
+      "label": "Amazon Nova Lite",
+      "family": "nova",
+      "splice_compatible": false
+    },
+    {
+      "id": "amazon-bedrock/deepseek.v3.2",
+      "label": "DeepSeek V3.2",
+      "family": "deepseek",
+      "splice_compatible": false
+    }
   ]
 }

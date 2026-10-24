@@ -17,7 +17,7 @@ import {
   BedrockRuntimeClient, ConverseStreamCommand,
   type ConverseStreamCommandOutput, type Message as ConverseMessage,
 } from "@aws-sdk/client-bedrock-runtime";
-import { bedrockModelId, spliceModel, type SpliceRole } from "../models.js";
+import { spliceModel, type SpliceRole } from "../models.js";
 
 const BACKEND_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 dotenv.config({ path: path.join(BACKEND_DIR, ".env") });
@@ -104,6 +104,8 @@ export interface StructuredResult<T> {
 }
 
 const DEFAULT_MAX_TOKENS = 32_000;
+// Bedrock Qwen3 Coder supports 16K output tokens. See the AWS model card linked in the LLM spec.
+export const CONVERSE_MAX_TOKENS = 16_384;
 
 function progressReporter(onProgress?: (n: number) => void) {
   let chars = 0;
@@ -162,15 +164,7 @@ async function streamOnce(model: string, o: StructuredCallOpts<unknown>): Promis
 }
 
 async function anthropicCall<T>(primary: string, o: StructuredCallOpts<T>): Promise<StructuredResult<T>> {
-  let msg = await streamOnce(primary, o);
-
-  // Bedrock has no server-side fallbacks: retry a refusal once on the refusal_fallback role.
-  // (Earlier thinking blocks from the primary model are dropped by the API, unbilled.)
-  if (msg.stop_reason === "refusal") {
-    const fallback = bedrockModelId("refusal_fallback");
-    console.warn(`[llm] ${primary} declined (${msg.stop_details?.category ?? "unknown"}); retrying on ${fallback}`);
-    msg = await streamOnce(fallback, o);
-  }
+  const msg = await streamOnce(primary, o);
   if (msg.stop_reason === "refusal") {
     throw new LlmRefusalError(msg.stop_details?.category ?? null, msg.stop_details?.explanation ?? null);
   }
@@ -208,7 +202,7 @@ function toConverseMessages(messages: Anthropic.MessageParam[]): ConverseMessage
 }
 
 async function converseCall<T>(modelId: string, o: StructuredCallOpts<T>): Promise<StructuredResult<T>> {
-  const maxTokens = o.maxTokens ?? DEFAULT_MAX_TOKENS;
+  const maxTokens = Math.min(o.maxTokens ?? DEFAULT_MAX_TOKENS, CONVERSE_MAX_TOKENS);
   const res = await converseClient().send(
     new ConverseStreamCommand({
       modelId,
@@ -270,8 +264,19 @@ async function converseCall<T>(modelId: string, o: StructuredCallOpts<T>): Promi
 }
 
 export async function structuredCall<T>(o: StructuredCallOpts<T>): Promise<StructuredResult<T>> {
-  const { id, api } = spliceModel(o.role);
-  return api === "converse" ? converseCall(id, o) : anthropicCall(id, o);
+  o.signal?.throwIfAborted();
+  const primary = spliceModel(o.role);
+  const call = (model: ReturnType<typeof spliceModel>) =>
+    model.api === "converse" ? converseCall(model.id, o) : anthropicCall(model.id, o);
+  try {
+    return await call(primary);
+  } catch (error) {
+    if (!(error instanceof LlmRefusalError)) throw error;
+    o.signal?.throwIfAborted();
+    const fallback = spliceModel("refusal_fallback");
+    if (fallback.id === primary.id && fallback.api === primary.api) throw error;
+    return call(fallback);
+  }
 }
 
 /** Repair loops: conversation so far + the model's last answer (unchanged) + new user feedback. */

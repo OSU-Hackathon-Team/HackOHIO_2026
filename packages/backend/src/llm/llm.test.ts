@@ -1,9 +1,9 @@
-import { test, afterEach } from "node:test";
+import { test, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import type Anthropic from "@anthropic-ai/sdk";
 import {
   LlmRefusalError, LlmSchemaError, LlmTruncatedError, continueWith, setClaudeClientForTests, setConverseClientForTests,
-  structuredCall, type ClaudeClient, type ConverseClient,
+  structuredCall, CONVERSE_MAX_TOKENS, type ClaudeClient, type ConverseClient,
 } from "./llm.js";
 import type { LlmPort } from "../engine/ports.js";
 import { bedrockModelId, spliceModel } from "../models.js";
@@ -47,7 +47,15 @@ function fakeClaude(replies: Reply[]) {
   return requests;
 }
 
+const originalSpec = process.env.MODEL_SPEC_WRITER;
+const originalFallback = process.env.MODEL_REFUSAL_FALLBACK;
+beforeEach(() => {
+  process.env.MODEL_SPEC_WRITER = "amazon-bedrock/anthropic.claude-opus-5-5";
+  process.env.MODEL_REFUSAL_FALLBACK = "amazon-bedrock/anthropic.claude-opus-4-8";
+});
 afterEach(() => {
+  if (originalSpec === undefined) delete process.env.MODEL_SPEC_WRITER; else process.env.MODEL_SPEC_WRITER = originalSpec;
+  if (originalFallback === undefined) delete process.env.MODEL_REFUSAL_FALLBACK; else process.env.MODEL_REFUSAL_FALLBACK = originalFallback;
   setClaudeClientForTests(null);
   setConverseClientForTests(null);
 });
@@ -145,8 +153,12 @@ const QWEN = "qwen.qwen3-coder-480b-a35b-v1:0";
 const qwenOpts = (over: Parameters<typeof opts>[0] = {}) => opts({ role: "engine_writer", ...over });
 
 test("models.json routes engine_writer to Qwen3 Coder over Converse; non-compatible models are refused", () => {
+  delete process.env.MODEL_SPEC_WRITER;
+  delete process.env.MODEL_REFUSAL_FALLBACK;
+  for (const role of ["spec_writer", "engine_writer", "ui_synthesizer", "refusal_fallback"] as const) {
+    assert.deepEqual(spliceModel(role), { id: QWEN, api: "converse" });
+  }
   assert.deepEqual(spliceModel("engine_writer"), { id: QWEN, api: "converse" });
-  assert.deepEqual(spliceModel("spec_writer"), { id: bedrockModelId("spec_writer"), api: "anthropic" });
   assert.throws(() => spliceModel("engine_writer", "amazon-bedrock/amazon.nova-lite-v1:0"), /not marked splice_compatible/);
   assert.throws(() => bedrockModelId("engine_writer"), /needs a Claude model/);
 });
@@ -183,10 +195,43 @@ test("Converse repair turns go back as text, append-only", async () => {
 });
 
 test("Converse stop reasons map to the same typed errors", async () => {
+  delete process.env.MODEL_REFUSAL_FALLBACK;
   fakeConverse([{ tool: '{"ans', stop: "max_tokens" }]);
   await assert.rejects(structuredCall(qwenOpts()), LlmTruncatedError);
   fakeConverse([{ stop: "content_filtered" }]);
   await assert.rejects(structuredCall(qwenOpts()), (e: unknown) => e instanceof LlmRefusalError && e.category === "content_filtered");
   fakeConverse([{ text: "I think it is 391" }]);
   await assert.rejects(structuredCall(qwenOpts()), LlmSchemaError);
+});
+
+test("Converse caps output tokens at the Bedrock limit", async () => {
+  const inputs = fakeConverse([{ tool: '{"answer":391}' }]);
+  await structuredCall(qwenOpts({ maxTokens: 48_000 }));
+  assert.equal(inputs[0].inferenceConfig.maxTokens, CONVERSE_MAX_TOKENS);
+});
+
+test("an identical fallback is not retried", async () => {
+  delete process.env.MODEL_REFUSAL_FALLBACK;
+  const inputs = fakeConverse([{ stop: "content_filtered" }]);
+  await assert.rejects(structuredCall(qwenOpts()), LlmRefusalError);
+  assert.equal(inputs.length, 1);
+});
+
+test("fallback dispatch can cross APIs and records the answering model", async () => {
+  delete process.env.MODEL_REFUSAL_FALLBACK;
+  const requests = fakeClaude([{ stop_reason: "refusal" }]);
+  const inputs = fakeConverse([{ tool: '{"answer":391}' }]);
+  const result = await structuredCall(opts());
+  assert.equal(result.model, QWEN);
+  assert.equal(requests.length, 1);
+  assert.equal(inputs.length, 1);
+});
+
+test("Converse can fall back once to a Claude override", async () => {
+  const inputs = fakeConverse([{ stop: "guardrail_intervened" }]);
+  const requests = fakeClaude([{ text: '{"answer":391}' }]);
+  const result = await structuredCall(qwenOpts());
+  assert.equal(result.model, bedrockModelId("refusal_fallback"));
+  assert.equal(inputs.length, 1);
+  assert.equal(requests.length, 1);
 });
