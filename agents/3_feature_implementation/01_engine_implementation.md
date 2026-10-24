@@ -108,6 +108,12 @@ export function purityViolations(src: string): string[] {
 }
 ```
 
+> **Implementation note (as built):** `purity.ts` walks the TypeScript AST instead of using these
+> regexes. The comment/string stripper above misfires on regex literals (e.g. `/"/`) and lets text
+> inside strings hide or trigger rules. The rule list is the same, plus dynamic `import()`, `import`
+> types, `globalThis`, `self`, `performance` and `crypto`. Property names (`o.window`) and names
+> the module declares itself are not treated as globals. Each message names its first line.
+
 ## 4. Type conformance — engine vs `types_code`
 
 Uses `typecheckVirtual` from `03_bundle_validator.md`. For each exported **function**, the
@@ -143,6 +149,11 @@ export function conformanceErrors(spec: FeatureSpec, engineCode: string): string
 > A missing export shows up as "Module './engine' has no exported member X" or "Property 'X'
 > does not exist on type typeof import('./engine')". Both are clear enough to feed back to the
 > model as they are.
+
+> **Implementation note (as built):** `kind: "const"` exports are checked too (assignable to the
+> declared type). Diagnostics located in the hidden `/check.ts` are rewritten to
+> `Export "X" does not match the interface: …`, because the model never sees that file, and
+> `virtualTsc` strips the absolute `__virtual__` root from messages so local paths never reach a prompt.
 
 ## 5. `src/engine/implement.ts`
 
@@ -239,6 +250,13 @@ export async function implementEngine(spec: FeatureSpec, hooks: ImplementHooks):
 ```
 
 (`conformanceErrors` from §4 lives in `src/engine/conformance.ts`.)
+
+> **Implementation note (as built):** `implementEngine(spec, hooks, deps)` takes
+> `{ llm: { structuredCall, continueWith }, sandbox: { runTests } }` through the ports in
+> `src/engine/ports.ts`, so Step 3 is tested with doubles until Eng 2's modules land
+> (`src/routes/step3/deps.ts` wires the real ones). Zero executed tests becomes an explicit
+> `Sandbox: no acceptance tests were executed` failure (not an empty repair message), and an
+> aborted `signal` stops the loop before each model call and sandbox run.
 
 ## 6. Store & route — `src/routes/step3/index.ts` (implement part)
 
