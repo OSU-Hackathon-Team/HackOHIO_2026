@@ -1,0 +1,32 @@
+{
+  "app_id": "mockpriority",
+  "feature_id": "mockpriority.priority_score",
+  "target": {
+    "path": "fixtures/test-run/mock_task_priority.elf",
+    "artifact_type": "native_elf",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "rea_package_version": "mock-decompiler",
+  "mode": "replay",
+  "tool_calls": [],
+  "snippets": [
+    {
+      "location": "mock_task_priority.elf!0x4012A0",
+      "symbol": "score_task_priority",
+      "language": "c",
+      "code": "/* SYNTHETIC MOCK: illustrative decompiler-style reconstruction; not produced by Ghidra.\n * Recovered symbol hypothesis: score_task_priority(TaskView*, int64_t now_epoch).\n * Behavioral observations encoded for handoff testing:\n * - completed tasks score 0 regardless of due date or importance.\n * - overdue tasks gain 40 points per complete overdue day; partial days add no points, capped at 120.\n * - due now through 24 hours adds 80; later than 24 hours through 7 days adds 35; otherwise adds 0.\n * - negative importance is clamped to 0; importance above 5 is clamped to 5.\n * - score is urgency + 30 * importance, capped at 200.\n */\nint urgency_bucket(int64_t due_epoch, int64_t now_epoch) {\n    int64_t delta = due_epoch - now_epoch;\n    if (delta < 0) {\n        int64_t days_late = (-delta) / 86400;\n        int points = (int)(days_late * 40);\n        return points > 120 ? 120 : points;\n    }\n    if (delta <= 86400) return 80;\n    if (delta <= 604800) return 35;\n    return 0;\n}\n\nint score_task_priority(TaskView *task, int64_t now_epoch) {\n    if (task->completed != 0) return 0;\n    int importance = task->importance;\n    if (importance < 0) importance = 0;\n    if (importance > 5) importance = 5;\n    int score = urgency_bucket(task->due_epoch, now_epoch) + 30 * importance;\n    return score > 200 ? 200 : score;\n}\n",
+      "full_module": false
+    }
+  ],
+  "related_paths": [],
+  "limitations": [
+    "Synthetic mock payload authored for pipeline handoff testing; not collected from a real application or REA/Ghidra run.",
+    "The named ELF target is illustrative and is not present in the repository.",
+    "Decompiler-style pseudocode and behavioral observations are authored test data, not independently verified behavior."
+  ],
+  "unknowns": [
+    "Original native binary, calling convention, structure layout, and runtime behavior are unavailable.",
+    "Whether integer division, timestamp units, and score thresholds match any production target is unverified."
+  ],
+  "collected_at": "2026-10-24T00:00:00.000Z"
+}
