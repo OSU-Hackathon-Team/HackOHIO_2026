@@ -62,8 +62,31 @@ Each script runs one module alone. "Done" for a module means its script passes.
 | `REA_MODE` | `live` / `replay` / `auto` | `auto` tries live REA, then falls back to recorded evidence after 45 s or on error |
 | `LLM_MODE` | `live` / `replay` | `replay` re-emits recorded transcripts with their timing; no Bedrock calls |
 
-Develop with `REA_MODE=auto LLM_MODE=live`. Without AWS access, use `LLM_MODE=replay` (needs
+`mock` (the default in the Dockerfile, compose files and root `.env.example`, which CI uses) is
+accepted as an alias for `replay`. Develop with `REA_MODE=auto LLM_MODE=live`. Without AWS access, use `LLM_MODE=replay` (needs
 recorded transcripts) or frontend mock mode.
+
+## CI
+
+`.github/workflows/ci.yml` runs on Node 22: `npm ci` → `npm run build`, then builds the root
+`Dockerfile` (`runner` target) with `.env` copied from the root `.env.example`, boots it, and
+checks `/api/health` (200), `/` (200) and `/api/nonexistent` (404). Before pushing backend
+changes, run `npm run build`. Then run `NODE_ENV=production node packages/backend/dist/server.js`
+and hit those three URLs.
+
+## Decompilation engine track (Python, Docker only)
+
+From the root `README.md`. The host runs Docker Compose only:
+
+```bash
+docker compose build orchestrator
+docker compose run --rm orchestrator python launch.py build          # builds the Ghidra worker image (slow, GBs)
+docker compose run --rm orchestrator python launch.py rename \
+  --binary /workspace/path/to/binary --address 0x401126 --new-name parse_packet
+```
+
+Outputs go to `runs/<attempt-id>/` (gitignored). Models come from `models.json` roles via
+`model_config.py`. The planned `engine/` package and its gates are in `DECOMP_IMPLEMENTATION_PLAN.md`.
 
 ## Quick health check
 
