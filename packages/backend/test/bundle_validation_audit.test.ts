@@ -105,6 +105,15 @@ describe("Step 3: Virtual Typechecker & Bundle Validation Audit", () => {
       assert.ok(res.errors.some((e) => /Dependency "react@19\.0\.0" does not match allowed version/.test(e)));
       assert.ok(res.diagnostics.some((d) => d.stage === "manifest"));
     });
+
+    test("rejects bundle with unwhitelisted dependency in manifest dependencies", () => {
+      const b = bundle();
+      b.dependencies["axios"] = "^1.6.0";
+      const res = validateBundleDetailed(b, blueprints);
+      assert.equal(res.ok, false);
+      assert.ok(res.errors.some((e) => /Dependency "axios" is not an allowed Sandpack dependency/.test(e)));
+      assert.ok(res.diagnostics.some((d) => d.stage === "manifest"));
+    });
   });
 
   describe("3. Behavioral Conformance Prerequisite (Typecheck != Behavioral Correctness)", () => {
