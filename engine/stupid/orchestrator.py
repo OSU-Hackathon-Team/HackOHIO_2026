@@ -563,11 +563,30 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
             final = {"action": "done", "scope": sorted(drafts),
                      "readiness": "partial",
                      "notes": "round budget exhausted"}
-        facts = [{**drafts[e], "review_verdict": reviews.get(e, {}).get(
-            "verdict", "unreviewed")} for e in final.get("scope", [])
-            if e in drafts]
+        facts = []
+        used = 0
+        for e in final.get("scope", []):
+            if e not in drafts:
+                continue
+            d = drafts[e]
+            # Evidence addresses stay out of the prose spec, so only the
+            # statements themselves are sent; whole entries are dropped once
+            # the budget is spent, never half a JSON document.
+            fact = {"entry": e,
+                    "claims": [str(c.get("statement", ""))[:600]
+                               for c in d.get("claims", [])[:12]],
+                    "unknowns": [str(u)[:200] for u in d.get("unknowns", [])[:6]],
+                    "review_verdict": reviews.get(e, {}).get(
+                        "verdict", "unreviewed")}
+            blob = json.dumps(fact)
+            if used + len(blob) > 60000:
+                break
+            used += len(blob)
+            facts.append(fact)
+        record("spec_facts", {"scoped": len(final.get("scope", [])),
+                              "sent": len(facts), "chars": used})
         spec_text = model_fn(prompts.SPEC.format(
-            goal=goal, facts=json.dumps(facts)[:60000]), role="spec_writer")
+            goal=goal, facts=json.dumps(facts)), role="spec_writer")
         try:
             spec = parse_json(spec_text)
             markdown = spec.get("spec_markdown", "")
