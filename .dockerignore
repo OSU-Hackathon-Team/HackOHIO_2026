@@ -2,6 +2,7 @@
 .agents
 .codex
 runs
+decomp-state
 __pycache__
 *.pyc
 

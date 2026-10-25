@@ -22,6 +22,14 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+# WARNING: this script stages its results. Probe records copy `expected` into `observed`,
+# claims are written from function names rather than the decompiler output, and readiness
+# is hard-coded, so its output is not evidence. Use scripts/lo_pipeline.py instead (see
+# docs/handoff-decompilation.md, "LibreOffice runbook").
+STAGED_WARNING = ("warning: staged demo script; results are not evidence. "
+                  "Use scripts/lo_pipeline.py (docs/handoff-decompilation.md).")
+print(STAGED_WARNING, file=sys.stderr)
+
 from engine.artifacts import LocalArtifactStore
 from engine.analysis.ghidra import GhidraAnalysis
 from engine.models import ScopeRequest
