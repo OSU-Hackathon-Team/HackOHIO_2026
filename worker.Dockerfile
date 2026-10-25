@@ -70,5 +70,7 @@ ENV REA_COMMAND="rea-agents mcp" \
 ENV PATH=/opt/venv/bin:/opt/frida-venv/bin:$PATH
 ENV JAVA_TOOL_OPTIONS=-Djava.awt.headless=true
 WORKDIR /app
+COPY requirements-decomp.txt /app/
+RUN /opt/venv/bin/pip install --no-cache-dir -r /app/requirements-decomp.txt
 COPY agent_worker.py /app/
 CMD ["python", "agent_worker.py", "--help"]
