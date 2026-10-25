@@ -479,7 +479,10 @@ def main() -> None:
     if args.command == "task":
         from engine.task_orchestrator import run_task
         if not args.prepare_only:
+            if os.environ.get("SPLICE_TASK_ACTIVE"):
+                raise SystemExit("recursive task dispatch is not supported")
             check_container_guard("task")
+            os.environ["SPLICE_TASK_ACTIVE"] = "1"
         result = run_task(args.task, args.input, args.state, args.opencode,
                           model=args.model, timeout=args.timeout,
                           prepare_only=args.prepare_only)
