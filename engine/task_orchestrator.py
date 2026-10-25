@@ -66,6 +66,7 @@ other task-specific analysis files under {state}, and install public tools in th
 disposable orchestrator container when useful. Do not change engine source or fabricate
 original observations. Treat unsupported behavior and failed tools as open work. A static
 candidate link, model claim, or passing example does not establish whole-app equivalence.
+You are already inside `launch.py task`; do not invoke `launch.py task` recursively.
 
 The Linux GUI implementation is performed by a separate agent. It receives only a ready
 public spec through `launch.py gui-implement`, never binaries, raw analysis, private

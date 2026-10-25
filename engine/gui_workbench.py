@@ -136,6 +136,9 @@ def run_gui_implementation(state: Path, spec_artifacts: list[str], task: str, *,
                "--env", "OPENCODE_DISABLE_EXTERNAL_SKILLS=true"]
     if auth_file and auth_file.is_file():
         command += ["--volume", f"{auth_file.resolve()}:/root/.local/share/opencode/auth.json:ro"]
+    aws_profile = Path.home() / ".aws"
+    if os.environ.get("AWS_PROFILE") and aws_profile.is_dir():
+        command += ["--volume", f"{aws_profile.resolve()}:/root/.aws:ro"]
     for key in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
                 "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_PROFILE"):
         if os.environ.get(key):

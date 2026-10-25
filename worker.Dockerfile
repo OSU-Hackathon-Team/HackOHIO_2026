@@ -7,7 +7,7 @@ ARG GHIDRA_SHA256=93a5d11a9ad510622acaaf908c556a7b9b764d338e78a7567f3689bf5081fd
 ARG GHIDRA_MCP_COMMIT=f3af083c339709ed2243d57b7ca56354ff12a117
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3 python3-venv python3-pip curl unzip git ca-certificates \
+      python3 python3-venv python3-pip curl unzip git ca-certificates podman \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fL --retry 3 -o /tmp/ghidra.zip \
