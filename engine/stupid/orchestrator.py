@@ -119,6 +119,8 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
         redraft_counts: dict[str, int] = {}
 
         def decompile(entries: list[str]) -> None:
+            nonlocal noop_streak
+
             def one(entry: str) -> tuple[str, dict]:
                 key = tools.resolve_entry(manifest, entry)
                 pack = tools.read_function(manifest, key)
@@ -170,6 +172,8 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                                                "error": str(payload.get("_error", payload))[:500]})
 
         def review(entries: list[str]) -> None:
+            nonlocal noop_streak
+
             def one(entry: str) -> tuple[str, dict]:
                 key = tools.resolve_entry(manifest, entry)
                 pack = tools.read_function(manifest, key)
