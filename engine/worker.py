@@ -193,7 +193,8 @@ class SemanticWorker:
 
     def run(self, manifest: dict, scope_artifact: str, subject: str,
             *, model: str | None = None, model_role: str = "decomp_worker",
-            prior_artifact: str | None = None) -> dict:
+            prior_artifact: str | None = None,
+            runtime_observations: list[dict] | None = None) -> dict:
         scope = json.loads(self.engine.store.get(scope_artifact))
         if scope["campaign"] != manifest["campaign"]:
             raise ValueError("scope and campaign differ")
@@ -246,6 +247,13 @@ class SemanticWorker:
                            "correct every listed structural error without inventing behavior. "
                            "Return one complete JSON object. Prior attempt: " +
                            prior_context[:20000])
+        if runtime_observations:
+            prompt += ("\nRuntime observations: the original binary was instrumented while it "
+                       "processed these inputs, and this function was entered the given number "
+                       "of times. They show which inputs reach this function, not what it "
+                       "does; claims still need instruction addresses from the evidence. "
+                       "Observations: " +
+                       json.dumps(runtime_observations, separators=(",", ":"))[:8000])
         attempt_id = uuid.uuid4().hex
         folder = self.engine.root / "attempts" / attempt_id
         folder.mkdir(parents=True)
@@ -259,6 +267,9 @@ class SemanticWorker:
                       "evidence_truncated": truncated, "state": "running"}
         if prior_artifact is not None:
             checkpoint["reassessment_of"] = prior_artifact
+        if runtime_observations:
+            checkpoint["runtime_observations_artifact"] = self.engine.store.put(
+                json.dumps(runtime_observations, sort_keys=True).encode())
         checkpoint_path = folder / "checkpoint.json"
         checkpoint_path.write_text(json.dumps(checkpoint, indent=2) + "\n")
         self.engine._emit(manifest["campaign"], "semantic_started", attempt_id=attempt_id,

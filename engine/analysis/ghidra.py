@@ -37,6 +37,9 @@ from engine.analysis.warm import WarmGhidraPool
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_DIR = ROOT / "engine" / "analysis" / "scripts"
 SCHEMA = 1
+# Profile -> pre-analysis script. "light" skips analyzers that dominate import time on huge
+# libraries; see scripts/LightAnalysisOptions.java.
+ANALYSIS_PROFILES = {"full": None, "light": "LightAnalysisOptions.java"}
 
 
 def file_hash(path: Path) -> str:
@@ -55,7 +58,10 @@ def tool_version(headless: Path) -> str:
 
 class GhidraAnalysis:
     def __init__(self, root: Path, headless: Path, *, timeout: int = 900,
-                 warm_workers: int | None = None):
+                 warm_workers: int | None = None, analysis_profile: str = "full"):
+        if analysis_profile not in ANALYSIS_PROFILES:
+            raise ValueError(f"analysis_profile must be one of {sorted(ANALYSIS_PROFILES)}")
+        self.analysis_profile = analysis_profile
         self.root = Path(root).resolve()
         self.headless = Path(headless).resolve()
         self.timeout = timeout
@@ -113,13 +119,20 @@ class GhidraAnalysis:
                                     f" -Duser.home={user_dir}").strip()
         return env
 
+    def _analysis_options(self) -> dict:
+        # "full" keeps the original empty options so existing campaigns stay cached.
+        script = ANALYSIS_PROFILES[self.analysis_profile]
+        if script is None:
+            return {}
+        return {"profile": self.analysis_profile, "prescript_sha256": file_hash(SCRIPT_DIR / script)}
+
     def analyze(self, binary: Path, *, force: bool = False) -> dict:
         binary = Path(binary).resolve(strict=True)
         binary_sha = file_hash(binary)
         script_sha = file_hash(SCRIPT_DIR / "ExportEvidence.java")
         identity = {"schema": SCHEMA, "binary_sha256": binary_sha,
                     "ghidra_version_sha256": tool_version(self.headless),
-                    "exporter_sha256": script_sha, "analysis_options": {}}
+                    "exporter_sha256": script_sha, "analysis_options": self._analysis_options()}
         campaign = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
         project_root = self.root / "projects" / campaign
         project_root.mkdir(parents=True, exist_ok=True)
@@ -155,8 +168,11 @@ class GhidraAnalysis:
             if repository.exists():
                 shutil.rmtree(repository)
             imported.unlink(missing_ok=True)
+            prescript = ANALYSIS_PROFILES[self.analysis_profile]
+            options = (["-scriptPath", str(SCRIPT_DIR), "-preScript", prescript]
+                       if prescript else [])
             self._run([str(project_root), project_name, "-import", str(binary),
-                       "-overwrite", "-analysisTimeoutPerFile", str(self.timeout)],
+                       "-overwrite", "-analysisTimeoutPerFile", str(self.timeout), *options],
                       campaign, "import")
             if not project.exists() or not repository.is_dir():
                 self._emit(campaign, "import_failed", error="incomplete project")
