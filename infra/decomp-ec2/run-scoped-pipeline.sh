@@ -55,7 +55,7 @@ done
 timeout --kill-after=15 2700 docker run --rm --name splice-pipeline \
  --memory=24g --cpus=6 --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
  -v "$SRC:/workspace:ro" -v "$RUN:/run-out" "${mounts[@]}" -w /workspace \
- -e AWS_REGION="$AWS_DEFAULT_REGION" -e AWS_DEFAULT_REGION -e LLM_MODE=live \
+ -e AWS_REGION="$AWS_DEFAULT_REGION" -e AWS_DEFAULT_REGION -e LLM_MODE=live -e PYTHONUNBUFFERED=1 \
  -e GHIDRA_HEADLESS_MAXMEM=8G -e JAVA_TOOL_OPTIONS='-Djava.awt.headless=true -Xmx8g' \
  "$IMAGE" sh -c '
    # Older images lack boto3 (engine/model_runtime.py direct Bedrock path); worker.Dockerfile now has it.
