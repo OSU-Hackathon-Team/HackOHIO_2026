@@ -90,6 +90,12 @@ an artifact-store interface for later shared object storage. A future API or cli
 consume engine job state rather than build a second scheduler. Logical components may run
 in one service initially, while worker processes remain independently deployable.
 
+The Studio EC2 path can also write through to a private S3 cache (`docs/decomp-s3-cache.md`).
+It shares immutable artifacts and exact-campaign function, reviewed semantic, and spec
+pointers. PostgreSQL remains the durable queue; the S3 cache is not a scheduler or a source
+of readiness decisions. Scoped baselines and original runtime observations are rebuilt or
+rerun per worker until their portability and environment identity can be verified.
+
 ### Import and evidence extraction
 
 Hash each input artifact. Record architecture, compiler/language selection, Ghidra/backend

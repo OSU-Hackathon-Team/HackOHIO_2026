@@ -49,6 +49,10 @@ timeout 600 docker run --rm -v "$SRC:/workspace" -w /workspace "$IMAGE" sh -c '
   || echo "[setup] spec writer dependencies failed; deterministic writer will be used" >> "$RUN/console.log"
 
 mounts=()
+cache_env=()
+if [ "${DECOMP_CACHE_ENABLED:-0}" = "1" ]; then
+  cache_env=(-e DECOMP_CACHE_BUCKET="$TRIAL_BUCKET")
+fi
 for f in $(cd "$DBG" 2>/dev/null && find .build-id -name '*.debug' 2>/dev/null); do
   mounts+=(-v "$DBG/$f:/usr/lib/debug/$f:ro")
 done
@@ -56,6 +60,7 @@ timeout --kill-after=15 2700 docker run --rm --name splice-pipeline \
  --memory=24g --cpus=6 --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
  -v "$SRC:/workspace:ro" -v "$RUN:/run-out" "${mounts[@]}" -w /workspace \
  -e AWS_REGION="$AWS_DEFAULT_REGION" -e AWS_DEFAULT_REGION -e LLM_MODE=live \
+ "${cache_env[@]}" \
  -e GHIDRA_HEADLESS_MAXMEM=8G -e JAVA_TOOL_OPTIONS='-Djava.awt.headless=true -Xmx8g' \
  "$IMAGE" sh -c '
    # Older images lack boto3 (engine/model_runtime.py direct Bedrock path); worker.Dockerfile now has it.

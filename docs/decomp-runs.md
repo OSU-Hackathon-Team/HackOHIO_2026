@@ -33,6 +33,9 @@ AWS_REGION=us-east-2
 
 The backend's AWS credentials need EC2 start/describe, SSM send-command, and S3 read/write on
 that bucket. The worker uses its own instance role for Bedrock; no keys are sent to it.
+For reusable analyst-side caching, grant the worker role scoped `s3:ListBucket` plus
+`s3:GetObject` and `s3:PutObject` on `cache/v1/*`, then set `DECOMP_CACHE_ENABLED=1` on the backend. See
+[`decomp-s3-cache.md`](decomp-s3-cache.md). The flag is off until those permissions exist.
 
 ## What happens in a run
 

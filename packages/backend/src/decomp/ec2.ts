@@ -20,6 +20,7 @@ export interface Ec2WorkerConfig {
   region: string;
   instanceId: string;
   bucket: string;
+  cacheEnabled?: boolean;
   onlineTimeoutMs?: number;
   runtimeMaxSeconds?: number;
 }
@@ -60,6 +61,7 @@ export function ec2Worker(config: Ec2WorkerConfig): DecompWorker {
         `printf '%s' '${script}' | base64 -d > /opt/${unit}.sh`,
         `systemd-run --unit=${unit} --property=RuntimeMaxSec=${config.runtimeMaxSeconds ?? 3600} ` +
           `--setenv=TRIAL_BUCKET=${config.bucket} --setenv=AWS_DEFAULT_REGION=${config.region} ` +
+          (config.cacheEnabled ? "--setenv=DECOMP_CACHE_ENABLED=1 " : "") +
           `/bin/bash /opt/${unit}.sh ${runId} ${Math.trunc(maxFunctions)} ${Math.trunc(maxDepth)}`,
       ];
       await ssm.send(new SendCommandCommand({ InstanceIds: [config.instanceId], DocumentName: "AWS-RunShellScript",
