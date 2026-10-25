@@ -11,6 +11,7 @@ to zero from a non-zero row.
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from itertools import combinations
 
@@ -64,20 +65,50 @@ def _occurrences(cases: list[dict]) -> list[dict]:
                     for previous in window):
                 features.add("the same argument was already supplied since the last reset")
             records.append({"case": case["id"], "index": index, "operation": code,
-                            "argument": argument, "before": rows[index],
-                            "after": rows[index + 1], "features": features,
+                            "argument": argument, "labels": labels,
+                            "before": rows[index], "after": rows[index + 1],
+                            "features": features,
                             "unchanged": rows[index] == rows[index + 1]})
     return records
 
 
-def _candidates(records: list[dict], operation: int) -> list[dict]:
+def raised_labels(records: list[dict]) -> dict[tuple, set[str]]:
+    """Reported values an operation was seen to raise per argument.
+
+    Values are identified by label rather than position because each case reports
+    a different subset of them. The argument matters too: appending one value can
+    raise a value that appending another never touches, so a no-effect can only
+    deny a raise the same operation produced with the same argument elsewhere.
+    """
+    raised: dict[tuple, set[str]] = defaultdict(set)
+    for record in records:
+        for column, label in enumerate(record["labels"]):
+            if record["after"][column] and not record["before"][column]:
+                raised[(record["operation"], record["argument"])].add(label)
+    return raised
+
+
+def _declined(record: dict, raised: dict[tuple, set[str]]) -> set[str]:
+    """Values this operation could have raised here with this argument and did not."""
+    possible = raised.get((record["operation"], record["argument"]), set())
+    return {label for column, label in enumerate(record["labels"])
+            if label in possible and not record["before"][column]}
+
+
+def _candidates(records: list[dict], operation: int,
+                raised: dict[tuple, set[str]]) -> list[dict]:
     pool = defaultdict(int)
     for record in records:
         if record["operation"] == operation and record["unchanged"]:
             for feature in record["features"]:
                 pool[feature] += 1
     names = [name for name, count in pool.items() if count >= MIN_SUPPORT]
-    occurrences = [record for record in records if record["operation"] == operation]
+    # An unchanged transition where nothing could have been raised is not evidence
+    # about the interface, so it must neither support nor be explained by a rule.
+    # Counting it would let an unrelated condition look like a cause.
+    occurrences = [record for record in records
+                   if record["operation"] == operation
+                   and (not record["unchanged"] or _declined(record, raised))]
     if all(record["unchanged"] for record in occurrences):
         return []
     candidates = []
@@ -89,7 +120,14 @@ def _candidates(records: list[dict], operation: int) -> list[dict]:
                 continue
             if any(not record["unchanged"] for record in matched):
                 continue
-            candidates.append({"conditions": list(combination), "matched": matched})
+            # A condition that only matches states where everything the operation
+            # could raise for this argument is already set explains nothing: it
+            # had no opportunity to act. Require it to have declined a raise.
+            declined = set().union(*(_declined(record, raised) for record in matched))
+            if not declined:
+                continue
+            candidates.append({"conditions": list(combination), "matched": matched,
+                               "declined": declined})
     return candidates
 
 
@@ -103,6 +141,7 @@ def _tier(matched: list[dict]) -> str:
 def derive_invariants(cases: list[dict]) -> dict:
     """Return context invariants plus the no-effect transitions they leave out."""
     records = _occurrences(cases)
+    raised = raised_labels(records)
     invariants, uncovered = [], []
     explained = set()
     for operation in sorted({record["operation"] for record in records}):
@@ -111,7 +150,7 @@ def derive_invariants(cases: list[dict]) -> dict:
         if not unchanged or all(record["unchanged"] for record in occurrences):
             continue
         chosen, covered = [], set()
-        for candidate in sorted(_candidates(records, operation),
+        for candidate in sorted(_candidates(records, operation, raised),
                                 key=lambda item: (-len(item["matched"]),
                                                   len(item["conditions"]))):
             keys = {(record["case"], record["index"])
@@ -123,6 +162,7 @@ def derive_invariants(cases: list[dict]) -> dict:
         for candidate in chosen:
             matched = candidate["matched"]
             tier = _tier(matched)
+            labels = sorted(set().union(*(_declined(record, raised) for record in matched)))
             invariants.append({
                 "operation": operation,
                 "effect": "leaves every reported value unchanged",
@@ -130,6 +170,7 @@ def derive_invariants(cases: list[dict]) -> dict:
                 "tier": tier,
                 "support": len(matched),
                 "cases": sorted({record["case"] for record in matched}),
+                "declined": labels,
                 "counterexamples": 0})
             if tier == "supported":
                 # Only replicated invariants suppress an uncovered observation;
@@ -206,6 +247,61 @@ def derive_effects(cases: list[dict]) -> list[dict]:
     for number, effect in enumerate(effects, start=1):
         effect["id"] = f"EFF-{number}"
     return effects
+
+
+def derive_argument_effects(cases: list[dict]) -> list[dict]:
+    """Report values an operation raised every time it was observable for an argument.
+
+    A raise is only observable when the value was not already reported, so this
+    counts those transitions alone. An entry means: whenever this argument was
+    supplied with this value absent, this value became reported. That is the
+    categorical part of the interface (which argument implies which value), it
+    excludes conditional behaviour because conditions reduce the ratio, and it
+    needs at least two observations in two cases so one run cannot define it.
+    """
+    tally = defaultdict(lambda: {"raises": 0, "observable": 0, "cases": set()})
+    for case in cases:
+        labels = case["labels"]
+        for index, step in enumerate(case["steps"]):
+            argument = step[1] if len(step) > 1 else None
+            before, after = case["rows"][index], case["rows"][index + 1]
+            for column, label in enumerate(labels):
+                if before[column]:
+                    continue
+                entry = tally[(step[0], argument, label)]
+                entry["observable"] += 1
+                entry["cases"].add(case["id"])
+                if after[column]:
+                    entry["raises"] += 1
+    effects = []
+    for (operation, argument, label), entry in sorted(tally.items()):
+        # A raise that a derived invariant suppresses is still the argument's
+        # normal effect, so near-total support counts as categorical and is
+        # reported as conditional rather than dropped.
+        if (entry["raises"] < 2 or len(entry["cases"]) < 2
+                or entry["raises"] < 0.75 * entry["observable"]):
+            continue
+        effects.append({"operation": operation, "argument": argument, "label": label,
+                        "raises": entry["raises"], "observable": entry["observable"],
+                        "conditional": entry["raises"] < entry["observable"],
+                        "cases": sorted(entry["cases"])})
+    for number, effect in enumerate(effects, start=1):
+        effect["id"] = f"ARG-{number}"
+    return effects
+
+
+def describe_argument_effects(effects: list[dict], names: dict[int, str]) -> list[str]:
+    sentences = []
+    for effect in effects:
+        operation = names.get(effect["operation"], str(effect["operation"]))
+        argument = "" if effect["argument"] is None else f" {json.dumps(effect['argument'])}"
+        sentences.append(
+            f"{effect['id']}: {operation}{argument} "
+            f"{'usually' if effect['conditional'] else 'always'} raised "
+            f"{effect['label']} in {effect['raises']} of {effect['observable']} transitions "
+            f"where it was not already reported "
+            f"({', '.join(effect['cases'])})")
+    return sentences
 
 
 def describe_effects(effects: list[dict], names: dict[int, str]) -> list[str]:
