@@ -129,7 +129,8 @@ class NativeProbeRunner:
                   for outcome in sorted({item["outcome"] for item in results})}
         report = {"schema": 1, "suite_sha256": file_hash(Path(cases_file)),
                   "results": results, "counts": counts,
-                  "complete": len(results) > 0 and counts.get("agreement", 0) == len(results)}
+                  "complete": len(results) > 0 and
+                  counts.get("agreement", 0) + counts.get("observed", 0) == len(results)}
         artifact = self.engine.store.put(json.dumps(report, sort_keys=True).encode())
         return {**report, "artifact": artifact}
 

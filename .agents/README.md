@@ -123,6 +123,13 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   public spec provenance, then a separate Linux GUI agent works in a public-only
   container with build and virtual-display tools. The resulting app is a candidate;
   original-behavior and human GUI checks remain open.
+- **Small native spec pilot:** A one-function `fold_depth` scope produced a reviewed
+  three-claim dossier with eight original observations and explicit case links, then a
+  model-written four-requirement public spec at `ready_for_review`. The native probe CLI
+  now treats observation-only suites as complete when all cases execute successfully,
+  and `probe-links` stores link documents for dossier assembly. The generic spec fallback
+  stays a draft when the regular writer is unavailable; installing Node dependencies
+  permits a fresh writer attempt. This pilot does not cover Windows Calculator.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
   `trace_application_feature` and `binary_session` (live probe; catalog and samples in `fixtures/rea/`),

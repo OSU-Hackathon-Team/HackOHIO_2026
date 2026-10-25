@@ -16,7 +16,7 @@ from model_config import get_model
 
 ROOT = Path(__file__).resolve().parents[1]
 PIPELINES = {
-    "native": "launch.py: analyze, scope, work, review, probe, dossier, spec",
+    "native": "launch.py: analyze, scope, work, review, probe, probe-links, dossier, spec",
     "project": "launch.py: project-analyze, project-scope, project-queue-init, project-queue-drain, project-queue-status, inventory",
     "queue": "launch.py: queue-init, queue-enqueue, queue-drain, queue-review-drain, queue-task, queue-events",
     "functional": "scripts/run_functional_c_e2e.py: observation-derived functional C path, currently token-array only",

@@ -325,6 +325,10 @@ def main() -> None:
     probe.add_argument("--suite", type=Path, required=True)
     probe.add_argument("--adapter", type=Path, default=ROOT / "scripts" / "native_probe_adapter.py")
     probe.add_argument("--state", type=Path, default=ENGINE_STATE)
+    probe_links = sub.add_parser("probe-links", help="store claim-to-original-case links for dossier assembly")
+    probe_links.add_argument("--links", type=Path, required=True,
+                             help="JSON object with schema 1 and a links array")
+    probe_links.add_argument("--state", type=Path, default=ENGINE_STATE)
     dossier = sub.add_parser("dossier", help="assemble a versioned subsystem dossier")
     dossier.add_argument("--manifest", type=Path, required=True)
     dossier.add_argument("--scope-artifact", required=True)
@@ -649,6 +653,9 @@ def main() -> None:
         print(json.dumps(report, indent=2))
         if not report["complete"]:
             raise SystemExit(1)
+    elif args.command == "probe-links":
+        from engine.probe_links import persist_probe_links
+        print(json.dumps(persist_probe_links(args.state, args.links), indent=2))
     elif args.command == "dossier":
         engine = GhidraAnalysis(args.state, Path(os.environ.get(
             "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
