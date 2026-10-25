@@ -59,6 +59,7 @@ services:
         required: false
     environment:
       STORAGE_DRIVER: vfs
+      GHIDRA_HEADLESS: /opt/ghidra_12.1.3_PUBLIC/support/analyzeHeadless
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
       MODEL_DECOMP_WORKER: ${MODEL_DECOMP_WORKER:-amazon-bedrock/amazon.nova-lite-v1:0}

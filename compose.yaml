@@ -60,6 +60,7 @@ services:
     environment:
       STORAGE_DRIVER: vfs
       DECOMP_DATABASE_URL: postgresql://decomp:decomp@decomp-db:5432/decomp
+      GHIDRA_HEADLESS: /opt/ghidra_12.1.3_PUBLIC/support/analyzeHeadless
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
       # Same defaults as models.json; Nova Lite produced unusable decomp claims.

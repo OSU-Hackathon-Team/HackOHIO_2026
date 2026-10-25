@@ -35,7 +35,8 @@ def main() -> None:
     parser.add_argument("binary", type=Path)
     parser.add_argument("--state", type=Path, default=Path("decomp-state"))
     parser.add_argument("--headless", type=Path,
-                        default=Path("/opt/ghidra/support/analyzeHeadless"))
+                        default=Path(os.environ.get("GHIDRA_HEADLESS",
+                                                    "/opt/ghidra/support/analyzeHeadless")))
     parser.add_argument("--opencode", type=Path,
                         default=Path.home() / ".opencode/bin/opencode")
     parser.add_argument("--model")

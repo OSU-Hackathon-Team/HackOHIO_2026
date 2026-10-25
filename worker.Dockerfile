@@ -16,7 +16,8 @@ RUN curl -fL --retry 3 -o /tmp/ghidra.zip \
     && unzip -q /tmp/ghidra.zip -d /opt \
     && rm /tmp/ghidra.zip
 
-ENV GHIDRA_INSTALL_DIR=/opt/ghidra_12.1.3_PUBLIC
+ENV GHIDRA_INSTALL_DIR=/opt/ghidra_12.1.3_PUBLIC \
+    GHIDRA_HEADLESS=/opt/ghidra_12.1.3_PUBLIC/support/analyzeHeadless
 RUN python3 -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
     && git clone https://github.com/mrphrazer/ghidra-headless-mcp.git /opt/ghidra-headless-mcp \
