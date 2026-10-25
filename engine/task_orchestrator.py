@@ -27,7 +27,7 @@ PIPELINE_FILES = {"native": "launch.py", "project": "launch.py",
                   "queue": "launch.py", "functional": "scripts/run_functional_c_e2e.py",
                   "calc_discovery": "scripts/run_calc_discovery.py",
                   "gui_implementation": "launch.py"}
-TOOLS = ("bash", "read", "glob", "grep")
+TOOLS = ("bash", "read", "glob", "grep", "external_directory")
 
 
 def capabilities() -> dict:

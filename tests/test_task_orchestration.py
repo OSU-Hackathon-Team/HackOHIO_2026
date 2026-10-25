@@ -74,7 +74,8 @@ class TaskOrchestrationTest(unittest.TestCase):
             artifact = ready_spec(state)
             def invoke(_opencode, _folder, prompt, **kwargs):
                 self.assertIn("queue-drain", prompt)
-                self.assertEqual(kwargs["allow_tools"], ("bash", "read", "glob", "grep"))
+                self.assertEqual(kwargs["allow_tools"],
+                                 ("bash", "read", "glob", "grep", "external_directory"))
                 return {"text": json.dumps({
                     "status": "ready_for_implementation", "summary": "analyzed",
                     "spec_artifacts": [artifact], "artifacts": [artifact], "open_work": []}),
