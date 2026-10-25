@@ -456,6 +456,9 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                         int(action.get("limit", 50)))
                     record("search_strings", {"substring": hits["substring"],
                                               "matches": hits["matches"]})
+                    for item in hits["items"]:
+                        for func in item.get("referenced_by", []):
+                            explored.setdefault(func, {"entry": func})
                     search_log.append({"substring": hits["substring"],
                                        "matches": hits["matches"],
                                        "items": hits["items"][:10]})

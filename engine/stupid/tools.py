@@ -75,8 +75,17 @@ class StupidTools:
         needle = (substr or "").lower()
         hits = [s for s in index.get("strings", [])
                 if needle and needle in str(s.get("value", "")).lower()]
-        return {"substring": substr, "matches": len(hits),
-                "items": hits[:max(1, min(limit, 200))]}
+        # A string hit is a data address, not a function. Link each hit to
+        # the functions that reference it so the agent gets entries, not
+        # an address it cannot decompile.
+        users: dict[str, set[str]] = {}
+        for ref in index.get("data_references", []):
+            users.setdefault(ref["target"], set()).add(ref["function"])
+        items = []
+        for s in hits[:max(1, min(limit, 200))]:
+            addr = s.get("address", "")
+            items.append({**s, "referenced_by": sorted(users.get(addr, []))})
+        return {"substring": substr, "matches": len(hits), "items": items}
 
     def _export_table(self, manifest: dict) -> list[dict]:
         """In-binary dynamic function symbols. Names never leave this module."""

@@ -31,7 +31,8 @@ Rules: for large binaries the inventory is paged: state.paging tells you which o
 fetched, the total, and the next_offset to ask for; paging continues automatically even if you
 repeat the page action. Fetch every slice exactly once, then stop paging and analyze. Use search_strings to find domain keywords in
 read-only strings, then neighbors to walk callers/callees from interesting entries; explored
-accumulates everything uncovered. Discovery strategy on stripped binaries: start with
+accumulates everything uncovered. String hits are data addresses, not functions: decompile
+their referenced_by entries, never the string address itself. Discovery strategy on stripped binaries: start with
 export_entries for the binary's own exported function addresses, and resolve_symbol with
 goal keywords (for example CompileTokenArray) for seed entries; then grow the relevant
 cluster via neighbors and batch-decompile it, paging only to survey address regions. Do not decompile the first entries
