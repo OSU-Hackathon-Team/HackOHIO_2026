@@ -101,17 +101,19 @@ export function nativeDraftProblems(d: NativeDraft, claimIds: string[], input?: 
   return errors;
 }
 
-export async function writeNativeDraft(input: { claims: { id: string }[]; [key: string]: unknown }): Promise<{ draft: NativeDraft; model: string }> {
+export async function writeNativeDraft(input: { claims: { id: string }[]; [key: string]: unknown },
+  hooks: { signal?: AbortSignal; onProgress?: (chars: number) => void } = {}): Promise<{ draft: NativeDraft; model: string }> {
   const ids = input.claims.map((claim) => claim.id);
   let messages: Parameters<typeof writeDraft>[0]["messages"] = [
     { role: "user", content: JSON.stringify(input) },
   ];
   for (let attempt = 0; attempt < 3; attempt++) {
+    hooks.signal?.throwIfAborted();
     let result;
     try {
       result = await writeDraft({ system: SYSTEM, messages,
         schema: NATIVE_DRAFT_SCHEMA, parse: (value) => NativeDraft.parse(value),
-        maxTokens: 16_384 });
+        maxTokens: 16_384, signal: hooks.signal, onProgress: hooks.onProgress });
     } catch (error) {
       if (!(error instanceof LlmSchemaError) || attempt === 2) throw error;
       messages = [{ role: "user", content: `${JSON.stringify(input)}\n\nThe previous draft failed schema validation: ${error.message}. Return every required field with valid types.` }];

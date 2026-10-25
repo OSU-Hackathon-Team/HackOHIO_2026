@@ -23,6 +23,8 @@ test("native spec draft gate requires all facts and excludes code and report tex
   assert.match(nativeDraftProblems({ ...draft, interface: { ...draft.interface, inputs: ["value: uint32"] } }, ["C1"]).join(), /interface.inputs\[0\]/);
   assert.match(nativeDraftProblems({ ...draft, exclusions: ["No input validation."] }, ["C1"], { excluded_behavior: [] }).join(), /no supplied boundary facts/);
   assert.match(nativeDraftProblems({ ...draft, behavior_steps: ["Unknown whether it changes state."] }, ["C1"]).join(), /report-card/);
+  assert.match(nativeDraftProblems({ ...draft, behavior_steps: ["Use _ZN8ScMatrix5SubOpEbdRKS_ for subtraction."] }, ["C1"]).join(), /source-like/);
+  assert.match(nativeDraftProblems({ ...draft, behavior_steps: ["Apply ScMatrix::SubOp."] }, ["C1"]).join(), /source-like/);
 });
 
 test("public spec allows executable observations but rejects code in example data", () => {

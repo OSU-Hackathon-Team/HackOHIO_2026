@@ -9,21 +9,28 @@ import { ec2Worker } from "../decomp/ec2.js";
 import { buildPayload } from "../decomp/payload.js";
 import { DecompRunService, HttpError } from "../decomp/runs.js";
 import { openSse } from "../http/sse.js";
+import { nativeLibraryStore, publishImportedAnalysis } from "../decomp/library.js";
 
 export function defaultDecompRunService(): DecompRunService {
   const enabled = process.env.DECOMP_EC2_ENABLED === "1";
   const instanceId = process.env.DECOMP_EC2_INSTANCE_ID, bucket = process.env.DECOMP_EC2_BUCKET;
+  const library = nativeLibraryStore();
+  const stateDir = path.resolve(process.env.DECOMP_STATE_DIR ?? path.join(REPO_ROOT, "decomp-state"));
   if (enabled && (!instanceId || !bucket)) {
     console.warn("[decomp] DECOMP_EC2_ENABLED=1 but DECOMP_EC2_INSTANCE_ID / DECOMP_EC2_BUCKET are missing; runs disabled");
   }
   return new DecompRunService({
     worker: enabled && instanceId && bucket ? ec2Worker({ region: config.awsRegion, instanceId, bucket }) : null,
-    stateDir: path.resolve(process.env.DECOMP_STATE_DIR ?? path.join(REPO_ROOT, "decomp-state")),
+    stateDir,
     repoRoot: REPO_ROOT,
     // Bash on the worker rejects CRLF; a Windows checkout may still have it.
     runnerScript: async () => (await fs.readFile(path.join(REPO_ROOT, "infra", "decomp-ec2", "run-scoped-pipeline.sh"), "utf8"))
       .replace(/\r\n/g, "\n"),
     buildPayload: (outFile) => buildPayload(REPO_ROOT, outFile),
+    publishAnalysis: library ? (run, result, progress) => {
+      if (!result.handoff_path) throw new Error("run has no public handoff to publish");
+      return publishImportedAnalysis(library, run, result, stateDir, path.join(REPO_ROOT, result.handoff_path), progress);
+    } : undefined,
   });
 }
 
