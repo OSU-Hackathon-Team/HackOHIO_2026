@@ -131,9 +131,16 @@ def main() -> None:
             pass
         else:
             raise AssertionError("missing observation field was accepted")
+        try:
+            dossier({**link, "specified_artifact": "s" * 64})
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("human-specified expectation was accepted")
         print(json.dumps({"agreement": "case_agreement",
                           "tampered_expected": "case_disagreement",
-                          "missing_field": "rejected"}))
+                          "missing_field": "rejected",
+                          "specified_expectation": "rejected"}))
 
 
 if __name__ == "__main__":

@@ -268,7 +268,7 @@ export type FeatureSpec = z.infer<typeof FeatureSpec>;
 ## 4a. `src/nativeSpec.ts` — native cleanroom spec
 
 The native implementer receives only the schema 2 `NativeSubsystemSpec` artifact. Its
-fields are `status: ready_for_review`, title, purpose, boundary, a prose interface
+fields are `status: draft | ready_for_review`, title, purpose, boundary, a prose interface
 (inputs, outputs, state), numbered behavioral requirements, high-level behavior steps,
 original input/output examples, prose acceptance criteria, deviations, and exclusions.
 The spec contains no source code, disassembly, source-like pseudocode, executable tests,
@@ -280,9 +280,14 @@ provenance. It is for analysts only and must never be passed to an implementer. 
 `POST /api/native-specs` response exposes the public spec and its artifact hash, not
 the audit artifact. `GET /api/native-specs/:artifact` reads the public spec.
 
-Only a `ready_for_spec` dossier with no blockers and original case agreement for every
-claim may produce a public spec. The shared Step 2 `spec_writer` engine writes the prose;
-a validator requires every supported claim to appear and rejects source-like output.
+Any dossier revision may produce a persistent `draft` with only supported observable
+requirements. A draft may have no requirements or original examples; its blockers and
+omitted source-shaped or structural claims remain in the analyst audit. It cannot be
+adapted into an implementation input. When all functional claims and original cases are supported
+and no functional blockers remain, the same handoff publishes `ready_for_review`.
+Missing cases for compiler-only claims do not block functional readiness. The shared Step 2
+`spec_writer` engine writes the prose; a validator requires every included claim to appear
+and rejects source-like output.
 `ready_for_review` means a human must still assess behavioral sufficiency and cleanroom
 containment before implementation. It does not claim legal cleanroom status or equivalence.
 The TypeScript contract in `packages/contracts/src/nativeSpec.ts` is authoritative for

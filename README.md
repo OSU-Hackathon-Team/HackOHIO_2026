@@ -96,7 +96,15 @@ python launch.py work --manifest decomp-state/projects/<campaign>/manifest.json 
   --scope-artifact <scope-artifact-sha256> --subject <function-entry>
 ```
 
-The worker resolves its model through `models.json` (`decomp_worker` by default), reads AWS variables from the ignored root `.env` when they are absent from the process environment, and denies OpenCode tools. It records a checkpoint, prompt and transcript artifacts, model/runtime version, token usage, structural citation checks, and a terminal status. A structurally valid draft is `unreviewed`; it cannot make a scope ready without independent semantic review and original-behavior probes. Use `--model` to evaluate a different configured provider/model. `launch.py status` counts attempts by state.
+The worker resolves its model through `models.json` (`decomp_worker` by default), reads AWS variables from the ignored root `.env` when they are absent from the process environment, and uses Bedrock Converse directly for `amazon-bedrock/` models without model tools. Set `AWS_PROFILE` to use a configured profile; ambient session keys and `.env` are then ignored. Other providers use OpenCode with tools denied. It records a checkpoint, prompt and transcript artifacts, model/runtime version, token usage, structural citation checks, and a terminal status. Invalid answers receive up to two automatic repairs, with every revision preserved. Compiler mechanics are suppressed from behavioral claims after failed repair and recorded in the attempt; a function without observable claims keeps its dossier partial. A structurally valid draft is `unreviewed`; it cannot make a scope ready without independent semantic review and original-behavior probes. Use `--model` to evaluate a different configured provider/model. `--model opencode/ambient` uses OpenCode's locally configured default when a provider is unavailable; tool-use events invalidate the answer. `launch.py status` counts attempts by state.
+
+For LibreOffice Calc intake, run `python scripts/run_calc_discovery.py --state decomp-state`. It discovers compiler, token, grammar, and vector scopes by symbols in the current binary, and records 70 original FormulaGrammar outputs without supplied expected values. `--expand-claims` adds boundary inputs from the current grammar claims; the recorded run contained 116 observations. The report's `original_observed` status is reference evidence only. Compiler and token scopes can retain unresolved edges; neither discovery nor original observations count as a generated reimplementation or an equivalence pass.
+
+Use `python scripts/run_random_subsystem.py <binary> --state decomp-state` for a randomized seed without authored claims. It runs semantic attempts and independent review for discovered functions, then persists the dossier and draft spec with unresolved blockers. `--seed` reproduces a draw; `--scope-artifact` resumes an existing scope. Each successful draft and review is checkpointed under `decomp-state/runs/`, so a repeat run reuses completed work and retries failed subjects. `--probe-report-artifact` sends immutable original observations into review and triggers bounded automatic semantic revisions when review finds contradictions or omissions. Restricted scalar rules are checked and linked directly to original cases. Reviewer and gap reviewer roles use independent configured models from `models.json`; `--model`, `--review-model`, and `--gap-model` override them. The driver does not infer executable test inputs for arbitrary native interfaces and therefore cannot mark a subsystem equivalent without separate original probes.
+
+Original probe cases may omit `expected`: the runner records an immutable `observed` result. A candidate runner can then call `compare_case` with that artifact and a candidate adapter, recording agreement and the oracle artifact link. Human-specified expected results no longer enter native dossiers or the implementation-facing spec.
+
+`python scripts/run_native_c_candidate.py --state decomp-state --spec-artifact <sha256> --probe-report-artifact <sha256>` generates plain C from a persisted ready public native spec, compiles it, checks public examples with bounded automatic revisions, and compares the passing candidate against original cases absent from the spec. It requires matching dossier provenance and binary identity. Draft specs are rejected. The C adapter invokes plain exported functions and does not require C++ object layout. A live Calc FormulaGrammar scope reached a ready dossier with 17 linked claims; its generated C candidate passed 99/99 held-out original cases after one public-example revision. Compiler, token, vector, and broader Calc integration equivalence remain open.
 
 Run semantic tasks through the durable queue after installing `python -m pip install -r requirements-decomp.txt` and setting `DECOMP_DATABASE_URL` to a PostgreSQL DSN:
 
@@ -197,18 +205,14 @@ Check whether a dossier is eligible for the cleanroom writer without a model cal
 python scripts/check_decomp_handoff.py --dossier-artifact <dossier-artifact-sha256>
 ```
 
-A dossier becomes `ready_for_spec` only after its blockers are resolved. The native
-specification command requires that status, static support and agreeing original cases
-for every claim, behavior phrased without raw register/address or vague helper details,
-current dependency contracts, and no unresolved scope edges. The
-sample telemetry dossier at revision 3 is partial (26 claims lack original case links),
-so the command now rejects it instead of publishing a misleading report.
-The handoff check lists unlinked claims by function and claim index. Analysts should
-revise source-level microclaims into observable behavioral claims where appropriate
-(using the reviewed semantic revision path above),
-run targeted original cases, and reassemble a dossier with justified links. Historical
-drafts remain in the analyst audit; unobservable instruction details do not belong in
-the new implementer requirements.
+The specification command persists a draft at each dossier revision, including partial
+revisions with no original cases. It selects reviewed observable claims and keeps structural
+analysis details, C++ runtime layout, omitted claims, and blockers in the private audit.
+The handoff check reports `draft` until functional behavior and original cases are sufficient.
+An incomplete draft cannot be adapted into an implementation input. Static instruction counts
+or callee names alone cannot establish what a `Clone` operation does; the semantic worker and
+independent reviewer now ask for caller-visible behavior. The same functional requirements
+can guide a C implementation even when the original binary came from C++.
 
 ```sh
 python launch.py spec --dossier-artifact <dossier-artifact-sha256>
@@ -217,13 +221,13 @@ python scripts/check_decomp_spec.py
 
 The command invokes the same configured Step 2 `spec_writer` engine used for source-tree
 features. It supplies reviewed behavioral facts and original input/output examples, then
-checks that every supported fact appears in the draft and that its prose contains no
+checks that every selected functional fact appears in the draft and that its prose contains no
 source-like text or type-declaration shorthand. It rejects deviations and exclusions
 without a supplied basis. The public JSON and Markdown under `decomp-state/specifications/<scope-id>/`
 contain an interface described in words, requirements, a high-level behavior outline,
 original examples, and acceptance criteria. They contain no C, assembly, TypeScript,
 executable tests, raw addresses, draft pseudocode, or review report details. An immutable
-`audit_artifact` separately holds evidence links, review and probe records, model identity,
+`audit_artifact` separately holds evidence links, omitted claims, blockers, review and probe records, model identity,
 and claim-to-requirement mappings for the analyst. Never give the audit artifact or dossier
 to an implementer. Repeating the command for the same dossier and writer revision reuses
 the artifact. A new writer revision or dossier produces a new artifact. A human must review
@@ -233,7 +237,7 @@ the result for behavioral completeness and cleanroom containment before implemen
 The Node backend exposes the public artifact through `POST /api/native-specs`
 (`{"dossier_artifact":"<sha256>"}`) and `GET /api/native-specs/<spec-artifact-sha256>`;
 set `DECOMP_STATE_DIR` when engine state is outside the repository. A partial dossier
-returns HTTP 409. Historical schema 1 spec artifacts are rejected by the API.
+returns a `draft` artifact. Historical schema 1 spec artifacts are rejected by the API.
 The analyst and implementer workflow, review gate, and rights checks are in
 [`docs/NATIVE_CLEANROOM_HANDOFF.md`](docs/NATIVE_CLEANROOM_HANDOFF.md).
 

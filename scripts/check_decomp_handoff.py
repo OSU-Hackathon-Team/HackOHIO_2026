@@ -27,7 +27,8 @@ def main() -> None:
     dossier = json.loads(LocalArtifactStore(state / "artifacts").get(artifact))
     try:
         handoff, _ = prepare_handoff(dossier, artifact)
-        status, claims, reason = "ready", len(handoff["claims"]), None
+        status = "ready" if handoff["verified"] else "draft"
+        claims, reason = len(handoff["claims"]), None
     except ValueError as error:
         status, claims, reason = "not_ready", 0, str(error)
     missing_cases = [{"subject": claim["subject"],

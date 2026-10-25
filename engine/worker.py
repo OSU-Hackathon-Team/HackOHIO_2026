@@ -8,17 +8,22 @@ import time
 import uuid
 
 from engine.analysis.ghidra import GhidraAnalysis
+from engine.behavior import (is_observable_claim, normalize_input_names,
+                             numeric_claim_errors)
 from engine.citations import evidence_addresses, normalize_references
 from engine.model_runtime import invoke_opencode
+from engine.validation.probes import select_original_cases
 from engine.validation.memory_ranges import overlap_claim_errors
 from model_config import get_model
+
+SEMANTIC_PROMPT_VERSION = 9
 
 
 def parse_answer(text: str) -> dict:
     answer = text.strip()
-    if answer.startswith("```json") and answer.endswith("```"):
-        answer = answer[7:-3].strip()
-    value = json.loads(answer)
+    if answer.startswith("```"):
+        answer = answer.split("\n", 1)[-1]
+    value, _ = json.JSONDecoder().raw_decode(answer.lstrip())
     if not isinstance(value, dict):
         raise ValueError("model output must be a JSON object")
     return value
@@ -41,6 +46,11 @@ def validate_answer(answer: dict, evidence: dict) -> list[str]:
             continue
         if not isinstance(claim.get("statement"), str) or not claim["statement"].strip():
             errors.append(f"claim {i} has no statement")
+        elif not is_observable_claim(claim["statement"]):
+            errors.append(f"claim {i} describes implementation structure rather than observable behavior")
+        else:
+            errors.extend(f"claim {i} {error}" for error in
+                          numeric_claim_errors(claim["statement"]))
         refs = claim.get("evidence_addresses")
         if not isinstance(refs, list) or not refs:
             errors.append(f"claim {i} has no evidence addresses")
@@ -109,6 +119,22 @@ def normalize_answer_text_items(answer: dict) -> list[dict]:
     return changes
 
 
+def normalize_answer_claims(answer: dict) -> list[dict]:
+    changes = []
+    claims = answer.get("claims")
+    if not isinstance(claims, list):
+        return changes
+    for index, claim in enumerate(claims):
+        if not isinstance(claim, dict) or not isinstance(claim.get("statement"), str):
+            continue
+        old = claim["statement"]
+        claim["statement"] = normalize_input_names(old)
+        if claim["statement"] != old:
+            changes.append({"index": index, "original": old,
+                            "normalized": claim["statement"]})
+    return changes
+
+
 def prompt_for(task: dict, scope: dict, evidence: dict, *, max_evidence_bytes: int) -> tuple[str, bool]:
     relevant = {"schema": evidence["schema"], "entry": evidence["entry"],
                 "name": evidence.get("name"), "signature": evidence.get("signature"),
@@ -153,7 +179,16 @@ def prompt_for(task: dict, scope: dict, evidence: dict, *, max_evidence_bytes: i
         "Use [] for no dependencies, unknowns, or evidence requests. All six descriptive "
         "strings must be nonempty. Request specific missing evidence in evidence_requests. "
         "Put observable behavior only in claims. Every claim must cite actual addresses from "
-        "the evidence; a valid citation is not proof of correct interpretation. Scope expected "
+        "the evidence. For C++ binaries, describe the operation a caller observes; class "
+        "layout, offsets, pointer traversal, reference counts, vtable stores, RTTI, "
+        "constructor mechanics, and the C++ ABI are not functional requirements. "
+        "Name conceptual subsystem state and describe how public operations change "
+        "and query it. Do not turn helper calls, loops, count fields, or resource "
+        "cleanup into claims. For a query, say what inputs or conceptual state make "
+        "its result true or false. For a mutation, say what caller-visible state "
+        "changes. Put unsupported interpretation in unknowns. The behavior may be "
+        "reimplemented in C or any other language. "
+        "A valid citation is not proof of correct interpretation. Scope expected "
         "observables are questions to investigate, not claims about this function. Describe "
         "uncertain widths, signedness, state mutation order, and indirect dispatch in unknowns. "
         "For numeric conditions, state the concrete inclusive or exclusive boundary and "
@@ -193,7 +228,8 @@ class SemanticWorker:
 
     def run(self, manifest: dict, scope_artifact: str, subject: str,
             *, model: str | None = None, model_role: str = "decomp_worker",
-            prior_artifact: str | None = None) -> dict:
+            prior_artifact: str | None = None,
+            probe_report_artifact: str | None = None) -> dict:
         scope = json.loads(self.engine.store.get(scope_artifact))
         if scope["campaign"] != manifest["campaign"]:
             raise ValueError("scope and campaign differ")
@@ -208,6 +244,17 @@ class SemanticWorker:
         evidence_artifact = json.loads(pointer.read_text())["artifact"]
         prompt, truncated = prompt_for(task, scope, evidence,
                                        max_evidence_bytes=self.max_evidence_bytes)
+        original_cases = []
+        if probe_report_artifact:
+            report = json.loads(self.engine.store.get(probe_report_artifact))
+            names = {item["entry"]: item["name"] for item in scope["included"]}
+            original_cases = select_original_cases(
+                self.engine.store, report, manifest["binary_sha256"], names.get(subject))
+            prompt += ("\nThese are immutable outputs from the original binary. Derive "
+                       "caller-visible rules that explain them and cite raw instruction "
+                       "addresses. Do not copy individual cases into a lookup table or "
+                       "infer class layout as a requirement. Original observations: " +
+                       json.dumps(original_cases, separators=(",", ":")))
         if prior_artifact is not None:
             prior = json.loads(self.engine.store.get(prior_artifact))
             if (prior.get("campaign") != manifest["campaign"] or
@@ -255,7 +302,9 @@ class SemanticWorker:
                       "scope_artifact": scope_artifact, "task_key": task["deduplication_key"],
                       "subject": subject, "evidence_artifact": evidence_artifact,
                       "model": resolved_model, "model_role": model_role,
-                      "opencode_version": None, "prompt_version": 3,
+                      "probe_report_artifact": probe_report_artifact,
+                      "original_case_count": len(original_cases),
+                      "opencode_version": None, "prompt_version": SEMANTIC_PROMPT_VERSION,
                       "evidence_truncated": truncated, "state": "running"}
         if prior_artifact is not None:
             checkpoint["reassessment_of"] = prior_artifact
@@ -264,32 +313,87 @@ class SemanticWorker:
         self.engine._emit(manifest["campaign"], "semantic_started", attempt_id=attempt_id,
                           subject=subject, task_key=task["deduplication_key"])
         started = time.monotonic()
-        events_path = folder / "events.jsonl"
+        attempts = []
         try:
-            model_reply = invoke_opencode(
-                self.opencode, folder, prompt, model=resolved_model,
-                timeout=self.timeout, env_file=self.env_file,
-                agent_name="decomp",
-                agent_instruction="Return bounded evidence-backed analysis as JSON only.")
-            checkpoint["opencode_version"] = model_reply["runtime_version"]
-            checkpoint_path.write_text(json.dumps(checkpoint, indent=2) + "\n")
-            answer = parse_answer(model_reply["text"])
-            citation_normalizations = normalize_answer_citations(answer, evidence)
-            text_item_normalizations = normalize_answer_text_items(answer)
-            errors = validate_answer(answer, evidence)
+            current_prompt = prompt
+            for revision in range(3):
+                revision_folder = folder / f"revision-{revision + 1}"
+                revision_folder.mkdir()
+                (revision_folder / "prompt.txt").write_text(current_prompt)
+                model_reply = invoke_opencode(
+                    self.opencode, revision_folder, current_prompt, model=resolved_model,
+                    timeout=self.timeout, env_file=self.env_file,
+                    agent_name="decomp",
+                    agent_instruction="Return bounded evidence-backed analysis as JSON only.")
+                checkpoint["opencode_version"] = model_reply["runtime_version"]
+                checkpoint_path.write_text(json.dumps(checkpoint, indent=2) + "\n")
+                errors = []
+                try:
+                    answer = parse_answer(model_reply["text"])
+                    citation_normalizations = normalize_answer_citations(answer, evidence)
+                    text_item_normalizations = normalize_answer_text_items(answer)
+                    claim_normalizations = normalize_answer_claims(answer)
+                    errors = validate_answer(answer, evidence)
+                except (ValueError, json.JSONDecodeError) as parse_error:
+                    answer = None
+                    citation_normalizations = []
+                    text_item_normalizations = []
+                    claim_normalizations = []
+                    errors = [f"invalid JSON answer: {parse_error}"]
+                attempts.append({
+                    "revision": revision + 1, "errors": errors,
+                    "prompt_artifact": self.engine.store.put(current_prompt.encode()),
+                    "response_artifact": self.engine.store.put(model_reply["text"].encode()),
+                    "transcript_artifact": self.engine.store.put(
+                        (revision_folder / "events.jsonl").read_bytes()),
+                    "usage": model_reply["usage"],
+                })
+                if not errors:
+                    break
+                current_prompt = (prompt + "\nYour previous answer failed validation. "
+                                  "Return a complete corrected JSON object. Explain the "
+                                  "general functional rules visible in original observations "
+                                  "when they are provided, with static citations. If no "
+                                  "observable behavior is evidenced, leave claims empty and "
+                                  "explain that in unknowns and evidence_requests. "
+                                  "Validation errors: " +
+                                  json.dumps(errors) + "\nPrevious answer: " +
+                                  model_reply["text"][:20000])
+            suppressed_claims = []
+            if (errors and isinstance(answer, dict) and
+                    all("describes implementation structure" in error for error in errors)):
+                # Preserve every model response in revisions, then publish only
+                # claims that can become functional requirements. A structural
+                # only function remains visibly incomplete in the dossier.
+                suppressed_claims = [claim for claim in answer["claims"]
+                                     if not is_observable_claim(claim["statement"])]
+                answer["claims"] = [claim for claim in answer["claims"]
+                                    if is_observable_claim(claim["statement"])]
+                answer["unknowns"].append(
+                    "The available evidence does not establish the caller-visible effects "
+                    "of the omitted implementation mechanics.")
+                answer["evidence_requests"].append(
+                    "Inspect the called functions and execute original cases that expose "
+                    "the returned value and state changes.")
+                errors = validate_answer(answer, evidence)
             result = {**checkpoint, "state": "rejected" if errors else
                       ("partial" if truncated else "unreviewed"),
                       "answer": answer, "structural_errors": errors,
                       "citation_normalizations": citation_normalizations,
                       "text_item_normalizations": text_item_normalizations,
-                      "usage": model_reply["usage"],
+                      "claim_normalizations": claim_normalizations,
+                      "suppressed_structural_claims": suppressed_claims,
+                      "revisions": attempts,
+                      "usage": {key: sum(item["usage"][key] for item in attempts)
+                                for key in ("input", "output", "reasoning", "cost")},
                       "elapsed_seconds": round(time.monotonic() - started, 3)}
         except Exception as error:
             result = {**checkpoint, "state": "failed", "error": str(error),
+                      "revisions": attempts,
                       "elapsed_seconds": round(time.monotonic() - started, 3)}
         result["prompt_artifact"] = self.engine.store.put(prompt.encode())
-        if events_path.exists():
-            result["transcript_artifact"] = self.engine.store.put(events_path.read_bytes())
+        if attempts:
+            result["transcript_artifact"] = attempts[-1]["transcript_artifact"]
         artifact = self.engine.store.put(json.dumps(result, sort_keys=True).encode())
         result["artifact"] = artifact
         (folder / "result.json").write_text(json.dumps(result, indent=2) + "\n")

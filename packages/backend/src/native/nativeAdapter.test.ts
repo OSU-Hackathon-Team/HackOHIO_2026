@@ -63,6 +63,13 @@ describe("NativeSubsystemSpec -> FeatureSpec Adapter", () => {
     } as any),
   };
 
+  test("does not invent implementation requirements for a draft", () => {
+    const pending = NativeSubsystemSpec.parse({
+      ...sampleNativeSpec, status: "draft", requirements: [], examples: [],
+    });
+    assert.throws(() => adaptNativeSpecToFeatureSpec(pending), /still a draft/);
+  });
+
   test("converts a valid NativeSubsystemSpec into a valid FeatureSpec", () => {
     const adapted = adaptNativeSpecToFeatureSpec(sampleWithProvenance, {
       feature_id: "mockpriority.priority_score",
