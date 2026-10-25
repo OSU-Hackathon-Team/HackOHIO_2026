@@ -41,7 +41,7 @@ def fixture() -> dict:
         }],
         "claims": [claim], "dependency_contracts": [], "uncovered_direct_calls": [],
         "independent_review_gaps": [],
-        "probes": [{"case_id": "once", "outcome": "agreement",
+        "probes": [{"case_id": "once", "outcome": "observed",
                     "input": {"value": 1}, "observed": {"count": 1}}],
         "coverage": {"claims": 1},
     }
@@ -97,6 +97,22 @@ def main() -> None:
     assert functional["status"] == "ready_for_review"
     assert len(functional["requirements"]) == 1
     assert len(functional_audit["omitted_claims"]) == 1
+    observed = {**dossier, "claims": [{**dossier["claims"][0], "probe_links": [
+        {"report_artifact": "r" * 64, "case_id": "once", "agreement": True}]}],
+        "probes": [
+            {"report_artifact": "r" * 64, "case_id": "once",
+             "outcome": "observed", "execution_mode": "original",
+             "input": {"value": 1}, "observed": {"count": 1}},
+            {"report_artifact": "r" * 64, "case_id": "held-out",
+             "outcome": "observed", "execution_mode": "original",
+             "input": {"value": 2}, "observed": {"count": 2}}]}
+    observed_spec, _ = generate_spec(observed, "0" * 64, writer=writer)
+    assert observed_spec["status"] == "ready_for_review"
+    assert [item["name"] for item in observed_spec["examples"]] == ["once"]
+    authored = {**observed, "probes": [{**observed["probes"][0],
+        "outcome": "agreement", "expected": {"count": 1}}]}
+    authored_spec, _ = generate_spec(authored, "0" * 64, writer=writer)
+    assert authored_spec["status"] == "draft" and authored_spec["examples"] == []
     spec, audit = generate_spec(dossier, "0" * 64, writer=writer)
     assert spec["schema"] == 2 and spec["status"] == "ready_for_review"
     assert "pseudocode" not in json.dumps(spec)

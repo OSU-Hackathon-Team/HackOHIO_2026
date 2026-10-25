@@ -113,9 +113,17 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
         verified = False
     names = {f["entry"]: f["name"] for f in included}
     claim_ids = {id(c): f"C{i}" for i, c in enumerate(claims, 1)}
+    linked_cases = {(link.get("report_artifact"), link.get("case_id"))
+                    for claim in claims for link in claim.get("probe_links", [])
+                    if link.get("agreement") is True}
     cases = {}
     for case in dossier.get("probes", []):
-        if case.get("outcome") != "agreement":
+        if ((case.get("report_artifact"), case.get("case_id")) not in linked_cases and
+                (None, case.get("case_id")) not in linked_cases):
+            continue
+        if (case.get("outcome") != "observed" or case.get("expected") is not None or
+                case.get("execution_mode", "original") != "original" or
+                case.get("observed") is None):
             continue
         key = json.dumps([case.get("input"), case.get("observed")], sort_keys=True)
         cases.setdefault(key, {"name": case["case_id"], "input": case["input"],
@@ -124,7 +132,9 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
                                   if case.get("kind") in {"executable", "shared"} else {}),
                                "expected_output": case["observed"]})
     verified = verified and bool(cases) and all(
-        case.get("outcome") == "agreement" for case in dossier.get("probes", []))
+        case.get("outcome") == "observed" and case.get("expected") is None and
+        case.get("execution_mode", "original") == "original" and
+        case.get("observed") is not None for case in dossier.get("probes", []))
     handoff = {
         "feature": scope["request"]["query"],
         "boundary": scope["request"]["mode"],
