@@ -270,7 +270,7 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                 observed = _pointer(probe["observed"], link["observed_pointer"])
             except (KeyError, IndexError, TypeError, ValueError) as error:
                 raise ValueError(f"invalid probe observation pointer {identity}") from error
-            agreement = (probe["outcome"] == "agreement" and
+            agreement = (probe["outcome"] in {"agreement", "observed"} and
                          observed == link["expected_observed"])
             claim.setdefault("probe_links", []).append({"link_artifact": artifact,
                 "report_artifact": probe_key[0], "case_id": probe_key[1],
