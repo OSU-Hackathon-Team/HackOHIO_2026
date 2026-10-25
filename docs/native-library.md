@@ -10,6 +10,13 @@ identity needs `s3:ListBucket` for `library/*` and `s3:GetObject` / `s3:PutObjec
 the API, never AWS credentials, archive downloads, or public bucket URLs. Library reads do not
 require `DECOMP_EC2_ENABLED=1`.
 
+For local development, Vite proxies `/api` to `http://127.0.0.1:3001`, the backend's default.
+If you change the backend `PORT`, set `VITE_API_PROXY_TARGET` in
+`packages/frontend/.env.development` to the matching URL and restart Vite. After pulling new
+backend routes, restart the backend too. An empty HTTP 500 from Vite usually means its proxy
+cannot reach the backend; a JSON 404 on `/api/library` from the backend indicates an older
+server process. S3 catalog failures return JSON 503 with the storage error.
+
 ## Storage and lifecycle
 
 - `library/analyses/<run-id>/evidence.json`: public handoff functions, review verdicts, unknowns,

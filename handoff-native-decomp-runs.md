@@ -6,33 +6,38 @@ Read root `AGENTS.md`, `.agents/README.md` and `development_guidelines.md` first
 
 ## Where things stand
 
-Everything below is merged and pushed to `dev` (last merge `a04b4cd`). Nothing is uncommitted
-except the stale `handoff-scoped-native-analysis.md`.
+Everything below is merged into `dev`. Saved runs are now also published to the private S3
+library (`docs/native-library.md`); this handoff covers producing them.
 
-**A LibreOffice run is in flight:** `run-258f6ec3-91b4-4976`, 40 functions, started from the Studio
-UI. At handoff time it was in the `setup` stage (`npm ci` for the spec writer).
+**Latest run:** `run-258f6ec3-91b4-4976`, 40 functions at depth 3, started from the Studio UI. It
+finished `ok` in about 9 minutes, and the worker stopped itself.
 
-Check it:
+- **Drafted and reviewed:** 38 of 40 functions.
+- **Claims:** 77 supported, 6 uncertain and 9 contradicted. The 20-function run had 27 supported.
+- **Oracle:** 22/22 public and 10/10 held-out cases agreed with real LibreOffice.
+- **Dossier:** `partial`.
+- **No spec:** `spec_error = "spec contains source-like or report-card text"`.
+  - `npm ci` worked (367 packages) and the LLM writer ran.
+  - Eng 1's safety validator then rejected the result. The claims carry mangled C++ symbols
+    (e.g. `_ZN8ScMatrix5SubOpEbdRKS_`) into the spec prose.
+  - **Don't weaken the validator.** The fix belongs upstream: keep raw symbol names out of
+    observable claim text, or out of what `prepare_handoff` gives the writer. Agree that with Eng 1.
+- **Refreshed handoff:** `docs/handoffs/libreoffice-formula/` was rewritten by the import with these
+  results.
+
+Check runs:
 
 ```bash
-curl -s http://localhost:3001/api/decomp/runs/run-258f6ec3-91b4-4976
-curl -sN http://localhost:3001/api/decomp/runs/run-258f6ec3-91b4-4976/events   # replays history, ends with done
-node decomp-state/ec2-tools/remote.mjs                                         # worker instance state
+curl -s http://localhost:3001/api/decomp/runs
+curl -sN http://localhost:3001/api/decomp/runs/<run_id>/events   # replays history, ends with done
+node decomp-state/ec2-tools/remote.mjs                           # worker instance state
 ```
 
-The backend that owns the run was started from `packages/backend` with `npx tsx src/server.ts`. If
-it was restarted, it resumes polling unfinished runs from `decomp-state/runs/<id>.json`. The worker
-stops itself when finished; the shutdown backstop is about 75 minutes after start.
+The backend is started from `packages/backend` with `npx tsx src/server.ts`. It resumes polling
+unfinished runs from `decomp-state/runs/<id>.json`.
 
-**Things to check when it finishes:**
-- `result.spec_writer`:
-  - a Qwen model id means the LLM writer ran;
-  - `cleanroom-spec-synthesizer` means `npm ci` failed in the container, so look at `console.log`
-    in the results.
-- `result.spec_status`: probably `draft`. That's expected while the dossier is partial.
-- Whether 40 functions at depth 3 reach the operator arithmetic. The 20-function run did not:
-  `ScSub` was a two-instruction stub jumping to a function outside scope.
-- `docs/handoffs/libreoffice-formula/` is rewritten by the import. Review it before committing.
+**Live progress fix:** this run's stage lines all reached the UI at the end, because Python buffered
+stdout. The runner now sets `PYTHONUNBUFFERED=1`. That's not yet verified on a run.
 
 ## What exists (all on dev)
 
