@@ -40,7 +40,7 @@ step2Router.post("/api/extract", async (req, res) => {
   const base = () => ({ run_id, feature_id, ts: Date.now() });
 
   // Full replay (LLM_MODE=replay or force_mode=replay): re-emit a recorded live run
-  const llmMode = force_mode === "replay" ? "replay" : config.llmMode;
+  const llmMode = force_mode ?? config.llmMode;
   if (llmMode === "replay") {
     const speed = process.env.NODE_ENV === "test" ? 100 : 1;
     const maxGapMs = process.env.NODE_ENV === "test" ? 10 : 2500;
@@ -65,7 +65,7 @@ step2Router.post("/api/extract", async (req, res) => {
     stage("queued", `Harvesting ${feature.title} from ${app.display_name}`);
 
     // ---------- Step 1: evidence ----------
-    const reaMode = force_mode ?? config.reaMode;
+    const reaMode = force_mode === "replay" ? "replay" : config.reaMode;
     let evidence: RawEvidence | null = null;
     if (reaMode !== "replay" && app.live_supported) {
       try {

@@ -255,6 +255,7 @@ describe("Step 2: End-to-End Extraction Pipeline Suite", () => {
         body: JSON.stringify({
           app_id: "recall",
           feature_id: "recall.sm2_scheduler",
+          force_mode: "live",
         }),
       });
 
