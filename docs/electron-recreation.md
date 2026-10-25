@@ -1,5 +1,7 @@
 # Bounded Electron app reconstruction: Recall
 
+For archive-wide analysis, target-neutral workbench export, and differential verification, see [the Electron archive workflow](electron-generalization.md).
+
 `scripts/electron/recreate-recall.mjs` takes the committed packaged Recall `app.asar`, inspects its JavaScript modules and Electron calls, and writes a separate runnable Electron source project. It refuses archives whose SHA-256, package name, main entry, IPC channels, or local module links differ from the reviewed target. The inspection report in `evidence.json` records the archive hash, per-module hashes, main entry, discovered IPC handlers, local imports, bridge exports, and window loads. The output does not include original source files.
 
 The reconstructed app implements the observed `card:answer` and `stats:streak` IPC channels, JSON deck persistence under Electron `userData/decks`, the scheduler from the checked Recall blueprint, and an independent streak implementation. It has a local desktop UI with a demo card, exposed through a narrow preload bridge. The demo setup/state channels and UI are new conveniences; the two original IPC channels remain separately checked. This is a bounded reconstruction of the small packaged fixture, not a general Electron decompiler.
