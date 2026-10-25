@@ -25,9 +25,9 @@ and commit the lockfile change in the same branch.
 
 | Goal | Command |
 |---|---|
-| Everything in dev mode (contracts watch + backend + frontend) | `npm run dev` |
-| Backend only (tsx watch, :3001) | `npm run dev:backend` |
-| Frontend only (Vite, :5173, proxies `/api` → :3001) | `npm run dev:frontend` |
+| Everything in dev mode (contracts watch + backend + frontend) | `PORT=3003 REA_MODE=mock LLM_MODE=mock npm run dev` |
+| Backend only (tsx watch, :3003) | `PORT=3003 REA_MODE=mock LLM_MODE=mock npm run dev:backend` |
+| Frontend only (Vite, :5173, proxies `/api` → :3003) | `npm run dev:frontend` |
 | Frontend with **no backend** | set `VITE_API_MODE=mock` in `packages/frontend/.env.development`, then `npm run dev:frontend` |
 | Rebuild contracts after editing them | `npm run build:contracts` (or keep `npm run dev` running) |
 | Typecheck all packages | `npm run typecheck` |

@@ -10,6 +10,49 @@ content-addressed artifacts, exact scoped indexes and function exports, reviewed
 work, and generated specs. See [the cache guide](docs/decomp-s3-cache.md) for identity,
 permissions, activation, and the stages that still run for each campaign.
 
+## Running the App (Backend & Frontend / Studio)
+
+### 1. First-Time Setup
+```bash
+npm ci
+npm run build:contracts
+```
+
+### 2. Run All Workspaces Concurrently (Recommended)
+Starts the contracts build watcher, backend (`:3003`), and Studio frontend (`:5173`):
+```bash
+PORT=3003 REA_MODE=mock LLM_MODE=mock npm run dev
+```
+Open **http://localhost:5173** in your browser.
+
+### 3. Run Backend and Frontend in Separate Terminals
+
+**Terminal 1 — Backend (Port 3003):**
+```bash
+# Mock / replay mode (no AWS credentials required):
+PORT=3003 REA_MODE=mock LLM_MODE=mock npm run dev:backend
+
+# Or live mode (requires AWS Bedrock credentials):
+PORT=3003 REA_MODE=auto LLM_MODE=live npm run dev:backend
+```
+Verify backend health: `curl http://localhost:3003/api/health`
+
+**Terminal 2 — Frontend / Studio (Port 5173):**
+```bash
+npm run dev:frontend
+```
+Open **http://localhost:5173** (automatically proxies `/api` requests to backend on port 3003).
+
+### 4. Running with Docker
+```bash
+# Production container (port 3001)
+docker compose up -d --build --force-recreate splice
+
+# Development live-reload container (port 5173)
+docker compose --profile dev up --build --force-recreate splice-dev
+```
+See [docs/DOCKER_FRONTEND.md](docs/DOCKER_FRONTEND.md) for detailed container details.
+
 ## Project intake
 
 Analyze a group of executable and shared-library modules with one request. Paths are relative to the request file unless absolute. ELF dependency discovery requires `readelf`; the fixture check also requires `gcc` and `strip`:
