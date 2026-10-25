@@ -58,7 +58,8 @@ test("native API persists a partial draft and reads only public schema 2 specs",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ dossier_artifact: dossierArtifact }) });
   assert.equal(response.status, 200);
-  const draftResult = await response.json();
+  const draftResult = await response.json() as {
+    artifact: string; spec: { status: string; requirements: unknown[]; examples: unknown[] } };
   assert.equal(draftResult.spec.status, "draft");
   assert.deepEqual(draftResult.spec.requirements, []);
   assert.deepEqual(draftResult.spec.examples, []);
