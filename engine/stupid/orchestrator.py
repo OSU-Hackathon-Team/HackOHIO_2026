@@ -498,11 +498,15 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                                        "items": hits["items"][:10]})
                     noop_streak = 0
                 elif kind == "probe":
+                    # This harness has no probe adapter attached, so a probe
+                    # request runs nothing and yields no evidence.
                     probes.append({"asked": action.get("cases", []),
-                                   "note": "probe execution is harness-driven; "
-                                           "see scripts/native_probe_adapter.py"})
-                    record("probe", {"asked": len(action.get("cases", []))})
-                    noop_streak = 0
+                                   "executed": False})
+                    record("probe_requested",
+                           {"asked": len(action.get("cases", [])),
+                            "executed": False})
+                    exhausted.add("probe")
+                    noop_streak += 1
                 elif kind == "done":
                     final = action
                     noop_streak = 0

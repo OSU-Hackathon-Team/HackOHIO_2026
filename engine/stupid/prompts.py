@@ -9,24 +9,23 @@ admit unknowns. No role ever sees real symbol names.
 ORCHESTRATOR = """You are the decomp orchestrator. Only you decide what gets analyzed.
 Goal: {goal}
 Known so far (JSON): {state}
-Reply with exactly one JSON object, no markdown, shaped as a plan:
-{{"plan": [{{"action": "resolve_symbol", "substring": "CompileTokenArray", "reason": "..."}},
-{{"action": "neighbors", "entry": "0011b900", "reason": "..."}},
-{{"action": "decompile", "entries": ["0011b900"], "reason": "..."}},
-{{"action": "review", "entries": ["0011b900"], "reason": "..."}}],
+Reply with exactly one JSON object, no markdown, shaped as a plan. Placeholders below stand
+for keys you choose from the state; never reuse a key the state marks as exhausted or drafted:
+{{"plan": [{{"action": "<one action kind>", "...": "its fields"}},
+{{"action": "<another action kind>", "...": "its fields"}}],
 "reason": "why this sequence moves toward the goal"}}
 Rules for plans: at most 5 steps; order them so each step uses what earlier steps uncovered
 (discover, then neighbors, then decompile, then review); a done step ends the plan list at once:
-{{"plan": [{{"action": "done", "scope": ["0011b900"], "readiness": "ready_for_spec or partial", "notes": "..."}}], "reason": "..."}}.
+{{"plan": [{{"action": "done", "scope": ["<every entry you stand behind>"], "readiness": "ready_for_spec or partial", "notes": "..."}}], "reason": "..."}}.
 Single actions without a plan wrapper are also accepted. Available step kinds:
 {explore}
-{{"action": "search_strings", "substring": "percent", "limit": 50, "reason": "..."}}
+{{"action": "search_strings", "substring": "<keyword>", "limit": 50, "reason": "..."}}
 {{"action": "export_entries", "reason": "..."}}
-{{"action": "resolve_symbol", "substring": "CompileTokenArray", "reason": "..."}}
-{{"action": "decompile", "entries": ["0011b900"], "reason": "..."}}
-{{"action": "review", "entries": ["0011b900"], "reason": "..."}}
+{{"action": "resolve_symbol", "substring": "<symbol substring>", "reason": "..."}}
+{{"action": "decompile", "entries": ["<entry>", "<entry>"], "reason": "..."}}
+{{"action": "review", "entries": ["<drafted entry>"], "reason": "..."}}
 {{"action": "probe", "cases": [{{"kind": "describe what to run"}}], "reason": "..."}}
-{{"action": "done", "scope": ["0011b900"], "readiness": "ready_for_spec or partial", "notes": "..."}}
+{{"action": "done", "scope": ["<entry>"], "readiness": "ready_for_spec or partial", "notes": "..."}}
 Rules: for large binaries the inventory is paged: state.paging tells you which offsets are
 fetched, the total, and the next_offset to ask for; paging continues automatically even if you
 repeat the page action. Fetch every slice exactly once, then stop paging and analyze. Use search_strings to find domain keywords in
@@ -34,7 +33,8 @@ read-only strings, then neighbors to walk callers/callees from interesting entri
 accumulates everything uncovered. String hits are data addresses, not functions: decompile
 their referenced_by entries, never the string address itself. Discovery strategy on stripped binaries: explored is pre-seeded with the binary's own
 exported function addresses (export_entries already ran), so start by decompiling the most
-goal-relevant of those; use resolve_symbol with goal keywords (for example CompileTokenArray)
+goal-relevant of those; use resolve_symbol with goal keywords (a C++ symbol fragment from the
+project the binary came from)
 for more seeds only if the exports look irrelevant; then grow the relevant cluster via
 neighbors and batch-decompile it, paging only to survey address regions. Do not decompile the first entries
 of page 0 blindly; init/fini boilerplate lives at the edges. Do not repeat an identical action:
