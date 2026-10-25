@@ -23,9 +23,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from engine.analysis.ghidra import GhidraAnalysis
 from engine.artifacts import LocalArtifactStore
 from engine.behavior import is_observable_claim
+from engine.expansion import select_evidence
 from engine.model_runtime import invoke_opencode
 from engine.observations import (derive_effects, derive_invariants, describe,
-                                 describe_effects)
+                                 describe_argument_effects, describe_effects,
+                                 derive_argument_effects)
 from engine.worker import parse_answer
 from engine.watchdog import Watchdog
 from engine.validation.probes import NativeProbeRunner
@@ -96,8 +98,10 @@ def _spec_answer(reply: str, known_invariants: list[str] | None = None,
         if not isinstance(answer[field], list) or any(
                 not isinstance(item, str) or not item.strip() for item in answer[field]):
             raise ValueError(f"functional spec {field} must be an array of strings")
-    if not answer["rules"] or any(not is_observable_claim(rule) for rule in answer["rules"]):
-        raise ValueError("functional rules must describe caller-visible behavior")
+    unobservable = [rule for rule in answer["rules"] if not is_observable_claim(rule)]
+    if not answer["rules"] or unobservable:
+        raise ValueError("functional rules must describe caller-visible behavior, not "
+                         "implementation detail: " + json.dumps(unobservable[:3]))
     cited = []
     for entry in answer["evidence_rules"]:
         if not isinstance(entry, dict) or set(entry) != {"invariant", "rule"}:
@@ -212,6 +216,10 @@ def main() -> None:
     parser.add_argument("--plateau-attempts", type=int, default=3,
                         help="attempts without improvement before re-deriving the spec")
     parser.add_argument("--max-spec-revisions", type=int, default=2)
+    parser.add_argument("--evidence-cases", type=int, default=24,
+                        help="cases shown to the models; every context is covered first")
+    parser.add_argument("--restart", action="store_true",
+                        help="retry this exact run instead of replaying its checkpoint")
     parser.add_argument("--opencode", type=Path,
                         default=Path.home() / ".opencode/bin/opencode")
     parser.add_argument("--headless", type=Path,
@@ -255,6 +263,16 @@ def main() -> None:
         sort_keys=True).encode()).hexdigest()
     checkpoint_path = args.state / "runs" / "functional-c" / run_key / "progress.json"
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    if args.restart and checkpoint_path.exists():
+        # A run that ended in failure keeps its checkpoint, so retrying the same
+        # evidence would replay the same attempts. Preserve the trail, start over.
+        attempt = 1
+        while True:
+            archived = checkpoint_path.with_name(f"progress.{attempt}.json")
+            if not archived.exists():
+                break
+            attempt += 1
+        os.replace(checkpoint_path, archived)
     progress = json.loads(checkpoint_path.read_text()) if checkpoint_path.exists() else {
         "schema": 1, "run_key": run_key, "revisions": []}
     if progress.get("run_key") != run_key:
@@ -269,11 +287,17 @@ def main() -> None:
         args.spec_artifact = progress.get("spec_artifact")
     examples = [_summary(row) for row in public]
     transitions = [_transition(case) for case in public]
+    # The derived tables summarise the rules, so a reader only needs one case per
+    # operation context and argument, not the whole corpus; validation still uses
+    # every public case.
+    prompt_transitions = select_evidence(transitions, args.evidence_cases)
     analysis = derive_invariants(transitions)
     effects = derive_effects(transitions)
+    argument_effects = derive_argument_effects(transitions)
     operation_names = {code: name for name, code in STEP_CODES.items()}
     invariant_lines = describe(analysis, operation_names, tiers=("supported",))
     effect_lines = describe_effects(effects, operation_names)
+    argument_lines = describe_argument_effects(argument_effects, operation_names)
     supported_ids = [item["id"] for item in analysis["invariants"]
                      if item["tier"] == "supported"]
     effect_ids = [item["id"] for item in effects]
@@ -300,6 +324,9 @@ def main() -> None:
                 "in evidence_rules. An invariant only says when an operation has no reported "
                 "effect under that condition; it never licenses a blanket rule that the "
                 "operation is inert, so describe each operation's normal effect as well. "
+                "The derived argument effects are categorical: whenever that argument was "
+                "supplied with that value not already reported, the value became reported, "
+                "so a rule must cover it and no rule may deny it. "
                 "Explain the uncovered no-effect transitions in your rules or in "
                 "uncertainties. Return one JSON object with exactly purpose (string), "
                 "state (array of strings), rules (array of caller-visible sentences), "
@@ -311,10 +338,13 @@ def main() -> None:
                 f"Public operations found in native scope: {json.dumps(names)}\n"
                 f"C interface contract: {interface['contract']}\n"
                 f"Observed effects: {json.dumps(effect_lines)}\n"
+                f"Derived argument effects: {json.dumps(argument_lines)}\n"
                 f"Derived invariants: {json.dumps(invariant_lines)}\n"
                 f"No-effect transitions no invariant covers: {json.dumps(uncovered_lines)}\n"
                 f"Observation format: {EVIDENCE_LEGEND}\n"
-                f"Original observations: {json.dumps(transitions, separators=(',', ':'))}"
+                f"Original observations ({len(prompt_transitions)} of {len(transitions)} "
+                f"cases, selected so every operation context and argument appears): "
+                f"{json.dumps(prompt_transitions, separators=(',', ':'))}"
             )
 
         spec_runs = itertools.count()
@@ -329,6 +359,7 @@ def main() -> None:
                     subject=interface["target"], stage="spec",
                     snapshot={"public_case_count": len(public), "operations": names,
                               "effects": effect_lines,
+                              "argument_effects": argument_lines,
                               "invariants": invariant_lines,
                               "uncovered_no_effect": uncovered_lines,
                               "plateau_note": note or None,
@@ -364,6 +395,7 @@ def main() -> None:
                           "public_case_artifacts": [row["artifact"] for row in public],
                           "invariants": analysis["invariants"],
                           "effects": effects,
+                          "argument_effects": argument_effects,
                           "uncovered_no_effect": analysis["uncovered_no_effect"],
                           "model": active_model, "watchdog_artifact": prior_watchdog,
                           "plateau_note": note or None,
@@ -391,7 +423,9 @@ def main() -> None:
                     and [item.get("id") for item in saved.get("invariants", [])]
                     == [item["id"] for item in analysis["invariants"]]
                     and [item.get("id") for item in saved.get("effects", [])]
-                    == effect_ids):
+                    == effect_ids
+                    and [item.get("id") for item in saved.get("argument_effects", [])]
+                    == [item["id"] for item in argument_effects]):
                 try:
                     spec = _spec_answer(json.dumps(saved["spec"]), supported_ids,
                                         supported_ids, effect_ids)
@@ -422,9 +456,12 @@ def main() -> None:
                 f"C interface: {interface['contract']}\n"
                 f"Observation format: {EVIDENCE_LEGEND}\n"
                 f"Observed effects: {json.dumps(effect_lines)}\n"
+                f"Derived argument effects: {json.dumps(argument_lines)}\n"
                 f"Derived invariants: {json.dumps(invariant_lines)}\n"
                 f"No-effect transitions no invariant covers: {json.dumps(uncovered_lines)}\n"
-                f"Original observations: {json.dumps(transitions, separators=(',', ':'))}\n"
+                f"Original observations ({len(prompt_transitions)} of {len(transitions)} "
+                f"cases, selected so every operation context and argument appears): "
+                f"{json.dumps(prompt_transitions, separators=(',', ':'))}\n"
                 f"Functional spec: {json.dumps(active_spec)}"
             )
 
@@ -507,7 +544,7 @@ def main() -> None:
                           "effects": effect_lines,
                           "public_case_count": len(public),
                           "evidence_legend": EVIDENCE_LEGEND,
-                          "original_transitions": transitions,
+                          "original_transitions": prompt_transitions,
                           "previous_advice": supervision[-4:]},
                 previous_artifact=previous_watchdog)
             previous_watchdog = advice_record["artifact"]
