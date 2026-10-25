@@ -2,6 +2,8 @@
 
 Status: implementation in progress. Updated 2026-10-24.
 
+> Stupid-engine rewrite (branch `chore/stupid-decomp-engine`, worktree `/tmp/stupid-engine`): all scope/decomp/review/spec judgment moves to agents; code keeps artifacts + evidence export + fan-out only. Source of truth: [STUPID_ENGINE_PLAN.md](STUPID_ENGINE_PLAN.md). Old-engine files are frozen until the stupid loop passes the small fixture.
+
 Implementation sequence: [DECOMP_IMPLEMENTATION_PLAN.md](DECOMP_IMPLEMENTATION_PLAN.md).
 The earlier review of the separate Rev checkout is preserved as
 [historical context](docs/archive/rev-engine-review-2026-10-24.md); its global FIFO,

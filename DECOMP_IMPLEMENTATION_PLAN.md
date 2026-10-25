@@ -1,6 +1,7 @@
 # Subsystem decompilation engine implementation plan
 
 Status: implementation in progress; all milestone acceptance gates remain open.
+**Agent-first rewrite on branch `chore/stupid-decomp-engine`:** M2-M5 gates are under rewrite per [STUPID_ENGINE_PLAN.md](STUPID_ENGINE_PLAN.md); no milestone is claimed complete here. Small fixture (`fixtures/decomp/native_lab.c`) first, then the LibreOffice calc stress test.
 Updated: 2026-10-24.
 Architecture and decision rationale: [DecompPileline.md](DecompPileline.md).
 

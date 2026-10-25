@@ -99,7 +99,7 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   the new handoff gate. The function index now counts executable regions, decoded
   instructions outside functions, and bytes classified as neither instructions nor defined
   data, exposing gaps that `export-all` success alone cannot rule out. Scale and recovery gates
-  remain open. Read-only gap exports now preserve raw bytes and reference context for targeted
+  remain open. **Stupid-engine rewrite (branch `chore/stupid-decomp-engine`, worktree `/tmp/stupid-engine`): see `STUPID_ENGINE_PLAN.md`; old `engine/` judgment code frozen until the stupid loop passes the small fixture.** Read-only gap exports now preserve raw bytes and reference context for targeted
   adjudication. The native spec handoff now refuses partial dossiers and sends reviewed
   behavioral facts through the regular Step 2 spec writer. It publishes a prose-only
   schema 2 spec and keeps evidence and review links in a separate analyst audit artifact.
