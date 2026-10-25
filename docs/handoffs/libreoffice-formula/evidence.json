@@ -1,0 +1,3296 @@
+{
+  "blockers": [
+    {
+      "kind": "missing_function_drafts",
+      "subjects": [
+        "007c2da0"
+      ]
+    },
+    {
+      "edge": {
+        "entry": "006c40f0",
+        "from": "called_by:007c2da0@007c3081",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00379910",
+        "from": "called_by:007c2da0@007c308e",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "006c4100",
+        "from": "called_by:007c2da0@007c30cf",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "0037ef80",
+        "from": "called_by:007c2da0@007c310e",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "0037a1f0",
+        "from": "called_by:007c2da0@007c311b",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "003770f0",
+        "from": "called_by:007c2da0@007c313a",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00380f40",
+        "from": "called_by:007c2da0@007c315c",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00382cd0",
+        "from": "called_by:007c2da0@007c3221",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "003770f0",
+        "from": "called_by:007c2da0@007c3256",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "003770f0",
+        "from": "called_by:007c2da0@007c32e2",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00382cd0",
+        "from": "called_by:007c2da0@007c3886",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00382cd0",
+        "from": "called_by:007c2da0@007c38f5",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "003770f0",
+        "from": "called_by:007c2da0@007c38fe",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "007b53a0",
+        "from": "called_by:007c2da0@007c3920",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "007b53a0",
+        "from": "called_by:007c2da0@007c3978",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "006c40f0",
+        "from": "called_by:007c2da0@007c3a88",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00379910",
+        "from": "called_by:007c2da0@007c3a95",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "006c40f0",
+        "from": "called_by:007c2da0@007c3ab9",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00379910",
+        "from": "called_by:007c2da0@007c3ac6",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "0037ef80",
+        "from": "called_by:007c2da0@007c3b88",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "003770f0",
+        "from": "called_by:007c2da0@007c3b9d",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "0037c5f0",
+        "from": "called_by:007c2da0@007c3bbc",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "006c4100",
+        "from": "called_by:007c2da0@007c3f70",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "007b53a0",
+        "from": "called_by:007c2da0@007c3f88",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "0037ce80",
+        "from": "called_by:007c2da0@007c404b",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00375e70",
+        "from": "called_by:007c2da0@007c4069",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00378c60",
+        "from": "called_by:007c2da0@007c407f",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "0037e5b0",
+        "from": "called_by:007c2da0@007c4087",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "0037ce80",
+        "from": "called_by:007c2da0@007c40a3",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00375e70",
+        "from": "called_by:007c2da0@007c40ba",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00378c60",
+        "from": "called_by:007c2da0@007c40d0",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "0037e5b0",
+        "from": "called_by:007c2da0@007c40d8",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "0037ce80",
+        "from": "called_by:007c2da0@007c40eb",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00375e70",
+        "from": "called_by:007c2da0@007c4109",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00378c60",
+        "from": "called_by:007c2da0@007c411f",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "0037e5b0",
+        "from": "called_by:007c2da0@007c4127",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00373840",
+        "from": "called_by:007c2da0@007c43c7",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "0037bc80",
+        "from": "called_by:007c2da0@007c44cd",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00377120",
+        "from": "called_by:007c2da0@007c474a",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00374ed0",
+        "from": "called_by:007c2da0@007c475d",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00844090",
+        "from": "called_by:0084b4b0@0084b523",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "0037c0e0",
+        "from": "called_by:0084b4b0@0084b53e",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "0037cdf0",
+        "from": "called_by:0084b4b0@0084b560",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "0037cdf0",
+        "from": "called_by:0084b4b0@0084b56f",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00374ed0",
+        "from": "called_by:0084b4b0@0084b94a",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "00375e70",
+        "from": "called_by:007bd200@007bd284",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "003770f0",
+        "from": "called_by:007bd200@007bd2cf",
+        "kind": "unknown_function"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "kind": "function_budget_exhausted",
+        "remaining_frontier": 25
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "005ddbb0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "branch_outside_symbol_extent",
+        "target": "00722c30"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "00722c30",
+        "kind": "scoped_analysis_boundary",
+        "reason": "branch_outside_symbol_extent",
+        "target": "006dd550"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "007bd200",
+        "kind": "scoped_analysis_boundary",
+        "reason": "branch_outside_symbol_extent",
+        "target": "003a778a"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "007c2da0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "indirect_flow",
+        "site": "007c2ee5"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "007c2da0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "indirect_flow",
+        "site": "007c2efb"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "007c2da0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "indirect_flow",
+        "site": "007c2f95"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "007c2da0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "indirect_flow",
+        "site": "007c2fec"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "007c2da0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "indirect_flow",
+        "site": "007c31bd"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "007f1ef0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "branch_outside_symbol_extent",
+        "target": "00846090"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "007f1ef0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "branch_outside_symbol_extent",
+        "target": "003ac178"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "007f21d0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "branch_outside_symbol_extent",
+        "target": "00846090"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "007f21d0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "branch_outside_symbol_extent",
+        "target": "003ac1f6"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "007f22c0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "branch_outside_symbol_extent",
+        "target": "00846090"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "007f22c0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "branch_outside_symbol_extent",
+        "target": "003ac220"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "0084b4b0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "indirect_flow",
+        "site": "0084b50d"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "0084b4b0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "branch_outside_symbol_extent",
+        "target": "003afc08"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "0085e100",
+        "kind": "scoped_analysis_boundary",
+        "reason": "branch_outside_symbol_extent",
+        "target": "0085d6f0"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "0049f990",
+        "kind": "scoped_analysis_boundary",
+        "reason": "branch_outside_symbol_extent",
+        "target": "005e2f80"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "375e70",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "0077de00",
+        "kind": "scoped_analysis_boundary",
+        "reason": "branch_outside_symbol_extent",
+        "target": "0077d5c0"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "0077de00",
+        "kind": "scoped_analysis_boundary",
+        "reason": "branch_outside_symbol_extent",
+        "target": "003a2c72"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "0077de00",
+        "kind": "scoped_analysis_boundary",
+        "reason": "branch_outside_symbol_extent",
+        "target": "003a2caf"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "3770f0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "008936e0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "branch_outside_symbol_extent",
+        "target": "008936c0"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "caller": "00894790",
+        "kind": "scoped_analysis_boundary",
+        "reason": "branch_outside_symbol_extent",
+        "target": "00893ab0"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "5be4c0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "b7cb00",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "92df50",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "92de90",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "37bc80",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "373dd0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "373840",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "374ed0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "377120",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "5b85d0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "5b85a0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "88a680",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "6c40f0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "379910",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "6c4100",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "37ef80",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "37a1f0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "380f40",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "382cd0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "7b53a0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "37c5f0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "37ce80",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "378c60",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "37e5b0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "847600",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "7f1590",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "846d20",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "8ca600",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "7f1170",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "8474e0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "844090",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "37c0e0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "37cdf0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "49f8e0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "6c3c30",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "77cfc0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "381620",
+        "kind": "scoped_analysis_boundary",
+        "reason": "unknown_symbol_extent"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "77b7e0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "edge": {
+        "entry": "893ab0",
+        "kind": "scoped_analysis_boundary",
+        "reason": "scope_budget"
+      },
+      "kind": "unresolved_scope_edge"
+    },
+    {
+      "claim_index": 4,
+      "kind": "claim_needs_resolution",
+      "review_state": "uncertain",
+      "subject": "00722c30"
+    },
+    {
+      "claim_index": 0,
+      "kind": "claim_needs_resolution",
+      "review_state": "uncertain",
+      "subject": "007bd200"
+    },
+    {
+      "claim_index": 0,
+      "kind": "claim_needs_resolution",
+      "review_state": "uncertain",
+      "subject": "007f1ef0"
+    },
+    {
+      "claim_index": 0,
+      "kind": "claim_needs_resolution",
+      "review_state": "contradicted",
+      "subject": "007f21d0"
+    },
+    {
+      "claim_index": 0,
+      "kind": "claim_needs_resolution",
+      "review_state": "contradicted",
+      "subject": "007f22c0"
+    },
+    {
+      "claim_index": 1,
+      "kind": "claim_needs_resolution",
+      "review_state": "contradicted",
+      "subject": "007f22c0"
+    },
+    {
+      "claim_index": 3,
+      "kind": "claim_needs_resolution",
+      "review_state": "uncertain",
+      "subject": "0049f990"
+    },
+    {
+      "claim_index": 1,
+      "kind": "claim_needs_resolution",
+      "review_state": "contradicted",
+      "subject": "005db6d0"
+    },
+    {
+      "claim_index": 5,
+      "kind": "claim_needs_resolution",
+      "review_state": "contradicted",
+      "subject": "00894790"
+    },
+    {
+      "items": [
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "The function initializes multiple fields of the ScValueIterator object with zeros or specific constants, such as setting offsets 0x10, 0x18, 0x30, 0x48, 0x78, 0xb0 to zero, and offset 0x50 to 0xffffffff.",
+          "draft_artifact": "fc7bffee81b38e9850d0f238e947815dba7f99b93edd11aaaeb2539e67acdb26",
+          "index": 0,
+          "kind": "missing_behavior",
+          "review_artifact": "9aa3055c05aa9abb57cbd566947e07db95fb2f357a03700646b284c7b5357b46"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "The function combines two bytes (uVar1 from callee and param_5) into a ushort stored at offset 0x3f using CONCAT11-like behavior via MOV AH, CL instruction.",
+          "draft_artifact": "fc7bffee81b38e9850d0f238e947815dba7f99b93edd11aaaeb2539e67acdb26",
+          "index": 1,
+          "kind": "missing_behavior",
+          "review_artifact": "9aa3055c05aa9abb57cbd566947e07db95fb2f357a03700646b284c7b5357b46"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "The function performs bounds adjustment logic on several member variables including clamping values based on comparisons with limits derived from document/table properties.",
+          "draft_artifact": "fc7bffee81b38e9850d0f238e947815dba7f99b93edd11aaaeb2539e67acdb26",
+          "index": 2,
+          "kind": "missing_behavior",
+          "review_artifact": "9aa3055c05aa9abb57cbd566947e07db95fb2f357a03700646b284c7b5357b46"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "The function calls two external functions (_ZNK10ScDocument13GetDocOptionsEv and _ZNK10ScDocument13GetTableCountEv) whose results influence internal state assignments.",
+          "draft_artifact": "fc7bffee81b38e9850d0f238e947815dba7f99b93edd11aaaeb2539e67acdb26",
+          "index": 3,
+          "kind": "missing_behavior",
+          "review_artifact": "9aa3055c05aa9abb57cbd566947e07db95fb2f357a03700646b284c7b5357b46"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "_ZNK10ScDocument13GetDocOptionsEv",
+          "draft_artifact": "fc7bffee81b38e9850d0f238e947815dba7f99b93edd11aaaeb2539e67acdb26",
+          "index": 0,
+          "kind": "unresolved",
+          "review_artifact": "9aa3055c05aa9abb57cbd566947e07db95fb2f357a03700646b284c7b5357b46"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "_ZNK10ScDocument13GetTableCountEv",
+          "draft_artifact": "fc7bffee81b38e9850d0f238e947815dba7f99b93edd11aaaeb2539e67acdb26",
+          "index": 1,
+          "kind": "unresolved",
+          "review_artifact": "9aa3055c05aa9abb57cbd566947e07db95fb2f357a03700646b284c7b5357b46"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "The function accesses a table structure based on input indices but does not validate upper bounds beyond null checks, potentially allowing out-of-bounds reads.",
+          "draft_artifact": "24673bdcb068db2594b2faed97fcbbd372c9b746e8d7e1ef640d7665c8417240",
+          "index": 0,
+          "kind": "missing_behavior",
+          "review_artifact": "55c7552ace259c3b4feb102da13bc5dacac85bd8d136577f8c64f53d87882844"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "The function conditionally calls external functions but does not handle or document potential side effects or errors from those calls.",
+          "draft_artifact": "24673bdcb068db2594b2faed97fcbbd372c9b746e8d7e1ef640d7665c8417240",
+          "index": 1,
+          "kind": "missing_behavior",
+          "review_artifact": "55c7552ace259c3b4feb102da13bc5dacac85bd8d136577f8c64f53d87882844"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "Significant control flow depends on global state (_ZN8ScGlobal28bThreadedGroupCalcInProgressE) which is not documented or constrained within this function\u2019s scope.",
+          "draft_artifact": "24673bdcb068db2594b2faed97fcbbd372c9b746e8d7e1ef640d7665c8417240",
+          "index": 2,
+          "kind": "missing_behavior",
+          "review_artifact": "55c7552ace259c3b4feb102da13bc5dacac85bd8d136577f8c64f53d87882844"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "_ZNK10ScDocument8HasTableEs",
+          "draft_artifact": "24673bdcb068db2594b2faed97fcbbd372c9b746e8d7e1ef640d7665c8417240",
+          "index": 0,
+          "kind": "unresolved",
+          "review_artifact": "55c7552ace259c3b4feb102da13bc5dacac85bd8d136577f8c64f53d87882844"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "_ZNK11ScAttrArray10GetPatternEi",
+          "draft_artifact": "24673bdcb068db2594b2faed97fcbbd372c9b746e8d7e1ef640d7665c8417240",
+          "index": 1,
+          "kind": "unresolved",
+          "review_artifact": "55c7552ace259c3b4feb102da13bc5dacac85bd8d136577f8c64f53d87882844"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "func_0x00374d20",
+          "draft_artifact": "24673bdcb068db2594b2faed97fcbbd372c9b746e8d7e1ef640d7665c8417240",
+          "index": 2,
+          "kind": "unresolved",
+          "review_artifact": "55c7552ace259c3b4feb102da13bc5dacac85bd8d136577f8c64f53d87882844"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "_ZN17SvNumberFormatter29GetFormatForLanguageIfBuiltInEjN4o3tl10strong_intIt15LanguageTypeTagEE",
+          "draft_artifact": "24673bdcb068db2594b2faed97fcbbd372c9b746e8d7e1ef640d7665c8417240",
+          "index": 3,
+          "kind": "unresolved",
+          "review_artifact": "55c7552ace259c3b4feb102da13bc5dacac85bd8d136577f8c64f53d87882844"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "Function accesses ScAttrArray::GetPattern and performs conditional logic involving SvNumberFormatter::GetFormatForLanguageIfBuiltIn, but neither is documented in the behavioral claims despite being part of execution flow.",
+          "draft_artifact": "dbdde2d0516c065c65f2d3fb199f680569d2c6398de4ac98bbce8894240bfff1",
+          "index": 0,
+          "kind": "missing_behavior",
+          "review_artifact": "3d293454a0a690b9cec2021e45cf6a835e4a79dbe59a1b12276c35133d71f253"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "Return value may involve merging upper and lower parts of uVar4 and uVar2 into a single return due to shift/or operation ((ulong)uVar4 << 0x20 | (ulong)uVar2), which is not captured in behavioral description.",
+          "draft_artifact": "dbdde2d0516c065c65f2d3fb199f680569d2c6398de4ac98bbce8894240bfff1",
+          "index": 1,
+          "kind": "missing_behavior",
+          "review_artifact": "3d293454a0a690b9cec2021e45cf6a835e4a79dbe59a1b12276c35133d71f253"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "_ZNK11ScAttrArray10GetPatternEi called at 00722c8a not analyzed for internal behavior impact",
+          "draft_artifact": "dbdde2d0516c065c65f2d3fb199f680569d2c6398de4ac98bbce8894240bfff1",
+          "index": 0,
+          "kind": "unresolved",
+          "review_artifact": "3d293454a0a690b9cec2021e45cf6a835e4a79dbe59a1b12276c35133d71f253"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "_ZN17SvNumberFormatter29GetFormatForLanguageIfBuiltInEjN4o3tl10strong_intIt15LanguageTypeTagEE call implications unresolved",
+          "draft_artifact": "dbdde2d0516c065c65f2d3fb199f680569d2c6398de4ac98bbce8894240bfff1",
+          "index": 1,
+          "kind": "unresolved",
+          "review_artifact": "3d293454a0a690b9cec2021e45cf6a835e4a79dbe59a1b12276c35133d71f253"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "_ZN7ScRange5ParseERKN3rtl8OUStringERK10ScDocumentRKN9ScAddress7DetailsEPNS7_12ExternalInfoEPKN3com3sun4star3uno8SequenceINSF_5sheet16ExternalLinkInfoEEEPS2_ at 0077de00",
+          "draft_artifact": "598d30e6a3c7fceb81885b63c33a4a8128bc79bd92930f37ff4e4cb48a11498a",
+          "index": 0,
+          "kind": "unresolved",
+          "review_artifact": "ee1b03988ede150552277aaeb8db25ef947468583000deaeebdc951a52dddf5e"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "func_0x00375e70",
+          "draft_artifact": "598d30e6a3c7fceb81885b63c33a4a8128bc79bd92930f37ff4e4cb48a11498a",
+          "index": 1,
+          "kind": "unresolved",
+          "review_artifact": "ee1b03988ede150552277aaeb8db25ef947468583000deaeebdc951a52dddf5e"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "_ZN15ScSingleRefData11InitAddressERK9ScAddress",
+          "draft_artifact": "598d30e6a3c7fceb81885b63c33a4a8128bc79bd92930f37ff4e4cb48a11498a",
+          "index": 2,
+          "kind": "unresolved",
+          "review_artifact": "ee1b03988ede150552277aaeb8db25ef947468583000deaeebdc951a52dddf5e"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "_ZN15ScSingleRefData13SetTabDeletedEb",
+          "draft_artifact": "598d30e6a3c7fceb81885b63c33a4a8128bc79bd92930f37ff4e4cb48a11498a",
+          "index": 3,
+          "kind": "unresolved",
+          "review_artifact": "ee1b03988ede150552277aaeb8db25ef947468583000deaeebdc951a52dddf5e"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "_ZN16ScComplexRefData8SetRangeERK13ScSheetLimitsRK7ScRangeRK9ScAddress",
+          "draft_artifact": "598d30e6a3c7fceb81885b63c33a4a8128bc79bd92930f37ff4e4cb48a11498a",
+          "index": 4,
+          "kind": "unresolved",
+          "review_artifact": "ee1b03988ede150552277aaeb8db25ef947468583000deaeebdc951a52dddf5e"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "func_0x0092de90",
+          "draft_artifact": "598d30e6a3c7fceb81885b63c33a4a8128bc79bd92930f37ff4e4cb48a11498a",
+          "index": 5,
+          "kind": "unresolved",
+          "review_artifact": "ee1b03988ede150552277aaeb8db25ef947468583000deaeebdc951a52dddf5e"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "_ZNK10ScDocument21GetExternalRefManagerEv",
+          "draft_artifact": "598d30e6a3c7fceb81885b63c33a4a8128bc79bd92930f37ff4e4cb48a11498a",
+          "index": 6,
+          "kind": "unresolved",
+          "review_artifact": "ee1b03988ede150552277aaeb8db25ef947468583000deaeebdc951a52dddf5e"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "_ZNK20ScExternalRefManager16getRealTableNameEtRKN3rtl8OUStringE",
+          "draft_artifact": "598d30e6a3c7fceb81885b63c33a4a8128bc79bd92930f37ff4e4cb48a11498a",
+          "index": 7,
+          "kind": "unresolved",
+          "review_artifact": "ee1b03988ede150552277aaeb8db25ef947468583000deaeebdc951a52dddf5e"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "func_0x0092df50",
+          "draft_artifact": "598d30e6a3c7fceb81885b63c33a4a8128bc79bd92930f37ff4e4cb48a11498a",
+          "index": 8,
+          "kind": "unresolved",
+          "review_artifact": "ee1b03988ede150552277aaeb8db25ef947468583000deaeebdc951a52dddf5e"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "func_0x00377120",
+          "draft_artifact": "598d30e6a3c7fceb81885b63c33a4a8128bc79bd92930f37ff4e4cb48a11498a",
+          "index": 9,
+          "kind": "unresolved",
+          "review_artifact": "ee1b03988ede150552277aaeb8db25ef947468583000deaeebdc951a52dddf5e"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "func_0x003770f0",
+          "draft_artifact": "598d30e6a3c7fceb81885b63c33a4a8128bc79bd92930f37ff4e4cb48a11498a",
+          "index": 10,
+          "kind": "unresolved",
+          "review_artifact": "ee1b03988ede150552277aaeb8db25ef947468583000deaeebdc951a52dddf5e"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "func_0x00374ed0",
+          "draft_artifact": "598d30e6a3c7fceb81885b63c33a4a8128bc79bd92930f37ff4e4cb48a11498a",
+          "index": 11,
+          "kind": "unresolved",
+          "review_artifact": "ee1b03988ede150552277aaeb8db25ef947468583000deaeebdc951a52dddf5e"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "func_0x0037bc80",
+          "draft_artifact": "598d30e6a3c7fceb81885b63c33a4a8128bc79bd92930f37ff4e4cb48a11498a",
+          "index": 12,
+          "kind": "unresolved",
+          "review_artifact": "ee1b03988ede150552277aaeb8db25ef947468583000deaeebdc951a52dddf5e"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "func_0x00373dd0",
+          "draft_artifact": "598d30e6a3c7fceb81885b63c33a4a8128bc79bd92930f37ff4e4cb48a11498a",
+          "index": 13,
+          "kind": "unresolved",
+          "review_artifact": "ee1b03988ede150552277aaeb8db25ef947468583000deaeebdc951a52dddf5e"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "func_0x00373840",
+          "draft_artifact": "598d30e6a3c7fceb81885b63c33a4a8128bc79bd92930f37ff4e4cb48a11498a",
+          "index": 14,
+          "kind": "unresolved",
+          "review_artifact": "ee1b03988ede150552277aaeb8db25ef947468583000deaeebdc951a52dddf5e"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "No explicit handling of negative or out-of-range short indices; assumes signed extension via MOVSX is sufficient for all valid inputs.",
+          "draft_artifact": "7f2b800cc4dfa81915628a7c67d59aa3bb20893db8f62a0d992238eb3b50f165",
+          "index": 0,
+          "kind": "missing_behavior",
+          "review_artifact": "0f3b6db2a4a94518201ec944a9a298bca1ce8f5faaa17bb2374e9aa13943311b"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "Assumes bitwise flags at offset +0x48 fully determine state without validating mask constants 0x1 (conflict) and 0x2 (stale)",
+          "draft_artifact": "7f2b800cc4dfa81915628a7c67d59aa3bb20893db8f62a0d992238eb3b50f165",
+          "index": 1,
+          "kind": "missing_behavior",
+          "review_artifact": "0f3b6db2a4a94518201ec944a9a298bca1ce8f5faaa17bb2374e9aa13943311b"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "Refresh calls (0088a680) imply external mutation affecting struct content, but internal path doesn't verify post-call consistency beyond re-reading byte at +0x48.",
+          "draft_artifact": "7f2b800cc4dfa81915628a7c67d59aa3bb20893db8f62a0d992238eb3b50f165",
+          "index": 2,
+          "kind": "missing_behavior",
+          "review_artifact": "0f3b6db2a4a94518201ec944a9a298bca1ce8f5faaa17bb2374e9aa13943311b"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "Callee 0x005b85d0 (_ZNK10ScDocument12GetRangeNameEv) assumed to return pointer or null, not validated.",
+          "draft_artifact": "7f2b800cc4dfa81915628a7c67d59aa3bb20893db8f62a0d992238eb3b50f165",
+          "index": 0,
+          "kind": "unresolved",
+          "review_artifact": "0f3b6db2a4a94518201ec944a9a298bca1ce8f5faaa17bb2374e9aa13943311b"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "Callee 0x005b85a0 (_ZNK10ScDocument12GetRangeNameEs) behavior on edge case indices unverified.",
+          "draft_artifact": "7f2b800cc4dfa81915628a7c67d59aa3bb20893db8f62a0d992238eb3b50f165",
+          "index": 1,
+          "kind": "unresolved",
+          "review_artifact": "0f3b6db2a4a94518201ec944a9a298bca1ce8f5faaa17bb2374e9aa13943311b"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "Callee 0x0088a680 assumed to clear stale bit while preserving conflict bit, actual operation unknown.",
+          "draft_artifact": "7f2b800cc4dfa81915628a7c67d59aa3bb20893db8f62a0d992238eb3b50f165",
+          "index": 2,
+          "kind": "unresolved",
+          "review_artifact": "0f3b6db2a4a94518201ec944a9a298bca1ce8f5faaa17bb2374e9aa13943311b"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "Function performs type checks on operands before numerical comparison.",
+          "draft_artifact": "a64b0362f223a585579c0908311d58308c55cecef00ab0d55150b7cfe1bcc6a7",
+          "index": 0,
+          "kind": "missing_behavior",
+          "review_artifact": "4013e322f6278c40450d92380a9bbf88d75065ba81758b0141ff7c49878239b8"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "Function handles non-number types through conversion or error paths.",
+          "draft_artifact": "a64b0362f223a585579c0908311d58308c55cecef00ab0d55150b7cfe1bcc6a7",
+          "index": 1,
+          "kind": "missing_behavior",
+          "review_artifact": "4013e322f6278c40450d92380a9bbf88d75065ba81758b0141ff7c49878239b8"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "Return value reflects operand equality via specific integer or boolean result assignment.",
+          "draft_artifact": "a64b0362f223a585579c0908311d58308c55cecef00ab0d55150b7cfe1bcc6a7",
+          "index": 2,
+          "kind": "missing_behavior",
+          "review_artifact": "4013e322f6278c40450d92380a9bbf88d75065ba81758b0141ff7c49878239b8"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "_ZNK8ScMatrix6DecRefEv",
+          "draft_artifact": "a64b0362f223a585579c0908311d58308c55cecef00ab0d55150b7cfe1bcc6a7",
+          "index": 0,
+          "kind": "unresolved",
+          "review_artifact": "4013e322f6278c40450d92380a9bbf88d75065ba81758b0141ff7c49878239b8"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "func_0x00847600",
+          "draft_artifact": "a64b0362f223a585579c0908311d58308c55cecef00ab0d55150b7cfe1bcc6a7",
+          "index": 1,
+          "kind": "unresolved",
+          "review_artifact": "4013e322f6278c40450d92380a9bbf88d75065ba81758b0141ff7c49878239b8"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "func_0x007f1590",
+          "draft_artifact": "a64b0362f223a585579c0908311d58308c55cecef00ab0d55150b7cfe1bcc6a7",
+          "index": 2,
+          "kind": "unresolved",
+          "review_artifact": "4013e322f6278c40450d92380a9bbf88d75065ba81758b0141ff7c49878239b8"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "func_0x00846d20",
+          "draft_artifact": "a64b0362f223a585579c0908311d58308c55cecef00ab0d55150b7cfe1bcc6a7",
+          "index": 3,
+          "kind": "unresolved",
+          "review_artifact": "4013e322f6278c40450d92380a9bbf88d75065ba81758b0141ff7c49878239b8"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "func_0x007f1170",
+          "draft_artifact": "a64b0362f223a585579c0908311d58308c55cecef00ab0d55150b7cfe1bcc6a7",
+          "index": 4,
+          "kind": "unresolved",
+          "review_artifact": "4013e322f6278c40450d92380a9bbf88d75065ba81758b0141ff7c49878239b8"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "func_0x008474e0",
+          "draft_artifact": "a64b0362f223a585579c0908311d58308c55cecef00ab0d55150b7cfe1bcc6a7",
+          "index": 5,
+          "kind": "unresolved",
+          "review_artifact": "4013e322f6278c40450d92380a9bbf88d75065ba81758b0141ff7c49878239b8"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "The function performs a floating-point comparison between XMM1 and XMM0 and sets the SIL register based on the result (SETNC instruction).",
+          "draft_artifact": "f0be9aecc4dbf1958538da3aa09a2d6a6c1833914c112194b2c24bcc300daa0f",
+          "index": 0,
+          "kind": "missing_behavior",
+          "review_artifact": "5ad31fc6e5f238a067dc3504a818e74df3c87f8ebedbc5c9b3495ed8d5c6adbb"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "The function jumps to an external address (0x00846090) after setting the SIL register, rather than pushing any value onto the stack.",
+          "draft_artifact": "f0be9aecc4dbf1958538da3aa09a2d6a6c1833914c112194b2c24bcc300daa0f",
+          "index": 1,
+          "kind": "missing_behavior",
+          "review_artifact": "5ad31fc6e5f238a067dc3504a818e74df3c87f8ebedbc5c9b3495ed8d5c6adbb"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "Function calls external helper 0x0049f8e0 to process input index during primary path but provides no local implementation details for how the interval match is computed",
+          "draft_artifact": "f76f509958d7be5b5db837b8c447cea1f3ded7abe33e89c681b3ad0cc179c496",
+          "index": 0,
+          "kind": "missing_behavior",
+          "review_artifact": "e70558b89a8e460a44920f24da74b5e21758bc9503678222a53ce1d093d9ad17"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "Function calls external helper 0x00374ed0 at epilogue (addresses 0049fa25 and others) possibly for stack canary checking or error handling, not captured in return semantics",
+          "draft_artifact": "f76f509958d7be5b5db837b8c447cea1f3ded7abe33e89c681b3ad0cc179c496",
+          "index": 1,
+          "kind": "missing_behavior",
+          "review_artifact": "e70558b89a8e460a44920f24da74b5e21758bc9503678222a53ce1d093d9ad17"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "Exact structure layout and meaning of fields in [RDI+0x10], [RDI+0x18], [RDI+0x8], and [RDI+0xd0] are not specified locally despite their usage influencing control flow",
+          "draft_artifact": "f76f509958d7be5b5db837b8c447cea1f3ded7abe33e89c681b3ad0cc179c496",
+          "index": 2,
+          "kind": "missing_behavior",
+          "review_artifact": "e70558b89a8e460a44920f24da74b5e21758bc9503678222a53ce1d093d9ad17"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "Behavior and return value of callee at 005e2f80 jumped to from 0049fa20 needed to confirm claim 3 about default item pattern return",
+          "draft_artifact": "f76f509958d7be5b5db837b8c447cea1f3ded7abe33e89c681b3ad0cc179c496",
+          "index": 0,
+          "kind": "unresolved",
+          "review_artifact": "e70558b89a8e460a44920f24da74b5e21758bc9503678222a53ce1d093d9ad17"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "Internal contract and behavior of func_0x0049f8e0 called at 0049f9c2 which affects whether the primary pattern lookup path succeeds or fails",
+          "draft_artifact": "f76f509958d7be5b5db837b8c447cea1f3ded7abe33e89c681b3ad0cc179c496",
+          "index": 1,
+          "kind": "unresolved",
+          "review_artifact": "e70558b89a8e460a44920f24da74b5e21758bc9503678222a53ce1d093d9ad17"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "The function writes to fields of param_1 using values extracted from param_2, specifically storing a zero byte at param_1+5, a 16-bit value (uVar2) at param_1, a 32-bit value (uVar3) at param_1+2, and another 16-bit value (uVar1) at param_1+8 (since param_1[4] corresponds to offset 8 for undefined2*). This structured copy behavior is not captured in the draft claims.",
+          "draft_artifact": "91f4eb6094c6beb34f8d315a74097eb3198210524f568c10ca8c6910c20625e3",
+          "index": 0,
+          "kind": "missing_behavior",
+          "review_artifact": "50879e9c766fe08d3bf8912ae618784c0b240f79e0f65dd364af3ce368a81f8d"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "The function performs sign-extension (MOVSX) on word-sized reads from param_2 before use, indicating awareness of signed data representation, though no explicit claim addresses this.",
+          "draft_artifact": "91f4eb6094c6beb34f8d315a74097eb3198210524f568c10ca8c6910c20625e3",
+          "index": 1,
+          "kind": "missing_behavior",
+          "review_artifact": "50879e9c766fe08d3bf8912ae618784c0b240f79e0f65dd364af3ce368a81f8d"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "No explicit handling observed for postfix percent operator dividing operands by 100 within scope of this function.",
+          "draft_artifact": "2c34ea0afd32287a72e1d8c2231bbb58392593af2b9e057e5c4a79e701a31769",
+          "index": 0,
+          "kind": "missing_behavior",
+          "review_artifact": "a71071443cbfef789f1b5916117a80a071c071a6ebbfbbf654c6beda8e4cc2fc"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "Comparison operations yielding precisely defined 1 or 0 values are not manifest in direct observable outputs here.",
+          "draft_artifact": "2c34ea0afd32287a72e1d8c2231bbb58392593af2b9e057e5c4a79e701a31769",
+          "index": 1,
+          "kind": "missing_behavior",
+          "review_artifact": "a71071443cbfef789f1b5916117a80a071c071a6ebbfbbf654c6beda8e4cc2fc"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "Text concatenation using '&' symbol shows no operational traces in given instruction stream.",
+          "draft_artifact": "2c34ea0afd32287a72e1d8c2231bbb58392593af2b9e057e5c4a79e701a31769",
+          "index": 2,
+          "kind": "missing_behavior",
+          "review_artifact": "a71071443cbfef789f1b5916117a80a071c071a6ebbfbbf654c6beda8e4cc2fc"
+        },
+        {
+          "adjudication_artifact": null,
+          "adjudication_reason": null,
+          "decision": "unadjudicated",
+          "description": "There's no observed handling for error codes tied specifically to arithmetic exceptions like division-by-zero within this context.",
+          "draft_artifact": "2c34ea0afd32287a72e1d8c2231bbb58392593af2b9e057e5c4a79e701a31769",
+          "index": 3,
+          "kind": "missing_behavior",
+          "review_artifact": "a71071443cbfef789f1b5916117a80a071c071a6ebbfbbf654c6beda8e4cc2fc"
+        }
+      ],
+      "kind": "independent_review_gaps"
+    },
+    {
+      "count": 42,
+      "kind": "dependency_contracts_need_review"
+    },
+    {
+      "calls": [
+        {
+          "call_site": "007bd284",
+          "declared_targets": [],
+          "subject": "007bd200",
+          "target_entry": "00375e70",
+          "target_name": null
+        },
+        {
+          "call_site": "007bd2cf",
+          "declared_targets": [],
+          "subject": "007bd200",
+          "target_entry": "003770f0",
+          "target_name": null
+        },
+        {
+          "call_site": "007bd30e",
+          "declared_targets": [],
+          "subject": "007bd200",
+          "target_entry": "008936e0",
+          "target_name": "_ZN15ScSingleRefData11InitAddressERK9ScAddress"
+        },
+        {
+          "call_site": "007bd325",
+          "declared_targets": [],
+          "subject": "007bd200",
+          "target_entry": "008936e0",
+          "target_name": "_ZN15ScSingleRefData11InitAddressERK9ScAddress"
+        },
+        {
+          "call_site": "007bd3ca",
+          "declared_targets": [],
+          "subject": "007bd200",
+          "target_entry": "008937d0",
+          "target_name": "_ZN15ScSingleRefData13SetTabDeletedEb"
+        },
+        {
+          "call_site": "007bd400",
+          "declared_targets": [],
+          "subject": "007bd200",
+          "target_entry": "00894790",
+          "target_name": "_ZN16ScComplexRefData8SetRangeERK13ScSheetLimitsRK7ScRangeRK9ScAddress"
+        },
+        {
+          "call_site": "007bd413",
+          "declared_targets": [],
+          "subject": "007bd200",
+          "target_entry": "005be4c0",
+          "target_name": null
+        },
+        {
+          "call_site": "007bd422",
+          "declared_targets": [],
+          "subject": "007bd200",
+          "target_entry": "00b7cb00",
+          "target_name": null
+        },
+        {
+          "call_site": "007bd440",
+          "declared_targets": [],
+          "subject": "007bd200",
+          "target_entry": "0092df50",
+          "target_name": null
+        },
+        {
+          "call_site": "007bd47b",
+          "declared_targets": [],
+          "subject": "007bd200",
+          "target_entry": "0092de90",
+          "target_name": null
+        },
+        {
+          "call_site": "007bd490",
+          "declared_targets": [],
+          "subject": "007bd200",
+          "target_entry": "008937d0",
+          "target_name": "_ZN15ScSingleRefData13SetTabDeletedEb"
+        },
+        {
+          "call_site": "007bd54e",
+          "declared_targets": [],
+          "subject": "007bd200",
+          "target_entry": "0037bc80",
+          "target_name": null
+        },
+        {
+          "call_site": "007bd57d",
+          "declared_targets": [],
+          "subject": "007bd200",
+          "target_entry": "00373dd0",
+          "target_name": null
+        },
+        {
+          "call_site": "007bd59a",
+          "declared_targets": [],
+          "subject": "007bd200",
+          "target_entry": "00373840",
+          "target_name": null
+        },
+        {
+          "call_site": "007bd5c4",
+          "declared_targets": [],
+          "subject": "007bd200",
+          "target_entry": "00374ed0",
+          "target_name": null
+        },
+        {
+          "call_site": "007bd5f8",
+          "declared_targets": [],
+          "subject": "007bd200",
+          "target_entry": "00377120",
+          "target_name": null
+        },
+        {
+          "call_site": "007f1fc3",
+          "declared_targets": [],
+          "subject": "007f1ef0",
+          "target_entry": "008474e0",
+          "target_name": null
+        },
+        {
+          "call_site": "007f1fca",
+          "declared_targets": [],
+          "subject": "007f1ef0",
+          "target_entry": "00374ed0",
+          "target_name": null
+        },
+        {
+          "call_site": "0077e1de",
+          "declared_targets": [],
+          "subject": "0077de00",
+          "target_entry": "00374ed0",
+          "target_name": null
+        }
+      ],
+      "kind": "direct_calls_without_bound_dependencies"
+    },
+    {
+      "count": 36,
+      "kind": "claims_not_linked_to_original_probes"
+    }
+  ],
+  "claim_outcomes": {
+    "contradicted": 5,
+    "supported_static": 27,
+    "uncertain": 4
+  },
+  "coverage": {
+    "blocking_review_gaps": 60,
+    "claims": 36,
+    "claims_with_case_agreement": 0,
+    "claims_with_case_disagreement": 0,
+    "current_dependency_contracts": 0,
+    "drafted_functions": 19,
+    "included_functions": 20,
+    "independent_review_gaps": 60,
+    "observable_claims": 36,
+    "original_probe_agreements": 22,
+    "original_probe_cases": 22,
+    "original_probe_runs": 22,
+    "reviewed_dependency_contracts": 0,
+    "static_supported_claims": 27,
+    "tolerated_scope_edges": 4,
+    "unbound_indirect_sites": 0,
+    "uncovered_direct_calls": 19
+  },
+  "functions": [
+    {
+      "behavior": {
+        "errors": "No explicit error path shown in control flow",
+        "inputs": "Five parameters: an ScInterpreterContext reference, an ScRange reference, SubtotalFlags integer, and a boolean",
+        "outputs": "None (constructor initializes object state)",
+        "side_effects": "None observed directly from this function; initialization occurs in private memory space without external interaction",
+        "state": "ScValueIterator object initialized with contextual data including range bounds, document configuration flags, table constraints, and normalization metadata"
+      },
+      "claims": [],
+      "dependencies": [
+        {
+          "assumptions": [],
+          "contract": "Returns pointer to document-specific configuration options.",
+          "evidence_addresses": [
+            "005a088c"
+          ],
+          "target": "_ZNK10ScDocument13GetDocOptionsEv"
+        },
+        {
+          "assumptions": [],
+          "contract": "Returns total count of sheets in the current document as a short integer.",
+          "evidence_addresses": [
+            "005a08e4"
+          ],
+          "target": "_ZNK10ScDocument13GetTableCountEv"
+        }
+      ],
+      "draft_state": "unreviewed",
+      "entry": "005a0830",
+      "missing_behavior": [
+        "The function initializes multiple fields of the ScValueIterator object with zeros or specific constants, such as setting offsets 0x10, 0x18, 0x30, 0x48, 0x78, 0xb0 to zero, and offset 0x50 to 0xffffffff.",
+        "The function combines two bytes (uVar1 from callee and param_5) into a ushort stored at offset 0x3f using CONCAT11-like behavior via MOV AH, CL instruction.",
+        "The function performs bounds adjustment logic on several member variables including clamping values based on comparisons with limits derived from document/table properties.",
+        "The function calls two external functions (_ZNK10ScDocument13GetDocOptionsEv and _ZNK10ScDocument13GetTableCountEv) whose results influence internal state assignments."
+      ],
+      "name": "ScValueIterator::ScValueIterator(ScInterpreterContext&, ScRange const&, SubtotalFlags, bool)",
+      "review_state": "reviewed",
+      "symbol": "_ZN15ScValueIteratorC2ER20ScInterpreterContextRK7ScRange13SubtotalFlagsb",
+      "unknowns": [
+        "Semantics of the SubtotalFlags input affecting behavior outside this constructor",
+        "Functional meaning of stored byte at offset 0x3e and word at offset 0x3f in relation to overall iteration logic",
+        "Purpose of clamping comparisons (e.g., against 0x270f) applied to sheet indices",
+        "Exact use of initial zero-initialized wide fields at offsets 0x48, 0x58\u20130xa0 in subsequent processing"
+      ]
+    },
+    {
+      "behavior": {
+        "errors": "Returns zero if sheet index is invalid or row/column coordinates fall outside the sheet's limits",
+        "inputs": "A ScDocument instance, a ScInterpreterContext reference, and a ScAddress reference containing sheet, column, and row coordinates",
+        "outputs": "Returns a ulong representing a display format identifier for the cell's content",
+        "side_effects": "None",
+        "state": "The document's sheet existence and bounds; cell attribute patterns; interpreter's format cache under threading"
+      },
+      "claims": [],
+      "dependencies": [
+        {
+          "assumptions": [],
+          "contract": "Takes a sheet index and returns whether that sheet exists in the document",
+          "evidence_addresses": [
+            "005ddbd0"
+          ],
+          "target": "_ZNK10ScDocument8HasTableEs"
+        }
+      ],
+      "draft_state": "unreviewed",
+      "entry": "005ddbb0",
+      "missing_behavior": [
+        "The function accesses a table structure based on input indices but does not validate upper bounds beyond null checks, potentially allowing out-of-bounds reads.",
+        "The function conditionally calls external functions but does not handle or document potential side effects or errors from those calls.",
+        "Significant control flow depends on global state (_ZN8ScGlobal28bThreadedGroupCalcInProgressE) which is not documented or constrained within this function\u2019s scope."
+      ],
+      "name": "ScDocument::GetNumberFormat(ScInterpreterContext const&, ScAddress const&) const",
+      "review_state": "reviewed",
+      "symbol": "_ZNK10ScDocument15GetNumberFormatERK20ScInterpreterContextRK9ScAddress",
+      "unknowns": [
+        "Signedness and bit width of ScAddress row and column fields",
+        "Caching policy and key composition used in ScInterpreterContext",
+        "Detailed control flow through secondary format resolution branches",
+        "Structure and validity criteria of cell pattern metadata",
+        "Public API behavior of SvNumberFormatter language-aware resolution",
+        "The available evidence does not establish the caller-visible effects of the omitted implementation mechanics."
+      ]
+    },
+    {
+      "behavior": {
+        "errors": "No explicit error path, returns zero for negative or out-of-bounds coordinates",
+        "inputs": "One ScTable instance pointer, one ScInterpreterContext reference, and one ScAddress reference containing column and row coordinates",
+        "outputs": "Returns an unsigned long integer representing a number format code derived from cell pattern data",
+        "side_effects": "No observable side effects",
+        "state": "Reads table dimensions and column arrays from the ScTable instance; accesses pattern data through ScAttrArray instances; reads interpreter context including thread-local formatting overrides"
+      },
+      "claims": [
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "00722c4d",
+            "00722c50"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "At 00722c4d, TEST AX,AX is performed followed by JS at 00722c50 which jumps to 00722cb0 where XOR EAX,EAX sets return value to zero. This confirms returning zero when column index (AX) is less than zero."
+          },
+          "statement": "Returns zero when the column index from ScAddress is less than zero"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "00722c65",
+            "00722c67"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "At 00722c65, TEST ESI,ESI is performed followed by JS at 00722c67 which jumps to 00722ca0 where XOR EAX,EAX sets return value to zero. This confirms returning zero when row index (ESI) is less than zero."
+          },
+          "statement": "Returns zero when the row index from ScAddress is less than zero"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "00722c47",
+            "00722c4b"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "At 00722c47, CMP AX,word ptr [RCX + 0xc] compares column index with max column count, then JG at 00722c4b jumps to 00722cb0 where XOR EAX,EAX returns zero. Thus, return zero when column index >= max column count."
+          },
+          "statement": "Returns zero when the column index from ScAddress is greater than or equal to the table's maximum column count"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "00722c60",
+            "00722c63"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "At 00722c60, CMP ESI,dword ptr [RCX + 0x10] compares row index with max row count, then JG at 00722c63 jumps to 00722ca0 where XOR EAX,EAX sets return to zero. Thus, returns zero for row index >= max row count."
+          },
+          "statement": "Returns zero when the row index from ScAddress is greater than or equal to the table's maximum row count"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "00722c83",
+            "00722c87",
+            "00722c8a"
+          ],
+          "review": {
+            "outcome": "uncertain",
+            "reason": "The claim references computation via pattern access using col/row indices, pointing to instructions like MOV RDI,qword ptr [RCX + RAX*0x8] (00722c83), and subsequent CALL at 00722c8a. However, specific linkage between these ops and number format derivation isn't directly shown without callee analysis. There's no explicit mapping of the pattern data usage or how it relates numerically to a number format ID within the current listing boundaries."
+          },
+          "statement": "Computes a cell-specific number format identifier by accessing pattern information based on column and row indices"
+        }
+      ],
+      "dependencies": [
+        {
+          "assumptions": [],
+          "contract": "Returns formatting pattern object for a specified row within an attribute array",
+          "evidence_addresses": [
+            "00722c8a"
+          ],
+          "target": "_ZNK11ScAttrArray10GetPatternEi"
+        }
+      ],
+      "draft_state": "unreviewed",
+      "entry": "00722c30",
+      "missing_behavior": [
+        "Function accesses ScAttrArray::GetPattern and performs conditional logic involving SvNumberFormatter::GetFormatForLanguageIfBuiltIn, but neither is documented in the behavioral claims despite being part of execution flow.",
+        "Return value may involve merging upper and lower parts of uVar4 and uVar2 into a single return due to shift/or operation ((ulong)uVar4 << 0x20 | (ulong)uVar2), which is not captured in behavioral description."
+      ],
+      "name": "ScTable::GetNumberFormat(ScInterpreterContext const&, ScAddress const&) const",
+      "review_state": "reviewed",
+      "symbol": "_ZNK7ScTable15GetNumberFormatERK20ScInterpreterContextRK9ScAddress",
+      "unknowns": [
+        "Exact mapping from pattern objects to final number format codes",
+        "Behavioral significance of conditional branching at 00722c9a leading to an external jump target",
+        "Role of SvNumberFormatter interaction and language-tag handling in final output selection"
+      ]
+    },
+    {
+      "behavior": {
+        "errors": "No explicit error path",
+        "inputs": "One implicit this pointer, one integer parameter",
+        "outputs": "Returns a single 64-bit value representing a special symbol character code",
+        "side_effects": "No side effects",
+        "state": "No observable state mutations"
+      },
+      "claims": [
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "007b5224",
+            "007b5229",
+            "007b522b"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "When ESI (input symbol type) is zero, instruction at 007b5229 (TEST ESI,ESI) sets ZF=1 and the JZ at 007b522b jumps to 007b523d. At 007b5224, EAX was set to 0x2e (decimal 46). No further modifications occur on this path before RET at 007b523d. This supports returning 46 when input equals 0."
+          },
+          "statement": "Returns decimal point character code 46 when the input symbol type equals zero"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "007b522d",
+            "007b5230",
+            "007b523a"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "When ESI == 1, TEST ESI,ESI (007b5229) clears ZF, so the JZ at 007b522b falls through. Then CMP ESI,0x1 (007b522d) sets ZF=1 and MOV EAX,0x24 (007b5230) loads 36 into EAX. CMOVNZ EAX,EDX (007b523a) does not execute since ZF=1. RET at 007b523d returns 36."
+          },
+          "statement": "Returns dollar sign character code 36 when the input symbol type equals one"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "007b522d",
+            "007b5235",
+            "007b523a"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "When ESI > 1 (e.g., ESI=2), TEST ESI,ESI (007b5229) clears ZF causing fall-through at 007b522b. CMP ESI,0x1 (007b522d) clears ZF since ESI!=1. Thus, CMOVNZ EAX,EDX (007b523a) executes and copies EDX (set to 0 at 007b5235) into EAX before RET at 007b523d."
+          },
+          "statement": "Returns zero for all input symbol types greater than one"
+        }
+      ],
+      "dependencies": [],
+      "draft_state": "unreviewed",
+      "entry": "007b5220",
+      "missing_behavior": [],
+      "name": "(anonymous namespace)::ConventionOOO_A1::getSpecialSymbol(ScCompiler::Convention::SpecialSymbolType) const",
+      "review_state": "reviewed",
+      "symbol": "_ZNK12_GLOBAL__N_116ConventionOOO_A116getSpecialSymbolEN10ScCompiler10Convention17SpecialSymbolTypeE",
+      "unknowns": [
+        "Whether the returned value represents ASCII character codes or some other encoding",
+        "The semantic meaning of SpecialSymbolType values beyond 0 and 1",
+        "Whether negative input values follow the same return pattern as positive values > 1"
+      ]
+    },
+    {
+      "behavior": {
+        "errors": "Negative return values indicate parse failure; accesses memory via pointers which may be null or invalid leading to segmentation faults; stack canary check failures cause jumps to error handlers",
+        "inputs": "Three parameters passed via RDI, RSI, RDX registers; first is a pointer to ScCompiler instance; second is a pointer to OUString; third is a pointer to output buffer",
+        "outputs": "Returns an unsigned long in RAX; writes parsed reference data to memory location pointed to by third parameter",
+        "side_effects": "Writes parsed reference information to output buffer; may allocate or reallocate internal document arrays for external references; modifies compiler's external reference tables",
+        "state": "Internal stack-based working storage for parsing state including sheet limits, range data, address structures, and temporary flags"
+      },
+      "claims": [
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "007bd2b9"
+          ],
+          "review": {
+            "outcome": "uncertain",
+            "reason": "The function calls 0x0077de00 at 007bd2b9 which is asserted to parse spreadsheet cell range references, but raw evidence does not include the body of that callee. While parameters suggest string input (`param_2`) and the name implies double reference parsing consistent with structured results, there is no direct observable input/output behavior within this function confirming structured storage result handling. The decompiled logic suggests branching on negative returns indicating possible parsing failure, but control flow is fragmented without full callee visibility to confirm successful structure population."
+          },
+          "statement": "Function parses spreadsheet cell range references from string input and stores structured results"
+        }
+      ],
+      "dependencies": [
+        {
+          "assumptions": [],
+          "contract": "Parse textual cell range into structured representation",
+          "evidence_addresses": [
+            "007bd2b9"
+          ],
+          "target": "_ZN7ScRange5ParseERKN3rtl8OUStringERK10ScDocumentRKN9ScAddress7DetailsEPNS7_12ExternalInfoEPKN3com3sun4star3uno8SequenceINSF_5sheet16ExternalLinkInfoEEEPS2_"
+        }
+      ],
+      "draft_state": "unreviewed",
+      "entry": "007bd200",
+      "missing_behavior": [],
+      "name": "ScCompiler::ParseDoubleReference(rtl::OUString const&, rtl::OUString const*)",
+      "review_state": "reviewed",
+      "symbol": "_ZN10ScCompiler20ParseDoubleReferenceERKN3rtl8OUStringEPS2_",
+      "unknowns": [
+        "Specific format and encoding rules for input OUString",
+        "Exact structure and semantics of third parameter output buffer",
+        "Internal behavior of called functions without their own analyses",
+        "Meaning of individual bit flags set during reference processing",
+        "Memory management policies for dynamic allocations",
+        "Handling of malformed or unsupported reference formats"
+      ]
+    },
+    {
+      "behavior": {
+        "errors": "No explicit error path is observed in the control flow.",
+        "inputs": "A 64-bit pointer to an ScCompiler instance and a 16-bit signed integer representing a token ID.",
+        "outputs": "Returns 0 or 1 indicating whether a potential named range conflict exists.",
+        "side_effects": "May trigger internal updates to stale range entries through helper calls prior to flag inspection.",
+        "state": "The function accesses conceptual named range registry state maintained within the ScDocument associated with the ScCompiler."
+      },
+      "claims": [
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "007bda28",
+            "007bda32",
+            "007bda73",
+            "007bda36",
+            "007bda39"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "The function returns 1 when a default named range exists with bit 0 of byte [RAX+0x48] set after checking for staleness via callee 0x0088a680. Path: 007bda28 (MOVZX), 007bda2f (TEST DL,2), 007bda32 (JNZ -> 007bda70), 007bda73 (call refresh), 007bda78 (re-read byte), 007bda34 (fallthrough), 007bda36 (bitmask 1 into EAX), 007bda39 (JNZ -> 007bda63). This matches the claim\u2019s assertion."
+          },
+          "statement": "Returns 1 when a default named range exists with its conflict flag set after resolving potential staleness"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "007bda4e",
+            "007bda50",
+            "007bda53",
+            "007bda63"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "Function explicitly sets EAX=0 at 007bda4e and conditionally jumps over any subsequent modification if either no named range exists or none has conflict flag set. Confirmed control paths returning zero without side-effects on EAX include fallthrough from 007bda53 to 007bda63 and early exit through jump at 007bda5c."
+          },
+          "statement": "Returns 0 when no named range reports a conflict after checking both default and indexed lookups including refreshes"
+        }
+      ],
+      "dependencies": [
+        {
+          "assumptions": [],
+          "contract": "Retrieves the default named range descriptor for the given document",
+          "evidence_addresses": [
+            "007bda17",
+            "007bda1e"
+          ],
+          "target": "ScDocument::GetRangeName() const"
+        },
+        {
+          "assumptions": [],
+          "contract": "Retrieves the named range descriptor corresponding to a specific token ID",
+          "evidence_addresses": [
+            "007bda3b",
+            "007bda42",
+            "007bda46"
+          ],
+          "target": "ScDocument::GetRangeName(short) const"
+        },
+        {
+          "assumptions": [],
+          "contract": "Updates internal representation of stale named ranges upon detection",
+          "evidence_addresses": [
+            "007bda70",
+            "007bda73",
+            "007bda80",
+            "007bda83"
+          ],
+          "target": "<unidentified refresh routine>"
+        }
+      ],
+      "draft_state": "unreviewed",
+      "entry": "007bda00",
+      "missing_behavior": [
+        "No explicit handling of negative or out-of-range short indices; assumes signed extension via MOVSX is sufficient for all valid inputs.",
+        "Assumes bitwise flags at offset +0x48 fully determine state without validating mask constants 0x1 (conflict) and 0x2 (stale)",
+        "Refresh calls (0088a680) imply external mutation affecting struct content, but internal path doesn't verify post-call consistency beyond re-reading byte at +0x48."
+      ],
+      "name": "ScCompiler::HasPossibleNamedRangeConflict(short) const",
+      "review_state": "reviewed",
+      "symbol": "_ZNK10ScCompiler29HasPossibleNamedRangeConflictEs",
+      "unknowns": [
+        "Exact behavior when input token ID causes signed extension differences",
+        "Internal encoding of conflict and stale flags beyond usage shown",
+        "Mechanics and triggers of underlying named range registry"
+      ]
+    },
+    {
+      "claims": [],
+      "dependencies": [],
+      "draft_state": "partial",
+      "entry": "007c2da0",
+      "name": "ScCompiler::NextSymbol(bool)",
+      "review_state": null,
+      "symbol": "_ZN10ScCompiler10NextSymbolEb",
+      "unknowns": []
+    },
+    {
+      "behavior": {
+        "errors": "No explicit error path, or describe it",
+        "inputs": "One implicit parameter referencing an ScInterpreter instance",
+        "outputs": "Pushes a boolean-stored token onto the interpreter stack",
+        "side_effects": "Reads two topmost elements from the interpreter stack",
+        "state": "Interpreter stack depth increases by one; stack top holds equality comparison result"
+      },
+      "claims": [
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "007f1f80",
+            "007f1f9d",
+            "007f1fa7",
+            "007f1fab"
+          ],
+          "review": {
+            "outcome": "uncertain",
+            "reason": "The claim states that an equality test passes when both operands are number five and returns true. However, the provided instructions do not clearly demonstrate a direct comparison of two operands being equal to five and returning true. The code involves calls to other functions (e.g., 0x00847600) whose behavior is not specified, and there are floating-point comparisons (UCOMISD at 007f1fa7, SETNP at 007f1fab), but no clear evidence shows that both operands are specifically the number five nor that the return value is explicitly set to true (1) under those conditions. While some paths lead to setting ESI to 0 or 1, which may relate to boolean outcomes, the connection to 'both operands are five' is not directly supported by the static evidence."
+          },
+          "statement": "Equality test passes when both operands are number five and returns true"
+        }
+      ],
+      "dependencies": [
+        {
+          "assumptions": [],
+          "contract": "Consumes stack operands, assigns temporary values for comparison",
+          "evidence_addresses": [
+            "007f1f16",
+            "007f1f27"
+          ],
+          "target": "func_0x00847600"
+        },
+        {
+          "assumptions": [],
+          "contract": "Copies a stack value to local storage at -0x40",
+          "evidence_addresses": [
+            "007f1f3e"
+          ],
+          "target": "func_0x007f1590"
+        },
+        {
+          "assumptions": [],
+          "contract": "Pushes a precomputed value to interpreter stack",
+          "evidence_addresses": [
+            "007f1f50"
+          ],
+          "target": "func_0x00846d20"
+        },
+        {
+          "assumptions": [],
+          "contract": "Decrements matrix reference counter",
+          "evidence_addresses": [
+            "007f1f5e"
+          ],
+          "target": "_ZNK8ScMatrix6DecRefEv"
+        },
+        {
+          "assumptions": [],
+          "contract": "Converts and compares floating point operands for equality",
+          "evidence_addresses": [
+            "007f1f85"
+          ],
+          "target": "func_0x007f1170"
+        }
+      ],
+      "draft_state": "unreviewed",
+      "entry": "007f1ef0",
+      "missing_behavior": [
+        "Function performs type checks on operands before numerical comparison.",
+        "Function handles non-number types through conversion or error paths.",
+        "Return value reflects operand equality via specific integer or boolean result assignment."
+      ],
+      "name": "ScInterpreter::ScEqual()",
+      "review_state": "reviewed",
+      "symbol": "_ZN13ScInterpreter7ScEqualEv",
+      "unknowns": [
+        "Operand types beyond observed case",
+        "Reference counting side-effects on control flow",
+        "Full range of equality comparisons tested",
+        "Ordering of NaN equality checks"
+      ]
+    },
+    {
+      "behavior": {
+        "errors": "No explicit error path; propagates comparison failure from dependencies",
+        "inputs": "One implicit parameter referencing an ScInterpreter instance",
+        "outputs": "Pushes a boolean-stored token onto the interpreter stack",
+        "side_effects": "None observed",
+        "state": "Interpreter stack depth decreases by two and increases by one; GreaterThan comparison state between top two elements"
+      },
+      "claims": [
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "007f2285",
+            "007f2289"
+          ],
+          "review": {
+            "outcome": "contradicted",
+            "reason": "The claim states that the function returns false when the first operand is less than the second operand. However, the relevant comparison occurs at address 007f2285 (`COMISD XMM0,XMM1`) followed by `SETA SIL` at 007f2289. The `SETA` instruction sets the destination operand to 1 if the first operand is greater than the second (unsigned comparison). Thus, the function returns true (1) when the first operand is greater than the second and false (0) otherwise, contradicting the claim which describes the opposite behavior."
+          },
+          "statement": "Returns false when first operand is less than second operand"
+        }
+      ],
+      "dependencies": [
+        {
+          "assumptions": [],
+          "contract": "Pop stack element and classify type returning 5 for matrix",
+          "evidence_addresses": [
+            "007f21f6",
+            "007f2207"
+          ],
+          "target": "func_0x00847600"
+        },
+        {
+          "assumptions": [],
+          "contract": "Load token from stack at relative index into temporary",
+          "evidence_addresses": [
+            "007f2221"
+          ],
+          "target": "func_0x007f1590"
+        },
+        {
+          "assumptions": [],
+          "contract": "Coerce token to double-typed value",
+          "evidence_addresses": [
+            "007f2233"
+          ],
+          "target": "func_0x00846d20"
+        },
+        {
+          "assumptions": [],
+          "contract": "Decrement matrix reference count",
+          "evidence_addresses": [
+            "007f2241"
+          ],
+          "target": "func_0x008ca600"
+        },
+        {
+          "assumptions": [],
+          "contract": "Pop stack element as double-typed",
+          "evidence_addresses": [
+            "007f2268"
+          ],
+          "target": "func_0x007f1170"
+        },
+        {
+          "assumptions": [],
+          "contract": "Raise invalid matrix reference exception",
+          "evidence_addresses": [
+            "007f22a3"
+          ],
+          "target": "func_0x008474e0"
+        },
+        {
+          "assumptions": [],
+          "contract": "Raise stack guard check violation",
+          "evidence_addresses": [
+            "007f22aa"
+          ],
+          "target": "func_0x00374ed0"
+        }
+      ],
+      "draft_state": "unreviewed",
+      "entry": "007f21d0",
+      "missing_behavior": [],
+      "name": "ScInterpreter::ScGreater()",
+      "review_state": "reviewed",
+      "symbol": "_ZN13ScInterpreter9ScGreaterEv",
+      "unknowns": [
+        "Exact classification rules for type code 5",
+        "Whether both operands are always coerced to double before comparison",
+        "Reference counting semantics beyond decrement call",
+        "Order of floating point comparisons with zero",
+        "Condition for indirect jump at 007f2295",
+        "Full contract of all called functions",
+        "Internal structure of ScInterpreter stack entries"
+      ]
+    },
+    {
+      "behavior": {
+        "errors": "Calls error reporting functions conditionally, exact paths undetermined without callee contracts",
+        "inputs": "One implicit parameter: the interpreter context containing at least two operands",
+        "outputs": "Pushes a boolean-like result (1 or 0) onto the interpreter stack",
+        "side_effects": "Modifies interpreter stack, may mutate error flags or pending exception state",
+        "state": "Interpreter maintains operand stack and error state"
+      },
+      "claims": [
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "007f2375",
+            "007f2379",
+            "007f2385"
+          ],
+          "review": {
+            "outcome": "contradicted",
+            "reason": "The function does not push integer 1 onto the stack when the top interpreter stack value is numeric and less than or equal to zero. Instead, it performs a floating-point comparison and sets the SIL register based on the result. The final action is a jump to an external function, not a stack push."
+          },
+          "statement": "If the top interpreter stack value is numeric and less than or equal to zero, the function pushes integer 1 onto the stack"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "007f2375",
+            "007f2379",
+            "007f2385"
+          ],
+          "review": {
+            "outcome": "contradicted",
+            "reason": "The function does not push integer 0 onto the stack when the top interpreter stack value is numeric and positive. Similar to claim 0, it performs a floating-point comparison and sets the SIL register based on the result. The final action is a jump to an external function, not a stack push."
+          },
+          "statement": "If the top interpreter stack value is numeric and positive, the function pushes integer 0 onto the stack"
+        }
+      ],
+      "dependencies": [
+        {
+          "assumptions": [],
+          "contract": "Consumes N stack items, returns item type class",
+          "evidence_addresses": [
+            "007f22e6",
+            "007f22f7"
+          ],
+          "target": "func_0x00847600"
+        },
+        {
+          "assumptions": [],
+          "contract": "Copies stack range into local memory, creates matrix proxy or fails",
+          "evidence_addresses": [
+            "007f2311"
+          ],
+          "target": "func_0x007f1590"
+        },
+        {
+          "assumptions": [],
+          "contract": "Interprets operand as double or converts matrix to scalar",
+          "evidence_addresses": [
+            "007f2323"
+          ],
+          "target": "func_0x00846d20"
+        },
+        {
+          "assumptions": [],
+          "contract": "Decrements object reference count, maybe frees object",
+          "evidence_addresses": [
+            "007f2331"
+          ],
+          "target": "func_0x008ca600"
+        },
+        {
+          "assumptions": [],
+          "contract": "Returns double equivalent of top operand regardless of initial type",
+          "evidence_addresses": [
+            "007f2358"
+          ],
+          "target": "func_0x007f1170"
+        },
+        {
+          "assumptions": [],
+          "contract": "Raises an operand-missing or type-error exception",
+          "evidence_addresses": [
+            "007f2393"
+          ],
+          "target": "func_0x008474e0"
+        },
+        {
+          "assumptions": [],
+          "contract": "Handles longjmp or propagates error state after failed invariant checks",
+          "evidence_addresses": [
+            "007f239a"
+          ],
+          "target": "func_0x00374ed0"
+        }
+      ],
+      "draft_state": "unreviewed",
+      "entry": "007f22c0",
+      "missing_behavior": [
+        "The function performs a floating-point comparison between XMM1 and XMM0 and sets the SIL register based on the result (SETNC instruction).",
+        "The function jumps to an external address (0x00846090) after setting the SIL register, rather than pushing any value onto the stack."
+      ],
+      "name": "ScInterpreter::ScLessEqual()",
+      "review_state": "reviewed",
+      "symbol": "_ZN13ScInterpreter11ScLessEqualEv",
+      "unknowns": [
+        "Exact mechanism converting postfix '%' to divide-by-100",
+        "Whether string operands participate in relational eval",
+        "Double representation edge cases (NaN, infinity) treatment",
+        "Internal operand kind encoding used by func_0x00847600",
+        "Signaling behavior on overflow and underflow",
+        "Callee-side floating point flag handling",
+        "All possible paths through error reporting chains",
+        "Full layout of ScInterpreter class including stack",
+        "Reference counting impact on observable behavior",
+        "Type coercion precedence rules applied"
+      ]
+    },
+    {
+      "behavior": {
+        "errors": "No unconditional error paths; termination depends on guard word checks and callee responses to inconsistent runtime values",
+        "inputs": "Implicit this pointer referencing an ScInterpreter instance, and a second pointer to formula metadata containing at least three key slots (0xe0, 0xe2, 0xd8) used for dispatch and error tracking",
+        "outputs": "Returns a pointer to a character sequence metadata block derived from evaluating input formulas",
+        "side_effects": "May update error state indicators stored in metadata slot 0xe0 depending on intermediate validation outcomes observed during computation",
+        "state": "The function accesses formula state fields and dispatch tables to determine execution path, without mutating core system structures directly"
+      },
+      "claims": [
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "0084b4f5",
+            "0084b4f9",
+            "0084b520"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "The comparison at 0084b4f5 checks if the byte at offset 0xa is <= 0x15 (21). If greater, JA at 0084b4f9 jumps to 0084b520, which initiates standard expression-loading logic via CALL 0x00844090. This directly matches the claimed behavior that selector values > 21 cause transition to standard expression-loading logic."
+          },
+          "statement": "Selector values greater than 21 cause immediate transition to standard expression-loading logic instead of switching"
+        }
+      ],
+      "dependencies": [
+        {
+          "assumptions": [],
+          "contract": "Initiates expression parsing phase producing normalized tokens required by downstream formula processors",
+          "evidence_addresses": [
+            "0084b523"
+          ],
+          "target": "Unresolved callee 00844090"
+        },
+        {
+          "assumptions": [],
+          "contract": "Produces dual-segment output containers encoding text representations suitable for assignment into mutable result buffers",
+          "evidence_addresses": [
+            "0084b53e"
+          ],
+          "target": "Buffer provider 0037c0e0"
+        },
+        {
+          "assumptions": [],
+          "contract": "Performs atomic decrement operations against usage counters tied to dynamic data objects ensuring timely finalization after last use",
+          "evidence_addresses": [
+            "0084b560",
+            "0084b56f"
+          ],
+          "target": "Reference decref utility 0037cdf0"
+        },
+        {
+          "assumptions": [],
+          "contract": "Handles abnormal stack unwinding triggered by consistency failure comparisons indicating corrupted runtime environment",
+          "evidence_addresses": [
+            "0084b94a"
+          ],
+          "target": "Failure reporting sink 00374ed0"
+        }
+      ],
+      "draft_state": "unreviewed",
+      "entry": "0084b4b0",
+      "missing_behavior": [],
+      "name": "ScInterpreter::GetString()",
+      "review_state": "reviewed",
+      "symbol": "_ZN13ScInterpreter9GetStringEv",
+      "unknowns": [
+        "Exact mappings from individual tag bytes (discriminator) to semantic categories driving their respective handler behaviors lack static resolution due to absence of symbolic debug info",
+        "Ordering and interdependency among successive external calls made conditionally under various tagged regimes cannot be precisely inferred solely from jump logic structure",
+        "Purpose and contents of the multi-level indirection chain rooted in offset 0xd8 along with its indexing methodology require additional context beyond shown snippet boundaries",
+        "The available evidence does not establish the caller-visible effects of the omitted implementation mechanics."
+      ]
+    },
+    {
+      "behavior": {
+        "errors": "No manifest fault paths detected; assumed callee-side exception model handles runtime faults",
+        "inputs": "Implicit ScInterpreter instance (64-bit reference in RDI)",
+        "outputs": "No return value; updates implicit ScInterpreter's formula evaluation context",
+        "side_effects": "Mutates referenced ScInterpreter state at +0xe8 and +0xf4; invokes matrix reference counting protocol to manage lifetime of intermediate computational objects; transfers ownership of new matrix results to implicit stack",
+        "state": "Shared interpreter state accessed through fixed offsets of implicit argument +0xe8 (result storage), +0xec (secondary metadata), +0xf4 (operation type), +0xf6 (data variant); uses stack temporaries for operand proxies and intermediate matrix handles"
+      },
+      "claims": [
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "0085e104",
+            "0085e109"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "The instruction at 0085e104 loads the immediate value 1 into ESI, and the instruction at 0085e109 unconditionally jumps to address 0085d6f0, which matches the claim about preparing an immediate integer token 1 and passing control to general interpreter dispatch."
+          },
+          "statement": "Prepares an immediate integer token 1 then passes control to general interpreter dispatch at 8771312."
+        }
+      ],
+      "dependencies": [],
+      "draft_state": "unreviewed",
+      "entry": "0085e100",
+      "missing_behavior": [],
+      "name": "ScInterpreter::ScSub()",
+      "review_state": "reviewed",
+      "symbol": "_ZN13ScInterpreter5ScSubEv",
+      "unknowns": [
+        "Whether operand arrangement in multi-operator expressions like '=10-4-2' affects observable evaluation order or grouping",
+        "Purpose and update rules for fields at param_1+0xec and param_1+0xf6 during operand processing steps",
+        "Mechanics behind conditional blocks initiating overflow/underflow checks based on floating point magnitude thresholds"
+      ]
+    },
+    {
+      "behavior": {
+        "errors": "Stack guard failure calls external handler",
+        "inputs": "One implicit this pointer, one int parameter",
+        "outputs": "Pointer-sized value or null",
+        "side_effects": "None observed",
+        "state": "Object field array and nested object fields"
+      },
+      "claims": [
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "0049f9c2",
+            "0049f9cb",
+            "0049f9cf",
+            "0049f9d3"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "At address 0049f9c9, JZ 0x0049f9f0 conditionally skips returning a pattern when AL=0 after the CALL at 0049f9c2. At 0049f9cb, RAX is loaded with a value from stack local [-0x28]. Then at 0049f9cf and 0049f9d3, RAX is used to compute an offset into [RBX] and load a pointer result into RAX which is ultimately returned. This confirms that when input index matches an interval in the primary array, a stored pattern pointer is returned."
+          },
+          "statement": "Returns a stored pattern pointer when input index matches an interval in the primary array"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "0049f9c9",
+            "0049f9f0",
+            "0049f9f2"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "At 0049f9c7, TEST AL,AL sets flags based on the result of the called function at 0049f9c2. At 0049f9c9, JZ 0x0049f9f0 jumps to a block initializing RAX=0 (at 0049f9f0). The JMP at 0049f9f2 leads to the epilogue where RAX=0 is returned, confirming null is returned when index search fails."
+          },
+          "statement": "Returns null when index search fails to find a matching interval"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "0049f9f8",
+            "0049f9fc",
+            "0049fa03"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "The CMP at 0049f9b0 tests equality of [RDI+0x18] and RBX (loaded from [RDI+0x10]). The JZ 0x0049f9f8 at 0049f9b4 jumps to a path where RDI is reloaded from [RDI+0x8] (0049f9f8), and further operations occur (e.g., loading RAX from [RDI+0xd0] at 0049f9fc). This confirms that a secondary object is accessed when the two primary array pointers are equal."
+          },
+          "statement": "Uses secondary object access when primary array pointers are equal"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "0049fa20"
+          ],
+          "review": {
+            "outcome": "uncertain",
+            "reason": "Claim depends on what is returned from 005e2f80 jumped to at 0049fa20. Since that target is external and not analyzed in provided raw evidence, its behavior cannot be confirmed statically here. Therefore, the claim cannot be evaluated with available evidence."
+          },
+          "statement": "Returns default item pattern when using secondary path and index is within bounds"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "0049fa06",
+            "0049fa0a",
+            "0049f9f0"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "In the secondary path starting at 0049f9f8, the comparison at 0049fa03 checks if ESI (input index) exceeds [RAX+0x10]. JG 0x0049f9f0 at 0049fa06 handles index > bound case. JS 0x0049f9f0 at 0049fa0a handles negative indices. Both lead to setting RAX=0 (at 0049f9f0) and returning. This confirms null is returned for out-of-bounds indices in the secondary path."
+          },
+          "statement": "Returns null when using secondary path and index is out of bounds"
+        }
+      ],
+      "dependencies": [
+        {
+          "assumptions": [],
+          "contract": "Searches array of intervals and returns success flag and index",
+          "evidence_addresses": [
+            "0049f9c2"
+          ],
+          "target": "search_interval"
+        },
+        {
+          "assumptions": [],
+          "contract": "Handles stack corruption failures",
+          "evidence_addresses": [
+            "0049fa25"
+          ],
+          "target": "stack_check_handler"
+        }
+      ],
+      "draft_state": "unreviewed",
+      "entry": "0049f990",
+      "missing_behavior": [
+        "Function calls external helper 0x0049f8e0 to process input index during primary path but provides no local implementation details for how the interval match is computed",
+        "Function calls external helper 0x00374ed0 at epilogue (addresses 0049fa25 and others) possibly for stack canary checking or error handling, not captured in return semantics",
+        "Exact structure layout and meaning of fields in [RDI+0x10], [RDI+0x18], [RDI+0x8], and [RDI+0xd0] are not specified locally despite their usage influencing control flow"
+      ],
+      "name": "ScAttrArray::GetPattern(int) const",
+      "review_state": "reviewed",
+      "symbol": "_ZNK11ScAttrArray10GetPatternEi",
+      "unknowns": [
+        "Exact type of returned pattern pointer",
+        "Structure of ScAttrArray fields beyond array access",
+        "Meaning of constant 0x9c in GetDefaultItem call",
+        "Complete specification of GetDefaultItem behavior"
+      ]
+    },
+    {
+      "behavior": {
+        "errors": "No explicit error path detected",
+        "inputs": "One implicit `this` parameter pointing to a ScDocument instance",
+        "outputs": "Returns an 8-byte value read from offset 0x210 relative to the input object",
+        "side_effects": "No side effects observed",
+        "state": "The function accesses internal state of the ScDocument object at a fixed offset"
+      },
+      "claims": [
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "005bbdf4"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "The instruction at 005bbdf4 directly loads a value from a fixed offset (0x210) relative to the input parameter stored in RDI into RAX, which is the return register. This matches the claim that the function retrieves a value stored within the ScDocument object at a fixed byte offset."
+          },
+          "statement": "The function retrieves a value stored within the ScDocument object at a fixed byte offset"
+        }
+      ],
+      "dependencies": [],
+      "draft_state": "unreviewed",
+      "entry": "005bbdf0",
+      "missing_behavior": [],
+      "name": "ScDocument::GetDocOptions() const",
+      "review_state": "reviewed",
+      "symbol": "_ZNK10ScDocument13GetDocOptionsEv",
+      "unknowns": [
+        "The semantic meaning of the returned value at offset 0x210",
+        "Whether the value represents a pointer, integer, or structured data",
+        "If the offset 0x210 is part of a stable ABI or subject to change",
+        "Any concurrency or synchronization guarantees around the accessed field"
+      ]
+    },
+    {
+      "behavior": {
+        "errors": "No explicit error path",
+        "inputs": "One implicit `this` parameter pointing to a ScDocument instance",
+        "outputs": "A signed 64-bit integer representing the table count",
+        "side_effects": "No side effects",
+        "state": "The ScDocument object\u2019s internal state containing two 64-bit fields at offsets 0xb8 and 0xc0"
+      },
+      "claims": [
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "005d9db4",
+            "005d9dbb",
+            "005d9dc2"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "The instruction sequence at 005d9db4 (MOV), 005d9dbb (SUB), and 005d9dc2 (SAR) directly implements the claimed behavior: loading two qword fields from offset 0xc0 and 0xb8 respectively, computing their difference, and shifting the result right by 3 bits. The final value is returned via RAX as expected."
+          },
+          "statement": "Returns the difference between two object fields shifted right by three bits"
+        }
+      ],
+      "dependencies": [],
+      "draft_state": "unreviewed",
+      "entry": "005d9db0",
+      "missing_behavior": [],
+      "name": "ScDocument::GetTableCount() const",
+      "review_state": "reviewed",
+      "symbol": "_ZNK10ScDocument13GetTableCountEv",
+      "unknowns": [
+        "The semantic meaning of the fields at offsets 0xb8 and 0xc0",
+        "Whether the shift operation implies an array length calculation or other structured data interpretation",
+        "If the input pointer is validated elsewhere or can lead to undefined behavior if misaligned or null"
+      ]
+    },
+    {
+      "behavior": {
+        "errors": "No handling for invalid document pointers or memory access issues",
+        "inputs": "A document pointer and a table index",
+        "outputs": "A boolean indicating whether the document contains the specified table",
+        "side_effects": "None",
+        "state": "Document table registry and count"
+      },
+      "claims": [
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "005db6d4",
+            "005db6d9",
+            "005db6db"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "Instruction 005db6d4 compares SI (param_2) with 0x270f (decimal 9999). The JBE at 005db6d9 branches to success path; falling through leads directly to XOR EAX,EAX (zero return) and RET at 005db6dd. This confirms immediate false return for inputs exceeding 9999."
+          },
+          "statement": "Returns false when table index exceeds 9999"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "005db6f1",
+            "005db6f4",
+            "005db6f6",
+            "005db6f7"
+          ],
+          "review": {
+            "outcome": "contradicted",
+            "reason": "At 005db6f1, AX holds the result of a call to GetTableCount(), which is compared against BX (the input param_2). The conditional jump JG at 005db6f4 jumps on 'AX > BX' to the true path starting 005db700. Falling through executes XOR EAX,EAX and returns 0 when AX <= BX. Hence, equality (index >= table count) causes a false return as claimed. However, inspection reveals that equality is not excluded \u2014 indeed it's handled correctly: e.g., param_2=10 and GetTableCount() returning 10 will take the fallthrough path that zeroes EAX and returns 0. Thus this matches the claim semantically. Correction: upon re-evaluation, this statement actually aligns with the control flow since index >= GetTableCount implies (AX <= BX), leading to EAX=0 via XOR, validating the claim. It was misclassified initially; correcting now to supported_static based purely on static match."
+          },
+          "statement": "Returns false when table index is greater than or equal to table count"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "005db70c",
+            "005db712"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "Control reaches 005db70c where [RAX + RBX*0x8] is checked for non-zero. SETNZ AL sets AL=1 if nonzero, otherwise 0. Subsequent RET uses full RAX as return value, so only low byte matters but whole register returned by ABI convention. Matches behavior: true iff entry is non-null."
+          },
+          "statement": "Returns true when the table entry at the given index is non-null"
+        }
+      ],
+      "dependencies": [
+        {
+          "assumptions": [],
+          "contract": "Provides the number of tables in the document",
+          "evidence_addresses": [
+            "005db6ec"
+          ],
+          "target": "_ZNK10ScDocument13GetTableCountEv"
+        }
+      ],
+      "draft_state": "unreviewed",
+      "entry": "005db6d0",
+      "missing_behavior": [],
+      "name": "ScDocument::HasTable(short) const",
+      "review_state": "reviewed",
+      "symbol": "_ZNK10ScDocument8HasTableEs",
+      "unknowns": [
+        "The signedness or exact width of internal table count comparisons"
+      ]
+    },
+    {
+      "behavior": {
+        "errors": "Returns zero when input has no characters or when core structural checks reject components during delimited dual-parse. Stack guard mismatches abort to external failure handler",
+        "inputs": "Pointer to ScRange output structure, reference to input string, document context, address details configuration, optional external link information, and supplementary link metadata sequence",
+        "outputs": "Returns status code as unsigned integer reflecting overall parse outcome; modifies target ScRange with resolved coordinates and metadata flags",
+        "side_effects": "Updates the output ScRange record with parsed boundary values, flag fields indicating resolution completeness and detected reference modes including relative/absolute designations",
+        "state": "The ScRange object maintains start/end sheet-row-column coordinates plus bitflags tracking parsing modes applied during resolution. Document context constrains valid ranges."
+      },
+      "claims": [
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "0077de32",
+            "0077de35",
+            "0077dee0",
+            "0077dee2"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "The function tests if the input length (dword ptr [RSI + 0x4]) is zero at address 0077de32, and jumps to 0077dee0 where it sets EAX to zero and returns immediately via 0077de78. This matches the claimed behavior."
+          },
+          "statement": "Returns numerical zero immediately without altering output range when initial input length equals zero"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "0077df84",
+            "0077df87",
+            "0077e180",
+            "0077e182"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "At address 0077df84, the function tests the result of a parsing operation (AX register). If the test result is not zero (indicating a valid parse), it continues processing. If the test result is zero, it proceeds through conditions checking flags (addresses 0077df93, 0077df9f) before eventually jumping to 0077e180 on certain condition failures, where EAX is set to zero and it jumps to exit. This supports the claim that it returns numerical zero when parsing fails due to invalid syntax or structure."
+          },
+          "statement": "Returns numerical zero when fundamental parse operations signal invalid syntax or structure in substring components post-separation"
+        }
+      ],
+      "dependencies": [
+        {
+          "assumptions": [],
+          "contract": "Finds earliest position of ASCII colon not surrounded by even quotes using reverse-skipping heuristic",
+          "evidence_addresses": [
+            "0077de61"
+          ],
+          "target": "?"
+        },
+        {
+          "assumptions": [],
+          "contract": "Resolves basic standalone address expression formats either treating entire input as one part or splitting known two-part forms simply before calling subordinate resolution logic once",
+          "evidence_addresses": [
+            "0077df01"
+          ],
+          "target": "?"
+        },
+        {
+          "assumptions": [],
+          "contract": "Copies Unicode codepoints bounded by input segment offsets into scratch temporary buffer memory space with null termination",
+          "evidence_addresses": [
+            "0077df3a"
+          ],
+          "target": "?"
+        },
+        {
+          "assumptions": [],
+          "contract": "Determines individual element address validity setting corresponding ScRefFlags bits reflecting discovered addressing mode characteristics",
+          "evidence_addresses": [
+            "0077df78",
+            "0077dfd6"
+          ],
+          "target": "?"
+        },
+        {
+          "assumptions": [],
+          "contract": "Deallocates dynamic storage previously allocated through runtime allocator for local work buffers avoiding leaks on all exit paths",
+          "evidence_addresses": [
+            "0077e107"
+          ],
+          "target": "?"
+        }
+      ],
+      "draft_state": "unreviewed",
+      "entry": "0077de00",
+      "missing_behavior": [],
+      "name": "ScRange::Parse(rtl::OUString const&, ScDocument const&, ScAddress::Details const&, ScAddress::ExternalInfo*, com::sun::star::uno::Sequence<com::sun::star::sheet::ExternalLinkInfo> const*, rtl::OUString const*)",
+      "review_state": "reviewed",
+      "symbol": "_ZN7ScRange5ParseERKN3rtl8OUStringERK10ScDocumentRKN9ScAddress7DetailsEPNS7_12ExternalInfoEPKN3com3sun4star3uno8SequenceINSF_5sheet16ExternalLinkInfoEEEPS2_",
+      "unknowns": [
+        "Internal format and semantics of returned status number combining multiple component outcomes",
+        "Execution consequences from jump destination 0077d5c0 bypassing regular return pipeline",
+        "Purpose and usage pattern of passed-in external info pointer and linked metadata sequence within primary algorithmic decision points",
+        "Activation scenarios causing conditional branch leading towards trap label 003a2c72",
+        "Significance differences between other potential values the 'address details type' discriminator might hold outside sample occurrences",
+        "The available evidence does not establish the caller-visible effects of the omitted implementation mechanics."
+      ]
+    },
+    {
+      "behavior": {
+        "errors": "No explicit error path",
+        "inputs": "Two pointer parameters referencing an ScSingleRefData instance and an ScAddress instance",
+        "outputs": "No return value; modifies the ScSingleRefData instance in-place",
+        "side_effects": "Updates multiple fields within the ScSingleRefData object based on data extracted from the ScAddress object",
+        "state": "The internal fields of the ScSingleRefData object being initialized"
+      },
+      "claims": [],
+      "dependencies": [],
+      "draft_state": "unreviewed",
+      "entry": "008936e0",
+      "missing_behavior": [
+        "The function writes to fields of param_1 using values extracted from param_2, specifically storing a zero byte at param_1+5, a 16-bit value (uVar2) at param_1, a 32-bit value (uVar3) at param_1+2, and another 16-bit value (uVar1) at param_1+8 (since param_1[4] corresponds to offset 8 for undefined2*). This structured copy behavior is not captured in the draft claims.",
+        "The function performs sign-extension (MOVSX) on word-sized reads from param_2 before use, indicating awareness of signed data representation, though no explicit claim addresses this."
+      ],
+      "name": "ScSingleRefData::InitAddress(ScAddress const&)",
+      "review_state": "reviewed",
+      "symbol": "_ZN15ScSingleRefData11InitAddressERK9ScAddress",
+      "unknowns": [
+        "The semantic meaning of each numeric field in ScAddress and ScSingleRefData layouts",
+        "Whether execution continues correctly after jumping to address 008936c0",
+        "Purpose and contents of memory written between referenced fields",
+        "The available evidence does not establish the caller-visible effects of the omitted implementation mechanics."
+      ]
+    },
+    {
+      "behavior": {
+        "errors": "No explicit error path detected in execution flow",
+        "inputs": "Two parameters: a 64-bit integer (param_1) treated as a pointer to a structure, and an 8-bit unsigned integer (param_2)",
+        "outputs": "No return value; modifies referenced memory",
+        "side_effects": "None beyond the modification of the input structure's internal state",
+        "state": "A structure referenced through param_1 containing at least one byte-sized field at offset 0xa that holds bitwise state information"
+      },
+      "claims": [
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "008937d4",
+            "008937da",
+            "008937dd",
+            "008937e0",
+            "008937e3",
+            "008937e5"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "The instruction sequence directly supports the claim that a status flag is updated by setting or clearing bit 5 based on the LSB of the second argument. The steps are: load ESI into EAX (008937d4), mask EAX with 1 to isolate LSB (008937da), shift left by 5 to align with bit 5 (008937dd). Concurrently, the byte at [RDI+0xa] is loaded (008937d6), cleared at bit 5 via AND with 0xdf (008937e0), then combined with the shifted bit using OR (008937e3), and stored back (008937e5). All necessary operations for the described behavior are present."
+          },
+          "statement": "The operation updates a status flag within a structured data object by setting or clearing bit 5 of a specific byte field according to the least significant bit of the second argument"
+        }
+      ],
+      "dependencies": [],
+      "draft_state": "unreviewed",
+      "entry": "008937d0",
+      "missing_behavior": [],
+      "name": "ScSingleRefData::SetTabDeleted(bool)",
+      "review_state": "reviewed",
+      "symbol": "_ZN15ScSingleRefData13SetTabDeletedEb",
+      "unknowns": [
+        "Semantic meaning of bit 5 within the byte at offset 0xa",
+        "Broader class interface or usage context of ScSingleRefData",
+        "Whether param_1 must be non-null or point to valid accessible memory"
+      ]
+    },
+    {
+      "behavior": {
+        "errors": "No error paths detected in control flow",
+        "inputs": "Four parameters: a mutable reference to an ScComplexRefData instance, immutable references to ScSheetLimits, ScRange, and ScAddress instances",
+        "outputs": "No return value",
+        "side_effects": "Modifies column, row, and sheet indices within the ScComplexRefData object; conditionally sets deletion flags; updates internal flags based on sheet index thresholds",
+        "state": "The referenced ScComplexRefData object"
+      },
+      "claims": [
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "008947a8"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "Instruction at 008947a8 loads RDI into RBX which is used in subsequent indirect addressing. The decompiled condition 'if ((bVar5 & 1) != 0)' corresponds to testing the least significant flag bit. Adjustments occur via subtraction from param_4[1], aligning with the claim about adjusting column index."
+          },
+          "statement": "Applies adjustments to the stored column index when the least significant flag bit is set"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "008947b8",
+            "008947bb"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "Instructions at 008947b8 and 008947bb prepare arguments for a call that leads to marking deletion. The comparison logic in decompilation confirms checking if column index falls outside min/max bounds before calling _ZN15ScSingleRefData13SetColDeletedEb, confirming the behavioral claim."
+          },
+          "statement": "Marks columns as deleted when the assigned column index falls outside specified boundaries relative to maximum or below minimum allowed index"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "008947a4"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "Instruction at 008947a4 loads RDX into R12, which contains param_3 used for row data access. At decompilation line corresponding to flag bit 2 test, an adjustment is made by subtracting *param_4 from iVar4. This matches modifying the stored row index based on flag activation."
+          },
+          "statement": "Modifies the stored row index according to adjustment values when flag bit 2 is active"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "008947b0",
+            "008947b5"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "The conditional structure tests row extremes against limits (line comparing param_2+0x10 and iVar4). Upon violation, a call to _ZN15ScSingleRefData13SetRowDeletedEb occurs. Addresses point to argument setup prior to such calls, validating the claim."
+          },
+          "statement": "Flags rows as deleted under boundary violations involving the assigned row index compared to permissible extremes"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "0089479d"
+          ],
+          "review": {
+            "outcome": "supported_static",
+            "reason": "Flag bit 4 check triggers subtraction of a value derived from param_4 (shift by 6 bytes interpreted as offset into an array of shorts). At address 0089479d, R13 holds RSI (param_2), while R12 receives RDX (param_3), consistent with accessing sheet index adjustments."
+          },
+          "statement": "Alters the recorded sheet index using a predefined subtraction when flag bit 4 is present"
+        },
+        {
+          "assumptions": [],
+          "evidence_addresses": [
+            "008947c4"
+          ],
+          "review": {
+            "outcome": "contradicted",
+            "reason": "At address 008947c4, stack cleanup occurs but does not set any additional flags. In fact, the control flows directly to JMP 0x00893ab0 without altering flags further. Also, according to decompilation, it sets a specific bitmask at offset 0x16 but doesn't correspond to setting a 'specific flag bit' upon sheet reaching/exceeding 10000; rather, it updates part of a multi-bit field (OR 0x20, AND NOT 0xdf)."
+          },
+          "statement": "Sets a specific flag bit upon detecting that the sheet index has reached or exceeded the numerical threshold of ten thousand"
+        }
+      ],
+      "dependencies": [
+        {
+          "assumptions": [],
+          "contract": "Performs initial configuration or update of core reference address information before detailed processing",
+          "evidence_addresses": [
+            "008947ab"
+          ],
+          "target": "_ZN15ScSingleRefData10SetAddressERK13ScSheetLimitsRK9ScAddressS5_"
+        },
+        {
+          "assumptions": [],
+          "contract": "Activates or confirms column deletion status",
+          "evidence_addresses": [
+            "008947c7"
+          ],
+          "target": "_ZN15ScSingleRefData13SetColDeletedEb"
+        },
+        {
+          "assumptions": [],
+          "contract": "Enables or verifies row deletion state",
+          "evidence_addresses": [
+            "008947c7"
+          ],
+          "target": "_ZN15ScSingleRefData13SetRowDeletedEb"
+        }
+      ],
+      "draft_state": "unreviewed",
+      "entry": "00894790",
+      "missing_behavior": [
+        "No explicit handling observed for postfix percent operator dividing operands by 100 within scope of this function.",
+        "Comparison operations yielding precisely defined 1 or 0 values are not manifest in direct observable outputs here.",
+        "Text concatenation using '&' symbol shows no operational traces in given instruction stream.",
+        "There's no observed handling for error codes tied specifically to arithmetic exceptions like division-by-zero within this context."
+      ],
+      "name": "ScComplexRefData::SetRange(ScSheetLimits const&, ScRange const&, ScAddress const&)",
+      "review_state": "reviewed",
+      "symbol": "_ZN16ScComplexRefData8SetRangeERK13ScSheetLimitsRK7ScRangeRK9ScAddress",
+      "unknowns": [
+        "The specific responsibilities and full scope of the initially invoked subroutine",
+        "Detailed interpretation of composite flag representations beyond those directly impacting computation logic"
+      ]
+    }
+  ],
+  "held_out_cases_withheld": 10,
+  "observed_cases": [
+    {
+      "cells": {},
+      "description": "Multiplication binds tighter than addition",
+      "formula": "=1+2*3",
+      "id": "arith_precedence",
+      "observed": {
+        "value": 7.0
+      }
+    },
+    {
+      "cells": {},
+      "description": "Subtraction is left-associative",
+      "formula": "=10-4-2",
+      "id": "left_assoc_sub",
+      "observed": {
+        "value": 4.0
+      }
+    },
+    {
+      "cells": {},
+      "description": "Exponentiation chains evaluate left to right",
+      "formula": "=2^3^2",
+      "id": "pow_chain",
+      "observed": {
+        "value": 64.0
+      }
+    },
+    {
+      "cells": {},
+      "description": "Unary minus binds tighter than exponentiation",
+      "formula": "=-2^2",
+      "id": "unary_minus_pow",
+      "observed": {
+        "value": 4.0
+      }
+    },
+    {
+      "cells": {},
+      "description": "Negative exponent",
+      "formula": "=2^-1",
+      "id": "pow_negative_exponent",
+      "observed": {
+        "value": 0.5
+      }
+    },
+    {
+      "cells": {},
+      "description": "Zero to the power zero",
+      "formula": "=0^0",
+      "id": "zero_pow_zero",
+      "observed": {
+        "value": 1.0
+      }
+    },
+    {
+      "cells": {},
+      "description": "Postfix percent divides by 100",
+      "formula": "=50%",
+      "id": "percent_basic",
+      "observed": {
+        "value": 0.5
+      }
+    },
+    {
+      "cells": {},
+      "description": "Percent as a multiplication factor",
+      "formula": "=200*15%",
+      "id": "percent_mul",
+      "observed": {
+        "value": 30.0
+      }
+    },
+    {
+      "cells": {},
+      "description": "Equality comparison yields TRUE (1)",
+      "formula": "=5=5",
+      "id": "eq_true",
+      "observed": {
+        "value": 1.0
+      }
+    },
+    {
+      "cells": {},
+      "description": "Greater-than false yields 0",
+      "formula": "=2>10",
+      "id": "gt_false",
+      "observed": {
+        "value": 0.0
+      }
+    },
+    {
+      "cells": {},
+      "description": "Less-or-equal on equal operands",
+      "formula": "=4<=4",
+      "id": "le_equal",
+      "observed": {
+        "value": 1.0
+      }
+    },
+    {
+      "cells": {},
+      "description": "Text concatenation",
+      "formula": "=\"Hello \"&\"World\"",
+      "id": "concat",
+      "observed": {
+        "text": "Hello World"
+      }
+    },
+    {
+      "cells": {},
+      "description": "Division by zero is error 532",
+      "formula": "=1/0",
+      "id": "div_zero",
+      "observed": {
+        "error": 532,
+        "text": "#DIV/0!"
+      }
+    },
+    {
+      "cells": {},
+      "description": "Square root of a negative number is an invalid argument",
+      "formula": "=SQRT(-1)",
+      "id": "sqrt_negative",
+      "observed": {
+        "error": 502,
+        "text": "Err:502"
+      }
+    },
+    {
+      "cells": {},
+      "description": "Non-numeric text in arithmetic is #VALUE!",
+      "formula": "=\"abc\"+1",
+      "id": "text_plus_number",
+      "observed": {
+        "error": 519,
+        "text": "#VALUE!"
+      }
+    },
+    {
+      "cells": {},
+      "description": "Unambiguous numeric text converts to a number",
+      "formula": "=1+\"2\"",
+      "id": "numeric_text_coercion",
+      "observed": {
+        "value": 3.0
+      }
+    },
+    {
+      "cells": {},
+      "description": "TRUE is 1 in arithmetic",
+      "formula": "=TRUE()+1",
+      "id": "bool_arith",
+      "observed": {
+        "value": 2.0
+      }
+    },
+    {
+      "cells": {},
+      "description": "MOD takes the sign of the divisor",
+      "formula": "=MOD(-7;3)",
+      "id": "mod_negative",
+      "observed": {
+        "value": 2.0
+      }
+    },
+    {
+      "cells": {},
+      "description": "ROUND rounds half away from zero",
+      "formula": "=ROUND(2.5;0)",
+      "id": "round_half",
+      "observed": {
+        "value": 3.0
+      }
+    },
+    {
+      "cells": {
+        "B1": 21
+      },
+      "description": "Cell reference operand",
+      "formula": "=B1*2",
+      "id": "cell_ref",
+      "observed": {
+        "value": 42.0
+      }
+    },
+    {
+      "cells": {
+        "B1": 2,
+        "B2": "x",
+        "B3": 4
+      },
+      "description": "AVERAGE ignores text cells in a range",
+      "formula": "=AVERAGE(B1:B3)",
+      "id": "average_skips_text",
+      "observed": {
+        "value": 3.0
+      }
+    },
+    {
+      "cells": {},
+      "description": "Overflow beyond double range",
+      "formula": "=1E308*10",
+      "id": "overflow",
+      "observed": {
+        "error": 503,
+        "text": "#NUM!"
+      }
+    }
+  ],
+  "readiness": "partial",
+  "schema": 1,
+  "source": {
+    "binary_sha256": "c5af49a66872a24fff540ae334e90ba9f2608d9ad2ddb5b7c197e044d26efd40",
+    "campaign": "14f94378db9640356fa533cccea41de0e3d5174b8160270224301e2ddc51ca20",
+    "library": "calc",
+    "lo_version": "420(Build:2)"
+  }
+}
