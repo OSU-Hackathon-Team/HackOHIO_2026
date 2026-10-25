@@ -358,7 +358,11 @@ def render_markdown(spec: dict) -> str:
 def persist_spec(state: Path, dossier_artifact: str, *, writer=None) -> dict:
     state = Path(state)
     store = LocalArtifactStore(state / "artifacts")
-    dossier = json.loads(store.get(dossier_artifact))
+    try:
+        dossier = json.loads(store.get(dossier_artifact))
+    except json.JSONDecodeError as error:
+        raise ValueError("spec requires a JSON dossier artifact; use launch.py inventory "
+                         "to find the dossier artifact, not its markdown_artifact") from error
     handoff, _ = prepare_handoff(dossier, dossier_artifact)
     folder = state / "specifications" / dossier["scope_id"]
     folder.mkdir(parents=True, exist_ok=True)
