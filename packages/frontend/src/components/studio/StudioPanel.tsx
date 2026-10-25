@@ -15,6 +15,7 @@ import { developmentMode } from "../../api/client";
 import { RuntimeErrorWatcher } from "./RuntimeErrorWatcher";
 import { RefineChat } from "./RefineChat";
 import { exportBundleJson } from "../../lib/exportZip";
+import { exportElectronProject } from "../../lib/electronProject";
 
 function RuntimeBanner() {
   const { sandpack } = useSandpack();
@@ -126,6 +127,10 @@ export function StudioPanel() {
           >
             <Download size={14} style={{ marginRight: "4px", verticalAlign: "middle" }} />
             Export
+          </button>
+          <button type="button" className="icon-button" title="Download runnable Electron project"
+            onClick={() => void exportElectronProject(bundle)}>
+            Electron project
           </button>
         </div>
       </div>

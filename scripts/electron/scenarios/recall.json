@@ -1,0 +1,22 @@
+{
+  "fixed_time": "2026-10-25T12:00:00.000Z",
+  "fixtures": [
+    {
+      "base": "userData",
+      "path": "decks/study.json",
+      "content": {
+        "cards": [{ "id": "a", "reps": 0, "interval": 0, "ease": 2.5, "lapses": 0, "due": 0 }],
+        "history": []
+      }
+    }
+  ],
+  "compare_files": [{ "base": "userData", "path": "decks/study.json" }],
+  "calls": [
+    { "channel": "stats:streak", "args": ["study"] },
+    { "channel": "card:answer", "args": ["study", "a", 5] },
+    { "channel": "stats:streak", "args": ["study"] },
+    { "channel": "card:answer", "args": ["study", "a", 2] },
+    { "channel": "card:answer", "args": ["study", "a", 9] },
+    { "channel": "stats:streak", "args": ["missing"] }
+  ]
+}

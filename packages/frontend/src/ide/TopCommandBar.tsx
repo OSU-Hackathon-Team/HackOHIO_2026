@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useIdeStore } from "./store/useIdeStore";
 import { exportProjectBundle } from "../lib/exportZip";
+import { exportElectronProject } from "../lib/electronProject";
 import { cn } from "../lib/cn";
 
 export function TopCommandBar() {
@@ -176,6 +177,14 @@ export function TopCommandBar() {
         </button>
 
         {/* Save / Share */}
+        <button
+          type="button"
+          aria-label="Download runnable Electron project"
+          onClick={() => void exportElectronProject(bundle, projectTitle)}
+          className="h-7 px-2.5 text-xs font-medium rounded bg-[#282420] text-[#f5f2eb] border border-[#332e29] hover:bg-[#332e29]"
+        >
+          Electron project
+        </button>
         <button
           type="button"
           aria-label="Save and share project"

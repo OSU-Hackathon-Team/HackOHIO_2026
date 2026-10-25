@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Feature Workbench</title><link rel="stylesheet" href="style.css"></head>
+<body>
+  <main>
+    <header><span class="eyebrow">Splice · Electron project</span><h1 id="title">Feature workbench</h1><p>Run verified portable features from the source archive.</p></header>
+    <section class="notice"><strong>Partial reconstruction</strong><span id="coverage">Loading coverage…</span></section>
+    <section class="panel">
+      <label for="feature">Feature</label><select id="feature"></select>
+      <p id="description"></p>
+      <label for="function">Function</label><select id="function"></select>
+      <code id="signature"></code>
+      <label for="arguments">Arguments (JSON array)</label>
+      <textarea id="arguments" spellcheck="false">[]</textarea>
+      <button id="run">Run function</button>
+      <label for="result">Result</label><pre id="result" aria-live="polite">Choose a function and run it.</pre>
+    </section>
+  </main>
+  <script src="renderer.js"></script>
+</body>
+</html>
