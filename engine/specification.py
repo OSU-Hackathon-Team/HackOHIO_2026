@@ -27,6 +27,7 @@ WRITER_INPUTS = (SCRIPT, ROOT / "packages/backend/src/spec/nativeDraft.ts",
 
 def writer_revision() -> str:
     digest = hashlib.sha256()
+    digest.update(b"writer-installed" if WRITER.is_file() else b"writer-unavailable")
     for path in WRITER_INPUTS:
         digest.update(str(path.relative_to(ROOT)).encode())
         digest.update(path.read_bytes())
@@ -314,7 +315,8 @@ def generate_spec(dossier: dict, dossier_artifact: str, *, writer=None) -> tuple
     validate_draft(draft, handoff)
     spec = {
         "schema": 2, "kind": "native_subsystem_spec",
-        "status": "ready_for_review" if handoff["verified"] else "draft",
+        "status": ("ready_for_review" if handoff["verified"] and
+                   result.get("model") != "cleanroom-spec-synthesizer" else "draft"),
         "title": draft["title"], "purpose": draft["purpose"],
         "boundary": handoff["boundary"], "interface": draft["interface"],
         "requirements": [{"id": r["id"], "statement": r["statement"]}
@@ -381,7 +383,8 @@ def persist_spec(state: Path, dossier_artifact: str, *, writer=None) -> dict:
         pointer = {"artifact": artifact, "audit_artifact": audit_artifact,
                    "dossier_artifact": dossier_artifact, "status": spec["status"],
                    "dossier_revision": dossier["revision"]}
-        _write_atomic(pointer_path, json.dumps(pointer, sort_keys=True) + "\n")
+        if not (handoff["verified"] and audit["model"] == "cleanroom-spec-synthesizer"):
+            _write_atomic(pointer_path, json.dumps(pointer, sort_keys=True) + "\n")
     spec = json.loads(store.get(pointer["artifact"]))
     markdown = render_markdown(spec)
     markdown_path = folder / f"spec-{pointer['artifact']}.md"

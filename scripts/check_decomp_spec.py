@@ -115,6 +115,11 @@ def main() -> None:
     assert authored_spec["status"] == "draft" and authored_spec["examples"] == []
     spec, audit = generate_spec(dossier, "0" * 64, writer=writer)
     assert spec["schema"] == 2 and spec["status"] == "ready_for_review"
+    fallback, _ = generate_spec(dossier, "0" * 64,
+                                writer=lambda handoff: {
+                                    **writer(handoff),
+                                    "model": "cleanroom-spec-synthesizer"})
+    assert fallback["status"] == "draft"
     assert "pseudocode" not in json.dumps(spec)
     assert "00100000" not in json.dumps(spec)
     assert audit["claim_sources"]["C1"]["evidence"][0]["address"] == "00100000"
