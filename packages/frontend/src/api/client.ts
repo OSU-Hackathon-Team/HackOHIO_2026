@@ -1,6 +1,8 @@
 import {
   Pantry, PipelineEvent, SynthEvent, HealthResponse, FeatureBlueprint,
   NativeSubsystemSpec, FeatureSpec, DecompTarget, DecompRun, DecompRunEvent,
+  NativeLibrary, SavedAnalysis,
+  NativeExtraction, NativeExtractionEvent, type NativeExtractionRequest, type AddLibraryFeatureRequest,
   type DecompRunRequest, type RefineRequest,
 } from "@splice/contracts";
 import { z } from "zod";
@@ -8,6 +10,12 @@ import { streamGet, streamPost } from "./sse";
 import { mockApi } from "./mock";
 
 export interface Api {
+  library?(signal?: AbortSignal): Promise<NativeLibrary>;
+  savedAnalysis?(id: string, signal?: AbortSignal): Promise<SavedAnalysis>;
+  savedExtractions?(id: string, signal?: AbortSignal): Promise<NativeExtraction[]>;
+  libraryFeatures?(signal?: AbortSignal): Promise<NativeExtraction[]>;
+  addLibraryFeature?(request: AddLibraryFeatureRequest, signal?: AbortSignal): Promise<NativeExtraction>;
+  extractSavedAnalysis?(id: string, request: NativeExtractionRequest, on: (event: NativeExtractionEvent) => void, signal?: AbortSignal): Promise<void>;
   health(signal?: AbortSignal): Promise<HealthResponse>;
   pantry(signal?: AbortSignal): Promise<Pantry>;
   extract(
@@ -55,6 +63,21 @@ async function getJson(url: string, signal?: AbortSignal): Promise<unknown> {
 }
 
 export const liveApi: Api = {
+  async library(signal) { return NativeLibrary.parse(await getJson("/api/library", signal)); },
+  async savedAnalysis(id, signal) { return SavedAnalysis.parse(await getJson(`/api/library/analyses/${encodeURIComponent(id)}`, signal)); },
+  async savedExtractions(id, signal) {
+    return z.object({ extractions: z.array(NativeExtraction) }).parse(await getJson(`/api/library/analyses/${encodeURIComponent(id)}/extractions`, signal)).extractions;
+  },
+  async libraryFeatures(signal) {
+    return z.object({ features: z.array(NativeExtraction) }).parse(await getJson("/api/library/features", signal)).features;
+  },
+  async addLibraryFeature(request, signal) {
+    const response = await fetch("/api/library/features", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request), signal });
+    if (!response.ok) throw new Error(`Save building block: ${response.status} ${await response.text()}`);
+    return z.object({ feature: NativeExtraction }).parse(await response.json()).feature;
+  },
+  extractSavedAnalysis: (id, request, on, signal) => streamPost(`/api/library/analyses/${encodeURIComponent(id)}/extract`, request,
+    on, { signal, schema: NativeExtractionEvent }),
   async health(signal) {
     const value = await getJson("/api/health", signal);
     const parsed = HealthResponse.safeParse(value);
