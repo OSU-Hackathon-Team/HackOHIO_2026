@@ -179,6 +179,17 @@ def discover(index: dict, request: ScopeRequest, campaign: str, index_artifact: 
             continue
         item = by_entry.get(entry)
         if item is None:
+            if entry.startswith("EXTERNAL:"):
+                # Import stubs outside the analyzed binary can never be resolved
+                # by deeper analysis; treat them as explicit subsystem boundaries
+                # rather than unresolved edges.
+                if entry not in seen_boundary:
+                    boundaries.append({"entry": entry, "name": entry,
+                                       "contract": "External import outside the analyzed binary; "
+                                                   "behavior beyond the subsystem boundary.",
+                                       "from": reason})
+                    seen_boundary.add(entry)
+                continue
             unresolved.append({"kind": "unknown_function", "entry": entry,
                                "from": reason})
             continue

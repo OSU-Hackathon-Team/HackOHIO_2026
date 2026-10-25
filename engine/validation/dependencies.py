@@ -38,8 +38,11 @@ def uncovered_direct_calls(dependencies: list[dict], caller: dict,
             continue
         site, target = ref.get("from"), ref.get("to")
         name = names.get(target)
+        # Entry-qualified targets ("name@entry") explicitly disambiguate
+        # overloaded or duplicated symbol names; they bind the same call.
+        accepted = {name, f"{name}@{target}"} if name is not None else set()
         if not any(site in item.get("evidence_addresses", []) and
-                   (name is None or item.get("target") == name)
+                   (name is None or item.get("target") in accepted)
                    for item in dependencies):
             uncovered.append({"call_site": site, "target_entry": target,
                               "target_name": name,

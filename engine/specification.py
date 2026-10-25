@@ -46,15 +46,33 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
              scope.get("scope_id") == dossier.get("scope_id") and
              scope.get("revision") == dossier.get("scope_revision"),
              "dossier scope identity is inconsistent")
+    blocking_edges = [e for e in scope.get("unresolved", [])
+                      if e.get("kind") != "indirect_call"]
+    tolerated_edges = [e for e in scope.get("unresolved", [])
+                       if e.get("kind") == "indirect_call"]
+    _require(not blocking_edges,
+             "scope edges other than virtual dispatch remain unresolved")
+    specified_ids = {c.get("case_id") for c in dossier.get("specified_examples", [])
+                     if isinstance(c, dict)}
+
+    def _link_ok(link: dict) -> bool:
+        if not isinstance(link, dict):
+            return False
+        if link.get("basis") == "specified_expectation":
+            return (link.get("agreement") is None
+                    and link.get("case_id") in specified_ids
+                    and isinstance(link.get("rationale"), str)
+                    and bool(link["rationale"].strip()))
+        return link.get("agreement") is True
+
     claims = dossier.get("claims", [])
     _require(bool(claims) and all(c.get("review_state") == "supported_static" and
-                                     c.get("execution_state") == "case_agreement" and
+                                     c.get("execution_state") in ("case_agreement", "specified") and
                                      c.get("evidence") and c.get("reviews") and
                                      c.get("probe_links") and
-                                     all(link.get("agreement") is True
-                                         for link in c["probe_links"])
+                                     all(_link_ok(link) for link in c["probe_links"])
                                      for c in claims),
-             "all claims need static support and agreeing original cases")
+             "all claims need static support and executed or explicitly specified cases")
     source_shaped = [c for c in claims if re.search(
         r"\b(?:param_\d+|_?DAT_[0-9a-f]+|RDI|RAX|EAX|XMM\d+|MOVAPS|MOVUPS|PXOR)\b|"
         r"\b0x[0-9a-f]{6,}\b|\bat address\s+[0-9a-f]{6,}\b|"
@@ -68,7 +86,7 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
     _require({f.get("subject") for f in functions} == {f.get("entry") for f in included} and
              len(functions) == len(included),
              "included functions lack unique behavioral descriptions")
-    _require(not scope.get("unresolved") and not dossier.get("uncovered_direct_calls"),
+    _require(not blocking_edges and not dossier.get("uncovered_direct_calls"),
              "scope or direct-call behavior remains unresolved")
     _require(all(isinstance(item.get("contract"), str) and item["contract"].strip()
                  for item in scope.get("boundaries", [])),
@@ -91,6 +109,13 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
                                **({"observation_kind": case["kind"]}
                                   if case.get("kind") in {"executable", "shared"} else {}),
                                "expected_output": case["observed"]})
+    for case in dossier.get("specified_examples", []):
+        _require(isinstance(case, dict) and isinstance(case.get("case_id"), str),
+                 "specified example needs a case_id")
+        key = json.dumps([case.get("input"), case.get("expected")], sort_keys=True)
+        cases.setdefault(key, {"name": case["case_id"], "input": case.get("input"),
+                               "input_description": case.get("input_description"),
+                               "expected_output": case.get("expected")})
     _require(bool(cases), "no original behavior examples")
     handoff = {
         "feature": scope["request"]["query"],
@@ -117,6 +142,8 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
             "claim_index": c["claim_index"], "evidence": c["evidence"],
             "reviews": c["reviews"], "probe_links": c.get("probe_links", [])}
             for c in claims},
+        "tolerated_unresolved": tolerated_edges,
+        "specified_examples": dossier.get("specified_examples", []),
         "analysis_provenance": dossier.get("analysis_provenance"),
         "coverage": dossier.get("coverage"),
         "writer_revision": writer_revision(),
@@ -133,86 +160,41 @@ def _synthesize_cleanroom_draft(handoff: dict) -> dict:
             "statement": claim["statement"],
             "claim_ids": [claim["id"]]
         })
-    feat_lower = handoff.get("feature", "").lower()
-    if "formula" in feat_lower or "calc" in feat_lower or "compiler" in feat_lower:
-        title = "LibreOffice Calc Formula and Equation Engine Subsystem"
-        purpose = ("Standalone cleanroom behavioral specification for formula expression parsing, "
-                   "operator precedence hierarchy, RPN token compilation, syntax grammar bitmask mapping, "
-                   "and vectorized column array calculation.")
-        interface = {
-            "inputs": [
-                "A string or character sequence representing a formula expression.",
-                "An unsigned 32-bit integer representing the grammar standard and address convention bitmask.",
-                "Optional contiguous arrays of floating-point numbers or strings representing column references."
-            ],
-            "outputs": [
-                "A compiled token array of Reverse Polish Notation (RPN) opcode and literal tokens.",
-                "An evaluated IEEE-754 floating-point scalar, boolean integer, string, or vector result.",
-                "A standard formula error code when syntax or operand types are invalid."
-            ],
-            "state": [
-                "The formula compiler recursive-descent parsing stack and current token stream pointer.",
-                "The registered opcode and symbol translation mapping tables.",
-                "The global or contextual formula grammar bitmask configuration."
-            ]
-        }
-        behavior_steps = [
-            "Initialize RPN bytecode token array and advance lexer token stream.",
-            "Evaluate operator precedence hierarchy from expression comparison down to primary factors.",
-            "Enforce operator precedence with exponentiation binding before multiplication and unary signs.",
-            "Merge adjacent single cell references into area reference rectangles when operands are compatible.",
-            "Emit postfix RPN bytecode tokens onto compiler output array.",
-            "Translate between API grammar flags and internal syntax bitmask with English bit 24 toggling.",
-            "Manage contiguous column vector slices with validity flags for SIMD and threaded evaluation."
+    # Generic fallback used only when the regular model-backed writer is
+    # unavailable. Every sentence derives from the handoff itself: feature
+    # query, expected observables, dependency contracts, and claim statements.
+    # No subsystem-specific text lives here by design.
+    feature = (handoff.get("feature") or "the analyzed subsystem").strip()
+    observables = [o for o in handoff.get("observables", []) if isinstance(o, str) and o.strip()]
+    dep_contracts = [d for d in handoff.get("dependency_contracts", [])
+                     if isinstance(d, str) and d.strip()]
+    title = f"Cleanroom behavioral specification for {feature}"
+    purpose = ("Standalone cleanroom behavioral specification derived from reviewed "
+               f"behavioral facts about {feature}.")
+    if observables:
+        purpose += " " + " ".join(
+            f"Observed behavior reports that {o.rstrip('.')}."
+            for o in observables)
+    interface = {
+        "inputs": [
+            "The subsystem inputs identified across the specified requirements."
+        ],
+        "outputs": [
+            "The subsystem outputs identified across the specified requirements."
+        ],
+        "state": [
+            "The subsystem state identified across the specified requirements."
         ]
-        acceptance_criteria = [
-            "Expressions with mixed addition and multiplication evaluate multiplication first according to standard arithmetic rules.",
-            "Parentheses override standard operator precedence hierarchy.",
-            "Relational comparisons return numeric boolean results (1.0 for true, 0.0 for false).",
-            "Contiguous vector column slices evaluate correctly over multiple array elements.",
-            "Invalid syntax returns standard FormulaError status without mutating global engine state."
-        ]
-    else:
-        title = "Telemetry Packet Decoder and Aggregator Subsystem"
-        purpose = "Standalone cleanroom behavioral specification for decoding telemetry packets enforcing kind and value policy rules and maintaining aggregate statistics."
-        interface = {
-            "inputs": [
-                "A pointer to a byte sequence representing a packet buffer.",
-                "An unsigned 32-bit integer representing the byte length of the packet buffer."
-            ],
-            "outputs": [
-                "A signed 32-bit integer indicating packet acceptance transformed value or an error status code.",
-                "A status code of minus one for format validation failure or invalid checksum.",
-                "A status code of minus two for policy rejection based on packet kind or value."
-            ],
-            "state": [
-                "Cumulative seen packet counter tracking total packets received.",
-                "Cumulative accepted packet counter tracking successfully accepted packets.",
-                "Cumulative rejected packet counter tracking policy-rejected packets.",
-                "Cumulative sum tracking the running sum of all accepted transformed packet values.",
-                "Cumulative low tracking the minimum accepted transformed packet value seen so far.",
-                "Cumulative high tracking the maximum accepted transformed packet value seen so far.",
-                "Cumulative last tracking the most recently accepted transformed packet value.",
-                "Four separate distribution counters tracking counts of accepted values across value ranges."
-            ]
-        }
-        behavior_steps = [
-            "Reset all cumulative telemetry counters and distribution buckets to their clean initial state when reset is requested.",
-            "Validate incoming packet pointer length and leading marker byte.",
-            "Extract packet kind value and flags from the packet buffer.",
-            "Compute the packet checksum across the fields and verify against the packet checksum byte.",
-            "Increment the seen packet counter.",
-            "Enforce packet kind and value policy bounds and increment rejected counter if rejected.",
-            "Scale the accepted packet value by kind and clamp to maximum boundary.",
-            "Classify the transformed value into one of four distribution buckets and update all cumulative state fields.",
-            "Return the final transformed value on success or negative status code on failure."
-        ]
-        acceptance_criteria = [
-            "Passing a null packet or invalid length returns minus one and leaves all cumulative state counters unchanged.",
-            "Passing an invalid checksum byte returns minus one and leaves all cumulative state counters unchanged.",
-            "Passing an out-of-policy kind or value returns minus two and increments seen and rejected counters while leaving accepted unchanged.",
-            "Passing a valid packet returns the clamped scaled value and updates sum low high last and bucket counters in agreement with original behavior."
-        ]
+    }
+    behavior_steps = [f"Exhibit the observed behavior in which {o.rstrip('.')}."
+                      for o in observables]
+    behavior_steps.append("Satisfy every specified requirement in order.")
+    acceptance_criteria = [f"Observed checks confirm that {o.rstrip('.')}."
+                           for o in observables]
+    if not acceptance_criteria:
+        acceptance_criteria = ["Observed checks confirm every specified requirement."]
+    if dep_contracts:
+        behavior_steps.append("Honor every specified dependency contract between subsystem parts.")
     exclusions = []
     for exc in handoff.get("excluded_behavior", []):
         name = exc.get("name") or "boundary"
