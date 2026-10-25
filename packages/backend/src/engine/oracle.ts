@@ -73,13 +73,30 @@ export const ORACLE_LIMITATIONS: readonly string[] = [
   "Runtime Isolation Environment: Sandboxed execution runs within a Node.js V8 VM context; platform-specific engine anomalies or browser-specific JavaScript engine bugs cannot be reproduced.",
 ] as const;
 
+// Identifiers any implementation uses: JS keywords and builtins. Interface names are added per spec.
+const COMMON_IDENTIFIERS = new Set(("const let var function return if else for of in while do break continue " +
+  "new this null undefined true false typeof instanceof throw try catch finally switch case default " +
+  "export import from class extends map filter reduce push pop shift length trim split join replace " +
+  "toLowerCase toUpperCase has get set add delete keys values entries Map Set Array Object String Number " +
+  "Math JSON Boolean Error RangeError TypeError min max floor ceil round abs").split(" "));
+const MIN_LINE = 25;
+const RUN_LENGTH = 3;
+
+const significantLines = (code: string) => code.split("\n").map((l) => l.trim())
+  .filter((l) => l.length > MIN_LINE && !l.startsWith("//") && !l.startsWith("/*"));
+const identifiers = (line: string) => line.replace(/(["'`]).*?\1/g, " ").match(/[A-Za-z_$][\w$]*/g) ?? [];
+
 /**
- * Checks whether the clean-room candidate engine copied non-trivial source lines
- * directly from raw target evidence snippets (anti-plagiarism / clean-room check).
+ * Checks whether the clean-room candidate engine copied source lines from raw target evidence.
+ * A matching line counts on its own only when it is distinctive: two or more identifiers absent
+ * from the public interface and common JavaScript, or a long literal. Lines the public interface
+ * forces (e.g. `return { nodes, edges };`) count only as a run of RUN_LENGTH consecutive matches
+ * in the original's order, which still catches copied structure.
  */
 export function checkCleanRoomIndependence(
   candidateCode: string,
   snippets: unknown,
+  publicCode = "",
 ): { passed: boolean; violations: string[] } {
   if (!Array.isArray(snippets)) {
     return { passed: false, violations: ["Target evidence snippets are missing or malformed; clean-room verification is unavailable."] };
@@ -88,26 +105,32 @@ export function checkCleanRoomIndependence(
     return { passed: true, violations: [] };
   }
 
+  const vocabulary = new Set([...COMMON_IDENTIFIERS, ...identifiers(publicCode)]);
+  const candidateLines = significantLines(candidateCode)
+    .filter((l) => !l.startsWith("export type") && !l.startsWith("export interface"));
   const violations: string[] = [];
-  const candidateLines = candidateCode
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.length > 25 && !l.startsWith("//") && !l.startsWith("/*") && !l.startsWith("export type") && !l.startsWith("export interface"));
 
   for (const snippet of snippets as SourceSnippet[]) {
     if (!snippet || typeof snippet.code !== "string") {
       return { passed: false, violations: ["Target evidence snippets are missing or malformed; clean-room verification is unavailable."] };
     }
-    const snippetLines = new Set(
-      snippet.code
-        .split("\n")
-        .map((l) => l.trim())
-        .filter((l) => l.length > 25 && !l.startsWith("//") && !l.startsWith("/*")),
-    );
-
-    for (const candLine of candidateLines) {
-      if (snippetLines.has(candLine)) {
+    const position = new Map(significantLines(snippet.code).map((l, i) => [l, i]));
+    let run = 0, last = -2;
+    for (const line of candidateLines) {
+      const at = position.get(line);
+      if (at === undefined) {
+        run = 0;
+        last = -2;
+        continue;
+      }
+      const privateNames = new Set(identifiers(line).filter((id) => !vocabulary.has(id)));
+      if (privateNames.size >= 2 || /(["'`/]).{12,}\1/.test(line)) {
         violations.push("Candidate engine contains a verbatim line from target evidence.");
+      }
+      run = at === last + 1 ? run + 1 : 1;
+      last = at;
+      if (run === RUN_LENGTH) {
+        violations.push("Candidate engine copies a block of consecutive lines from target evidence.");
       }
     }
   }
@@ -226,7 +249,7 @@ export async function evaluateEngineConformance(
 
   // 1. Run the clean-room gate first. Copied source text must not reach diagnostics
   // that are later used as feedback to the repair model.
-  const cleanRoom = checkCleanRoomIndependence(candidateCode, spec.provenance.snippets);
+  const cleanRoom = checkCleanRoomIndependence(candidateCode, spec.provenance.snippets, spec.interface.types_code);
   if (!cleanRoom.passed) {
     for (const v of cleanRoom.violations) {
       failures.push({
