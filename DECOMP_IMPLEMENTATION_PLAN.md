@@ -17,6 +17,15 @@ artifact stay analyst-side. A separate implementer receives only the public sche
 artifact and may not browse the dossier, binary, disassembly, raw source, review notes,
 or audit artifact. This separation is a workflow control, not a legal conclusion.
 
+M7 replaces the model-only implementation prompt with a cleanroom implementation
+workbench. The implementer agent gets full shell access inside a disposable container
+and may compile and test its own candidate, but the container is materialized from public
+artifacts only. A brokered disclosure channel lets it ask behavioral questions of the
+decompilation side when tests fail; the broker enforces prose-only answers, refuses
+source and mechanics, and audits every exchange. The broker and workbench are implemented
+for both `run_functional_c_e2e.py` and `run_native_c_candidate.py`; live model-driven
+acceptance and the network policy remain open.
+
 ## Required outcome
 
 - Support at least 16 concurrently leased reasoning tasks, with a path to multiple hosts.
@@ -53,6 +62,8 @@ engine/
   findings.py           # conditional publication and invalidation (implemented)
   validation/           # static review, dependency checks, original probes (implemented)
   dossier.py            # immutable assembly and readable rendering (implemented)
+  broker.py             # cleanroom question/answer channel, disclosure filter, audit (M7)
+  workbench.py          # public-only implementation workspace and container runner (M7)
   service.py            # job API and event delivery (planned)
 migrations/             # PostgreSQL schema migrations
 scripts/                # independent CLI checks and benchmarks
@@ -268,6 +279,50 @@ Acceptance:
 - Choose default pool sizes and model routing from recorded results. Document the point where
   more workers stop helping, including import/serial coordination costs.
 
+## M7 — Cleanroom implementation workbench and brokered disclosure
+
+Depends on M4/M5. This is the implementation half of the pipeline, separate from the
+analysis fleet.
+
+Deliverables:
+
+- A materializer that builds an implementer workspace from public artifacts only: public
+  spec, public examples, interface contract, candidate adapter, self-test harness, and
+  broker client. It refuses to copy private dossiers, audit records, binaries, engine
+  state, or held-out cases.
+- A disposable implementer container with full shell access, a C toolchain, and the
+  agent runtime. It mounts the materialized workspace and the broker endpoint, runs as a
+  non-root user with dropped capabilities and resource limits, and mounts neither the
+  repository nor the engine state.
+- A self-test harness inside the container that compiles the candidate and compares it
+  against every public example. The agent can run it repeatedly; the harness reports
+  mismatches in the observation's own terms and never contains held-out inputs.
+- A broker service with request validation, private evidence access, deterministic
+  disclosure filtering, question quotas, deduplication, and an append-only audit stored
+  outside the sandbox.
+- A broker client for the sandbox and an integration path that replaces the single
+  no-tools implementation prompt with an iterative workbench run.
+- A segregation check that fails the run if the workspace or mount set contains a binary,
+  private artifact, engine path, or held-out case. The driver validates the finished
+  candidate against held-out cases once, outside the sandbox.
+
+Acceptance:
+
+- The implementer compiles and tests its own candidate inside the sandbox, observes a
+  failure, asks the broker a behavioral question, revises the candidate, and reruns the
+  harness without outside assistance.
+- A request for source, decompilation, disassembly, bytes, or addresses is refused and
+  recorded; a normal behavioral question is answered in prose with no source-shaped
+  content and no verbatim private line.
+- The workspace and container mounts contain public material only; hidden cases are
+  absent and are run exactly once after the agent exits.
+- Broker answers cannot change the spec, evidence, claims, probe outcomes, readiness, or
+  held-out cases. They are not accepted as validation evidence.
+- Broker outage, timeout, or quota exhaustion leaves the candidate and harness usable;
+  the agent can still finish, and the driver reports the missing channel explicitly.
+- Audit records reconstruct every exchange and its source set without exposing private
+  material to the sandbox.
+
 ## Task lifecycle and failure rules
 
 ```text
@@ -293,6 +348,7 @@ Ghidra changes use their own isolated revision path.
 - [ ] M4 semantic and original-behavior checks pass.
 - [ ] M5 shared contracts and specification handoff integrated; the native dossier-to-spec
   artifact path is implemented, while the external API and acceptance gates remain open.
+- [ ] M7 cleanroom workbench and brokered disclosure gates pass.
 - [ ] M6 measured scaling and two-host recovery demonstrated.
 
 Do not mark these complete based on documentation, worker counts, rename persistence,

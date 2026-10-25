@@ -60,6 +60,9 @@ and incoming references for that adjudication; inspected ranges appear in campai
 Conflict reconciliation, warm analysis pooling, multi-host recovery, and a durable job
 API remain planned. The implementation plan lists their acceptance gates. Proposed
 records there are design requirements, not proof of an implemented runtime interface.
+A cleanroom implementation workbench and a brokered disclosure channel are implemented for
+the functional and ready-spec implementation drivers; their interface and containment rules
+are specified below. Live model-driven workbench acceptance and network policy remain open.
 
 ## Architecture
 
@@ -170,6 +173,50 @@ Ghidra names/comments are optional derived views. Analysis-affecting edits are a
 serialized revision path per program with isolation and persistence checks. A corrected type
 or callee contract invalidates consumers through a reverse dependency index. Display-name
 changes can refresh renderings without invalidating unchanged semantics.
+
+### Cleanroom implementation and brokered disclosure
+
+The implementer is a separate agent, not a downstream prompt inside the analysis worker.
+It receives only the public specification, the public examples, and a test harness. It
+never receives the original binary, a dossier, decompiler output, disassembly, source
+addresses, review notes, or the analyst audit artifact.
+
+The implementer runs in a disposable sandbox container with full shell access to that
+container. This is deliberate: the agent must compile, run, inspect, and revise its own
+candidate without a human relaying results. The container mounts only a materialized
+workspace built from public artifacts; it does not mount the repository, the engine
+state directory, the binary, or any private evidence. The public test harness exercises
+only the published cases. Held-out cases remain outside the container and run once after
+the agent stops.
+
+Network egress is a separate channel from file admission. The container needs model
+access, and the mount allowlist cannot prevent full shell access from fetching public
+upstream material by name. Deployments that treat public source as in-scope must provide
+only a provider-side proxy or no egress; enabling a general network is a recorded
+deployment choice, not a cleanroom guarantee.
+
+The only channel from the sandbox to the decompilation side is a broker. The broker:
+
+1. Accepts a bounded natural-language question plus public failure context over a
+   dedicated socket or mailbox.
+2. Rejects requests for source, decompiler output, disassembly, bytes, addresses,
+   symbol names, or implementation mechanics. These are refused as disclosure attempts,
+   not answered partially.
+3. Answers behavior questions from reviewed claims, dependency contracts, public
+   observations, and, where needed, a broker model that may read private evidence. The
+   broker may not expose held-out cases or alter evidence, claims, readiness, or probe
+   outcomes.
+4. Applies a deterministic disclosure filter to every response. Code fences, assembly,
+   hexadecimal addresses, source-like identifiers, paths, and any verbatim line copied
+   from private material fail the response; an answer that cannot be expressed as prose
+   behavior is refused rather than sanitized by deletion.
+5. Records every request, refusal, response, and source set in an append-only audit
+   outside the sandbox. The implementation agent cannot read or edit that audit.
+
+Broker Q&A is not evidence. It can focus the next iteration, but it cannot add a
+requirement, promote a claim, or make a dossier ready. The public spec remains the only
+implementation contract, and a broker answer that conflicts with an observed public case
+is ignored by the driver.
 
 ### Worker output and validation
 

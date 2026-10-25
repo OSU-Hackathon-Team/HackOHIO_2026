@@ -114,6 +114,24 @@ Original probe cases may omit `expected`: the runner records an immutable `obser
 
 `python scripts/run_native_c_candidate.py --state decomp-state --spec-artifact <sha256> --probe-report-artifact <sha256>` generates plain C from a persisted ready public native spec, compiles it, checks public examples with bounded automatic revisions, and compares the passing candidate against original cases absent from the spec. It requires matching dossier provenance and binary identity. Draft specs are rejected. The C adapter invokes plain exported functions and does not require C++ object layout. A live Calc FormulaGrammar scope reached a ready dossier with 17 linked claims; its generated C candidate passed 99/99 held-out original cases after one public-example revision. Compiler, token, vector, and broader Calc integration equivalence remain open.
 
+### Cleanroom implementation workbench
+
+Both `scripts/run_functional_c_e2e.py` and `scripts/run_native_c_candidate.py` accept `--workbench`. It replaces the no-tools implementation prompt with a disposable container in which the implementer has full shell access. The container mounts only a public workspace, a broker socket, the OpenCode binary, and (when present) its auth file. It never mounts the repository, `decomp-state`, the original binary, the dossier, or held-out cases. The agent compiles with `cc`, runs `./run_tests.sh` against every public case, asks the broker when a test is ambiguous, and iterates without outside help. The driver recompiles and checks the public cases itself, rejects a modified harness, and runs held-out cases once after the agent exits.
+
+```sh
+podman build -t splice-cleanroom-implementer:local -f implementer.Dockerfile .
+python scripts/run_functional_c_e2e.py --state decomp-state \
+  --scope-artifact <scope> --public-report-artifact <training-report> \
+  --full-report-artifact <full-report> --interface token-array \
+  --workbench --build-workbench-image
+python scripts/run_native_c_candidate.py --state decomp-state \
+  --spec-artifact <spec> --probe-report-artifact <probes> --workbench
+```
+
+The broker is the only channel back to the decompilation side. It answers caller-visible behavior from reviewed claims and private evidence, refuses requests for source, decompilation, disassembly, bytes, addresses, symbols, or implementation mechanics, and fails closed on any code-shaped answer, hex value, path, function-call syntax, or verbatim protected line. Questions are quota-bounded and deduplicated; every exchange is audited under `decomp-state/cleanroom/<run>/`. The broker uses the `cleanroom_broker` role in `models.json` and may be overridden with `--broker-model`. Broker answers are not evidence and cannot change the spec, claims, probe outcomes, readiness, or held-out cases.
+
+Run `python scripts/check_cleanroom.py` for the broker/disclosure/segregation/self-test checks, or `python scripts/check_cleanroom.py --container` to add a scripted real-container run (no model call). The container needs model access. The host's OpenCode auth file is mounted read-only when present (`--auth-file`), and `AWS_*` variables are passed from the calling environment, falling back to the ignored root `.env` for Bedrock roles. Those credentials are visible to the agent inside the container, so use short-lived, narrowly scoped credentials. Use `--workbench-network` only if the runtime's default network cannot reach the provider; `--workbench-network none` gives a fully offline container for harness checks. Network egress is the remaining external channel: it exists for model traffic, and the mount allowlist is what guarantees the binary, dossier, and held-out cases never enter the sandbox. A deployment that treats public upstream source as in-scope should run the agent behind a provider-only proxy or without egress, because full bash can otherwise retrieve public material. The non-workbench prompt loop remains available for environments without a container runtime.
+
 Run semantic tasks through the durable queue after installing `python -m pip install -r requirements-decomp.txt` and setting `DECOMP_DATABASE_URL` to a PostgreSQL DSN:
 
 ```sh
