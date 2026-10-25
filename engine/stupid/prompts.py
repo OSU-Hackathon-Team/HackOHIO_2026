@@ -9,7 +9,16 @@ admit unknowns. No role ever sees real symbol names.
 ORCHESTRATOR = """You are the decomp orchestrator. Only you decide what gets analyzed.
 Goal: {goal}
 Known so far (JSON): {state}
-Reply with exactly one JSON object, no markdown, one of:
+Reply with exactly one JSON object, no markdown, shaped as a plan:
+{{"plan": [{{"action": "resolve_symbol", "substring": "CompileTokenArray", "reason": "..."}},
+{{"action": "neighbors", "entry": "0011b900", "reason": "..."}},
+{{"action": "decompile", "entries": ["0011b900"], "reason": "..."}},
+{{"action": "review", "entries": ["0011b900"], "reason": "..."}}],
+"reason": "why this sequence moves toward the goal"}}
+Rules for plans: at most 5 steps; order them so each step uses what earlier steps uncovered
+(discover, then neighbors, then decompile, then review); a done step ends the plan list at once:
+{{"plan": [{{"action": "done", "scope": ["0011b900"], "readiness": "ready_for_spec or partial", "notes": "..."}}], "reason": "..."}}.
+Single actions without a plan wrapper are also accepted. Available step kinds:
 {explore}
 {{"action": "search_strings", "substring": "percent", "limit": 50, "reason": "..."}}
 {{"action": "export_entries", "reason": "..."}}

@@ -235,26 +235,39 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                                                      "dependencies")),
                      "reviewed": digest(reviews, ()),
                      "probes": probes}
-            action = parse_json(model_fn(prompts.ORCHESTRATOR.format(
+            response = parse_json(model_fn(prompts.ORCHESTRATOR.format(
                 goal=goal, state=json.dumps(state)[:60000],
                 explore=explore_help),
                 role="decomp_worker"))
-            record("orchestrator", action)
+            plan = response.get("plan") or [response]
+            if isinstance(plan, dict):
+                plan = [plan]
+            plan = [step for step in plan[:5] if isinstance(step, dict)]
+            if not plan:
+                record("orchestrator", response)
+                record("invalid_action", {"response": response})
+                noop_streak += 1
+                last_result = {"produced": ["invalid_action"],
+                               "warning": "emit a plan: a list of up to 5 "
+                                          "action objects"}
+                if noop_streak >= 3:
+                    final = {"action": "done", "scope": sorted(drafts),
+                             "readiness": "partial",
+                             "notes": "orchestrator repeated no-op actions; "
+                                      "round budget exhausted"}
+                    break
+                continue
+            record("orchestrator", {"plan": plan,
+                                   "reason": response.get("reason", "")})
             mark = len(log)
-            kind = action.get("action")
-            signature = json.dumps({"action": kind,
-                                    "entries": sorted(action.get("entries", []) or []),
-                                    "substring": action.get("substring", ""),
-                                    "offset": action.get("offset", 0),
-                                    "limit": action.get("limit", 100)},
-                                   sort_keys=True)
+            signature = json.dumps(plan, sort_keys=True)
             if signature == last_signature:
-                # Fixation guard: repeating the identical action teaches nothing.
+                # Fixation guard: repeating the identical plan teaches nothing.
                 # The result is a no-op so the budget trips unless the agent varies.
-                record("noop", {"action": action, "repeat": True})
+                record("noop", {"plan": plan, "repeat": True})
                 last_result = {"noop": True,
-                               "reason": "identical to the previous action; "
-                                         "its result is already in the state above"}
+                               "reason": "identical to the previous plan; "
+                                         "its results are already in the state above"}
                 noop_streak += 1
                 if noop_streak >= 3:
                     final = {"action": "done", "scope": sorted(drafts),
@@ -264,131 +277,143 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                     break
                 continue
             last_signature = signature
-            if kind == "decompile":
-                work = effective(action.get("entries", []), {})
-                if work:
-                    for e in work:
-                        if e in drafts:
-                            record("redraft", {"entry": e,
-                                               "cleared_review": e in reviews})
-                            reviews.pop(e, None)
-                    decompile(work)
-                    noop_streak = 0
-                else:
-                    record("noop", {"action": action})
-                    noop_streak += 1
-            elif kind == "review":
-                work = [e for e in effective(action.get("entries", []), reviews)
-                        if e in drafts]
-                if work:
-                    review(work)
-                    noop_streak = 0
-                else:
-                    record("noop", {"action": action})
-                    noop_streak += 1
-            elif kind == "page":
-                if not large:
-                    record("noop", {"action": action})
-                    noop_streak += 1
-                    continue
-                limit = int(action.get("limit", 100))
-                want = int(action.get("offset", 0))
-                fetched = {(p["offset"], p.get("limit", 100)) for p in pages}
-                if (want, limit) in fetched:
-                    # Agent asked for an already-seen slice: serve intent
-                    # ("keep paging") mechanically with the next unfetched one.
-                    want = next((off for off in range(0, summary["function_count"], limit)
-                                 if (off, limit) not in fetched), None)
-                    if want is None:
+            halt = False
+
+            def step(action: dict) -> None:
+                nonlocal noop_streak, halt, final
+                kind = action.get("action")
+                if kind == "decompile":
+                    work = effective(action.get("entries", []), {})
+                    if work:
+                        for e in work:
+                            if e in drafts:
+                                record("redraft", {"entry": e,
+                                                   "cleared_review": e in reviews})
+                                reviews.pop(e, None)
+                        decompile(work)
+                        noop_streak = 0
+                    else:
                         record("noop", {"action": action})
                         noop_streak += 1
-                        continue
-                    advanced = True
-                else:
-                    advanced = False
-                page = tools.inventory_page(manifest, want, limit)
-                pages.append({"offset": page["offset"], "limit": page["limit"],
-                              "entries": [f["entry"] for f in page["functions"]]})
-                for f in page["functions"]:
-                    explored.setdefault(f["entry"], f)
-                record("page", {"offset": page["offset"],
-                                "returned": len(page["functions"]),
-                                "total": page["total"],
-                                "advanced": advanced})
-                noop_streak = 0
-            elif kind == "neighbors":
-                try:
-                    resolved = tools.resolve_entry(manifest, action.get("entry", ""))
-                except ValueError:
-                    record("unknown_entry", {"entry": action.get("entry", "")})
-                    noop_streak += 1
-                    continue
-                if not large or resolved in neighbor_queries:
-                    record("noop", {"action": action})
-                    noop_streak += 1
-                    continue
-                try:
-                    links = tools.neighbors(manifest, action.get("entry", ""))
-                except ValueError as error:
-                    record("unknown_entry", {"entry": action.get("entry", "")})
-                    links = None
-                if links is None:
-                    noop_streak += 1
-                else:
-                    neighbor_queries.add(action.get("entry", ""))
-                    neighbor_queries.add(links["entry"])
-                    explored[links["entry"]] = {"entry": links["entry"]}
-                    for other in links["callers"] + links["callees"]:
-                        explored.setdefault(other, {"entry": other})
-                    record("neighbors", links)
+                elif kind == "review":
+                    work = [e for e in effective(action.get("entries", []), reviews)
+                            if e in drafts]
+                    if work:
+                        review(work)
+                        noop_streak = 0
+                    else:
+                        record("noop", {"action": action})
+                        noop_streak += 1
+                elif kind == "page":
+                    if not large:
+                        record("noop", {"action": action})
+                        noop_streak += 1
+                        return
+                    limit = int(action.get("limit", 100))
+                    want = int(action.get("offset", 0))
+                    fetched = {(p["offset"], p.get("limit", 100)) for p in pages}
+                    if (want, limit) in fetched:
+                        # Agent asked for an already-seen slice: serve intent
+                        # ("keep paging") mechanically with the next unfetched one.
+                        want = next((off for off in range(0, summary["function_count"], limit)
+                                     if (off, limit) not in fetched), None)
+                        if want is None:
+                            record("noop", {"action": action})
+                            noop_streak += 1
+                            return
+                        advanced = True
+                    else:
+                        advanced = False
+                    page = tools.inventory_page(manifest, want, limit)
+                    pages.append({"offset": page["offset"], "limit": page["limit"],
+                                  "entries": [f["entry"] for f in page["functions"]]})
+                    for f in page["functions"]:
+                        explored.setdefault(f["entry"], f)
+                    record("page", {"offset": page["offset"],
+                                    "returned": len(page["functions"]),
+                                    "total": page["total"],
+                                    "advanced": advanced})
                     noop_streak = 0
-            elif kind == "export_entries":
-                try:
-                    table = tools.export_entries(manifest)
-                except RuntimeError as error:
-                    record("export_error", {"error": str(error)[:200]})
+                elif kind == "neighbors":
+                    try:
+                        resolved = tools.resolve_entry(manifest, action.get("entry", ""))
+                    except ValueError:
+                        record("unknown_entry", {"entry": action.get("entry", "")})
+                        noop_streak += 1
+                        return
+                    if not large or resolved in neighbor_queries:
+                        record("noop", {"action": action})
+                        noop_streak += 1
+                        return
+                    try:
+                        links = tools.neighbors(manifest, action.get("entry", ""))
+                    except ValueError as error:
+                        record("unknown_entry", {"entry": action.get("entry", "")})
+                        links = None
+                    if links is None:
+                        noop_streak += 1
+                    else:
+                        neighbor_queries.add(action.get("entry", ""))
+                        neighbor_queries.add(links["entry"])
+                        explored[links["entry"]] = {"entry": links["entry"]}
+                        for other in links["callers"] + links["callees"]:
+                            explored.setdefault(other, {"entry": other})
+                        record("neighbors", links)
+                        noop_streak = 0
+                elif kind == "export_entries":
+                    try:
+                        table = tools.export_entries(manifest)
+                    except RuntimeError as error:
+                        record("export_error", {"error": str(error)[:200]})
+                        noop_streak += 1
+                        return
+                    for e in table["entries"]:
+                        explored.setdefault(e, {"entry": e, "exported": True})
+                    record("export_entries", {"count": table["count"]})
+                    noop_streak = 0
+                elif kind == "resolve_symbol":
+                    try:
+                        hit = tools.resolve_symbol(
+                            manifest, str(action.get("substring", "")))
+                    except RuntimeError as error:
+                        record("export_error", {"error": str(error)[:200]})
+                        noop_streak += 1
+                        return
+                    for e in hit["entries"]:
+                        explored.setdefault(e, {"entry": e})
+                    record("resolve_symbol", {"substring": hit["substring"],
+                                              "entries": hit["entries"]})
+                    noop_streak = 0
+                elif kind == "search_strings":
+                    hits = tools.search_strings(
+                        manifest, str(action.get("substring", "")),
+                        int(action.get("limit", 50)))
+                    record("search_strings", {"substring": hits["substring"],
+                                              "matches": hits["matches"]})
+                    search_log.append({"substring": hits["substring"],
+                                       "matches": hits["matches"],
+                                       "items": hits["items"][:10]})
+                    noop_streak = 0
+                elif kind == "probe":
+                    probes.append({"asked": action.get("cases", []),
+                                   "note": "probe execution is harness-driven; "
+                                           "see scripts/native_probe_adapter.py"})
+                    record("probe", {"asked": len(action.get("cases", []))})
+                    noop_streak = 0
+                elif kind == "done":
+                    final = action
+                    noop_streak = 0
+                    halt = True
+                    return
+                else:
+                    record("invalid_action", {"action": action})
                     noop_streak += 1
-                    continue
-                for e in table["entries"]:
-                    explored.setdefault(e, {"entry": e, "exported": True})
-                record("export_entries", {"count": table["count"]})
-                noop_streak = 0
-            elif kind == "resolve_symbol":
-                try:
-                    hit = tools.resolve_symbol(
-                        manifest, str(action.get("substring", "")))
-                except RuntimeError as error:
-                    record("export_error", {"error": str(error)[:200]})
-                    noop_streak += 1
-                    continue
-                for e in hit["entries"]:
-                    explored.setdefault(e, {"entry": e})
-                record("resolve_symbol", {"substring": hit["substring"],
-                                          "entries": hit["entries"]})
-                noop_streak = 0
-            elif kind == "search_strings":
-                hits = tools.search_strings(
-                    manifest, str(action.get("substring", "")),
-                    int(action.get("limit", 50)))
-                record("search_strings", {"substring": hits["substring"],
-                                          "matches": hits["matches"]})
-                search_log.append({"substring": hits["substring"],
-                                   "matches": hits["matches"],
-                                   "items": hits["items"][:10]})
-                noop_streak = 0
-            elif kind == "probe":
-                probes.append({"asked": action.get("cases", []),
-                               "note": "probe execution is harness-driven; "
-                                       "see scripts/native_probe_adapter.py"})
-                record("probe", {"asked": len(action.get("cases", []))})
-                noop_streak = 0
-            elif kind == "done":
-                final = action
-                noop_streak = 0
-                break
-            else:
-                record("invalid_action", {"action": action})
-                noop_streak += 1
+
+            for sub in plan:
+                step(sub)
+                if halt:
+                    break
+
             produced = [e["kind"] for e in log[mark:]
                         if e["kind"] != "orchestrator"]
             last_result = {"produced": produced or ["nothing"]}
