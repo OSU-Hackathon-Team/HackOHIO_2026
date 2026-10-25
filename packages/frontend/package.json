@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "npm run test:unit",
-    "test:unit": "node --import tsx --test \"tests/*.test.ts\""
+    "test:unit": "node --import tsx --test --test-force-exit \"tests/*.test.ts\""
   },
   "dependencies": {
     "@codesandbox/sandpack-react": "^2.19.10",
