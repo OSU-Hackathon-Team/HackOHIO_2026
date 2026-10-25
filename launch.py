@@ -652,8 +652,21 @@ def main() -> None:
     elif args.command == "dossier":
         engine = GhidraAnalysis(args.state, Path(os.environ.get(
             "GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
-        manifest = json.loads(args.manifest.read_text())
-        inputs = json.loads(args.inputs.read_text())
+        try:
+            manifest = json.loads(args.manifest.read_text())
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            parser.error(f"--manifest must be a native analysis manifest JSON file: {error}")
+        if not isinstance(manifest, dict) or not {
+                "campaign", "index_artifact", "binary_sha256", "project"} <= set(manifest):
+            parser.error("--manifest must be a module analysis manifest, not a project request")
+        try:
+            inputs = json.loads(args.inputs.read_text())
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            parser.error(f"--inputs must be a JSON file of artifact ID arrays, not a binary: {error}")
+        if not isinstance(inputs, dict) or not all(
+                isinstance(inputs.get(key, []), list) for key in (
+                    "draft_artifacts", "review_artifacts", "probe_report_artifacts")):
+            parser.error("--inputs must be a JSON object with artifact ID arrays")
         contract_snapshot = None
         if args.dsn:
             from engine.artifacts import LocalArtifactStore
