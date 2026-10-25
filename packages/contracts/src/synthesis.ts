@@ -27,6 +27,11 @@ export const SynthesisBundle = z.object({
   dependencies: z.record(z.string(), z.string()),
   engine_paths: z.array(z.string()),         // ["/engines/sm2Scheduler.ts", ...] — read-only in the UI
   generated_paths: z.array(z.string()),
+  /** Generated server files as path -> source, e.g. "/backend/server.ts". Empty = client-only app. */
+  backend_paths: z.record(z.string(), z.string()).default({}),
+  /** Path (a key of backend_paths) of the shared client/server contract. */
+  contract_path: z.string().nullable().default(null),
+  has_backend: z.boolean().default(false),
   feature_ids: z.array(z.string()),
   warnings: z.array(z.string()),
   mode: z.enum(["live", "replay"]),

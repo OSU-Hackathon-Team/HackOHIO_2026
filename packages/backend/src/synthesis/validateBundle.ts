@@ -24,6 +24,7 @@ export type BundleValidationStage =
   | "structure"
   | "engine_conformance"
   | "imports"
+  | "backend"
   | "typecheck";
 
 export interface BundleDiagnostic {
@@ -316,7 +317,31 @@ export function validateBundle(
     }
   }
 
-  // 5. Virtual TypeScript Compilation
+  // 5. Generated Backend Conformance
+  // Backend files live beside the client map, so they are syntax-checked here rather
+  // than typechecked with the Sandpack bundle (they may import express/node built-ins).
+  const backend = bundle.backend_paths ?? {};
+  const backendPaths = Object.keys(backend);
+  if (bundle.has_backend !== backendPaths.length > 0) {
+    addDiag(
+      "backend",
+      undefined,
+      `has_backend is ${bundle.has_backend} but ${backendPaths.length} backend file(s) are present`,
+    );
+  }
+  if (backendPaths.length > 0 && bundle.contract_path === null) {
+    addDiag("backend", undefined, "A backend was generated without a contract_path");
+  }
+  if (bundle.contract_path !== null && backend[bundle.contract_path] === undefined) {
+    addDiag("backend", bundle.contract_path, `contract_path ${bundle.contract_path} is not a backend file`);
+  }
+  for (const [p, code] of Object.entries(backend)) {
+    for (const pe of inspectSource(p, code).parseErrors) {
+      addDiag("backend", p, pe);
+    }
+  }
+
+  // 6. Virtual TypeScript Compilation
   // Type-check everything together if structural and import checks passed
   if (errors.length === 0) {
     const tcResult = typecheckVirtualDetailed(f, { strict: false, jsx: true });

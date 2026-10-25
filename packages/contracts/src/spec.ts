@@ -18,6 +18,22 @@ export const IoField = z.object({
 });
 export type IoField = z.infer<typeof IoField>;
 
+/** Where the feature's logic runs. "either" = pure, so both. */
+export const Placement = z.enum(["client", "server", "either"]);
+export type Placement = z.infer<typeof Placement>;
+
+/** Side-effect classes the feature touches. Empty = pure computation. */
+export const Effect = z.enum(["persistence", "network", "filesystem", "shared_state", "secrets"]);
+export type Effect = z.infer<typeof Effect>;
+
+/** A persisted record type. Only meaningful when effects include "persistence". */
+export const EntityDef = z.object({
+  name: z.string(),
+  key: z.string(),
+  fields: z.array(IoField),
+});
+export type EntityDef = z.infer<typeof EntityDef>;
+
 export const ExportSig = z.object({
   name: z.string(),                        // "reviewCard"
   kind: z.enum(["function", "type", "const"]),
@@ -93,6 +109,9 @@ export const FeatureSpec = z.object({
   coverage: z.array(RequirementCoverage),  // computed
   allowed_deviations: z.array(z.string()), // "clock is injected as `today` instead of Date.now()"
   stripped_glue: z.array(z.string()),      // platform code deliberately left out: "ipcMain.handle('card:answer')", "fs deck storage"
+  placement: Placement.default("either"),
+  effects: z.array(Effect).default([]),
+  entities: z.array(EntityDef).default([]),
   oracle: OracleCheck,
   status: z.enum(["verified", "unverified"]), // verified ⇔ oracle passed && every requirement covered && no open issues
   open_issues: z.array(z.string()),        // why it's unverified (shown on the card); empty when verified

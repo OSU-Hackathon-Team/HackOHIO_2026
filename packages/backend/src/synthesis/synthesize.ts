@@ -6,6 +6,7 @@ import type { ChatMessage, LlmPort } from "../engine/ports.js";
 import { SYNTH_SYSTEM, SYNTH_DRAFT_SCHEMA, SynthDraft, formatSynthRequest } from "./prompt.js";
 import { assembleBundle, duplicateEngineErrors } from "./assemble.js";
 import { validateBundle } from "./validateBundle.js";
+import { persistenceEntities, synthesizePersistenceSuite } from "./persistenceGenerator.js";
 import { skillSession, type SkillCatalog } from "../skills/skills.js";
 
 export interface SynthHooks {
@@ -32,6 +33,14 @@ export function fusionErrors(blueprints: FeatureBlueprint[]): string[] {
       .filter((b) => b.verification.status !== "passed")
       .map((b) => `Engine ${b.implementation.module_name} (${b.feature_id}) has not passed verification`),
   ];
+}
+
+/**
+ * A spec with `effects: ["persistence"]` and entities gets its repository,
+ * routes and server synthesized into the bundle; everything else is client-only.
+ */
+function withPersistence(blueprints: FeatureBlueprint[], bundle: SynthesisBundle): SynthesisBundle {
+  return synthesizePersistenceSuite(persistenceEntities(blueprints), bundle);
 }
 
 export async function synthesize(
@@ -66,9 +75,9 @@ export async function synthesize(
   let res = await call();
 
   for (let attempt = 0; ; attempt++) {
-    const bundle = assembleBundle(blueprints, res.value.files, {
+    const bundle = withPersistence(blueprints, assembleBundle(blueprints, res.value.files, {
       bundle_id: bundleId, app_title: res.value.app_title, app_description: res.value.app_description, revision: 0, mode: "live",
-    });
+    }));
     hooks.onStage("validating", "Type-checking the bundle against the engines…");
     const v = validateBundle(bundle, blueprints);
     hooks.onValidation(v.ok, v.errors);

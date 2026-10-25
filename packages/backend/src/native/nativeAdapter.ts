@@ -311,6 +311,9 @@ export function adaptNativeSpecToFeatureSpec(
     stripped_glue: [
       "Binary ELF load segments, x86/x64 calling conventions, and raw memory layout omitted.",
     ],
+    placement: "either",
+    effects: [],
+    entities: [],
     oracle,
     status: openIssues.length === 0 ? "verified" : "unverified",
     open_issues: openIssues,

@@ -254,6 +254,9 @@ export const FeatureSpec = z.object({
   coverage: z.array(RequirementCoverage),  // computed
   allowed_deviations: z.array(z.string()), // "clock is injected as `today` instead of Date.now()"
   stripped_glue: z.array(z.string()),      // platform code deliberately left out: "ipcMain.handle('card:answer')", "fs deck storage"
+  placement: Placement.default("either"),
+  effects: z.array(Effect).default([]),
+  entities: z.array(EntityDef).default([]),
   oracle: OracleCheck,
   status: z.enum(["verified", "unverified"]), // verified ⇔ oracle passed && every requirement covered && no open issues
   open_issues: z.array(z.string()),        // why it's unverified (shown on the card); empty when verified
@@ -447,6 +450,9 @@ export const SynthesisBundle = z.object({
   dependencies: z.record(z.string(), z.string()),
   engine_paths: z.array(z.string()),         // ["/engines/sm2Scheduler.ts", ...] — read-only in the UI
   generated_paths: z.array(z.string()),
+  backend_paths: z.record(z.string(), z.string()).default({}), // generated server files: path -> source
+  contract_path: z.string().nullable().default(null),          // key of backend_paths shared with the client
+  has_backend: z.boolean().default(false),
   feature_ids: z.array(z.string()),
   warnings: z.array(z.string()),
   mode: z.enum(["live", "replay"]),

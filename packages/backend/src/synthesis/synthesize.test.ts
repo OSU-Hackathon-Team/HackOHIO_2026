@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { SynthesisBundle } from "@splice/contracts";
 import { BundleValidationError, MAX_FIXES, synthesize, type SynthHooks } from "./synthesize.js";
+import { validateBundle } from "./validateBundle.js";
 import { refine } from "./refine.js";
 import { assembleBundle } from "./assemble.js";
 import {
@@ -66,6 +67,51 @@ test("exhausted fixes throw instead of returning an invalid bundle", async () =>
     (e: unknown) => e instanceof BundleValidationError && e.errors.some((x) => /updateEases/.test(x)),
   );
   assert.equal(llm.calls.length, 1 + MAX_FIXES);
+});
+
+test("a spec with persistence effects gets a repository, routes and a server", async () => {
+  const persistentSpec = makeSpec({
+    effects: ["persistence"],
+    entities: [{
+      name: "Note",
+      key: "id",
+      fields: [
+        { name: "id", type: "string", description: "Note identifier" },
+        { name: "title", type: "string", description: "Note title" },
+      ],
+    }],
+  });
+  const { h, validations } = hooks();
+  const b = await synthesize([makeBlueprint(persistentSpec, GOOD_ENGINE), links], PROMPT, "b_1", h, { llm: fakeLlm([draft()]).port });
+
+  assert.equal(b.has_backend, true);
+  assert.equal(b.contract_path, "/backend/contract.ts");
+  assert.match(b.backend_paths["/backend/contract.ts"], /export interface Note/);
+  assert.match(b.backend_paths["/backend/routes/note.ts"], /noteRouter\.get\("\/",/);
+  assert.match(b.backend_paths["/backend/routes/note.ts"], /noteRouter\.post\("\/",/);
+  assert.match(b.backend_paths["/backend/routes/note.ts"], /noteRouter\.delete\("\/:id",/);
+  assert.match(b.backend_paths["/backend/server.ts"], /app\.use\("\/api\/notes", noteRouter\);/);
+
+  // The client map is unchanged: backend files travel in backend_paths only.
+  assert.deepEqual(b.generated_paths, ["/App.tsx", "/components/NoteCard.tsx"]);
+  assert.ok(!b.files["/backend/server.ts"]);
+  assert.equal(b.files["/engines/sm2Scheduler.ts"], GOOD_ENGINE);
+  assert.deepEqual(validations, [true]);
+});
+
+test("a bundle without persistence effects stays client-only", async () => {
+  const b = await synthesize(blueprints, PROMPT, "b_1", hooks().h, { llm: fakeLlm([draft()]).port });
+  assert.equal(b.has_backend, false);
+  assert.equal(b.contract_path, null);
+  assert.deepEqual(b.backend_paths, {});
+});
+
+test("a backend file that does not parse fails validation", () => {
+  const b = assembleBundle(blueprints, files(), { bundle_id: "b_1", app_title: "Study Room", app_description: "d", revision: 0, mode: "live" });
+  const broken = { ...b, backend_paths: { "/backend/server.ts": "export const app = {" }, contract_path: "/backend/server.ts", has_backend: true };
+  const v = validateBundle(broken, blueprints);
+  assert.equal(v.ok, false);
+  assert.ok(v.errors.some((e) => /backend\/server\.ts.*Syntax error/.test(e)), v.errors.join("\n"));
 });
 
 test("unverified or duplicate engines cannot be fused", async () => {

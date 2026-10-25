@@ -1,7 +1,9 @@
 // Owner: Eng 3 (Implementation) — spec: agents/3_feature_implementation/06_state_and_api_client.md §1
-import type { ZodType } from "zod";
+import type { ZodType, ZodTypeDef } from "zod";
 
-type StreamOpts<E> = { signal?: AbortSignal; schema: ZodType<E> };
+// Schema input is loosened because contract fields with defaults have a wider input
+// type than their parsed output (e.g. SynthesisBundle.backend_paths).
+type StreamOpts<E> = { signal?: AbortSignal; schema: ZodType<E, ZodTypeDef, any> };
 
 /** Require done: a dropped connection must not look like a successful operation. */
 export async function streamPost<E extends { type: string }>(
