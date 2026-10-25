@@ -19,6 +19,7 @@ import {
 import { liveApi } from "../api/client";
 import { useIdeStore } from "./store/useIdeStore";
 import { exportBundleJson } from "../lib/exportZip";
+import { exportElectronProject } from "../lib/electronProject";
 import { WorkspaceButton } from "./WorkspaceButton";
 import { cn } from "../lib/cn";
 
@@ -366,6 +367,9 @@ function BundlePreview({ bundle }: { bundle: SynthesisBundle }) {
           ))}
           <WorkspaceButton onPress={() => exportBundleJson(bundle)}>
             <Download className="size-4" aria-hidden="true" /> Bundle JSON
+          </WorkspaceButton>
+          <WorkspaceButton onPress={() => void exportElectronProject(bundle)}>
+            <Download className="size-4" aria-hidden="true" /> Electron project
           </WorkspaceButton>
         </div>
       </div>
