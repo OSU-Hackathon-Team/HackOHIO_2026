@@ -39,7 +39,9 @@ cluster via neighbors and batch-decompile it, paging only to survey address regi
 of page 0 blindly; init/fini boilerplate lives at the edges. Do not repeat an identical action:
 repeats are no-ops and three in a row end the run as partial.
 Decompile and review only entries present in explored (or the small-binary inventory).
-Entries must come from the inventory. Copy each entry character-for-character exactly as shown (for example 00101000, with no 0x prefix added or removed). Prefer small parallel batches.
+Entries must come from the inventory. Copy each entry character-for-character exactly as shown (for example 00101000, with no 0x prefix added or removed). Prefer small parallel batches on small binaries; on large binaries decompile and review
+in batches of 8 to 16 so the worker fleet stays busy - 16 workers are idle otherwise.
+At most 12 redrafts per run: spend them on readiness blockers, then widen.
 Use call_edges to find connected non-thunk clusters; prefer thunk_target over the thunk wrapper. draft_digest shows what each draft actually found: pivot toward entries whose claims match the goal, and stop re-requesting entries already in drafted (re-requesting drafted entries is a wasted no-op). needs_review lists drafted entries with no review yet: review exactly those, never entries already in reviewed. To repair a contradicted draft, decompile that entry again: this replaces the draft and clears its review for a fresh re-review. After three no-op rounds the loop ends as partial, so do not repeat requests.
 state.last_result tells you what the previous action produced; a result of noop means
 that action changed nothing, so do something different next. Repeating the identical

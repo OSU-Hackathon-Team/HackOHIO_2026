@@ -117,6 +117,8 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
             return seen
 
         redraft_counts: dict[str, int] = {}
+        total_redrafts = 0
+        REDRAFT_RUN_BUDGET = 12
 
         def decompile(entries: list[str]) -> None:
             nonlocal noop_streak
@@ -321,20 +323,22 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
             halt = False
 
             def step(action: dict) -> None:
-                nonlocal noop_streak, halt, final, exports_listed
+                nonlocal noop_streak, halt, final, exports_listed, total_redrafts
                 kind = action.get("action")
                 if kind == "decompile":
                     work = effective(action.get("entries", []), {})
                     fresh = []
                     for e in work:
                         if e in drafts:
-                            if redraft_counts.get(e, 0) >= 4:
+                            if (redraft_counts.get(e, 0) >= 4 or
+                                    total_redrafts >= REDRAFT_RUN_BUDGET):
                                 record("redraft_exhausted",
                                        {"entry": e,
                                         "note": "repair budget spent; widen instead"})
                                 noop_streak += 1
                                 continue
                             redraft_counts[e] = redraft_counts.get(e, 0) + 1
+                            total_redrafts += 1
                             record("redraft", {"entry": e,
                                                "attempt": redraft_counts[e],
                                                "cleared_review": e in reviews})
