@@ -9,6 +9,7 @@ import { FILE_SCHEMA, GeneratedFile, SYNTH_SYSTEM } from "./prompt.js";
 import { assembleBundle, enginePath } from "./assemble.js";
 import { validateBundle } from "./validateBundle.js";
 import { BundleValidationError, MAX_FIXES, fusionErrors, type SynthHooks } from "./synthesize.js";
+import { skillSession, type SkillCatalog } from "../skills/skills.js";
 
 export const RefineDraft = z.object({
   summary: z.string().max(300),            // shown in the chat as the assistant's reply
@@ -70,16 +71,17 @@ const withSlash = (p: string) => (p.startsWith("/") ? p : "/" + p);
 export async function refine(
   req: RefineRequest,
   hooks: SynthHooks & { onSummary(summary: string): void },
-  deps: { llm: LlmPort },
+  deps: { llm: LlmPort; skills?: SkillCatalog },
 ): Promise<SynthesisBundle> {
   const invalid = refineRequestErrors(req);
   if (invalid.length) throw new Error(invalid.join("; "));
 
+  const skills = skillSession(REFINE_SYSTEM, deps.skills, (message) => hooks.onStage("generating", message));
   let messages: ChatMessage[] = [{ role: "user", content: formatRefineRequest(req) }];
   const call = () => {
     hooks.signal?.throwIfAborted();
     return deps.llm.structuredCall({
-      role: "ui_synthesizer", system: REFINE_SYSTEM, messages, schema: REFINE_DRAFT_SCHEMA, parse: (v) => RefineDraft.parse(v),
+      role: "ui_synthesizer", ...skills.next(), messages, schema: REFINE_DRAFT_SCHEMA, parse: (v) => RefineDraft.parse(v),
       effort: "medium", maxTokens: 48_000, signal: hooks.signal, onProgress: hooks.onProgress,
     });
   };

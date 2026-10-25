@@ -6,6 +6,7 @@ import type { ChatMessage, LlmPort } from "../engine/ports.js";
 import { SYNTH_SYSTEM, SYNTH_DRAFT_SCHEMA, SynthDraft, formatSynthRequest } from "./prompt.js";
 import { assembleBundle, duplicateEngineErrors } from "./assemble.js";
 import { validateBundle } from "./validateBundle.js";
+import { skillSession, type SkillCatalog } from "../skills/skills.js";
 
 export interface SynthHooks {
   signal?: AbortSignal;
@@ -38,17 +39,18 @@ export async function synthesize(
   prompt: string,
   bundleId: string,
   hooks: SynthHooks,
-  deps: { llm: LlmPort },
+  deps: { llm: LlmPort; skills?: SkillCatalog },
 ): Promise<SynthesisBundle> {
   const invalid = fusionErrors(blueprints);
   if (invalid.length) throw new Error(invalid.join("; "));
 
+  const skills = skillSession(SYNTH_SYSTEM, deps.skills, (message) => hooks.onStage("designing", message));
   let messages: ChatMessage[] = [{ role: "user", content: formatSynthRequest(blueprints, prompt) }];
   const call = () => {
     hooks.signal?.throwIfAborted();
     return deps.llm.structuredCall({
       role: "ui_synthesizer",
-      system: SYNTH_SYSTEM,
+      ...skills.next(),
       messages,
       schema: SYNTH_DRAFT_SCHEMA,
       parse: (v) => SynthDraft.parse(v),

@@ -18,7 +18,9 @@ import { MISSING_UPSTREAM, REPO_ROOT, step3Deps, type SseWriterPort, type Step3D
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
 
-export const synthesisKey = (featureIds: string[], prompt: string) => `${[...featureIds].sort().join("+")}__${slug(prompt)}`;
+/** skillsVersion keeps recordings made with a different skill set from being replayed. */
+export const synthesisKey = (featureIds: string[], prompt: string, skillsVersion?: string) =>
+  `${[...featureIds].sort().join("+")}__${slug(prompt)}${skillsVersion ? `__skills-${skillsVersion}` : ""}`;
 export const refineKey = (bundleId: string, revision: number) => `refine__${bundleId}__r${revision}`;
 
 const unavailable = (res: Response) =>
@@ -141,7 +143,7 @@ export function createStep3Router(
     if (!deps) return unavailable(res);
 
     const sse = deps.openSse(req, res);
-    await streamSynth(deps, sse, synthesisKey(blueprints.map((b) => b.feature_id), prompt), async (hooks, emit, base) => {
+    await streamSynth(deps, sse, synthesisKey(blueprints.map((b) => b.feature_id), prompt, deps.skills?.version), async (hooks, emit, base) => {
       const bundle = await synthesize(blueprints, prompt, `b_${base().run_id}`, hooks, deps);
       emit({ type: "bundle", ...base(), bundle });
       emit({ type: "stage", ...base(), stage: "complete", message: `${bundle.app_title}: ${bundle.generated_paths.length} files around ${bundle.engine_paths.length} engines` });
