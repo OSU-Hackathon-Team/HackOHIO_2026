@@ -51,6 +51,7 @@ def main() -> None:
     parser.add_argument("--spec-artifact", required=True)
     parser.add_argument("--probe-report-artifact", required=True)
     parser.add_argument("--model")
+    parser.add_argument("--max-revisions", type=int, default=3)
     parser.add_argument("--opencode", type=Path,
                         default=Path.home() / ".opencode/bin/opencode")
     parser.add_argument("--headless", type=Path,
@@ -82,34 +83,70 @@ def main() -> None:
     prompt = (
         "Implement the public native subsystem specification below in portable C11. "
         "Export plain C functions with the listed names. Parameters are unsigned 32-bit "
-        "integers except boolean inputs, which are _Bool; returns are unsigned 32-bit "
-        "integers. Use functional rules, not C++ object layout, vtables, dynamic loading, "
+        "integers except boolean inputs, which are _Bool; EVERY function must return "
+        "uint32_t, including predicates. The public examples are normative: infer bit "
+        "numbering and parameter order from their inputs and outputs. Check your rules "
+        "against every public example before returning code. Use functional rules, "
+        "not C++ object layout, vtables, dynamic loading, "
         "a table of example inputs, or external program calls. Return one C translation "
         "unit only. Export names: " + json.dumps(symbols) + "\nPublic spec: " +
         json.dumps(spec, sort_keys=True))
     resolved_model = get_model("engine_writer", explicit=args.model)
+    if args.max_revisions < 0 or args.max_revisions > 8:
+        raise ValueError("max revisions must be between zero and eight")
     with TemporaryDirectory(prefix="splice-c-candidate-") as temporary:
         folder = Path(temporary)
-        reply = invoke_opencode(
-            args.opencode, folder, prompt, model=resolved_model, timeout=180,
-            env_file=Path(__file__).resolve().parents[1] / ".env",
-            agent_name="native-c-implementer",
-            agent_instruction="Return C code from the public spec only. Use no tools.")
-        source = extract_c(reply["text"])
-        source_artifact = store.put(source.encode())
-        prompt_artifact = store.put(prompt.encode())
         source_path = folder / "candidate.c"
         library_path = folder / "candidate.so"
-        source_path.write_text(source)
-        built = subprocess.run(["cc", "-std=c11", "-O2", "-fPIC", "-shared",
-                                "-Wall", "-Wextra", "-o", str(library_path),
-                                str(source_path)], capture_output=True, text=True,
-                               timeout=30, check=False)
-        if built.returncode:
-            raise RuntimeError("generated C failed compilation: " + built.stderr[-2000:])
         engine = GhidraAnalysis(args.state, args.headless, warm_workers=0)
         runner = NativeProbeRunner(
             engine, Path(__file__).with_name("c_scalar_candidate_adapter.py"))
+        attempts = []
+        for revision in range(args.max_revisions + 1):
+            reply = invoke_opencode(
+                args.opencode, folder, prompt, model=resolved_model, timeout=180,
+                env_file=Path(__file__).resolve().parents[1] / ".env",
+                agent_name="native-c-implementer",
+                agent_instruction="Return C code from the public spec only. Use no tools.")
+            source = extract_c(reply["text"])
+            source_artifact = store.put(source.encode())
+            prompt_artifact = store.put(prompt.encode())
+            source_path.write_text(source)
+            built = subprocess.run(["cc", "-std=c11", "-O2", "-fPIC", "-shared",
+                                    "-Wall", "-Wextra", "-o", str(library_path),
+                                    str(source_path)], capture_output=True, text=True,
+                                   timeout=30, check=False)
+            failures = []
+            if built.returncode:
+                failures = [{"compiler_error": built.stderr[-2000:]}]
+            else:
+                for example in spec.get("examples", []):
+                    if example.get("observation_kind") != "shared":
+                        continue
+                    check = runner.run_case(library_path, {
+                        "id": example["name"], "kind": "shared",
+                        "input": example["input"],
+                        "expected": example["expected_output"]},
+                        execution_mode="candidate")
+                    if check["outcome"] != "agreement":
+                        failures.append({"input": example["input"],
+                                         "expected": example["expected_output"],
+                                         "observed": check["observed"],
+                                         "error": check["error"]})
+            attempts.append({"prompt_artifact": prompt_artifact,
+                             "source_artifact": source_artifact,
+                             "public_failures": len(failures)})
+            if not failures:
+                break
+            if revision == args.max_revisions:
+                raise RuntimeError("candidate did not satisfy public examples: " +
+                                   json.dumps({"attempts": attempts,
+                                               "failures": failures[:5]}))
+            prompt = ("Revise this C11 implementation using only the public spec and "
+                      "its public examples. Return the complete corrected C translation "
+                      "unit.\nPublic spec: " + json.dumps(spec, sort_keys=True) +
+                      "\nPrevious C source:\n" + source +
+                      "\nFailed public checks:\n" + json.dumps(failures[:20]))
         results = []
         for item in held_out:
             original = {**json.loads(store.get(item["artifact"])),
@@ -121,6 +158,7 @@ def main() -> None:
                   "probe_report_artifact": args.probe_report_artifact,
                   "prompt_artifact": prompt_artifact,
                   "source_artifact": source_artifact,
+                  "attempts": attempts,
                   "model": resolved_model, "cases": len(results), "counts": counts,
                   "result_artifacts": [row["artifact"] for row in results],
                   "complete": bool(results) and counts == {"agreement": len(results)}}
