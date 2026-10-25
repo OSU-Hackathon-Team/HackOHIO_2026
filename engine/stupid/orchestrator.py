@@ -218,6 +218,14 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                      "summary": summary,
                      "explored": explored,
                      "searches": search_log[-6:],
+                     "paging": {"fetched_offsets": sorted(
+                         {p["offset"] for p in pages}),
+                         "total": summary["function_count"],
+                         "next_offset": next(
+                             (off for off in range(
+                                 0, summary["function_count"], 100)
+                              if off not in {p["offset"] for p in pages}),
+                             None)} if large else None,
                      "drafted": sorted(drafts),
                      "needs_review": [e for e in sorted(drafts) if e not in reviews],
                      "draft_digest": digest(drafts, ("claims", "unknowns",
@@ -253,23 +261,34 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                     record("noop", {"action": action})
                     noop_streak += 1
             elif kind == "page":
-                if not large or (int(action.get("offset", 0)),
-                                 int(action.get("limit", 100))) in [
-                                     (p["offset"], p.get("limit", 100))
-                                     for p in pages]:
+                if not large:
                     record("noop", {"action": action})
                     noop_streak += 1
                     continue
-                page = tools.inventory_page(
-                    manifest, int(action.get("offset", 0)),
-                    int(action.get("limit", 100)))
+                limit = int(action.get("limit", 100))
+                want = int(action.get("offset", 0))
+                fetched = {(p["offset"], p.get("limit", 100)) for p in pages}
+                if (want, limit) in fetched:
+                    # Agent asked for an already-seen slice: serve intent
+                    # ("keep paging") mechanically with the next unfetched one.
+                    want = next((off for off in range(0, summary["function_count"], limit)
+                                 if (off, limit) not in fetched), None)
+                    if want is None:
+                        record("noop", {"action": action})
+                        noop_streak += 1
+                        continue
+                    advanced = True
+                else:
+                    advanced = False
+                page = tools.inventory_page(manifest, want, limit)
                 pages.append({"offset": page["offset"], "limit": page["limit"],
                               "entries": [f["entry"] for f in page["functions"]]})
                 for f in page["functions"]:
                     explored.setdefault(f["entry"], f)
                 record("page", {"offset": page["offset"],
                                 "returned": len(page["functions"]),
-                                "total": page["total"]})
+                                "total": page["total"],
+                                "advanced": advanced})
                 noop_streak = 0
             elif kind == "neighbors":
                 try:

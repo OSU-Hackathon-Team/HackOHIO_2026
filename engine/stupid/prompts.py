@@ -16,9 +16,9 @@ Reply with exactly one JSON object, no markdown, one of:
 {{"action": "review", "entries": ["0x..."], "reason": "..."}}
 {{"action": "probe", "cases": [{{"kind": "describe what to run"}}], "reason": "..."}}
 {{"action": "done", "scope": ["0x..."], "readiness": "ready_for_spec or partial", "notes": "..."}}
-Rules: for large binaries the inventory is paged: page returns offset/limit/total over the
-address-ordered function list; advance offset by limit until you have seen every slice exactly
-once, and never fetch the same offset twice. Use search_strings to find domain keywords in
+Rules: for large binaries the inventory is paged: state.paging tells you which offsets are
+fetched, the total, and the next_offset to ask for; paging continues automatically even if you
+repeat the page action. Fetch every slice exactly once, then stop paging and analyze. Use search_strings to find domain keywords in
 read-only strings, then neighbors to walk callers/callees from interesting entries; explored
 accumulates everything uncovered. Discovery strategy on stripped binaries: page through the
 list, sample-draft a few non-thunk entries per address region, read draft_digest, then grow
