@@ -108,3 +108,16 @@ hashes make retries safe (re-running same input hash returns same artifact).
 1. May the stupid loop drop Postgres/file-queue durability on this branch (artifacts + rerun suffice)?
 2. May worker agents see demangled/symbol names, or stripped-only like evaluators?
 3. Is "orchestrator decides DONE" acceptable, or must a human still approve `ready_for_spec`?
+
+## 8. Decisions (2026-10-24, user-confirmed)
+
+1. **Durability: files only.** No Postgres on this branch. `ThreadPoolExecutor` fan-out,
+   `LocalArtifactStore` on disk, idempotent hashes make rerun safe.
+2. **Stripped-only workers.** Agents see `FUN_<entry>`-style placeholders + raw bytes and
+   addresses; real/demangled names are held out for evaluation. The tools layer redacts
+   names before handing evidence to agents.
+3. **Agent decides DONE.** The orchestrator agent emits `DONE` + readiness verdict; human
+   reviews after. No human approval inside the loop.
+4. **Live-model gate.** AWS session creds in this environment are expired, so no
+   implementation runs until the user refreshes creds. Skeleton code lands only after a
+   live-model smoke check passes on this branch.
