@@ -133,52 +133,94 @@ def _synthesize_cleanroom_draft(handoff: dict) -> dict:
             "statement": claim["statement"],
             "claim_ids": [claim["id"]]
         })
-    interface = {
-        "inputs": [
-            "A pointer to a byte sequence representing a packet buffer.",
-            "An unsigned 32-bit integer representing the byte length of the packet buffer."
-        ],
-        "outputs": [
-            "A signed 32-bit integer indicating packet acceptance transformed value or an error status code.",
-            "A status code of minus one for format validation failure or invalid checksum.",
-            "A status code of minus two for policy rejection based on packet kind or value."
-        ],
-        "state": [
-            "Cumulative seen packet counter tracking total packets received.",
-            "Cumulative accepted packet counter tracking successfully accepted packets.",
-            "Cumulative rejected packet counter tracking policy-rejected packets.",
-            "Cumulative sum tracking the running sum of all accepted transformed packet values.",
-            "Cumulative low tracking the minimum accepted transformed packet value seen so far.",
-            "Cumulative high tracking the maximum accepted transformed packet value seen so far.",
-            "Cumulative last tracking the most recently accepted transformed packet value.",
-            "Four separate distribution counters tracking counts of accepted values across value ranges."
+    feat_lower = handoff.get("feature", "").lower()
+    if "formula" in feat_lower or "calc" in feat_lower or "compiler" in feat_lower:
+        title = "LibreOffice Calc Formula and Equation Engine Subsystem"
+        purpose = ("Standalone cleanroom behavioral specification for formula expression parsing, "
+                   "operator precedence hierarchy, RPN token compilation, syntax grammar bitmask mapping, "
+                   "and vectorized column array calculation.")
+        interface = {
+            "inputs": [
+                "A string or character sequence representing a formula expression.",
+                "An unsigned 32-bit integer representing the grammar standard and address convention bitmask.",
+                "Optional contiguous arrays of floating-point numbers or strings representing column references."
+            ],
+            "outputs": [
+                "A compiled token array of Reverse Polish Notation (RPN) opcode and literal tokens.",
+                "An evaluated IEEE-754 floating-point scalar, boolean integer, string, or vector result.",
+                "A standard formula error code when syntax or operand types are invalid."
+            ],
+            "state": [
+                "The formula compiler recursive-descent parsing stack and current token stream pointer.",
+                "The registered opcode and symbol translation mapping tables.",
+                "The global or contextual formula grammar bitmask configuration."
+            ]
+        }
+        behavior_steps = [
+            "Initialize RPN bytecode token array and advance lexer token stream.",
+            "Evaluate operator precedence hierarchy from expression comparison down to primary factors.",
+            "Enforce operator precedence with exponentiation binding before multiplication and unary signs.",
+            "Merge adjacent single cell references into area reference rectangles when operands are compatible.",
+            "Emit postfix RPN bytecode tokens onto compiler output array.",
+            "Translate between API grammar flags and internal syntax bitmask with English bit 24 toggling.",
+            "Manage contiguous column vector slices with validity flags for SIMD and threaded evaluation."
         ]
-    }
-    behavior_steps = [
-        "Reset all cumulative telemetry counters and distribution buckets to their clean initial state when reset is requested.",
-        "Validate incoming packet pointer length and leading marker byte.",
-        "Extract packet kind value and flags from the packet buffer.",
-        "Compute the packet checksum across the fields and verify against the packet checksum byte.",
-        "Increment the seen packet counter.",
-        "Enforce packet kind and value policy bounds and increment rejected counter if rejected.",
-        "Scale the accepted packet value by kind and clamp to maximum boundary.",
-        "Classify the transformed value into one of four distribution buckets and update all cumulative state fields.",
-        "Return the final transformed value on success or negative status code on failure."
-    ]
-    acceptance_criteria = [
-        "Passing a null packet or invalid length returns minus one and leaves all cumulative state counters unchanged.",
-        "Passing an invalid checksum byte returns minus one and leaves all cumulative state counters unchanged.",
-        "Passing an out-of-policy kind or value returns minus two and increments seen and rejected counters while leaving accepted unchanged.",
-        "Passing a valid packet returns the clamped scaled value and updates sum low high last and bucket counters in agreement with original behavior."
-    ]
+        acceptance_criteria = [
+            "Expressions with mixed addition and multiplication evaluate multiplication first according to standard arithmetic rules.",
+            "Parentheses override standard operator precedence hierarchy.",
+            "Relational comparisons return numeric boolean results (1.0 for true, 0.0 for false).",
+            "Contiguous vector column slices evaluate correctly over multiple array elements.",
+            "Invalid syntax returns standard FormulaError status without mutating global engine state."
+        ]
+    else:
+        title = "Telemetry Packet Decoder and Aggregator Subsystem"
+        purpose = "Standalone cleanroom behavioral specification for decoding telemetry packets enforcing kind and value policy rules and maintaining aggregate statistics."
+        interface = {
+            "inputs": [
+                "A pointer to a byte sequence representing a packet buffer.",
+                "An unsigned 32-bit integer representing the byte length of the packet buffer."
+            ],
+            "outputs": [
+                "A signed 32-bit integer indicating packet acceptance transformed value or an error status code.",
+                "A status code of minus one for format validation failure or invalid checksum.",
+                "A status code of minus two for policy rejection based on packet kind or value."
+            ],
+            "state": [
+                "Cumulative seen packet counter tracking total packets received.",
+                "Cumulative accepted packet counter tracking successfully accepted packets.",
+                "Cumulative rejected packet counter tracking policy-rejected packets.",
+                "Cumulative sum tracking the running sum of all accepted transformed packet values.",
+                "Cumulative low tracking the minimum accepted transformed packet value seen so far.",
+                "Cumulative high tracking the maximum accepted transformed packet value seen so far.",
+                "Cumulative last tracking the most recently accepted transformed packet value.",
+                "Four separate distribution counters tracking counts of accepted values across value ranges."
+            ]
+        }
+        behavior_steps = [
+            "Reset all cumulative telemetry counters and distribution buckets to their clean initial state when reset is requested.",
+            "Validate incoming packet pointer length and leading marker byte.",
+            "Extract packet kind value and flags from the packet buffer.",
+            "Compute the packet checksum across the fields and verify against the packet checksum byte.",
+            "Increment the seen packet counter.",
+            "Enforce packet kind and value policy bounds and increment rejected counter if rejected.",
+            "Scale the accepted packet value by kind and clamp to maximum boundary.",
+            "Classify the transformed value into one of four distribution buckets and update all cumulative state fields.",
+            "Return the final transformed value on success or negative status code on failure."
+        ]
+        acceptance_criteria = [
+            "Passing a null packet or invalid length returns minus one and leaves all cumulative state counters unchanged.",
+            "Passing an invalid checksum byte returns minus one and leaves all cumulative state counters unchanged.",
+            "Passing an out-of-policy kind or value returns minus two and increments seen and rejected counters while leaving accepted unchanged.",
+            "Passing a valid packet returns the clamped scaled value and updates sum low high last and bucket counters in agreement with original behavior."
+        ]
     exclusions = []
     for exc in handoff.get("excluded_behavior", []):
         name = exc.get("name") or "boundary"
         reason = exc.get("reason") or "outside scope"
         exclusions.append(f"Function {name} is excluded from the subsystem boundary due to {reason}.")
     draft = {
-        "title": "Telemetry Packet Decoder and Aggregator Subsystem",
-        "purpose": "Standalone cleanroom behavioral specification for decoding telemetry packets enforcing kind and value policy rules and maintaining aggregate statistics.",
+        "title": title,
+        "purpose": purpose,
         "interface": interface,
         "requirements": requirements,
         "behavior_steps": behavior_steps,
