@@ -22,7 +22,7 @@ RUN python3 -m venv /opt/venv \
     && git clone https://github.com/mrphrazer/ghidra-headless-mcp.git /opt/ghidra-headless-mcp \
     && cd /opt/ghidra-headless-mcp \
     && git checkout "${GHIDRA_MCP_COMMIT}" \
-    && /opt/venv/bin/pip install --no-cache-dir . 'openai-agents==0.24.0' 'pyghidra==3.2.0'
+    && /opt/venv/bin/pip install --no-cache-dir . 'openai-agents==0.24.0' 'pyghidra==3.2.0' 'boto3==1.43.104'
 
 # LibreOffice target for scripts/lo_pipeline.py: Calc without a GUI, its UNO Python bridge,
 # binutils (nm for companion symbols), Node for REA, Frida for runtime triage.
