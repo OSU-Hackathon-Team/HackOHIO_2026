@@ -16,7 +16,7 @@ from engine.validation.probes import select_original_cases
 from engine.validation.memory_ranges import overlap_claim_errors
 from model_config import get_model
 
-SEMANTIC_PROMPT_VERSION = 9
+SEMANTIC_PROMPT_VERSION = 10
 
 
 def parse_answer(text: str) -> dict:
@@ -186,7 +186,11 @@ def prompt_for(task: dict, scope: dict, evidence: dict, *, max_evidence_bytes: i
         "and query it. Do not turn helper calls, loops, count fields, or resource "
         "cleanup into claims. For a query, say what inputs or conceptual state make "
         "its result true or false. For a mutation, say what caller-visible state "
-        "changes. Put unsupported interpretation in unknowns. The behavior may be "
+        "changes. Do not mention buffers, pointers, fields, offsets, allocation, "
+        "deallocation, scans, or bytes in claim statements. Those are implementation "
+        "details, even if the reviewer previously accepted them. Express a public "
+        "operation's logical rule in terms of tokens, values, and state. "
+        "Put unsupported interpretation in unknowns. The behavior may be "
         "reimplemented in C or any other language. "
         "A valid citation is not proof of correct interpretation. Scope expected "
         "observables are questions to investigate, not claims about this function. Describe "
