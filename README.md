@@ -5,6 +5,46 @@ for the Chat / App library / My app workspace, rebuilding after a pull, and prod
 
 **Architecture:** [DecompPileline.md](DecompPileline.md) defines the subsystem-oriented engine for 16+ workers. [DECOMP_IMPLEMENTATION_PLAN.md](DECOMP_IMPLEMENTATION_PLAN.md) lists the implementation phases and acceptance gates. Evidence export, bounded scopes, semantic attempts, static review, original probes, partial dossiers, and a PostgreSQL task queue are implemented. The full subsystem pipeline and its acceptance gates remain in progress. The commands below also retain the rename diagnostic. The TypeScript app remains under `packages/`; `fixtures/decomp/` contains native evaluation targets.
 
+## Task-directed orchestration and Linux GUI workbench
+
+`launch.py task` gives an OpenCode orchestration agent the user's outcome, supplied input
+artifacts, actual executable inventory, the engine docs, and shell access inside the
+existing Docker orchestrator. The agent selects and runs the existing native/project,
+queue, probe, dossier, and spec pipelines. It can create task-specific request files and
+adapters under the state directory. The controller checks every reported ready public
+spec against its immutable dossier and writer provenance before dispatching a separate
+implementation agent. Several ready subsystem specs may be handed off together. A partial
+or blocked task stops before implementation.
+
+```sh
+docker compose run --rm orchestrator python launch.py task \
+  --task "Bring the Windows Calculator application to Linux as a GUI app" \
+  --input /workspace/path/to/supplied/CalculatorApp.exe
+```
+
+Use `--prepare-only` to inspect the prompt and tool inventory without a model call, or
+`--no-implementation` to stop at the public-spec handoff. Task records and model events
+are saved under `decomp-state/tasks/<run-id>/`. The orchestrator may need an original
+package, a runnable original environment, and GUI observations to reach app-wide
+readiness; the task command does not assert those exist. It records missing capabilities
+and unresolved behavior instead of treating a subsystem spec as a complete app.
+
+For a ready spec, this starts a disposable Linux workbench:
+
+```sh
+python launch.py gui-implement --spec-artifact <sha256> \
+  --task "Bring the application to Linux" --build-image
+```
+
+Its only project-data mount is a
+new workspace containing public spec JSON and the task. It has a C/C++ toolchain,
+Python, package management, Xvfb, screenshots, and UI automation; the agent chooses
+its GUI stack and tests its own app. The candidate under `decomp-state/gui-implementations/`
+is labeled `candidate_unverified` until independent original-behavior and human GUI
+checks; host records live under `decomp-state/gui-implementation-results/`. Run
+`python3 -m unittest discover -s tests -p 'test_task_orchestration.py'` for
+the task gate and mount checks.
+
 ## Project intake
 
 Analyze a group of executable and shared-library modules with one request. Paths are relative to the request file unless absolute. ELF dependency discovery requires `readelf`; the fixture check also requires `gcc` and `strip`:

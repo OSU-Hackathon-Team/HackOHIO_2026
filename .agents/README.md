@@ -118,6 +118,11 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   exposed it. Numeric claims now need explicit operand-width and boundary checks in
   the prompts, and probe-link rationales still require analyst review. See the root
   `README.md` for commands.
+- **Task orchestration and GUI handoff:** `launch.py task` now lets an OpenCode agent
+  choose among the native pipelines for a user outcome. The controller verifies ready
+  public spec provenance, then a separate Linux GUI agent works in a public-only
+  container with build and virtual-display tools. The resulting app is a candidate;
+  original-behavior and human GUI checks remain open.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
   `trace_application_feature` and `binary_session` (live probe; catalog and samples in `fixtures/rea/`),

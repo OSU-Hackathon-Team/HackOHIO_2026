@@ -268,6 +268,21 @@ Acceptance:
 - Choose default pool sizes and model routing from recorded results. Document the point where
   more workers stop helping, including import/serial coordination costs.
 
+## Task-level orchestration and GUI implementation (in progress)
+
+`launch.py task` gives a tool-using agent the user outcome, input hashes, available
+executables, and access to the existing native pipeline commands. It records a durable
+task transcript and must identify partial work explicitly. A controller validates every
+reported ready spec against immutable dossier provenance. Only then does it start a
+second agent in a disposable Linux GUI workbench containing public specs and task text.
+That agent has a shell, compiler, Python, package management, Xvfb, screenshots, and
+UI automation. The GUI language and toolkit are its choice.
+
+This is an orchestration and tool-availability path, not an end-to-end Windows Calculator
+acceptance result. The original Windows application and a runnable observation harness
+still need to be supplied or obtained for that task. The GUI workbench currently records
+an unverified candidate; independent behavior and visual checks remain open.
+
 ## Task lifecycle and failure rules
 
 ```text

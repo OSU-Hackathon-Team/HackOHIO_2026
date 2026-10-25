@@ -26,6 +26,13 @@ visible. Budget exhaustion produces a partial dossier, never a successful comple
 Readiness is relative to the declared boundary and evidence revision; it is not proof that
 all possible runtime behavior was discovered.
 
+A task-level OpenCode agent can now choose among the existing intake, queue, probe,
+dossier, and spec pipelines for a user outcome. Its reported public spec IDs are checked
+against immutable ready dossiers before implementation. The separate Linux GUI agent
+receives only public specs and task text in a disposable workbench with build and virtual
+display tools. The GUI candidate is not an equivalence result; app-wide readiness still
+requires coverage of each requested observable boundary and independent checks.
+
 Specification generation persists a draft for every dossier revision, even when original
 cases are unavailable. Only reviewed, observable claims become draft requirements;
 instruction counts, call-graph bookkeeping, virtual tables, and other compiler mechanics
