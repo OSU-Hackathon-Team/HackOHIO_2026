@@ -26,7 +26,10 @@ class NativeProbeRunner:
         self.adapter = Path(adapter).resolve(strict=True)
         self.timeout = timeout
 
-    def run_case(self, binary: Path, case: dict) -> dict:
+    def run_case(self, binary: Path, case: dict, *, execution_mode: str = "original",
+                 oracle_artifact: str | None = None) -> dict:
+        if execution_mode not in {"original", "candidate"}:
+            raise ValueError("unknown execution mode")
         binary = Path(binary).resolve(strict=True)
         if case["kind"] == "shared":
             command = [sys.executable, str(self.adapter), str(binary)]
@@ -44,6 +47,7 @@ class NativeProbeRunner:
                     "input": case.get("input", case.get("args")),
                     "input_description": case.get("input_description"),
                     "expected": case.get("expected"), "timeout_seconds": self.timeout,
+                    "oracle_artifact": oracle_artifact,
                     "environment": {"LANG": "C", "LC_ALL": "C",
                                     "cpu_seconds": 5, "address_space_bytes": 512 * 1024 * 1024}}
         probe_key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
@@ -75,12 +79,35 @@ class NativeProbeRunner:
             error = str(exc)
         record = {**identity, "observed": observed, "outcome": outcome,
                   "error": error, "elapsed_seconds": round(time.monotonic() - started, 3),
-                  "execution_mode": "original"}
+                  "execution_mode": execution_mode}
         artifact = self.engine.store.put(json.dumps(record, sort_keys=True).encode())
         self.engine._emit(progress_id, "probe_finished", case_id=case["id"],
                           probe_key=probe_key,
                           outcome=outcome, artifact=artifact)
         return {**record, "artifact": artifact}
+
+    def compare_case(self, candidate_binary: Path, original_case: dict) -> dict:
+        """Run a candidate through this runner's adapter against a real oracle record."""
+        original_artifact = original_case.get("artifact")
+        if not isinstance(original_artifact, str):
+            raise ValueError("original case needs an immutable artifact")
+        stored = json.loads(self.engine.store.get(original_artifact))
+        if stored != {key: value for key, value in original_case.items()
+                      if key != "artifact"}:
+            raise ValueError("original case differs from its stored artifact")
+        if (original_case.get("execution_mode") != "original" or
+                original_case.get("outcome") not in {"observed", "agreement"} or
+                original_case.get("observed") is None):
+            raise ValueError("comparison requires a successful original observation")
+        case = {"id": original_case["case_id"], "kind": original_case["kind"],
+                "target": original_case.get("target"),
+                "expected": original_case["observed"]}
+        if case["kind"] == "shared":
+            case["input"] = original_case["input"]
+        else:
+            case["args"] = original_case["input"]
+        return self.run_case(candidate_binary, case, execution_mode="candidate",
+                             oracle_artifact=original_artifact)
 
     def run_suite(self, builds_manifest: Path, cases_file: Path) -> dict:
         builds = json.loads(Path(builds_manifest).read_text())["builds"]
