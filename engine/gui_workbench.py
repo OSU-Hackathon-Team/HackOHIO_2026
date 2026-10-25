@@ -145,7 +145,7 @@ def run_gui_implementation(state: Path, spec_artifacts: list[str], task: str, *,
                 "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_PROFILE"):
         if os.environ.get(key):
             command += ["--env", key]
-    # The only host filesystem mounts are the public workspace and OpenCode credentials.
+    # Target binaries and private artifacts are never mounted into the GUI container.
     command += [IMAGE, "python3", "-c", (
         "import pathlib,subprocess,sys; "
         "prompt=pathlib.Path('/work/INSTRUCTIONS.md').read_text(); "
