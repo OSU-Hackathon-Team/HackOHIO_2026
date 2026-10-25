@@ -131,3 +131,30 @@ class NativeProbeRunner:
                   "complete": len(results) > 0 and counts.get("agreement", 0) == len(results)}
         artifact = self.engine.store.put(json.dumps(report, sort_keys=True).encode())
         return {**report, "artifact": artifact}
+
+
+def select_original_cases(store, report: dict, binary_sha256: str,
+                          target: str | None) -> list[dict]:
+    """Load matching immutable original observations for a function."""
+    if (report.get("schema") != 1 or not isinstance(report.get("results"), list) or
+            not target):
+        return []
+    selected = []
+    for item in report["results"]:
+        if (item.get("target") != target or
+                item.get("binary_sha256") != binary_sha256 or
+                item.get("execution_mode") != "original"):
+            continue
+        if item.get("outcome") not in {"agreement", "observed"}:
+            return []
+        try:
+            original = json.loads(store.get(item["artifact"]))
+        except (ValueError, KeyError, TypeError, FileNotFoundError):
+            return []
+        if any(original.get(key) != item.get(key) for key in
+               ("case_id", "target", "binary_sha256", "input", "observed",
+                "outcome", "execution_mode", "runner_sha256", "adapter_sha256")):
+            return []
+        selected.append({"case_id": item["case_id"], "input": item["input"],
+                         "observed": item["observed"], "artifact": item["artifact"]})
+    return selected

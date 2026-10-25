@@ -10,6 +10,7 @@ import uuid
 from engine.analysis.ghidra import GhidraAnalysis
 from engine.citations import evidence_addresses, normalize_references
 from engine.model_runtime import invoke_opencode
+from engine.validation.probes import select_original_cases
 from engine.queue import DurableQueue
 from engine.worker import parse_answer
 from model_config import get_model
@@ -57,32 +58,6 @@ def validate_gap_answer(answer: dict, review: dict, evidence: dict,
     if actual != expected:
         errors.append("gap answer omits or duplicates review items")
     return errors
-
-
-def select_original_cases(store, report: dict, binary_sha256: str,
-                          target: str | None) -> list[dict]:
-    if (report.get("schema") != 1 or not isinstance(report.get("results"), list) or
-            not target):
-        return []
-    selected = []
-    for item in report["results"]:
-        if (item.get("target") != target or
-                item.get("binary_sha256") != binary_sha256 or
-                item.get("execution_mode") != "original"):
-            continue
-        if item.get("outcome") != "agreement":
-            return []
-        try:
-            original = json.loads(store.get(item["artifact"]))
-        except (ValueError, KeyError, TypeError, FileNotFoundError):
-            return []
-        if any(original.get(key) != item.get(key) for key in
-               ("case_id", "target", "binary_sha256", "input", "observed",
-                "outcome", "execution_mode", "runner_sha256", "adapter_sha256")):
-            return []
-        selected.append({"case_id": item["case_id"], "input": item["input"],
-                         "observed": item["observed"], "artifact": item["artifact"]})
-    return selected
 
 
 def matching_original_cases(queue: DurableQueue, task: dict, report: dict,

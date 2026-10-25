@@ -10,6 +10,7 @@ import argparse
 import json
 from pathlib import Path
 import random
+import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -48,6 +49,34 @@ def grammar_cases() -> list[dict]:
             for index, (symbol, args) in enumerate(inputs)]
 
 
+def claim_boundary_cases(engine: GhidraAnalysis, scope_artifact: str) -> list[dict]:
+    progress = engine.root / "runs" / scope_artifact / "progress.json"
+    if not progress.exists():
+        return []
+    rows = json.loads(progress.read_text())["subjects"]
+    scope = json.loads(engine.store.get(scope_artifact))
+    names = {item["entry"]: item["name"] for item in scope["included"]}
+    cases = []
+    for subject, row in rows.items():
+        symbol = names.get(subject)
+        if symbol not in {"isSupported", "setEnglishBit"} or not row.get("draft_artifact"):
+            continue
+        draft = json.loads(engine.store.get(row["draft_artifact"]))
+        constants = {int(token) for claim in draft["answer"]["claims"]
+                     for token in re.findall(r"\b\d+\b", claim["statement"])
+                     if 32 < int(token) < 2**32}
+        for value in sorted(constants):
+            for boundary in (value - 1, value, value + 1):
+                if not 0 <= boundary < 2**32:
+                    continue
+                for flag in ((False, True) if symbol == "setEnglishBit" else (None,)):
+                    arguments = [boundary] if flag is None else [boundary, flag]
+                    cases.append({"id": f"boundary-{symbol}-{boundary}-{flag}",
+                                  "kind": "shared", "target": symbol,
+                                  "input": {"symbol": symbol, "args": arguments}})
+    return cases
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path,
@@ -55,6 +84,8 @@ def main() -> None:
     parser.add_argument("--state", type=Path, default=Path("decomp-state"))
     parser.add_argument("--headless", type=Path,
                         default=Path("/opt/ghidra/support/analyzeHeadless"))
+    parser.add_argument("--expand-claims", action="store_true",
+                        help="probe boundaries from current semantic claims")
     args = parser.parse_args()
     engine = GhidraAnalysis(args.state, args.headless, warm_workers=0)
     manifest = engine.analyze(args.binary)
@@ -68,9 +99,24 @@ def main() -> None:
                        "unresolved": len(scope["unresolved"])})
     runner = NativeProbeRunner(
         engine, Path(__file__).with_name("calc_grammar_probe_adapter.py"))
-    observations = [runner.run_case(args.binary, case) for case in grammar_cases()]
+    cases = grammar_cases()
+    if args.expand_claims:
+        grammar_scope = next(item["artifact"] for item in scopes
+                             if item["name"] == "formula grammar")
+        cases.extend(claim_boundary_cases(engine, grammar_scope))
+    unique, seen = [], set()
+    for case in cases:
+        key = json.dumps(case["input"], sort_keys=True)
+        if key not in seen:
+            unique.append(case)
+            seen.add(key)
+    cases = unique
+    observations = [runner.run_case(args.binary, case) for case in cases]
+    probe_report_artifact = engine.store.put(json.dumps(
+        {"schema": 1, "results": observations}, sort_keys=True).encode())
     report = {"schema": 1, "campaign": manifest["campaign"],
               "scopes": scopes, "observations": [item["artifact"] for item in observations],
+              "probe_report_artifact": probe_report_artifact,
               "observation_count": sum(item["outcome"] == "observed" for item in observations),
               "execution_errors": [item["case_id"] for item in observations
                                    if item["outcome"] == "execution_error"],
