@@ -8,6 +8,7 @@ import { step1Router } from "./routes/step1/index.js";
 import { step2Router } from "./routes/step2/index.js";
 import { step3Router } from "./routes/step3/index.js";
 import { nativeSpecsRouter } from "./routes/nativeSpecs.js";
+import { decompRunsRouter } from "./routes/decompRuns.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -41,6 +42,7 @@ app.use(step1Router); // Eng 1 (REA):            /api/health, /api/pantry
 app.use(step2Router); // Eng 2 (Requirements):   /api/extract, /api/specs
 app.use(step3Router); // Eng 3 (Implementation): /api/implement, /api/blueprints, /api/synthesize, /api/refine
 app.use(nativeSpecsRouter); // Native dossier-to-spec handoff
+app.use(decompRunsRouter()); // UI-triggered native decomp runs on the EC2 worker: /api/decomp/*
 
 // ==============================================================================
 // 3. API 404 Guard

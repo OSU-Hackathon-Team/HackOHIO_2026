@@ -7,11 +7,15 @@ import {
   type SynthesisBundle,
 } from "@splice/contracts";
 import { requestBuilderEdits } from "../../builder/api";
+import { api } from "../../api/client";
 import {
   IDE_TARGETS,
   IDE_FEATURES,
   IDE_DEFAULT_BUNDLE,
+  type DecompiledTarget,
+  type IdeFeatureRecord,
 } from "../data/ideFixtures";
+import { applyDecompEvent, initialRunView, nativeSpecToLibrary, type DecompRunView } from "../data/liveNative";
 
 export type ActivityId =
   | "chat"
@@ -206,6 +210,14 @@ export interface IdeState {
   undoLayout(): void;
   redoLayout(): void;
 
+  // Live native decompilation: specs from GET /api/native-specs, runs via /api/decomp/*
+  liveNativeTargets: DecompiledTarget[];
+  liveNativeFeatures: IdeFeatureRecord[];
+  decompRun: DecompRunView | null;
+  loadLiveNativeSpecs(): Promise<void>;
+  startDecompRun(targetId: string, maxFunctions: number): Promise<void>;
+  followDecompRun(runId: string): Promise<void>;
+
   // Verification & Copilot
   appendLog(stage: TerminalLogEntry["stage"], text: string): void;
   runAllVerificationTests(): Promise<void>;
@@ -337,6 +349,9 @@ export const useIdeStore = create<IdeState>((set, get) => ({
   studioSubMode: "canvas",
   includedFeatureIds: ["inkwell.wikilink_graph", "recall.sm2_scheduler"],
   nativeHandoff: null,
+  liveNativeTargets: [],
+  liveNativeFeatures: [],
+  decompRun: null,
   bundle: IDE_DEFAULT_BUNDLE,
   layout: INITIAL_LAYOUT,
   pastLayouts: [],
@@ -842,6 +857,46 @@ export const useIdeStore = create<IdeState>((set, get) => ({
 
   setNativeHandoff(spec: FeatureSpec, blueprint: FeatureBlueprint) {
     set({ nativeHandoff: { spec, blueprint } });
+  },
+
+  async loadLiveNativeSpecs() {
+    if (!api.listNativeSpecs) return;
+    try {
+      const entries = (await api.listNativeSpecs()).map(({ artifact, spec }) => nativeSpecToLibrary(artifact, spec));
+      set({ liveNativeTargets: entries.map((e) => e.target), liveNativeFeatures: entries.map((e) => e.feature) });
+    } catch (error) {
+      // Keep the bundled fixtures only; say so instead of silently substituting mock data.
+      get().appendLog("system", `Live native specifications unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+
+  async startDecompRun(targetId, maxFunctions) {
+    if (!api.startDecompRun) throw new Error("This API mode cannot start decompilation runs.");
+    const run = await api.startDecompRun({ target_id: targetId, max_functions: maxFunctions, confirm_cost: true });
+    set({ decompRun: initialRunView(run.run_id), bottomPanelOpen: true, bottomPanelTab: "terminal" });
+    get().appendLog("decompiler", `Started native decompilation run ${run.run_id} (${maxFunctions} functions).`);
+    await get().followDecompRun(run.run_id);
+  },
+
+  async followDecompRun(runId) {
+    if (!api.streamDecompRun) return;
+    if (get().decompRun?.runId !== runId) set({ decompRun: initialRunView(runId) });
+    try {
+      await api.streamDecompRun(runId, (event) => {
+        const current = get().decompRun;
+        if (!current || current.runId !== runId) return;
+        set({ decompRun: applyDecompEvent(current, event) });
+        if (event.type === "stage") get().appendLog("decompiler", event.message);
+        if (event.type === "log") get().appendLog("decompiler", event.line);
+        if (event.type === "error") get().appendLog("system", `Decompilation: ${event.message}`);
+      });
+      if (get().decompRun?.ok) await get().loadLiveNativeSpecs();
+    } catch (error) {
+      const current = get().decompRun;
+      if (current?.runId === runId) {
+        set({ decompRun: { ...current, error: error instanceof Error ? error.message : String(error) } });
+      }
+    }
   },
 
   cancelCopilotPrompt() {

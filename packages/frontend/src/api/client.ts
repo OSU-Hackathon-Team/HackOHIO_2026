@@ -1,10 +1,10 @@
 import {
   Pantry, PipelineEvent, SynthEvent, HealthResponse, FeatureBlueprint,
-  NativeSubsystemSpec, FeatureSpec,
-  type RefineRequest,
+  NativeSubsystemSpec, FeatureSpec, DecompTarget, DecompRun, DecompRunEvent,
+  type DecompRunRequest, type RefineRequest,
 } from "@splice/contracts";
 import { z } from "zod";
-import { streamPost } from "./sse";
+import { streamGet, streamPost } from "./sse";
 import { mockApi } from "./mock";
 
 export interface Api {
@@ -42,6 +42,10 @@ export interface Api {
     req: { spec?: NativeSubsystemSpec; artifact?: string; feature_id?: string },
     signal?: AbortSignal
   ): Promise<FeatureSpec>;
+  /** UI-triggered native decompilation on the EC2 worker (backend: routes/decompRuns.ts). */
+  decompTargets?(signal?: AbortSignal): Promise<{ enabled: boolean; targets: DecompTarget[] }>;
+  startDecompRun?(req: DecompRunRequest, signal?: AbortSignal): Promise<DecompRun>;
+  streamDecompRun?(runId: string, on: (e: DecompRunEvent) => void, signal?: AbortSignal): Promise<void>;
 }
 
 async function getJson(url: string, signal?: AbortSignal): Promise<unknown> {
@@ -123,6 +127,23 @@ export const liveApi: Api = {
     }).parse(await res.json());
     return data.spec ?? data.feature_spec!;
   },
+  async decompTargets(signal) {
+    return z.object({ enabled: z.boolean(), targets: z.array(DecompTarget) })
+      .parse(await getJson("/api/decomp/targets", signal));
+  },
+  async startDecompRun(req, signal) {
+    const res = await fetch("/api/decomp/runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+      signal,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((data as { error?: string }).error ?? `/api/decomp/runs: ${res.status}`);
+    return z.object({ run: DecompRun }).parse(data).run;
+  },
+  streamDecompRun: (runId, on, signal) =>
+    streamGet(`/api/decomp/runs/${encodeURIComponent(runId)}/events`, on, { signal, schema: DecompRunEvent }),
 };
 
 export const developmentMode =

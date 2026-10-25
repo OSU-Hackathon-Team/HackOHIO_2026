@@ -27,6 +27,7 @@ import {
 import { IDE_TARGETS, IDE_FEATURES } from "./data/ideFixtures";
 import { useIdeStore } from "./store/useIdeStore";
 import { WorkspaceButton } from "./WorkspaceButton";
+import { AnalyzeNative } from "./AnalyzeNative";
 import { cn } from "../lib/cn";
 import { api, developmentMode } from "../api/client";
 import { mockApi } from "../api/mock";
@@ -40,9 +41,17 @@ export function AppLibrary() {
   const toggle = useIdeStore((s) => s.toggleFeatureInBuild);
   const select = (id: string) =>
     useIdeStore.setState({ selectedFeatureId: id });
-  const feature = IDE_FEATURES.find((f) => f.featureId === selectedId);
-  const target = IDE_TARGETS.find((a) => a.id === feature?.targetId);
+  // Bundled fixtures plus specs from live decompilation runs (GET /api/native-specs).
+  const liveTargets = useIdeStore((s) => s.liveNativeTargets);
+  const liveFeatures = useIdeStore((s) => s.liveNativeFeatures);
+  const allTargets = [...IDE_TARGETS, ...liveTargets];
+  const allFeatures = [...IDE_FEATURES, ...liveFeatures];
+  useEffect(() => { void useIdeStore.getState().loadLiveNativeSpecs(); }, []);
+  const feature = allFeatures.find((f) => f.featureId === selectedId);
+  const target = allTargets.find((a) => a.id === feature?.targetId);
   const isNativeTarget = target?.engineKind === "ghidra_native";
+  // The backend adapter refuses draft specs (evidence incomplete), so reconstruction is not offered.
+  const isDraftSpec = target?.nativeSpec?.status === "draft";
 
   const available =
     feature &&
@@ -59,7 +68,7 @@ export function AppLibrary() {
   const [nativeSpecTab, setNativeSpecTab] = useState<"requirements" | "probes" | "spec">("requirements");
 
   const handleReconstructEngine = async () => {
-    if (!feature || !target || reconstructing) return;
+    if (!feature || !target || reconstructing || isDraftSpec) return;
     setReconstructing(true);
     setReconstructStage("Adapting native specification...");
     setReconstructProgress("Connecting NativeSubsystemSpec to FeatureSpec adapter...");
@@ -156,15 +165,16 @@ export function AppLibrary() {
           <div className="mb-5 flex items-center justify-between text-xs text-stone-400">
             <span>Source applications</span>
             <span className="tabular-nums">
-              {IDE_TARGETS.length} applications
+              {allTargets.length} applications
             </span>
           </div>
+          <AnalyzeNative />
           <DisclosureGroup
             allowsMultipleExpanded
             className="divide-y divide-stone-800"
           >
-            {IDE_TARGETS.map((app) => {
-              const features = IDE_FEATURES.filter(
+            {allTargets.map((app) => {
+              const features = allFeatures.filter(
                 (f) => f.targetId === app.id,
               );
               const isNative = app.engineKind === "ghidra_native";
@@ -265,8 +275,9 @@ export function AppLibrary() {
             })}
           </DisclosureGroup>
           <p className="mt-8 text-xs leading-5 text-stone-500">
-            Bundled example applications. These are not results from an
-            application you uploaded.
+            {liveTargets.length
+              ? "Bundled example applications, plus results from your native decompilation runs."
+              : "Bundled example applications. These are not results from an application you uploaded."}
           </p>
         </section>
         <section
@@ -321,7 +332,7 @@ export function AppLibrary() {
                     <div className="flex items-center gap-2">
                       <WorkspaceButton
                         primary
-                        isDisabled={reconstructing}
+                        isDisabled={reconstructing || isDraftSpec}
                         onPress={handleReconstructEngine}
                         className="bg-indigo-600 hover:bg-indigo-500 text-white font-medium"
                       >
@@ -351,6 +362,14 @@ export function AppLibrary() {
                       )}
                     </div>
                   </div>
+
+                  {isDraftSpec && (
+                    <p className="mt-3 flex items-center gap-2 text-xs text-amber-300/90">
+                      <LockKeyhole className="size-3.5" aria-hidden="true" />
+                      Draft specification: the evidence is incomplete, so it cannot be reconstructed yet.
+                      Its requirements and observed cases are shown below.
+                    </p>
+                  )}
 
                   {/* Live Reconstruction Streaming Status */}
                   {(reconstructing || reconstructStage || reconstructError) && (
