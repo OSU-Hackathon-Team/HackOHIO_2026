@@ -296,7 +296,7 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
             halt = False
 
             def step(action: dict) -> None:
-                nonlocal noop_streak, halt, final
+                nonlocal noop_streak, halt, final, exports_listed
                 kind = action.get("action")
                 if kind == "decompile":
                     work = effective(action.get("entries", []), {})
