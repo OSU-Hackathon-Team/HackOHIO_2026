@@ -1,7 +1,8 @@
 // Owner: Eng 3 (Implementation) — spec: agents/3_feature_implementation/01_engine_implementation.md §1-2
 // The implementer sees ONLY the spec: never provenance.snippets (original source) or oracle.adapter_code.
 import { z } from "zod";
-import type { FeatureSpec } from "@splice/contracts";
+import type { FeatureSpec, SourceSnippet } from "@splice/contracts";
+import { snippetPath } from "../spec/formatEvidence.js";
 
 export const EngineDraft = z.object({
   portable_code: z.string().min(1),
