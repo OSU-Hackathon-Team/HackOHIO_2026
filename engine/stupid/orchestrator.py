@@ -110,14 +110,27 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                     seen.append(key)
             return seen
 
+        redraft_counts: dict[str, int] = {}
+
         def decompile(entries: list[str]) -> None:
             def one(entry: str) -> tuple[str, dict]:
                 key = tools.resolve_entry(manifest, entry)
                 pack = tools.read_function(manifest, key)
-                text = model_fn(prompts.DECOMP.format(
+                prompt = prompts.DECOMP.format(
                     goal=goal, entry=entry,
-                    evidence=json.dumps(pack["evidence"])[:60000]),
-                    role="decomp_worker")
+                    evidence=json.dumps(pack["evidence"])[:60000])
+                if key in drafts:
+                    prior = drafts[key]
+                    review = reviews.get(key, {})
+                    prompt += ("\nA previous draft of this function was reviewed "
+                               f"as: {review.get('verdict', 'unreviewed')}. "
+                               "Reviewer reasons (untrusted, verify each against "
+                               "the raw evidence): " +
+                               json.dumps(review.get("reasons", []))[:4000] +
+                               "\nPrior claims (untrusted, repair or replace with "
+                               "better-evidenced claims): " +
+                               json.dumps(prior.get("claims", []))[:6000])
+                text = model_fn(prompt, role="decomp_worker")
                 draft = parse_json(text)
                 draft["entry"] = key
                 draft["evidence_artifact"] = pack["artifact"]
@@ -287,15 +300,25 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                 kind = action.get("action")
                 if kind == "decompile":
                     work = effective(action.get("entries", []), {})
-                    if work:
-                        for e in work:
-                            if e in drafts:
-                                record("redraft", {"entry": e,
-                                                   "cleared_review": e in reviews})
-                                reviews.pop(e, None)
-                        decompile(work)
+                    fresh = []
+                    for e in work:
+                        if e in drafts:
+                            if redraft_counts.get(e, 0) >= 4:
+                                record("redraft_exhausted",
+                                       {"entry": e,
+                                        "note": "repair budget spent; widen instead"})
+                                noop_streak += 1
+                                continue
+                            redraft_counts[e] = redraft_counts.get(e, 0) + 1
+                            record("redraft", {"entry": e,
+                                               "attempt": redraft_counts[e],
+                                               "cleared_review": e in reviews})
+                            reviews.pop(e, None)
+                        fresh.append(e)
+                    if fresh:
+                        decompile(fresh)
                         noop_streak = 0
-                    else:
+                    elif not work:
                         record("noop", {"action": action})
                         noop_streak += 1
                 elif kind == "review":
