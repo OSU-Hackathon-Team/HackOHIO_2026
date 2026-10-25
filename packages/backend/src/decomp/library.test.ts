@@ -238,7 +238,7 @@ test("publishing imported evidence checks artifact hashes and selects only publi
       functions: analysis.functions, observed_cases: analysis.observed_cases, held_out_cases: ["SECRET"] }));
     const run: DecompRun = { run_id: analysis.id, target_id: summary.target_id, max_functions: 1,
       stage: "complete", started_at: 1, finished_at: 2, ok: true, result: summary.result };
-    const progress = JSON.stringify({ stage: "function_exported", address: "00100000", artifact: digest });
+    const progress = JSON.stringify({ stage: "function_cache_hit", address: "00100000", artifact: digest });
     await publishImportedAnalysis(store, run, summary.result, state, state, progress);
     assert.equal((await store.analysis(run.run_id)).functions[0].decompilation, "int f() { return 1; }");
     assert.equal(JSON.stringify(await store.analysis(run.run_id)).includes("SECRET"), false);

@@ -5,6 +5,11 @@ for the Chat / App library / My app workspace, rebuilding after a pull, and prod
 
 **Architecture:** [DecompPileline.md](DecompPileline.md) defines the subsystem-oriented engine for 16+ workers. [DECOMP_IMPLEMENTATION_PLAN.md](DECOMP_IMPLEMENTATION_PLAN.md) lists the implementation phases and acceptance gates. Evidence export, bounded scopes, semantic attempts, static review, original probes, partial dossiers, and a PostgreSQL task queue are implemented. The full subsystem pipeline and its acceptance gates remain in progress. The commands below also retain the rename diagnostic. The TypeScript app remains under `packages/`; `fixtures/decomp/` contains native evaluation targets.
 
+**Private S3 cache:** Studio's EC2 native runner can use an opt-in `cache/v1/` namespace for
+content-addressed artifacts, exact scoped indexes and function exports, reviewed semantic
+work, and generated specs. See [the cache guide](docs/decomp-s3-cache.md) for identity,
+permissions, activation, and the stages that still run for each campaign.
+
 ## Project intake
 
 Analyze a group of executable and shared-library modules with one request. Paths are relative to the request file unless absolute. ELF dependency discovery requires `readelf`; the fixture check also requires `gcc` and `strip`:

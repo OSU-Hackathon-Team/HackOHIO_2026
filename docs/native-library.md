@@ -4,6 +4,10 @@ The App library reads a private S3 catalog through the backend. No Docker volume
 disk is required. The catalog works while the analysis worker is stopped and does not require
 local analysis files after publication.
 
+`library/` is distinct from the private engine `cache/v1/` namespace. The latter can restore
+analyst-side evidence and reviewed work in later runs, but the API never serves cache objects.
+See `decomp-s3-cache.md` for activation and identity rules.
+
 Set `DECOMP_LIBRARY_BUCKET` on the backend, or reuse its `DECOMP_EC2_BUCKET`. The backend's AWS
 identity needs `s3:ListBucket` for `library/*` and `s3:GetObject` / `s3:PutObject` on
 `arn:aws:s3:::<bucket>/library/*`. Keep the bucket private. Browsers receive selected data through

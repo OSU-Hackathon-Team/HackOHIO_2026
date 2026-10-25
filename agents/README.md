@@ -8,6 +8,9 @@
 For native decompilation architecture, scope, concurrency, completion policy, and validation,
 [../DecompPileline.md](../DecompPileline.md) takes precedence over the older demo plan below.
 Implement it using [../DECOMP_IMPLEMENTATION_PLAN.md](../DECOMP_IMPLEMENTATION_PLAN.md).
+For native S3 cache work, follow [../docs/decomp-s3-cache.md](../docs/decomp-s3-cache.md):
+the cache is private analyst-side state, separate from the public Studio library and the
+implementer handoff. Cache reuse does not promote dossier or spec readiness.
 The engine must support 16+ parallel reasoning workers, prioritize subsystem requests, and
 produce evidence-backed behavioral dossiers suitable for specification writing. Compilable
 reconstructed C and exhaustive variable renaming are not completion requirements.

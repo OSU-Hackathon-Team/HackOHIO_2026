@@ -45,6 +45,10 @@ Python package and expose orchestration through `launch.py`; retain `model_confi
 role resolver. A future API client may consume engine job state after contract work.
 Use PostgreSQL for tasks, attempts, claims, dependency indexes, and outbox events. Begin with
 local immutable artifacts behind a storage interface, then add shared storage for remote workers.
+The Studio EC2 runner now has an opt-in private S3 artifact and stage cache, described in
+`docs/decomp-s3-cache.md`. Its worker-role IAM change and live cache-enabled run remain a
+separate rollout gate. The PostgreSQL multi-host queue and Ghidra baseline sharing are not
+provided by this cache.
 
 Engine layout (some components are still planned):
 

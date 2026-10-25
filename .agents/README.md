@@ -41,7 +41,9 @@ The user picks features from a pantry of desktop apps. The pipeline then runs th
 ## Where the truth lives (in priority order)
 
 For **native / subsystem decompilation** work: `DecompPileline.md` first, then
-`DECOMP_IMPLEMENTATION_PLAN.md`. `docs/archive/` is historical context only. For the
+`DECOMP_IMPLEMENTATION_PLAN.md`. For shared S3 cache work also read
+`docs/decomp-s3-cache.md` before changing the engine or EC2 runner. `docs/archive/` is
+historical context only. For the
 **Splice app**:
 
 1. **`agents/CONTRACTS.md`** + **`packages/contracts/src/`**: every type passed between
@@ -118,6 +120,12 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   exposed it. Numeric claims now need explicit operand-width and boundary checks in
   the prompts, and probe-link rationales still require analyst review. See the root
   `README.md` for commands.
+- **Native S3 cache (scoped branch work):** `cache/v1/` is a private, content-addressed
+  analyst cache separate from run archives and the Studio library. The worker can reuse exact
+  campaign function evidence, reviewed semantic records, and native specs after hash and
+  schema checks; runtime triage and original LibreOffice observations still run. Activation
+  requires `DECOMP_CACHE_ENABLED=1` and worker-role permissions on `cache/v1/*`. See
+  `docs/decomp-s3-cache.md` for the current boundary and rollout steps.
 - **Cleanroom implementation workbench (opt-in, `decomp-dev`):** `engine/broker.py`,
   `engine/workbench.py`, `scripts/cleanroom_broker_client.py`, and `implementer.Dockerfile` implement
   a public-only implementation container with full bash and a public self-test harness. The

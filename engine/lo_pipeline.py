@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 import fnmatch
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -24,15 +25,82 @@ import time
 from typing import Callable
 
 from engine.analysis.rea import RuntimeTracer, ReaSession, spawn_triage, static_triage
+from engine.analysis.ghidra import file_hash
 from engine.analysis.scoped import symbol_inventory, prepared_readers
 from engine.libreoffice import (UNO_DRIVER, UnoDriver, formula_input, matches, observe_cases,
                                 probe_report, resolve_targets, split_cases)
 from engine.models import ScopeRequest
+from model_config import get_model
 
 DEFAULT_FRIDA_PATTERNS = ["*ScInterpreter*", "*ScCompiler*", "*FormulaCompiler*"]
 OBSERVATION_FORMAT = ("a JSON object with value (a number) for numeric results, text (a string) for "
                       "text results, or both error (the numeric LibreOffice error code) and text "
                       "(its display string such as #DIV/0!) for errors.")
+
+
+def _materialize_cached_result(root: Path, store, kind: str, result: dict) -> None:
+    """Keep reused model records in the normal archive without charging old tokens again."""
+    def hydrate(value):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key.endswith("_artifact") and isinstance(child, str) and len(child) == 64:
+                    store.get(child)
+                else:
+                    hydrate(child)
+        elif isinstance(value, list):
+            for child in value:
+                hydrate(child)
+    hydrate(result)
+    identifier = result["attempt_id" if kind == "attempts" else "review_id"]
+    if not isinstance(identifier, str) or re.fullmatch(r"[a-f0-9]{32}", identifier) is None:
+        raise RuntimeError("invalid cached model record identity")
+    folder = root / kind / identifier
+    folder.mkdir(parents=True, exist_ok=True)
+    record = {**result, "cache_reused": True,
+              "usage": {key: 0 for key in ("input", "output", "reasoning", "cost")}}
+    (folder / "result.json").write_text(json.dumps(record, indent=2) + "\n")
+
+
+def _restore_cached_analysis(engine, cache, identity: dict, entry: str,
+                             evidence: dict) -> dict | None:
+    saved = cache.get("semantic_review", identity)
+    if saved is None:
+        engine._emit(identity["campaign"], "semantic_cache_miss", subject=entry)
+        return None
+    from engine.worker import validate_answer
+    from engine.validation.review import validate_review
+    draft_artifact = saved.get("draft_artifact")
+    review_artifact = saved.get("review_artifact")
+    draft = json.loads(engine.store.get(draft_artifact))
+    review = json.loads(engine.store.get(review_artifact))
+    if (draft.get("campaign") != identity["campaign"] or
+            draft.get("scope_artifact") != identity["scope_artifact"] or
+            draft.get("subject") != entry or
+            draft.get("evidence_artifact") != identity["evidence_artifact"] or
+            draft.get("model") != identity["semantic_model"] or
+            draft.get("state") != "unreviewed" or
+            draft.get("structural_errors") != [] or
+            validate_answer(draft.get("answer") or {}, evidence) or
+            review.get("draft_artifact") != draft_artifact or
+            review.get("campaign") != identity["campaign"] or
+            review.get("subject") != entry or
+            review.get("evidence_artifact") != identity["evidence_artifact"] or
+            review.get("model") != identity["review_model"] or
+            review.get("state") != "reviewed" or
+            review.get("structural_errors") != [] or
+            validate_review(review.get("answer") or {}, evidence,
+                            len(draft["answer"]["claims"]))):
+        raise RuntimeError("S3 semantic/review cache failed validation")
+    _materialize_cached_result(engine.root, engine.store, "attempts",
+                               {**draft, "artifact": draft_artifact})
+    _materialize_cached_result(engine.root, engine.store, "reviews",
+                               {**review, "artifact": review_artifact})
+    engine._emit(identity["campaign"], "semantic_cache_hit", subject=entry,
+                 artifact=draft_artifact)
+    engine._emit(identity["campaign"], "review_cache_hit", subject=entry,
+                 artifact=review_artifact)
+    return {"entry": entry, "draft": {**draft, "artifact": draft_artifact},
+            "review": {**review, "artifact": review_artifact}}
 
 
 @dataclass
@@ -307,9 +375,32 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
     log(f"[scope] {len(scope['included'])} functions from {len(seeds)} seeds")
 
     per_entry = observations_by_entry(runtime_cases, public)
+    cache = getattr(engine, "cache", None)
+    model_revision = ({str(path.relative_to(Path(__file__).parent)): file_hash(path)
+                       for path in sorted(Path(__file__).parent.rglob("*.py"))}
+                      if cache else {})
+    opencode = getattr(deps.worker, "opencode", None)
+    runtime_revision = file_hash(Path(opencode)) if cache and opencode and Path(opencode).is_file() else None
 
     def analyse(entry: str) -> dict:
         observations = per_entry.get(int(entry, 16))
+        cache_identity = None
+        if cache and not config.investigate:
+            evidence = engine.function(manifest, entry)
+            pointer = Path(manifest["project"]) / "functions" / (entry.replace(":", "_") + ".json")
+            evidence_artifact = json.loads(pointer.read_text())["artifact"]
+            cache_identity = {"schema": 1, "campaign": manifest["campaign"],
+                              "scope_artifact": scope_artifact, "entry": entry,
+                              "evidence_artifact": evidence_artifact,
+                              "runtime_observations": observations,
+                              "semantic_model": get_model("decomp_worker"),
+                              "review_model": get_model(config.review_model_role),
+                              "max_evidence_bytes": getattr(deps.worker, "max_evidence_bytes", None),
+                              "code_sha256": model_revision,
+                              "opencode_sha256": runtime_revision}
+            reused = _restore_cached_analysis(engine, cache, cache_identity, entry, evidence)
+            if reused is not None:
+                return reused
         draft = deps.worker.run(manifest, scope_artifact, entry, runtime_observations=observations)
         if draft["state"] != "unreviewed":
             return {"entry": entry, "draft": draft, "review": None}
@@ -327,6 +418,9 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
                     if second["state"] == "reviewed":
                         return {"entry": entry, "draft": revised, "review": second,
                                 "investigation": investigation["artifact"]}
+        if cache_identity and review["state"] == "reviewed":
+            cache.put("semantic_review", cache_identity,
+                      {"draft_artifact": draft["artifact"], "review_artifact": review["artifact"]})
         return {"entry": entry, "draft": draft, "review": review}
 
     entries = [item["entry"] for item in scope["included"]]
@@ -382,8 +476,37 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
     summary["handoff"] = build_handoff(engine.store, analysed, scope, public, observations,
                                        case_links=case_links, case_input=config.case_input,
                                        case_display=config.case_display)
-    summary["spec"], error = timed("spec", lambda: spec_for_dossier(
-        deps.persist_spec, engine.store, engine.root, dossier))
+    def write_spec():
+        if cache is None or dossier["readiness"] not in ("ready_for_spec", "partial"):
+            return spec_for_dossier(deps.persist_spec, engine.store, engine.root, dossier)
+        from engine.specification import SCRIPT, WRITER, writer_revision
+        identity = {"dossier_artifact": dossier["artifact"],
+                    "writer_revision": writer_revision(), "model": get_model("spec_writer"),
+                    "writer_available": WRITER.exists() and SCRIPT.exists(),
+                    "llm_mode": os.environ.get("LLM_MODE")}
+        saved = cache.get("native_spec", identity)
+        if saved is not None:
+            spec = saved.get("spec")
+            audit = saved.get("audit_artifact")
+            if not isinstance(spec, dict) or not isinstance(audit, str):
+                raise RuntimeError("invalid cached native spec pointer")
+            document = json.loads(engine.store.get(spec["artifact"]))
+            engine.store.get(audit)
+            if document.get("status") != spec.get("status"):
+                raise RuntimeError("cached native spec status mismatch")
+            engine._emit(manifest["campaign"], "spec_cache_hit", artifact=spec["artifact"])
+            return {**spec, "markdown_path": None}, None
+        engine._emit(manifest["campaign"], "spec_cache_miss", dossier_artifact=dossier["artifact"])
+        spec, error = spec_for_dossier(deps.persist_spec, engine.store, engine.root, dossier)
+        if spec is not None:
+            audit = spec.get("audit_artifact")
+            if audit:
+                for artifact in (spec["artifact"], audit):
+                    engine.store.put(engine.store.get(artifact))
+                cache.put("native_spec", identity, {"spec": spec, "audit_artifact": audit})
+        return spec, error
+
+    summary["spec"], error = timed("spec", write_spec)
     if error:
         summary["spec_error"] = error
     log(f"[spec] {summary['spec']['status']} specification {summary['spec']['artifact']}"
@@ -466,7 +589,8 @@ def spec_for_dossier(persist_spec: Callable, store, root: Path, dossier: dict) -
     except Exception as error:
         return None, f"{type(error).__name__}: {error}"
     return {"artifact": spec["artifact"], "markdown_path": spec.get("markdown_path"),
-            "status": status, "requirements": spec.get("requirements"), "writer": writer}, None
+            "status": status, "requirements": spec.get("requirements"), "writer": writer,
+            **({"audit_artifact": spec["audit_artifact"]} if spec.get("audit_artifact") else {})}, None
 
 
 def build_handoff(store, analysed: list[dict], scope: dict, public: list[dict],
