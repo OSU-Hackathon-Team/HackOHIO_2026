@@ -24,6 +24,7 @@ export function AnalyzeNative() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [budget, setBudget] = useState<number | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
+  const [unavailable, setUnavailable] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -33,12 +34,30 @@ export function AnalyzeNative() {
         setTargets(value.targets);
         setBudget(value.targets[0]?.function_budgets[0] ?? null);
       })
-      .catch(() => setEnabled(false));
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        setEnabled(false);
+        setUnavailable(error instanceof Error ? error.message : String(error));
+      });
     return () => controller.abort();
   }, []);
 
   const target = targets[0];
-  if (!api.decompTargets || !target) return null;
+  if (!api.decompTargets) return null; // offline mock mode has no worker
+  if (!target) {
+    return (
+      <div className="mb-6 rounded-xl border border-indigo-900/60 bg-indigo-950/30 p-4 text-xs leading-5 text-stone-400">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-indigo-100">
+          <Binary className="size-4 text-indigo-400" aria-hidden="true" /> Analyze a native application
+        </h2>
+        <p className="mt-1">
+          {unavailable
+            ? `The backend did not answer /api/decomp/targets (${unavailable}). Restart it from the current code.`
+            : "Checking the analysis worker..."}
+        </p>
+      </div>
+    );
+  }
   const running = run !== null && !run.finished;
   const cost = budget ? target.estimated_cost_usd[String(budget)] : undefined;
 
