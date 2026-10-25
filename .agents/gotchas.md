@@ -50,6 +50,10 @@
   (`continueWith`), never edit earlier turns.
 - Session credentials (`ASIA…`) expire. `ExpiredTokenException` means refresh them, not a bug.
 
+- UI skills: `packages/backend/skills/` holds **unmodified** copies of ibelick/ui-skills (MIT). Don't edit or add
+  your own there. Synthesis/refine offer the catalog plus a `load_skills` tool through `structuredCall({ tools })`
+  (Converse only; the Claude path rejects `tools`). Some skills assume tools generated apps can't use
+  (`motion/react`, Radix); the prompt says Splice's rules win. The skill hash is part of the synthesis replay key.
 - Converse requests are capped at 16,384 output tokens, matching the [AWS Qwen model card](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-qwen-qwen3-coder-480b-a35b-instruct.html). Truncation remains a typed error; shorten output rather than requesting above the cap.
 
 ## Streaming (SSE)

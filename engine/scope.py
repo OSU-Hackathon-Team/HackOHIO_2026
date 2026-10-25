@@ -16,7 +16,62 @@ def canonical(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
 
 
-def resolve_seed(seed: str, index: dict) -> list[dict]:
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def load_companion_debug_symbols(index: dict, campaign: str | None = None) -> dict[int, str]:
+    prog_str = index.get("program")
+    candidate_paths = []
+    decomp_state = Path(os.environ.get("DECOMP_STATE", "/home/mitch/Documents/HackOHIO_2026/decomp-state"))
+    if prog_str:
+        candidate_paths.extend([
+            Path(prog_str),
+            ROOT / "decomp-state" / "fixtures" / prog_str,
+            Path.cwd() / "decomp-state" / "fixtures" / prog_str,
+            decomp_state / "fixtures" / prog_str,
+        ])
+    if campaign:
+        for mpath in (
+            ROOT / "decomp-state" / "projects" / campaign / "manifest.json",
+            Path.cwd() / "decomp-state" / "projects" / campaign / "manifest.json",
+            decomp_state / "projects" / campaign / "manifest.json",
+        ):
+            if mpath.is_file():
+                try:
+                    b = json.loads(mpath.read_text()).get("binary")
+                    if b:
+                        candidate_paths.append(Path(b))
+                except Exception:
+                    pass
+    for p in candidate_paths:
+        for debug_path in (p.with_suffix(".debug"), p.parent / (p.name + ".debug"),
+                           p.with_name(p.stem + ".debug")):
+            if debug_path.is_file():
+                try:
+                    import subprocess
+                    out = subprocess.check_output(
+                        ["nm", "-n", str(debug_path)],
+                        text=True,
+                        stderr=subprocess.DEVNULL
+                    )
+                    base = int(index.get("image_base", "0"), 16)
+                    symbols: dict[int, str] = {}
+                    for line in out.splitlines():
+                        parts = line.split()
+                        if len(parts) >= 3 and parts[1] in ("T", "t", "W", "w"):
+                            sym_addr = int(parts[0], 16)
+                            sym_name = parts[2]
+                            symbols[sym_addr] = sym_name
+                            if base:
+                                symbols[base + sym_addr] = sym_name
+                    if symbols:
+                        return symbols
+                except Exception:
+                    pass
+    return {}
+
+
+def resolve_seed(seed: str, index: dict, campaign: str | None = None) -> list[dict]:
     functions = index["functions"]
     matches = []
     try:
@@ -30,6 +85,14 @@ def resolve_seed(seed: str, index: dict) -> list[dict]:
         exact = [item for item in functions if item["name"].lower() == seed.lower()]
         matches = [{"entry": item["entry"], "score": 90 if not item["thunk"] else 50,
                     "reason": "exact_symbol"} for item in exact]
+    if not matches:
+        debug_symbols = load_companion_debug_symbols(index, campaign)
+        for sym_addr, sym_name in debug_symbols.items():
+            if sym_name.lower() == seed.lower():
+                for item in functions:
+                    if int(item["entry"], 16) == sym_addr and not item.get("thunk"):
+                        matches.append({"entry": item["entry"], "score": 85,
+                                        "reason": "companion_debug_symbol"})
     if not matches:
         partial = [item for item in functions if seed.lower() in item["name"].lower()]
         matches = [{"entry": item["entry"], "score": 55 if not item["thunk"] else 30,
@@ -51,6 +114,7 @@ def resolve_seed(seed: str, index: dict) -> list[dict]:
 
 
 def discover(index: dict, request: ScopeRequest, campaign: str, index_artifact: str) -> dict:
+    debug_symbols = load_companion_debug_symbols(index, campaign)
     by_entry = {item["entry"]: item for item in index["functions"]}
     outgoing: dict[str, list[dict]] = {}
     incoming: dict[str, list[dict]] = {}
@@ -97,7 +161,7 @@ def discover(index: dict, request: ScopeRequest, campaign: str, index_artifact: 
         seeds = tuple(item["entry"] for item in index["functions"]
                       if not item["external"] and not item["thunk"])
     for seed in (*seeds, *request.inclusions):
-        matches = resolve_seed(seed, index)
+        matches = resolve_seed(seed, index, campaign)
         seed_results.append({"seed": seed, "matches": matches})
         if not matches:
             unresolved.append({"kind": "seed_not_found", "seed": seed})
@@ -118,14 +182,18 @@ def discover(index: dict, request: ScopeRequest, campaign: str, index_artifact: 
             unresolved.append({"kind": "unknown_function", "entry": entry,
                                "from": reason})
             continue
-        if entry in request.exclusions or item["name"] in request.exclusions:
-            exclusions.append({"entry": entry, "name": item["name"],
+        display_name = debug_symbols.get(int(entry, 16), item["name"]) if item["name"].startswith("FUN_") else item["name"]
+        if (entry in request.exclusions or item["name"] in request.exclusions or
+                display_name in request.exclusions):
+            exclusions.append({"entry": entry, "name": display_name,
                                "reason": "explicit_exclusion"})
             continue
-        contract = request.boundary_contracts.get(entry) or request.boundary_contracts.get(item["name"])
+        contract = (request.boundary_contracts.get(entry) or
+                    request.boundary_contracts.get(item["name"]) or
+                    request.boundary_contracts.get(display_name))
         if contract:
             if entry not in seen_boundary:
-                boundaries.append({"entry": entry, "name": item["name"], "contract": contract,
+                boundaries.append({"entry": entry, "name": display_name, "contract": contract,
                                    "from": reason})
                 seen_boundary.add(entry)
             continue
@@ -134,7 +202,7 @@ def discover(index: dict, request: ScopeRequest, campaign: str, index_artifact: 
             if entry in seen_boundary:
                 continue
             seen_boundary.add(entry)
-            boundaries.append({"entry": entry, "name": item["name"],
+            boundaries.append({"entry": entry, "name": display_name,
                                "contract": "thunk alias", "target": target,
                                "from": reason})
             if target and target != entry:
@@ -143,12 +211,12 @@ def discover(index: dict, request: ScopeRequest, campaign: str, index_artifact: 
                 unresolved.append({"kind": "thunk_target_unknown", "entry": entry})
             continue
         if item["external"]:
-            boundaries.append({"entry": entry, "name": item["name"],
+            boundaries.append({"entry": entry, "name": display_name,
                                "contract": None, "from": reason})
             unresolved.append({"kind": "external_contract_missing", "entry": entry,
-                               "name": item["name"]})
+                               "name": display_name})
             continue
-        included[entry] = {"entry": entry, "name": item["name"], "depth": depth,
+        included[entry] = {"entry": entry, "name": display_name, "depth": depth,
                            "priority": -negative_priority, "reasons": [reason]}
         for call in index.get("indirect_calls", []):
             if call["caller"] == entry:

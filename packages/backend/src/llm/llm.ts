@@ -8,6 +8,8 @@
 //     return the same StructuredResult, so callers and repair loops don't change.
 // (2) Reads AWS_REGION / LLM_DEBUG from packages/backend/.env directly until Eng 1's config.ts exists.
 // (3) Clients are created on first use, so the server boots without AWS credentials.
+// (4) On Converse, `tools` turns the call into a short loop: the model may call helper tools (e.g. load_skills)
+//     for up to maxToolTurns, then `respond` is forced, so the result is still one schema-checked JSON value.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
@@ -155,6 +157,23 @@ export interface StructuredCallOpts<T> {
   signal?: AbortSignal;
   /** Called at most every 400ms with the number of output characters so far. */
   onProgress?: (outputChars: number) => void;
+  /**
+   * Tools the model may call before it submits the answer (Converse path only). Results go back to the model;
+   * the call still ends with the schema-shaped `respond` tool, forced once maxToolTurns are used.
+   */
+  tools?: AssistTool[];
+  /** Model turns allowed to call `tools` before `respond` is forced. Default 4. */
+  maxToolTurns?: number;
+}
+
+/** A read-only helper the model can call mid-answer, e.g. to load a skill. */
+export interface AssistTool {
+  name: string;
+  description: string;
+  /** JSON Schema for the tool input (objects need additionalProperties:false + required). */
+  inputSchema: Record<string, unknown>;
+  /** Returns the text sent back to the model. A thrown error is reported to the model as a failed tool call. */
+  run(input: unknown): Promise<string>;
 }
 
 export interface LlmUsage {
@@ -233,6 +252,7 @@ async function streamOnce(model: string, o: StructuredCallOpts<unknown>): Promis
 }
 
 async function anthropicCall<T>(primary: string, o: StructuredCallOpts<T>): Promise<StructuredResult<T>> {
+  if (o.tools?.length) throw new Error("Tool-assisted structured calls are implemented on the Converse path only");
   const msg = await streamOnce(primary, o);
   if (msg.stop_reason === "refusal") {
     throw new LlmRefusalError(msg.stop_details?.category ?? null, msg.stop_details?.explanation ?? null);
@@ -270,66 +290,141 @@ function toConverseMessages(messages: Anthropic.MessageParam[]): ConverseMessage
   }));
 }
 
-async function converseCall<T>(modelId: string, o: StructuredCallOpts<T>): Promise<StructuredResult<T>> {
-  const maxTokens = Math.min(o.maxTokens ?? DEFAULT_MAX_TOKENS, CONVERSE_MAX_TOKENS);
+interface ConverseTurn {
+  text: string;
+  toolUses: { id: string; name: string; input: string }[];
+  stopReason?: string;
+}
+
+/** One streamed model turn. Tool input without a contentBlockStart is the forced respond tool. */
+async function converseTurn(
+  modelId: string, o: StructuredCallOpts<unknown>, messages: ConverseMessage[], maxTokens: number,
+  offerTools: boolean, usage: LlmUsage, progress: ReturnType<typeof progressReporter>,
+): Promise<ConverseTurn> {
+  const tools = o.tools ?? [];
+  const system = tools.length
+    ? `${o.system}\n\nYou may call the other tools first to gather what you need. Submit your final response by calling the "${RESPOND_TOOL}" tool. Its input is the JSON object described above.`
+    : `${o.system}\n\nSubmit your response by calling the "${RESPOND_TOOL}" tool. Its input is the JSON object described above.`;
   const res = await converseClient().send(
     new ConverseStreamCommand({
       modelId,
-      system: [{ text: `${o.system}\n\nSubmit your response by calling the "${RESPOND_TOOL}" tool. Its input is the JSON object described above.` }],
-      messages: toConverseMessages(o.messages),
+      system: [{ text: system }],
+      messages,
       inferenceConfig: { maxTokens },
       toolConfig: {
-        tools: [{
-          toolSpec: {
-            name: RESPOND_TOOL,
-            description: "Submit the response as a JSON object matching the schema.",
-            inputSchema: { json: o.schema as Record<string, never> },
+        // Every tool stays declared on every turn: Bedrock rejects toolUse/toolResult history without its spec.
+        tools: [
+          {
+            toolSpec: {
+              name: RESPOND_TOOL,
+              description: "Submit the response as a JSON object matching the schema.",
+              inputSchema: { json: o.schema as Record<string, never> },
+            },
           },
-        }],
-        // Forcing the tool is how Converse guarantees schema-shaped JSON (no output_config here).
-        toolChoice: { tool: { name: RESPOND_TOOL } },
+          ...tools.map((t) => ({ toolSpec: { name: t.name, description: t.description, inputSchema: { json: t.inputSchema as Record<string, never> } } })),
+        ],
+        // Forcing respond is how Converse guarantees schema-shaped JSON (no output_config here).
+        toolChoice: offerTools ? { auto: {} } : { tool: { name: RESPOND_TOOL } },
       },
     }),
     { abortSignal: o.signal },
   );
 
-  const progress = progressReporter(o.onProgress);
-  let toolInput = "";
-  let text = "";
+  const blocks = new Map<number, { text: string; tool?: { id: string; name: string; input: string } }>();
+  const block = (i: number) => blocks.get(i) ?? blocks.set(i, { text: "" }).get(i)!;
   let stopReason: string | undefined;
-  const usage: LlmUsage = { input_tokens: 0, output_tokens: 0 };
   for await (const ev of res.stream ?? []) {
     const failure = ev.internalServerException ?? ev.modelStreamErrorException ?? ev.throttlingException
       ?? ev.serviceUnavailableException ?? ev.validationException;
     if (failure) throw failure;
-    const delta = ev.contentBlockDelta?.delta;
+    const start = ev.contentBlockStart;
+    if (start?.start?.toolUse) {
+      block(start.contentBlockIndex ?? 0).tool = { id: start.start.toolUse.toolUseId ?? "", name: start.start.toolUse.name ?? RESPOND_TOOL, input: "" };
+    }
+    const deltaEvent = ev.contentBlockDelta;
+    const delta = deltaEvent?.delta;
     if (delta?.toolUse?.input) {
-      toolInput += delta.toolUse.input;
+      const b = block(deltaEvent!.contentBlockIndex ?? 0);
+      b.tool ??= { id: "", name: RESPOND_TOOL, input: "" };
+      b.tool.input += delta.toolUse.input;
       progress.add(delta.toolUse.input);
     } else if (delta?.text) {
-      text += delta.text;
+      block(deltaEvent!.contentBlockIndex ?? 0).text += delta.text;
       progress.add(delta.text);
     }
     if (ev.messageStop) stopReason = ev.messageStop.stopReason;
     if (ev.metadata?.usage) {
-      usage.input_tokens = ev.metadata.usage.inputTokens ?? 0;
-      usage.output_tokens = ev.metadata.usage.outputTokens ?? 0;
+      usage.input_tokens += ev.metadata.usage.inputTokens ?? 0;
+      usage.output_tokens += ev.metadata.usage.outputTokens ?? 0;
     }
   }
-  progress.done();
+  const ordered = [...blocks.entries()].sort(([a], [b]) => a - b).map(([, b]) => b);
+  return {
+    text: ordered.map((b) => b.text).join(""),
+    toolUses: ordered.flatMap((b) => (b.tool ? [b.tool] : [])),
+    stopReason,
+  };
+}
 
-  if (stopReason === "content_filtered" || stopReason === "guardrail_intervened") {
-    throw new LlmRefusalError(stopReason, null);
+function toolInputObject(raw: string): Record<string, unknown> {
+  try {
+    const value = JSON.parse(raw || "{}");
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
   }
-  if (stopReason === "max_tokens" || stopReason === "model_context_window_exceeded") {
-    throw new LlmTruncatedError(`Output stopped at ${stopReason} (maxTokens ${maxTokens}); raise maxTokens or shrink the request`);
-  }
+}
 
-  const raw = toolInput || text;
-  const value = parseOutput(raw, o.parse);
-  if (llmDebug()) console.log(`[llm] ${modelId} (converse) in=${usage.input_tokens} out=${usage.output_tokens} stop=${stopReason}`);
-  // Repair loops append this unchanged; it goes back to Converse as the assistant's text turn.
-  return { value, assistantContent: [{ type: "text", text: raw, citations: null }], usage, model: modelId };
+async function converseCall<T>(modelId: string, o: StructuredCallOpts<T>): Promise<StructuredResult<T>> {
+  const maxTokens = Math.min(o.maxTokens ?? DEFAULT_MAX_TOKENS, CONVERSE_MAX_TOKENS);
+  const tools = o.tools ?? [];
+  const maxToolTurns = tools.length ? (o.maxToolTurns ?? 4) : 0;
+  const messages = toConverseMessages(o.messages);
+  const progress = progressReporter(o.onProgress);
+  const usage: LlmUsage = { input_tokens: 0, output_tokens: 0 };
+
+  for (let turn = 0; ; turn++) {
+    o.signal?.throwIfAborted();
+    const t = await converseTurn(modelId, o as StructuredCallOpts<unknown>, messages, maxTokens, turn < maxToolTurns, usage, progress);
+    if (t.stopReason === "content_filtered" || t.stopReason === "guardrail_intervened") {
+      throw new LlmRefusalError(t.stopReason, null);
+    }
+    if (t.stopReason === "max_tokens" || t.stopReason === "model_context_window_exceeded") {
+      throw new LlmTruncatedError(`Output stopped at ${t.stopReason} (maxTokens ${maxTokens}); raise maxTokens or shrink the request`);
+    }
+
+    const respond = t.toolUses.find((u) => u.name === RESPOND_TOOL);
+    const helpers = t.toolUses.filter((u) => u.name !== RESPOND_TOOL);
+    if (respond || !helpers.length) {
+      progress.done();
+      const raw = respond?.input || t.text;
+      const value = parseOutput(raw, o.parse);
+      if (llmDebug()) console.log(`[llm] ${modelId} (converse) turns=${turn + 1} in=${usage.input_tokens} out=${usage.output_tokens} stop=${t.stopReason}`);
+      // Repair loops append this unchanged; it goes back to Converse as the assistant's text turn.
+      return { value, assistantContent: [{ type: "text", text: raw, citations: null }], usage, model: modelId };
+    }
+
+    // The model asked for helper tools: record its turn, run them, and send every result back in one user turn.
+    messages.push({
+      role: "assistant",
+      content: [
+        ...(t.text ? [{ text: t.text }] : []),
+        ...helpers.map((u) => ({ toolUse: { toolUseId: u.id, name: u.name, input: toolInputObject(u.input) as never } })),
+      ],
+    });
+    const results = [];
+    for (const u of helpers) {
+      const tool = tools.find((x) => x.name === u.name);
+      try {
+        if (!tool) throw new Error(`Unknown tool "${u.name}". Available: ${tools.map((x) => x.name).join(", ")}, ${RESPOND_TOOL}`);
+        results.push({ toolResult: { toolUseId: u.id, content: [{ text: await tool.run(toolInputObject(u.input)) }] } });
+      } catch (e) {
+        o.signal?.throwIfAborted();
+        results.push({ toolResult: { toolUseId: u.id, content: [{ text: sanitizeSecrets((e as Error).message) }], status: "error" as const } });
+      }
+    }
+    messages.push({ role: "user", content: results });
+  }
 }
 
 export async function structuredCall<T>(o: StructuredCallOpts<T>): Promise<StructuredResult<T>> {

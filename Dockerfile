@@ -118,6 +118,8 @@ COPY --from=builder /app/packages/contracts/dist ./packages/contracts/dist
 # Copy package.json and compiled dist for backend
 COPY --from=builder /app/packages/backend/package.json ./packages/backend/
 COPY --from=builder /app/packages/backend/dist ./packages/backend/dist
+# UI skills the synthesis model chooses from (read at runtime, not compiled)
+COPY --from=builder /app/packages/backend/skills ./packages/backend/skills
 
 # Copy the same freshly built frontend; there is no separate Docker UI or mock frontend.
 # Express serves it on :3001. Development uses Vite on :5173 instead.

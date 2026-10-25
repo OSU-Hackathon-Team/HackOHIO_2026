@@ -19,6 +19,16 @@ export interface StructuredCallOpts<T> {
   maxTokens?: number;
   signal?: AbortSignal;
   onProgress?: (outputChars: number) => void;
+  /** Helper tools the model may call before answering (llm.ts Converse path). */
+  tools?: AssistTool[];
+  maxToolTurns?: number;
+}
+
+export interface AssistTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  run(input: unknown): Promise<string>;
 }
 
 export interface StructuredResult<T> {
