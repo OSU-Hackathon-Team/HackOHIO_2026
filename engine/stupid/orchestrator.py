@@ -52,8 +52,14 @@ def call_model(prompt_text: str, *, role: str, max_tokens: int = 4096) -> str:
 
 def parse_json(text: str) -> dict:
     match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-    blob = match.group(1) if match else text[text.find("{"):text.rfind("}") + 1]
-    value = json.loads(blob)
+    if match:
+        value = json.loads(match.group(1))
+    else:
+        # First complete object wins; trailing chatter is ignored, not fatal.
+        start = text.find("{")
+        if start < 0:
+            raise ValueError("model output contains no JSON object")
+        value, _ = json.JSONDecoder().raw_decode(text[start:])
     if not isinstance(value, dict):
         raise ValueError("model output is not a JSON object")
     return value
@@ -251,10 +257,25 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                                                      "dependencies")),
                      "reviewed": digest(reviews, ()),
                      "probes": probes}
-            response = parse_json(model_fn(prompts.ORCHESTRATOR.format(
-                goal=goal, state=json.dumps(state)[:60000],
-                explore=explore_help),
-                role="decomp_worker"))
+            try:
+                response = parse_json(model_fn(prompts.ORCHESTRATOR.format(
+                    goal=goal, state=json.dumps(state)[:60000],
+                    explore=explore_help),
+                    role="decomp_worker"))
+            except (ValueError, json.JSONDecodeError) as error:
+                # One malformed reply must not kill the run; say so in state.
+                record("orchestrator_unparseable", {"error": str(error)[:200]})
+                last_result = {"produced": ["unparseable"],
+                               "warning": "reply was not a JSON object; "
+                                          "send exactly one JSON object"}
+                noop_streak += 1
+                if noop_streak >= 3:
+                    final = {"action": "done", "scope": sorted(drafts),
+                             "readiness": "partial",
+                             "notes": "orchestrator repeated no-op actions; "
+                                      "round budget exhausted"}
+                    break
+                continue
             plan = response.get("plan") or [response]
             if isinstance(plan, dict):
                 plan = [plan]
@@ -476,8 +497,12 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
             if e in drafts]
         spec_text = model_fn(prompts.SPEC.format(
             goal=goal, facts=json.dumps(facts)[:60000]), role="spec_writer")
-        spec = parse_json(spec_text)
-        markdown = spec.get("spec_markdown", "")
+        try:
+            spec = parse_json(spec_text)
+            markdown = spec.get("spec_markdown", "")
+        except (ValueError, json.JSONDecodeError) as error:
+            record("spec_error", {"error": str(error)[:200]})
+            markdown = ""
         forbidden = re.findall(r"\bFUN_[0-9A-Za-z_:]+\b|"
                                  r"\bparam_\d+\b|\buVar\d+\b|\b_DAT_[0-9A-Fa-f]+\b",
                                  markdown)
