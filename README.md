@@ -1,16 +1,26 @@
-# Splice native decompilation engine
+# Splice Native Decompilation & Studio Engine
 
-**Studio frontend in Docker:** see [the frontend update and startup guide](docs/DOCKER_FRONTEND.md)
-for the Chat / App library / My app workspace, rebuilding after a pull, and production versus development ports.
+Splice is an end-to-end subsystem decompilation and synthesis engine with an integrated Studio development interface. It extracts behavioral evidence from native binaries (via Ghidra and execution probes), formulates formal specifications through AI-driven reasoning, and generates cleanroom implementations verified against original runtime behavior.
 
-**Architecture:** [DecompPileline.md](DecompPileline.md) defines the subsystem-oriented engine for 16+ workers. [DECOMP_IMPLEMENTATION_PLAN.md](DECOMP_IMPLEMENTATION_PLAN.md) lists the implementation phases and acceptance gates. Evidence export, bounded scopes, semantic attempts, static review, original probes, partial dossiers, and a PostgreSQL task queue are implemented. The full subsystem pipeline and its acceptance gates remain in progress. The commands below also retain the rename diagnostic. The TypeScript app remains under `packages/`; `fixtures/decomp/` contains native evaluation targets.
+---
 
-**Private S3 cache:** Studio's EC2 native runner can use an opt-in `cache/v1/` namespace for
-content-addressed artifacts, exact scoped indexes and function exports, reviewed semantic
-work, and generated specs. See [the cache guide](docs/decomp-s3-cache.md) for identity,
-permissions, activation, and the stages that still run for each campaign.
+## Table of Contents
+- [Quick Start Guide](#quick-start-guide)
+- [Running with Docker](#running-with-docker)
+- [Architecture & Deep Dives](#architecture--deep-dives)
+- [Core Commands & Workflows](#core-commands--workflows)
+  - [1. Project Intake & Cross-Module Analysis](#1-project-intake--cross-module-analysis)
+  - [2. Native Evidence Export & Scoping](#2-native-evidence-export--scoping)
+  - [3. Review, Probing & Dossier Assembly](#3-review-probing--dossier-assembly)
+  - [4. Specification Generation & Cleanroom Handoff](#4-specification-generation--cleanroom-handoff)
+  - [5. Durable PostgreSQL Task Queue](#5-durable-postgresql-task-queue)
+  - [6. Functional C Synthesis & Cleanroom Workbench](#6-functional-c-synthesis--cleanroom-workbench)
+  - [7. Tool-Integration Diagnostic & Model Routing](#7-tool-integration-diagnostic--model-routing)
+- [Python Dispatcher API](#python-dispatcher-api)
 
-## Running the App (Backend & Frontend / Studio)
+---
+
+## Quick Start Guide
 
 ### 1. First-Time Setup
 ```bash
@@ -19,105 +29,120 @@ npm run build:contracts
 ```
 
 ### 2. Run All Workspaces Concurrently (Recommended)
-Starts the contracts build watcher, backend (`:3003`), and Studio frontend (`:5173`):
+Starts the contracts build watcher, backend server (`:3003`), and Studio frontend (`:5173`):
 ```bash
 PORT=3003 REA_MODE=mock LLM_MODE=mock npm run dev
 ```
-Open **http://localhost:5173** in your browser.
+Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ### 3. Run Backend and Frontend in Separate Terminals
 
 **Terminal 1 — Backend (Port 3003):**
 ```bash
-# Mock / replay mode (no AWS credentials required):
+# Mock / replay mode (offline, no AWS credentials required):
 PORT=3003 REA_MODE=mock LLM_MODE=mock npm run dev:backend
 
-# Or live mode (requires AWS Bedrock credentials):
+# Live mode (requires AWS Bedrock credentials):
 PORT=3003 REA_MODE=auto LLM_MODE=live npm run dev:backend
 ```
-Verify backend health: `curl http://localhost:3003/api/health`
+*Health Check:* `curl http://localhost:3003/api/health`
 
-**Terminal 2 — Frontend / Studio (Port 5173):**
+**Terminal 2 — Studio Frontend (Port 5173):**
 ```bash
 npm run dev:frontend
 ```
-Open **http://localhost:5173** (automatically proxies `/api` requests to backend on port 3003).
+Open [http://localhost:5173](http://localhost:5173) (automatically proxies `/api` requests to backend on port 3003).
 
-### 4. Running with Docker
-```bash
-# Production container (port 3001)
-docker compose up -d --build --force-recreate splice
+---
 
-# Development live-reload container (port 5173)
-docker compose --profile dev up --build --force-recreate splice-dev
-```
-See [docs/DOCKER_FRONTEND.md](docs/DOCKER_FRONTEND.md) for detailed container details.
+## Running with Docker
 
-## Project intake
+Run Studio and the backend inside containerized environments:
 
-Analyze a group of executable and shared-library modules with one request. Paths are relative to the request file unless absolute. ELF dependency discovery requires `readelf`; the fixture check also requires `gcc` and `strip`:
+| Mode | Command | Port | Description |
+|---|---|---|---|
+| **Production** | `docker compose up -d --build --force-recreate splice` | `3001` | Optimized production bundle |
+| **Development** | `docker compose --profile dev up --build --force-recreate splice-dev` | `5173` | Hot-reloading development container |
 
+For container rebuilds, environment configuration, and workspace details, see the [Docker Frontend Guide](docs/DOCKER_FRONTEND.md).
+
+---
+
+## Architecture & Deep Dives
+
+- **Subsystem Pipeline Architecture:** [DecompPileline.md](DecompPileline.md) defines the subsystem engine design for 16+ parallel workers.
+- **Acceptance Gates & Milestones:** [DECOMP_IMPLEMENTATION_PLAN.md](DECOMP_IMPLEMENTATION_PLAN.md) outlines implementation phases, acceptance gates, and verification standards.
+- **Private S3 Cache:** [docs/decomp-s3-cache.md](docs/decomp-s3-cache.md) documents content-addressed caching in `cache/v1/` for exact function exports, semantic records, and specifications.
+- **Cleanroom Handoff & Governance:** [docs/NATIVE_CLEANROOM_HANDOFF.md](docs/NATIVE_CLEANROOM_HANDOFF.md) details analyst/implementer separation, audit artifact boundaries, and legal rights verification.
+- **Studio Frontend Workspace:** [docs/DOCKER_FRONTEND.md](docs/DOCKER_FRONTEND.md) explains Chat, App Library, and My App workspaces.
+
+---
+
+## Core Commands & Workflows
+
+Splice uses `launch.py` and dedicated utility scripts in `scripts/` to orchestrate analysis, reasoning, probing, queue management, and code generation.
+
+### 1. Project Intake & Cross-Module Analysis
+Analyze multiple executable and shared-library modules simultaneously with dependency mapping (`DT_NEEDED` / symbol links).
+
+#### Request Example (`project.json`)
 ```json
-{"schema":1,"modules":[{"id":"app","kind":"executable","path":"app.bin"},{"id":"math","kind":"shared","path":"libmath.so"}]}
+{
+  "schema": 1,
+  "modules": [
+    {"id": "app", "kind": "executable", "path": "app.bin"},
+    {"id": "math", "kind": "shared", "path": "libmath.so"}
+  ]
+}
 ```
 
-```sh
-python launch.py project-analyze --request /path/to/project.json
-python launch.py project-export-all --project-artifact <project-inventory-sha256>
-python launch.py project-scope --project-artifact <project-inventory-sha256> \
-  --request /path/to/project-scope.json
-python launch.py project-queue-init --project-scope-artifact <project-scope-sha256>
-python launch.py project-queue-drain --project-scope-artifact <project-scope-sha256> \
-  --workers 16
-python launch.py project-queue-status --project-scope-artifact <project-scope-sha256>
-python launch.py status --campaign <project-id>
-python scripts/check_decomp_intake.py
-```
+#### Intake & Scope Commands
+| Action | Command | Description |
+|---|---|---|
+| **Analyze Modules** | `python launch.py project-analyze --request /path/to/project.json` | Scans modules, resolves ELF `DT_NEEDED`, matches shared libraries |
+| **Export All Functions** | `python launch.py project-export-all --project-artifact <project-inventory-sha256>` | Exports all indexed functions across supplied modules |
+| **Define Project Scope** | `python launch.py project-scope --project-artifact <project-inventory-sha256> --request /path/to/project-scope.json` | Creates module scope artifacts from seeds or whole-project query |
+| **Initialize Project Queue** | `python launch.py project-queue-init --project-scope-artifact <project-scope-sha256>` | Applies PostgreSQL migrations and registers module campaigns |
+| **Drain Project Queue** | `python launch.py project-queue-drain --project-scope-artifact <project-scope-sha256> --workers 16` | Runs leased semantic tasks under shared reasoning capacity |
+| **Check Queue Status** | `python launch.py project-queue-status --project-scope-artifact <project-scope-sha256>` | Reports project task states and shared task counts |
+| **Campaign Status** | `python launch.py status --campaign <project-id>` | Summarizes campaign progress, exports, and artifact IDs |
+| **Verify Intake Integration**| `python scripts/check_decomp_intake.py` | Runs fixture intake and ELF symbol-link checks |
+| **Verify Queue Integration** | `python scripts/check_decomp_project_queue.py` | Validates multi-module queue drainage with PostgreSQL |
 
-The pointer at `decomp-state/intakes/<project-id>/manifest.json` names an immutable inventory artifact. That inventory lists each module's binary hash, analysis campaign, index artifact, and module manifest path. For ELF files, intake reads `DT_NEEDED` and matches supplied shared libraries by filename or SONAME. Unmatched libraries remain explicit external dependencies; ambiguous matches remain unresolved. A request may also declare edges with `"dependencies":[{"from":"app","to":"math"}]`, including for other binary formats. Intake reuses each module's import cache. Its separate `symbol_links_artifact` records imported-function thunk addresses, raw call sites, and matching function entries in supplied dependency modules. Matches are labeled `candidate_static`; dynamic loader binding, symbol interposition, and symbol versions remain unverified. Ambiguous and unmatched imports stay visible. `project-export-all` exports every indexed function in every supplied module, preserving per-module failures and an immutable aggregate under `decomp-state/intakes/<project-id>/exports/latest.json`. It reports unreported functions separately, and its `complete_discovered_exports` flag covers only functions found by Ghidra; executable instructions outside functions, bytes not decoded as instructions, and behavioral validation remain separate gaps. Project events in `progress.jsonl` and `status` show module starts, completions, failures, export counts, symbol-link counts, code gap counts, and artifact IDs. Cross-module contract reconciliation and aggregate dossiers remain open.
+> **Scope request formats:**
+> - Subsystem mode: `{"mode":"subsystem","query":"adjust from executable","seeds":[{"module":"app","seed":"00101050"}],"max_functions_per_module":32,"max_depth":2}`
+> - Whole project mode: `{"mode":"project","query":"whole project","max_functions_per_module":100}`
+>
+> Pass `--dsn` or set `DECOMP_DATABASE_URL` (test DB override: `DECOMP_TEST_PG_DSN`).
 
-For a bounded cross-module question, use a project scope request such as `{"mode":"subsystem","query":"adjust from executable","seeds":[{"module":"app","seed":"00101050"}],"max_functions_per_module":32,"max_depth":2}`. `project-scope` creates a normal scope artifact for each reached module and adds uniquely matched imported functions as *questions for analysis*. Its project artifact lists module scope IDs, task counts, static cross-module candidates, unverified bindings, unmatched imports, and unexplored modules. Use `{"mode":"project","query":"whole project","max_functions_per_module":100}` to inventory every supplied module, subject to the stated per-module limit. The project scope stays `partial`; candidate links do not turn into accepted dependency contracts. Queue and dossier commands still operate on the emitted module scope artifacts. Unresolved cross-module bindings block a public spec until resolved; the spec writer consumes ready module dossiers separately.
+---
 
-`project-queue-init` validates the project and module scope identities, applies the PostgreSQL migrations, registers each reached module campaign, and enqueues its behavior tasks. Repeating it reuses deduplicated tasks. `project-queue-drain` validates the saved module baselines, exports their indexed functions, then runs only this scope's leased semantic tasks across the reached modules under the shared reasoning pool capacity. `project-queue-status` shows task states for this project's selected work separately from each module campaign's full queue; tasks shared with another scope are counted as shared. These commands need `--dsn` or `DECOMP_DATABASE_URL`. Independent review and dossier assembly still run per module. Check the queue integration with `python scripts/check_decomp_project_queue.py`; the linked binary intake check also uses a disposable PostgreSQL database (`DECOMP_TEST_PG_DSN` if the default test server differs).
+### 2. Native Evidence Export & Scoping
+Extract function decompilation, assembly, references, and executable gap analysis via headless Ghidra.
 
-## Native evidence export
+| Action | Command | Description |
+|---|---|---|
+| **Analyze Binary** | `python launch.py analyze --binary /absolute/path/to/program` | Imports and indexes binary functions, imports, strings, and calls |
+| **Inspect Status** | `python launch.py status` | Reports import/index time, recovery attempts, and cache hits |
+| **Export Single Function** | `python launch.py function --manifest decomp-state/projects/<campaign>/manifest.json --address <hex-addr>` | Exports C rendering, assembly, references, and types for function |
+| **Export All Functions** | `python launch.py export-all --manifest decomp-state/projects/<campaign>/manifest.json` | Exports every discovered function and returns coverage inventory |
+| **Inspect Byte Gap** | `python launch.py gap --manifest decomp-state/projects/<campaign>/manifest.json --start <hex> --end <hex>` | Inspects unclassified byte ranges (up to 4096 bytes) |
+| **Define Subsystem Scope** | `python launch.py scope --manifest decomp-state/projects/<campaign>/manifest.json --request fixtures/decomp/scope_request.json` | Discovers bounded subsystem from seeds and call/data expansion |
+| **Single Semantic Task** | `python launch.py work --manifest decomp-state/projects/<campaign>/manifest.json --scope-artifact <sha256> --subject <entry>` | Runs evidence-only reasoning attempt with model repair |
 
-With Ghidra's `analyzeHeadless` installed, import an executable or shared library once and index its functions, imports, strings, and direct calls:
+<details>
+<summary>Verification and Fixture Checks</summary>
 
-```sh
-python launch.py analyze --binary /absolute/path/to/program
-python launch.py status
-```
-
-`analyze` prints a manifest under `decomp-state/projects/<campaign>/manifest.json`. The campaign key includes the input SHA-256, Ghidra version, exporter revision, and analysis options. Concurrent requests for the same campaign share one import and index; an interrupted import is rebuilt before indexing. Repeating the command reuses the indexed baseline. `launch.py status` reports import/index time, recovery attempts, and cache hits. Export a selected function or every discovered function:
-
-```sh
-python launch.py function --manifest decomp-state/projects/<campaign>/manifest.json --address 00401136
-python launch.py export-all --manifest decomp-state/projects/<campaign>/manifest.json
-python launch.py gap --manifest decomp-state/projects/<campaign>/manifest.json \
-  --start 0010102c --end 0010102f
-```
-
-Each function artifact records its entry address, decompilation status, C rendering, instructions, references, defined data targets, and separate listing and decompiler-inferred type information. Inferred parameters are not confirmed source types; source and lock fields preserve that distinction. External functions and decompilation errors have explicit statuses. Targeted cache misses use two reusable Ghidra contexts by default; set `DECOMP_ANALYSIS_WORKERS` to `0..16` to size the local pool (`0` uses a fresh process per request). Each context opens a separate copy of the closed analyzed project because this Ghidra headless version locks projects even in read-only mode. A failed or timed-out context is stopped and started again on its next request. `export-all` keeps one Ghidra decompiler context open for the full indexed program and returns a coverage inventory. Its `complete` flag means every *discovered* function exported successfully; it does not mean all behavior has been discovered or validated. The index records executable memory, decoded instructions outside functions, defined data in executable memory, and bytes Ghidra classified as neither instruction nor defined data. It lists up to 4096 unclassified byte regions and reports the full byte and region counts plus whether the list was truncated. These bytes may be code, padding, or other material and require inspection before claiming whole-binary coverage. `decomp-state/progress.jsonl` contains append-only JSON events, including each completed function and warm-pool activity, for a future job API/UI; `launch.py status` summarizes exports, cache hits, pool waits, completions, failures, worker restarts, and the latest indexed static inventory. All artifacts are SHA-256 addressed under `decomp-state/artifacts/`. This is static evidence, not a validated behavioral dossier.
-
-`gap` inspects a selected range of at most 4096 executable bytes in the unchanged Ghidra baseline. Its immutable artifact records raw bytes when available, per-byte classifications, decoded instructions, defined data, symbols, and incoming references. Repeat requests reuse the artifact; `status` lists inspected ranges. The evidence helps distinguish code candidates from padding, but it does not by itself adjudicate a gap or promote bytes to a function.
-
-Build source-known stripped executable and shared-library fixtures at `-O0` and `-O2`, then execute held-out cases against the original code:
-
-```sh
+```bash
+# Build and check standard test fixtures
 python scripts/build_decomp_fixtures.py
 python scripts/probe_decomp_fixtures.py
 python scripts/check_decomp_export.py
 python scripts/check_decomp_import_cache.py
 python scripts/check_decomp_warm.py
 python scripts/check_decomp_scope.py
-```
 
-The generated manifest, debug companions, and probe report stay in ignored `decomp-state/fixtures/`. Analysis workers should receive only the stripped `analysis_path` entries. The source and debug companions are evaluator material.
-
-The larger telemetry fixture exercises a bounded native subsystem with parsing, policy checks, and shared-state updates:
-
-```sh
+# Telemetry subsystem fixture checks
 python scripts/build_telemetry_fixture.py
 python scripts/probe_telemetry_fixture.py
 python launch.py probe --fixtures-manifest decomp-state/fixtures/telemetry_manifest.json \
@@ -125,252 +150,205 @@ python launch.py probe --fixtures-manifest decomp-state/fixtures/telemetry_manif
   --adapter scripts/telemetry_probe_adapter.py
 python scripts/check_decomp_meaningful_leases.py
 ```
+</details>
 
-The scope request is `fixtures/decomp/telemetry_scope_request.json`. On the recorded `-O2` shared build, Ghidra indexed 39 functions, exported 39/39 statuses as `ok`, and discovered 21 functions in the telemetry scope with no unresolved edge. The disposable PostgreSQL check held 16 leases at once for 16 distinct telemetry functions and worker IDs. These checks establish task availability and lease concurrency; throughput, semantic quality at scale, and two-host recovery still need measurement.
+*Configuration:* Set `DECOMP_ANALYSIS_WORKERS` (`0..16`, default `2`) to control Ghidra worker pool size (`0` uses a fresh process per request). Artifacts are SHA-256 addressed under `decomp-state/artifacts/`.
 
-Discover a bounded subsystem from indexed evidence:
+---
 
-```sh
-python launch.py scope --manifest decomp-state/projects/<campaign>/manifest.json \
-  --request fixtures/decomp/scope_request.json
+### 3. Review, Probing & Dossier Assembly
+Subject draft semantic claims to independent model review and ground-truth runtime execution probes before assembling an immutable behavioral dossier.
+
+| Stage | Command | Description |
+|---|---|---|
+| **Independent Review** | `python launch.py review --draft-artifact <draft-artifact-sha256>` | Evaluates draft claims (`supported_static`, `contradicted`, `uncertain`) |
+| **Verify Review Logic** | `python scripts/check_decomp_review.py` | Validates reviewer detection on false-claim fixture (`DECOMP_REVIEW_CHECK_MODEL`) |
+| **Run Native Probes** | `python launch.py probe --fixtures-manifest decomp-state/fixtures/manifest.json --suite fixtures/decomp/probes.json` | Executes test cases against original stripped binaries |
+| **Run Telemetry Probes** | `python launch.py probe --fixtures-manifest decomp-state/fixtures/telemetry_manifest.json --suite fixtures/decomp/telemetry_apply_probes.json --adapter scripts/telemetry_probe_adapter.py` | Runs stateful telemetry probe suite with adapter |
+| **Verify Probes & Links** | `python scripts/check_decomp_probes.py`<br>`python scripts/check_decomp_probe_links.py` | Verifies probe execution and probe link validation logic |
+| **Assemble Dossier** | `python launch.py dossier --manifest <manifest> --scope-artifact <sha256> --inputs <inputs.json>` | Assembles immutable dossier linking drafts, reviews, and probes |
+
+*Inputs schema for dossier assembly (`inputs.json`):*
+```json
+{
+  "draft_artifacts": ["<sha256>"],
+  "review_artifacts": ["<sha256>"],
+  "probe_report_artifacts": ["<sha256>"],
+  "probe_link_artifacts": ["<sha256>"],
+  "dependency_resolution_artifacts": ["<sha256>"],
+  "gap_adjudication_artifacts": ["<sha256>"]
+}
 ```
+*Output:* Writes readable Markdown dossier to `decomp-state/dossiers/<scope-id>/latest.md` and outputs JSON and Markdown artifact hashes.
 
-The scope revision records ranked seeds, included functions, direct-call and shared-data expansion, boundary contracts, exclusions, unresolved indirect calls, and deduplicated behavioral questions. Project scopes also retain decoded executable instruction runs outside known functions as unresolved work; the export inventory carries the same counts and address ranges. Scope artifacts and revision pointers live under `decomp-state/scopes/`; `launch.py status` reports scope counts. A scope remains `partial` until semantic claims and independent validation are available.
+---
 
-Run one evidence-only semantic task from a scope revision:
+### 4. Specification Generation & Cleanroom Handoff
+Convert verified dossiers into implementation specifications stripped of original assembly, pseudocode, and internal compiler mechanics.
 
-```sh
-python launch.py work --manifest decomp-state/projects/<campaign>/manifest.json \
-  --scope-artifact <scope-artifact-sha256> --subject <function-entry>
-```
+| Step | Command | Description |
+|---|---|---|
+| **Handoff Eligibility Check** | `python scripts/check_decomp_handoff.py --dossier-artifact <dossier-sha256>` | Checks if dossier is eligible for cleanroom spec generation |
+| **Generate Formal Spec** | `python launch.py spec --dossier-artifact <dossier-sha256>` | Invokes Step 2 spec writer to emit cleanroom spec & private audit artifact |
+| **Verify Spec Quality** | `python scripts/check_decomp_spec.py` | Validates spec formatting, prose requirements, and audit separation |
 
-The worker resolves its model through `models.json` (`decomp_worker` by default), reads AWS variables from the ignored root `.env` when they are absent from the process environment, and uses Bedrock Converse directly for `amazon-bedrock/` models without model tools. Set `AWS_PROFILE` to use a configured profile; ambient session keys and `.env` are then ignored. Other providers use OpenCode with tools denied. It records a checkpoint, prompt and transcript artifacts, model/runtime version, token usage, structural citation checks, and a terminal status. Invalid answers receive up to two automatic repairs, with every revision preserved. Compiler mechanics are suppressed from behavioral claims after failed repair and recorded in the attempt; a function without observable claims keeps its dossier partial. A structurally valid draft is `unreviewed`; it cannot make a scope ready without independent semantic review and original-behavior probes. Use `--model` to evaluate a different configured provider/model. `--model opencode/ambient` uses OpenCode's locally configured default when a provider is unavailable; tool-use events invalidate the answer. `launch.py status` counts attempts by state.
+#### Backend API Endpoints:
+- `POST /api/native-specs` (Body: `{"dossier_artifact": "<sha256>"}`)
+- `GET /api/native-specs/<spec-artifact-sha256>`
+- *Configuration:* Set `DECOMP_STATE_DIR` when engine state is hosted outside repository root.
+- *Reference:* See [docs/NATIVE_CLEANROOM_HANDOFF.md](docs/NATIVE_CLEANROOM_HANDOFF.md) for complete workflow and compliance guidelines.
 
-For LibreOffice Calc intake, run `python scripts/run_calc_discovery.py --state decomp-state`. It discovers compiler, token, grammar, and vector scopes by symbols in the current binary, and records 70 original FormulaGrammar outputs without supplied expected values. `--expand-claims` adds boundary inputs from the current grammar claims; the recorded run contained 116 observations. The report's `original_observed` status is reference evidence only. Compiler and token scopes can retain unresolved edges; neither discovery nor original observations count as a generated reimplementation or an equivalence pass.
+---
 
-Use `python scripts/run_random_subsystem.py <binary> --state decomp-state` for a randomized seed without authored claims. It runs semantic attempts and independent review for discovered functions, then persists the dossier and draft spec with unresolved blockers. `--seed` reproduces a draw; `--scope-artifact` resumes an existing scope. Each successful draft and review is checkpointed under `decomp-state/runs/`, so a repeat run reuses completed work and retries failed subjects. `--probe-report-artifact` sends immutable original observations into review and triggers bounded automatic semantic revisions when review finds contradictions or omissions. Restricted scalar rules are checked and linked directly to original cases. A GLM 5 watchdog inspects the saved checkpoint before each semantic, review, and gap attempt. It can focus the next prompt, route it among configured model roles, or increase the semantic evidence budget; failed attempts trigger up to two additional supervised retries. Decisions are content-addressed under `decomp-state/watchdog/` and referenced by downstream attempts. `--max-watchdog-retries` changes the bound and `--no-watchdog` disables supervision. Reviewer and gap reviewer roles use independent configured models from `models.json`; `--model`, `--review-model`, and `--gap-model` override them. The watchdog cannot grant readiness or alter original observations. The driver does not infer executable test inputs for arbitrary native interfaces and therefore cannot mark a subsystem equivalent without separate original probes.
+### 5. Durable PostgreSQL Task Queue
+Orchestrate high-throughput, distributed semantic analysis, review, dependency reconciliation, and contract publication backed by PostgreSQL.
 
-For stateful public interfaces with private C++ machinery, `python scripts/run_functional_c_e2e.py --state decomp-state --scope-artifact <scope> --public-report-artifact <training-report> --full-report-artifact <full-report> --interface token-array` derives a provisional operation-level spec from original observations, writes a plain C implementation, repairs it against public cases, and checks disjoint hidden cases once. The original observations are given to the implementer as a compact transition table and are normative over the spec and any supervisor text; that table is a selected subset (`--evidence-cases`, default 24) chosen to exhibit every operation context and argument at least once, because dumping the whole corpus made longer evidence *worse*, while every public case is still validated against the candidate. The table is so an operation that leaves every reported value unchanged is reproducible rather than treated as a transcription error. Repair always restarts from the best candidate recorded in the checkpoint, never from a later regression, and a checkpoint written before that record existed is re-evaluated from its lowest-failure source. Both the spec and implementation stages consult the watchdog; it sees the same transition table, the outstanding mismatches, and the outcome of its own earlier advice, and advice that made an attempt worse than the best candidate is withheld from the next one. The hidden cases never enter model prompts or repair feedback. A full held-out agreement is recorded separately from the provisional spec and does not imply coverage of unprobed behavior.
+#### Queue Lifecycle & Processing
+| Workflow Step | Command | Description |
+|---|---|---|
+| **Initialize Migrations** | `python launch.py queue-init --manifest <manifest>` | Applies DB migrations and audits earlier accepted tasks |
+| **Enqueue Scope Tasks** | `python launch.py queue-enqueue --scope-artifact <scope-sha256>` | Enqueues deduplicated semantic tasks for scope |
+| **Execute Single Task** | `python launch.py queue-run-one --manifest <manifest> --worker-id worker-1` | Leases and executes one task with epoch-based lease renewal |
+| **Drain Task Queue** | `python launch.py queue-drain --manifest <manifest> --workers 4 --max-tasks 4` | Concurrently drains tasks up to reasoning lease limit |
+| **Queue & Metrics Status** | `python launch.py queue-status --campaign <campaign>`<br>`python launch.py queue-metrics --campaign <campaign> --after-event-id <cursor>` | Inspects queue counts, throughput, elapsed time, and token costs |
+| **Inspect Task & Events** | `python launch.py queue-task --task-id <task-uuid>`<br>`python launch.py queue-events --campaign <campaign> --after-id 0` | Retrieves specific task state or ordered append-only event log |
 
-Evidence is expanded before it is believed: `python scripts/expand_functional_evidence.py --state decomp-state --scope-artifact <scope> --public-report-artifact <training-report> --full-report-artifact <full-report> --adapter <original-adapter> --count 40 --seed 7` observes new original cases chosen for coverage and publishes a new public/full report pair in which those cases are trainable while the existing held-out inputs stay held out and disjoint. `engine/expansion.py` ranks operation contexts by how few transitions support them, picks the sequences that reach the most weakly supported contexts per step, and isolates arguments that were never observed on an empty state, because a raise is only visible where the value is still absent. Proposals reuse only operations, arguments, and queries already in the evidence, and any sequence already recorded anywhere is skipped. `python scripts/demo_functional_c.py --state decomp-state --public-report-artifact <report> --full-report-artifact <report> --source-artifact <candidate> --trace token-array-003` compiles a stored candidate and prints every step of one case against the original outcome, so a demo shows behaviour rather than a pass count.
+#### Review, Reconciliation & Contract Publishing
+| Action | Command | Description |
+|---|---|---|
+| **Static Review Task** | `python launch.py queue-review --task-id <task-uuid>` | Runs independent static review on completed task |
+| **Deterministic Review** | `python launch.py queue-review-fixed-memory --task-id <task-uuid>` | Deterministic review for straight-line x86 fixed-memory stores |
+| **Drain Review Queue** | `python launch.py queue-review-drain --campaign <campaign> --workers 2 --max-tasks 2` | Leases and executes pending review jobs through review pool |
+| **Review Dependency** | `python launch.py queue-review-dependency --task-id <task-uuid> --dependency-index 0` | Reviews draft dependency against active helper contract |
+| **Adjudicate Gaps** | `python launch.py queue-adjudicate-gaps --task-id <task-uuid> --probe-report-artifact <sha256> --model <model>` | Classifies reviewer gaps using secondary model and probe evidence |
+| **Resolve Dependencies** | `python launch.py queue-resolve-dependencies --task-id <task-uuid> --reviews <reviews.json>` | Pins verified dependency versions to unblock task acceptance |
+| **Reassess / Normalize** | `python launch.py queue-reassess --task-id <task-uuid> --reason "..."`<br>`python launch.py queue-normalize-partial --task-id <task-uuid>` | Requeues task or deterministically normalizes minor draft errors |
+| **Reclassify / Repair Citations**| `python launch.py queue-reclassify-intrinsic --task-id <task-uuid>`<br>`python launch.py queue-repair-dependency-citations --task-id <task-uuid>` | Reclassifies mistaken dependencies or repairs direct-call citations |
+| **Direct Calls & Revisions** | `python launch.py queue-complete-direct-calls --task-id <task-uuid>`<br>`python launch.py queue-revise-semantics --task-id <task-uuid> --reason "..."` | Binds matching active helper contracts or requests semantic revision |
+| **Expand Coverage** | `python launch.py queue-expand-coverage --task-id <task-uuid> --model <model>` | Generates cited claims for reviewer-identified omissions |
+| **Publish Claims & Contracts** | `python launch.py queue-publish-claims --task-id <task-uuid> --slots <slots.json>`<br>`python launch.py queue-publish-contract --task-id <task-uuid> --claim-index 0 --contract-key <key> --expected-version 0`<br>`python launch.py queue-findings --campaign <campaign>` | Publishes accepted claims into immutable semantic slots and contracts |
+| **Queue Verification Checks** | `python scripts/check_decomp_queue.py`<br>`python scripts/check_decomp_memory_effects.py`<br>`python scripts/check_decomp_findings.py` | End-to-end integration checks for queue, memory effects, and findings |
 
-Current checkpoint for the Calc token-array interface, reproducible from artifacts alone: spec `78f921e4`, candidate `01c533a3` (source reply, compiles to a plain C library), public report `52c13a80`, full report `0d66f78a`. It reproduces all 32 public cases and 30 of 39 held-out cases; every remaining held-out disagreement starts with `finalize` or pairs it with a later `add_double`, which is the freeze behaviour the public set barely exercises. `python scripts/demo_functional_c.py --state decomp-state --public-report-artifact 52c13a80abd2fda26de26d81601a0ee9795b5b7996518fd1fbc0b7f65051adbd --full-report-artifact 0d66f78a9dc72db8c8eafa61a50e87ad1c81a786e9f6db21e458b6622241ff60 --source-artifact 01c533a38a9a3e616bef69306049562f535364ef888b1bb0884746970120ab64 --trace token-array-017` compiles that candidate and prints each step beside the original outcome. The expanded report pair `0fae89a5` / `259cf09f` (83 public cases, 35 of them coverage-selected) is the evidence the loop should be able to close next: its derived tables name 36 argument effects including the conditional ones, but no candidate has yet passed that public set.
+---
 
-`engine/observations.py` derives the rules the spec must respect, deterministically and without interface knowledge. It discovers reset operations from the evidence, builds a history feature space (operations since the last reset, operations that ran while a reported value was set, duplicate arguments), and induces conditions under which an operation produced no reported change. An invariant is `supported` only when at least three transitions across two cases agree with no counterexample; weaker patterns stay visible as uncovered facts instead of becoming rules. It also reports the effects each operation was observed to raise, with the exceptions named, so a spec cannot deny an observed effect, and the argument effects: which reported value an argument raises whenever that value was absent, per argument, which is the categorical part of the interface. Invariants are only promoted where the operation actually declined a raise it produces with the same argument elsewhere; a condition that only matches states where everything is already set explains nothing and stays a fact, as does repeating an argument that cannot raise a value twice. The spec writer must cite every supported invariant and every observed effect by id in `evidence_rules` and `effects`; a specification that cannot cite them is rejected, and a checkpointed specification that no longer matches the derived ids is re-derived rather than reused. When the implementation stops improving for `--plateau-attempts` attempts, the driver re-derives the specification from the same evidence with the watchdog supervising and continues; `--max-spec-revisions` bounds the loop. Mismatches are described in the observation's own terms (an operation, a reported value, and what each side saw) so repair works from the disagreement instead of a diff path.
+### 6. Functional C Synthesis & Cleanroom Workbench
+Generate and validate pure C implementations from behavioral specifications and observed transitions using an isolated container workbench.
 
-Original probe cases may omit `expected`: the runner records an immutable `observed` result. A candidate runner can then call `compare_case` with that artifact and a candidate adapter, recording agreement and the oracle artifact link. Human-specified expected results no longer enter native dossiers or the implementation-facing spec.
-
-`python scripts/run_native_c_candidate.py --state decomp-state --spec-artifact <sha256> --probe-report-artifact <sha256>` generates plain C from a persisted ready public native spec, compiles it, checks public examples with bounded automatic revisions, and compares the passing candidate against original cases absent from the spec. It requires matching dossier provenance and binary identity. Draft specs are rejected. The C adapter invokes plain exported functions and does not require C++ object layout. A live Calc FormulaGrammar scope reached a ready dossier with 17 linked claims; its generated C candidate passed 99/99 held-out original cases after one public-example revision. Compiler, token, vector, and broader Calc integration equivalence remain open.
-
-### Cleanroom implementation workbench
-
-Both `scripts/run_functional_c_e2e.py` and `scripts/run_native_c_candidate.py` accept `--workbench`. It replaces the no-tools implementation prompt with a disposable container in which the implementer has full shell access. The container mounts only a public workspace, a broker socket, the OpenCode binary, and (when present) its auth file. It never mounts the repository, `decomp-state`, the original binary, the dossier, or held-out cases. The agent compiles with `cc`, runs `./run_tests.sh` against every public case, asks the broker when a test is ambiguous, and iterates without outside help. The driver recompiles and checks the public cases itself, rejects a modified harness, and runs held-out cases once after the agent exits.
-
-```sh
+```bash
+# 1. Build the cleanroom implementer container
 podman build -t splice-cleanroom-implementer:local -f implementer.Dockerfile .
-python scripts/run_functional_c_e2e.py --state decomp-state \
-  --scope-artifact <scope> --public-report-artifact <training-report> \
-  --full-report-artifact <full-report> --interface token-array \
+
+# 2. Run end-to-end synthesis loop with workbench
+python scripts/run_functional_c_e2e.py \
+  --state decomp-state \
+  --scope-artifact <scope-sha256> \
+  --public-report-artifact <training-report-sha256> \
+  --full-report-artifact <full-report-sha256> \
+  --interface token-array \
   --workbench --build-workbench-image
-python scripts/run_native_c_candidate.py --state decomp-state \
-  --spec-artifact <spec> --probe-report-artifact <probes> --workbench
+
+# 3. Compile and verify native C candidate against held-out probes
+python scripts/run_native_c_candidate.py \
+  --state decomp-state \
+  --spec-artifact <spec-sha256> \
+  --probe-report-artifact <probes-sha256> \
+  --workbench
 ```
 
-The broker is the only channel back to the decompilation side. It answers caller-visible behavior from reviewed claims and private evidence, refuses requests for source, decompilation, disassembly, bytes, addresses, symbols, or implementation mechanics, and fails closed on any code-shaped answer, hex value, path, function-call syntax, or verbatim protected line. Questions are quota-bounded and deduplicated; every exchange is audited under `decomp-state/cleanroom/<run>/`. The broker uses the `cleanroom_broker` role in `models.json` and may be overridden with `--broker-model`. Broker answers are not evidence and cannot change the spec, claims, probe outcomes, readiness, or held-out cases.
+<details>
+<summary>Additional Synthesis & Discovery Utilities</summary>
 
-Run `python scripts/check_cleanroom.py` for the broker/disclosure/segregation/self-test checks, or `python scripts/check_cleanroom.py --container` to add a scripted real-container run (no model call). The container needs model access. The host's OpenCode auth file is mounted read-only when present (`--auth-file`), and `AWS_*` variables are passed from the calling environment, falling back to the ignored root `.env` for Bedrock roles. Those credentials are visible to the agent inside the container, so use short-lived, narrowly scoped credentials. Use `--workbench-network` only if the runtime's default network cannot reach the provider; `--workbench-network none` gives a fully offline container for harness checks. Network egress is the remaining external channel: it exists for model traffic, and the mount allowlist is what guarantees the binary, dossier, and held-out cases never enter the sandbox. A deployment that treats public upstream source as in-scope should run the agent behind a provider-only proxy or without egress, because full bash can otherwise retrieve public material. The non-workbench prompt loop remains available for environments without a container runtime.
+- **Expand Evidence Coverage:**
+  ```bash
+  python scripts/expand_functional_evidence.py --state decomp-state \
+    --scope-artifact <scope> --public-report-artifact <training> \
+    --full-report-artifact <full> --adapter <adapter> --count 40 --seed 7
+  ```
+- **Demo Transition Behavior:**
+  ```bash
+  python scripts/demo_functional_c.py --state decomp-state \
+    --public-report-artifact <report> --full-report-artifact <report> \
+    --source-artifact <candidate> --trace token-array-003
+  ```
+- **LibreOffice Calc Discovery:**
+  ```bash
+  python scripts/run_calc_discovery.py --state decomp-state [--expand-claims]
+  ```
+- **Random Subsystem Runner:**
+  ```bash
+  python scripts/run_random_subsystem.py <binary> --state decomp-state \
+    [--seed 42] [--max-watchdog-retries 2] [--no-watchdog] \
+    [--model <model>] [--review-model <model>] [--gap-model <model>]
+  ```
+- **Cleanroom Verification:**
+  ```bash
+  python scripts/check_cleanroom.py [--container]
+  ```
+</details>
 
-Run semantic tasks through the durable queue after installing `python -m pip install -r requirements-decomp.txt` and setting `DECOMP_DATABASE_URL` to a PostgreSQL DSN:
+*Workbench Options:*
+- `--broker-model`: Override default broker model (`cleanroom_broker` in `models.json`).
+- `--auth-file`: Mount OpenCode auth credentials read-only.
+- `--workbench-network`: Set network mode (`none` for offline harness validation).
 
-```sh
-python launch.py queue-init --manifest decomp-state/projects/<campaign>/manifest.json
-python launch.py queue-enqueue --scope-artifact <scope-artifact-sha256>
-python launch.py queue-run-one --manifest decomp-state/projects/<campaign>/manifest.json --worker-id worker-1
-python launch.py queue-drain --manifest decomp-state/projects/<campaign>/manifest.json \
-  --workers 4 --max-tasks 4
-python launch.py queue-status --campaign <campaign>
-python launch.py queue-metrics --campaign <campaign> --after-event-id <start-cursor>
-python launch.py queue-task --task-id <task-uuid>
-python launch.py queue-events --campaign <campaign> --after-id 0
-python launch.py queue-review --task-id <validated-task-uuid>
-python launch.py queue-review-fixed-memory --task-id <validated-task-uuid>
-python launch.py queue-review-drain --campaign <campaign> --workers 2 --max-tasks 2
-python launch.py queue-review-dependency --task-id <reconciliation-task-uuid> \
-  --dependency-index 0
-python launch.py queue-adjudicate-gaps --task-id <reconciliation-task-uuid> \
-  --probe-report-artifact <original-probe-report-sha256> \
-  --model amazon-bedrock/amazon.nova-pro-v1:0
-python launch.py queue-resolve-dependencies --task-id <reconciliation-task-uuid> \
-  --reviews <review-artifacts.json>
-python launch.py queue-reassess --task-id <partial-task-uuid> \
-  --reason "Correct missing dependency fields"
-python launch.py queue-normalize-partial --task-id <partial-task-uuid>
-python launch.py queue-reclassify-intrinsic --task-id <reconciliation-task-uuid>
-python launch.py queue-repair-dependency-citations --task-id <reconciliation-task-uuid>
-python launch.py queue-complete-direct-calls --task-id <reconciliation-task-uuid>
-python launch.py queue-reopen-review --task-id <reconciliation-task-uuid> \
-  --reason "Recheck path coverage"
-python launch.py queue-revise-semantics --task-id <reconciliation-task-uuid> \
-  --reason "Add omitted accepted-path effects"
-python launch.py queue-expand-coverage --task-id <reconciliation-task-uuid> \
-  --model amazon-bedrock/amazon.nova-pro-v1:0
-python scripts/check_decomp_queue.py
-```
+---
 
-`queue-run-one` leases one task, renews its lease while the model runs, submits the immutable draft, and checks its scope and evidence structure. `queue-drain` first warms the function export cache, then runs up to 32 worker loops while the database enforces its configured reasoning capacity; it prints each task outcome as it finishes. The PostgreSQL queue uses epochs to reject expired submissions, deduplicates tasks and submissions, retains checkpoints and rejected draft artifacts, caps reasoning leases at 16 by default, and writes progress events in the same transactions as task changes. `queue-metrics` reports attempt outcomes, elapsed time, model usage, and cost from durable attempts and immutable artifacts, plus review artifact usage and outcomes; `--after-event-id` isolates a drain using the cursor printed by `queue-status` before it starts. `queue-reassess` requeues a partial task, carrying a prior draft only when it is safe to supply as context; the maximum attempt count still applies. `queue-normalize-partial` can promote a rejected draft after deterministic address spelling or single-field text-item normalization passes the full structural check, with a new artifact linked to the original. `queue-review` runs an independent static reviewer; supported claims with unresolved dependencies stay in `needs_reconciliation`. Accepted tasks record `static_only`; original probe agreement still needs separate reconciliation. The queue check creates and removes its own test database; set `DECOMP_TEST_PG_DSN` if the local PostgreSQL test server is elsewhere. Automatic conflict reconciliation and full throughput benchmarking remain open M3/M6 work.
+### 7. Tool-Integration Diagnostic & Model Routing
 
-`queue-review-fixed-memory` is an independent deterministic review for straight-line x86 functions containing fixed-address zero-vector stores, immediate stores, and a final `RET`. It computes written bytes and overlap counts, supports only claims in its explicit store/overlap/final-value grammar, and refuses unsupported instructions. Its review artifact identifies the deterministic method. This narrow lane resolved the telemetry reset helper after model reviewers disagreed about overlapping vector stores; it does not establish semantic support for other instruction patterns. `python scripts/check_decomp_memory_effects.py` exercises a false overlap and the supported reset shape.
+Inspect and safely rename symbols using OpenCode and headless Ghidra MCP:
 
-`queue-init` applies the current PostgreSQL migrations, audits earlier accepted tasks for unresolved dependencies, and backfills durable review jobs for validated drafts or historically reviewed tasks. `queue-status` reports any tasks still missing a review job. Run `queue-init` again after upgrading the engine. `queue-review-drain` leases queued jobs through the independently capped review pool, renews leases while the reviewer runs, and records each outcome; expired review leases can be recovered. A review with supported claims but unreviewed dependencies is retained as `needs_reconciliation`, with its reason visible through `queue-task` and the ordered `queue-events` cursor. For a reviewed x86 function with no direct or indirect calls, `queue-reclassify-intrinsic` moves mistaken memory or input "dependencies" into visible state unknowns, creates a linked draft, and queues a fresh independent review. It refuses functions that may call another function. `queue-reopen-review` rechecks an unresolved, unpublished draft against updated review criteria. `queue-revise-semantics` starts a bounded new reasoning attempt for a contradicted or incomplete unpublished draft, with its old draft and review supplied as untrusted context. `queue-expand-coverage` requests additional cited claims for each reviewer-identified omission, records the model output and source review, and queues a fresh review only when every omission is mapped and the merged draft passes structural validation. Expansion is capped at two published revisions per task. Review every real draft dependency against the active helper contract and both raw functions, then pass the resulting artifact IDs as a JSON array to `queue-resolve-dependencies`. Acceptance requires supported reviews for every dependency and unchanged contract versions; uncertain reviews leave the task awaiting reconciliation. The queue event cursor records each dependency review and the final pinned resolution.
-
-`queue-repair-dependency-citations` performs at most one deterministic repair for a reviewed, unpublished task. It maps existing dependency names to unique scoped function entries and raw direct-call sites, records the old and new citations in an immutable draft, and queues another independent review. It never adds a dependency or infers callee behavior; unbound calls remain visible. The dependency reviewer checks that the caller cites a direct call to the helper's actual entry before spending a model call. Resolution and dossier assembly repeat that check. Dossiers list direct calls that have no correctly bound dependency, including calls attributed to the wrong helper; those calls remain readiness blockers.
-
-`queue-complete-direct-calls` adds only uncovered direct-call dependencies when each target has a matching active, reviewed helper contract. It copies the contract statement, cites the exact call site, records the contract artifact and version, and queues the changed caller for independent review. Missing or changed contracts block the operation. The dependency reviews and pinned resolution remain separate requirements.
-
-`queue-revise-semantics` accepts `--probe-report-artifact` for a bounded revision. The report must contain original-execution cases for the same campaign binary and scoped function. The worker sees observed values alongside raw instruction evidence; previous model output remains untrusted.
-
-Reviewed, accepted claims can be published into explicit semantic slots. Supply a JSON object such as `{"0":"seen_counter_increment"}` for a one-claim draft:
-
-```sh
-python launch.py queue-publish-claims --task-id <accepted-task-uuid> --slots <slots.json>
-python launch.py queue-publish-contract --task-id <accepted-task-uuid> \
-  --claim-index 0 --contract-key record_seen --expected-version 0
-python launch.py queue-publish-contract --task-id <accepted-task-uuid> \
-  --claim-indices 0,1 --contract-key record_accepted --expected-version 0
-python launch.py queue-findings --campaign <campaign>
-python scripts/check_decomp_findings.py
-```
-
-Findings and contract versions are immutable artifact-backed records. A helper contract can cover several independently supported claims from one task. Conditional publication checks the accepted review and contract head versions; conflicting statements in the same subject and semantic slot remain separate, with open conflict records. A changed or disputed contract stales its indexed consumers while unrelated findings remain active. Dependent accepted claims use their recorded resolution pins; semantic slot assignment remains explicit and open conflicts do not auto-resolve.
-
-Independently challenge a draft against the raw function evidence:
-
-```sh
-python launch.py review --draft-artifact <draft-artifact-sha256>
-```
-
-The reviewer records an outcome for each claim (`supported_static`, `contradicted`, or `uncertain`) plus missing behavior and unresolved questions. A `reviewed` result means the review record is structurally complete; static support and original-execution agreement remain separate. Review attempts and outcomes are stored as immutable artifacts and counted by `launch.py status`.
-
-`python scripts/check_decomp_review.py` seeds an explicitly false constant-return claim on a real stripped fixture and requires the independent reviewer to flag it. Set `DECOMP_REVIEW_CHECK_MODEL` to use a different configured OpenCode model for that check.
-
-Run independently specified cases against the original stripped fixture binaries:
-
-```sh
-python launch.py probe --fixtures-manifest decomp-state/fixtures/manifest.json \
-  --suite fixtures/decomp/probes.json
-python launch.py probe --fixtures-manifest decomp-state/fixtures/telemetry_manifest.json \
-  --suite fixtures/decomp/telemetry_apply_probes.json \
-  --adapter scripts/telemetry_probe_adapter.py
-```
-
-The probe runner records binary, runner, and adapter hashes; controlled limits; inputs; expected and observed outputs; and an outcome for each case. It distinguishes `agreement`, `disagreement`, and `execution_error`. Shared-library probes use the evaluator-owned ctypes adapter in `scripts/native_probe_adapter.py`; executable probes invoke the original binary. `launch.py status` includes probe counts under a `probe:<binary-sha256>` progress key. Probe agreement and static review remain separate records.
-
-`python scripts/check_decomp_probes.py` also exercises a regression adapter that calls the original `fold_depth` but discards its return value. The differing observed output must produce `disagreement`.
-
-Assemble an immutable dossier from explicit artifact IDs with `python launch.py dossier --manifest <manifest> --scope-artifact <sha256> --inputs <json-file>`. The input file contains arrays named `draft_artifacts`, `review_artifacts`, `probe_report_artifacts`, and optionally `probe_link_artifacts` and `dependency_resolution_artifacts`. A probe link artifact has `schema: 1` and a `links` array. Each link identifies a `draft_artifact`, `claim_index`, `probe_report_artifact`, `case_id`, JSON `observed_pointer`, `expected_observed` value, and evaluator rationale. The assembler checks the original case's binary identity, outcome, and observed field before recording `case_agreement` or `case_disagreement`. This is agreement for the cited case, not proof of a claim across all inputs. `python scripts/check_decomp_probe_links.py` checks that a wrong expected observation becomes a disagreement and a missing field is rejected. With `--dsn` or `DECOMP_DATABASE_URL`, the dossier records a consistent PostgreSQL snapshot of current helper contract heads; without one, reviewed dependencies retain a head-check blocker. The command writes a readable `decomp-state/dossiers/<scope-id>/latest.md` and returns content-addressed JSON and Markdown hashes. It lists missing function drafts, unresolved scope edges, review gaps, unreviewed or stale dependency contracts, and probe linkage gaps as blockers. Readiness remains `partial` until those gaps are resolved; raw Ghidra output, model claims, static review, and original probes stay distinct.
-
-The dossier inputs may also include `gap_adjudication_artifacts`. Each adjudication must match a supplied draft, review, and original probe report. Its decisions and reasons remain visible; blocking or uncertain decisions remain dossier blockers. A matching original case with disagreement or execution error prevents gap clearance. `queue-adjudicate-gaps` uses a model different from the claim reviewer and clears review gaps only when all current claims have static support and every gap is independently classified nonblocking. Tasks with dependencies remain in reconciliation until every dependency is reviewed against its active helper contract. Dossier coverage reports distinct original cases and total probe runs separately.
-
-Check arithmetic claims against original cases on both sides of each numeric boundary before linking them. An October 2026 executable run found a model draft and its independent reviewer both miscomputed a wrapped 32-bit limit. A probe link only checks an observed field against the recorded expected value; its rationale is not machine-verified proof that the claim follows from that field. Review the claim, rationale, and counterexample cases together before treating a dossier as ready. The semantic and review prompts now call out operand-width wraparound and concrete boundary paths.
-
-Check whether a dossier is eligible for the cleanroom writer without a model call:
-
-```sh
-python scripts/check_decomp_handoff.py --dossier-artifact <dossier-artifact-sha256>
-```
-
-The specification command persists a draft at each dossier revision, including partial
-revisions with no original cases. It selects reviewed observable claims and keeps structural
-analysis details, C++ runtime layout, omitted claims, and blockers in the private audit.
-The handoff check reports `draft` until functional behavior and original cases are sufficient.
-An incomplete draft cannot be adapted into an implementation input. Static instruction counts
-or callee names alone cannot establish what a `Clone` operation does; the semantic worker and
-independent reviewer now ask for caller-visible behavior. The same functional requirements
-can guide a C implementation even when the original binary came from C++.
-
-```sh
-python launch.py spec --dossier-artifact <dossier-artifact-sha256>
-python scripts/check_decomp_spec.py
-```
-
-The command invokes the same configured Step 2 `spec_writer` engine used for source-tree
-features. It supplies reviewed behavioral facts and original input/output examples, then
-checks that every selected functional fact appears in the draft and that its prose contains no
-source-like text or type-declaration shorthand. It rejects deviations and exclusions
-without a supplied basis. The public JSON and Markdown under `decomp-state/specifications/<scope-id>/`
-contain an interface described in words, requirements, a high-level behavior outline,
-original examples, and acceptance criteria. They contain no C, assembly, TypeScript,
-executable tests, raw addresses, draft pseudocode, or review report details. An immutable
-`audit_artifact` separately holds evidence links, omitted claims, blockers, review and probe records, model identity,
-and claim-to-requirement mappings for the analyst. Never give the audit artifact or dossier
-to an implementer. Repeating the command for the same dossier and writer revision reuses
-the artifact. A new writer revision or dossier produces a new artifact. A human must review
-the result for behavioral completeness and cleanroom containment before implementation;
-`ready_for_review` is not a claim of equivalence or legal cleanroom status.
-
-The Node backend exposes the public artifact through `POST /api/native-specs`
-(`{"dossier_artifact":"<sha256>"}`) and `GET /api/native-specs/<spec-artifact-sha256>`;
-set `DECOMP_STATE_DIR` when engine state is outside the repository. A partial dossier
-returns a `draft` artifact. Historical schema 1 spec artifacts are rejected by the API.
-The analyst and implementer workflow, review gate, and rights checks are in
-[`docs/NATIVE_CLEANROOM_HANDOFF.md`](docs/NATIVE_CLEANROOM_HANDOFF.md).
-
-## Rename diagnostic
-
-The earlier tool-integration diagnostic dispatches an OpenCode agent that inspects a function through a headless Ghidra MCP server, renames it, and saves the project. A second process reopens the project to verify the name. Each attempt gets its own Ghidra project under `runs/`.
-
-The host starts **Docker Compose only**. The Docker orchestrator runs every `podman build` and `podman run`; no host Podman state or socket is used. The worker image contains Ghidra 12.1.3 and [ghidra-headless-mcp](https://github.com/mrphrazer/ghidra-headless-mcp) at a fixed commit. It mounts the installed [OpenCode](https://opencode.ai/docs/cli/) binary and credentials read-only, then gives the model a small allowlist of Ghidra tools.
-
-## Run
-
-Install and sign in to OpenCode on the host, then build the nested worker image:
-
-```sh
+```bash
+# Build nested worker image via Docker orchestrator
 docker compose build orchestrator
 docker compose run --rm orchestrator python launch.py build
+
+# Execute rename diagnostic
+docker compose run --rm orchestrator python launch.py rename \
+  --binary /workspace/path/to/binary --address 0x401126 --new-name parse_packet \
+  [--model-role <role>] [--model <provider/model>]
 ```
 
-The build downloads the official Ghidra release and verifies its SHA-256. It can take several minutes and needs several gigabytes of free space.
+#### Model Routing Configuration
+Models are mapped in `models.json` and resolved in priority order:
+1. Explicit CLI argument (`--model`)
+2. Environment variable override (`MODEL_<ROLE>`)
+3. `models.json` role default
+4. `OPENCODE_MODEL` (legacy override)
+5. `models.json` global `default`
 
-Compose defaults to `/home/mitch/.opencode/bin/opencode` and `/home/mitch/.local/share/opencode/auth.json`. Set `OPENCODE_BIN` and `OPENCODE_AUTH_FILE` in your environment or `.env` to use other paths.
-
-## Model routing
-
-`models.json` is the single global config for what model does what (OpenCode `provider/model` format):
-
-| Role | Default | Override |
+| Role | Default Model | Environment Override |
 |---|---|---|
 | `decomp_worker` | `amazon-bedrock/amazon.nova-lite-v1:0` | `MODEL_DECOMP_WORKER` |
 | `legal_verification` | `amazon-bedrock/amazon.nova-pro-v1:0` | `MODEL_LEGAL_VERIFICATION` |
 
-Resolution order: `--model` (or assignment `"model"`) > `MODEL_<ROLE>` env > `models.json` role > `OPENCODE_MODEL` (legacy default override) > `models.json` `default`. Inspect the resolved table with:
-
-```sh
+*Inspect active model configuration:*
+```bash
 docker compose run --rm orchestrator python launch.py list-models
+# or locally:
+python launch.py list-models
 ```
 
-`launch.py rename` accepts `--model-role <role>` (default `decomp_worker`); `--model provider/model` overrides the role for that run. Batch assignments accept optional `"model"` and `"model_role"` fields. `python launch.py list-models` shows the resolved table.
+*Environment paths:* Set `OPENCODE_BIN` and `OPENCODE_AUTH_FILE` to specify custom paths on host.
 
-Use the function's Ghidra entry address:
+---
 
-```sh
-docker compose run --rm orchestrator python launch.py rename \
-  --binary /workspace/path/to/binary --address 0x401126 --new-name parse_packet
+## Python Dispatcher API
+
+For programmatic batch execution within the Docker orchestrator:
+
+```python
+import launch
+
+# Dispatch a single rename attempt
+launch.run(binary="/workspace/target.bin", address="0x401126", new_name="parse_packet")
+
+# Dispatch parallel assignments across Podman workers
+launch.dispatch_many(assignments=[...], max_workers=2)
 ```
 
-The output path is `runs/<attempt-id>/`. `manifest.json` records the input hash, address, model, model role, and timeout. `opencode.json` is the private MCP and permission configuration. `opencode-events.jsonl` records every agent event; `result.json` records tool calls, usage, and the reopened result. A failed attempt writes `error.json` and exits nonzero. Projects are private per attempt; this milestone does not publish changes to a shared main project or claim full function documentation.
-
-`compose.yaml` uses a privileged Docker container because nested Podman needs container and mount privileges. The Ghidra MCP server and OpenCode run together inside the Podman worker; the MCP server is not exposed over a network port.
-
-## Python API
-
-`launch.run(binary, address, new_name)` creates and dispatches one attempt. `launch.dispatch_many(assignments, max_workers=2)` sends independent assignments to separate Podman workers, each with a private workspace. Call `launch.build()` once before dispatching. Run this Python code inside the Docker orchestrator.
-
-You can also save a JSON array of assignments, then run:
-
-```sh
+**Batch CLI Execution:**
+```bash
 docker compose run --rm orchestrator python launch.py batch \
   --assignments /workspace/assignments.json --max-workers 2
 ```
-
-Each assignment has `binary`, `address`, and `new_name` fields. `model`, `model_role`, and `timeout` are optional.
+*Assignment Schema:* JSON array of objects with required fields `binary`, `address`, `new_name`, and optional `model`, `model_role`, `timeout`.
