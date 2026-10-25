@@ -10,8 +10,12 @@ import uuid
 from engine.analysis.ghidra import GhidraAnalysis
 from engine.citations import evidence_addresses, normalize_references
 from engine.model_runtime import invoke_opencode
+from engine.validation.probes import select_original_cases
+from engine.validation.scalar_cases import scalar_counterexamples
 from engine.worker import parse_answer
 from model_config import get_model
+
+REVIEW_PROMPT_VERSION = 7
 
 
 def validate_review(answer: dict, evidence: dict, claim_count: int) -> list[str]:
@@ -49,7 +53,8 @@ def validate_review(answer: dict, evidence: dict, claim_count: int) -> list[str]
     return errors
 
 
-def review_prompt(draft: dict, evidence: dict, scope: dict | None = None) -> str:
+def review_prompt(draft: dict, evidence: dict, scope: dict | None = None,
+                  original_cases: list[dict] | None = None) -> str:
     raw = {"entry": evidence["entry"], "name": evidence.get("name"),
            "signature_source": evidence.get("signature_source"),
            "listing_parameters": evidence.get("listing_parameters", []),
@@ -112,10 +117,13 @@ def review_prompt(draft: dict, evidence: dict, scope: dict | None = None) -> str
         "object with reviews array, missing_behavior array of strings, unresolved array of "
         "strings. Each review object must have claim_index, outcome, reason, "
         "evidence_addresses array. Return each claim_index exactly once. Use exact addresses "
-        "from the raw evidence. This is static review; do not claim execution agreement. "
+        "from the raw evidence. When original cases are supplied, compare each claim "
+        "with matching observed inputs and outputs; a counterexample contradicts a claim. "
+        "Static evidence alone is not execution agreement. "
         "No markdown.\n"
         f"Claims: {json.dumps(claims, separators=(',', ':'))}\n"
         f"Scope coverage questions: {json.dumps(coverage_questions, separators=(',', ':'))}\n"
+        f"Original cases: {json.dumps(original_cases or [], separators=(',', ':'))}\n"
         f"Raw evidence: {json.dumps(raw, separators=(',', ':'))}"
     )
 
@@ -129,7 +137,8 @@ class IndependentReviewer:
         self.env_file = env_file or Path(__file__).resolve().parents[2] / ".env"
 
     def run(self, draft_artifact: str, *, model: str | None = None,
-            model_role: str = "legal_verification") -> dict:
+            model_role: str = "legal_verification",
+            probe_report_artifact: str | None = None) -> dict:
         draft = json.loads(self.engine.store.get(draft_artifact))
         if draft["state"] != "unreviewed":
             raise ValueError("only structurally valid unreviewed drafts can be reviewed")
@@ -141,7 +150,18 @@ class IndependentReviewer:
             scope = json.loads(self.engine.store.get(draft["scope_artifact"]))
             if scope["campaign"] != draft["campaign"]:
                 raise ValueError("draft and scope campaign disagree")
-        prompt = review_prompt(draft, evidence, scope)
+        original_cases = []
+        if probe_report_artifact:
+            if scope is None:
+                raise ValueError("probe-backed review requires a scope")
+            manifest = json.loads((self.engine.root / "projects" /
+                                   draft["campaign"] / "manifest.json").read_text())
+            names = {item["entry"]: item["name"] for item in scope["included"]}
+            report = json.loads(self.engine.store.get(probe_report_artifact))
+            original_cases = select_original_cases(
+                self.engine.store, report, manifest["binary_sha256"],
+                names.get(draft["subject"]))
+        prompt = review_prompt(draft, evidence, scope, original_cases)
         review_id = uuid.uuid4().hex
         folder = self.engine.root / "reviews" / review_id
         folder.mkdir(parents=True)
@@ -151,7 +171,10 @@ class IndependentReviewer:
                       "campaign": draft["campaign"], "draft_artifact": draft_artifact,
                       "evidence_artifact": draft["evidence_artifact"],
                       "subject": draft["subject"], "model": resolved_model,
-                      "model_role": model_role, "prompt_version": 6,
+                      "model_role": model_role,
+                      "probe_report_artifact": probe_report_artifact,
+                      "original_case_count": len(original_cases),
+                      "prompt_version": REVIEW_PROMPT_VERSION,
                       "state": "running"}
         checkpoint_path = folder / "checkpoint.json"
         checkpoint_path.write_text(json.dumps(checkpoint, indent=2) + "\n")
@@ -174,6 +197,21 @@ class IndependentReviewer:
                     item.get("evidence_addresses"), evidence_addresses(evidence))
                 item["evidence_addresses"] = refs
                 corrections.extend({"review_index": index, **change} for change in changes)
+            oracle_corrections = []
+            for index, claim in enumerate(draft["answer"]["claims"]):
+                conflicts = scalar_counterexamples(claim["statement"], original_cases)
+                if conflicts and isinstance(candidate_reviews, list):
+                    item = next((row for row in candidate_reviews if isinstance(row, dict)
+                                 and row.get("claim_index") == index), None)
+                    if item is not None:
+                        item["outcome"] = "contradicted"
+                        item["reason"] = (item.get("reason", "") +
+                                          " Original case counterexample: " +
+                                          ", ".join(conflicts)).strip()
+                        if not item.get("evidence_addresses"):
+                            item["evidence_addresses"] = claim["evidence_addresses"]
+                        oracle_corrections.append({"claim_index": index,
+                                                   "case_ids": conflicts})
             errors = validate_review(answer, evidence, len(draft["answer"]["claims"]))
             outcomes = [item["outcome"] for item in answer.get("reviews", [])
                         if isinstance(item, dict) and item.get("outcome") in
@@ -181,6 +219,7 @@ class IndependentReviewer:
             result = {**checkpoint, "state": "rejected" if errors else "reviewed",
                       "answer": answer, "structural_errors": errors,
                       "citation_normalizations": corrections,
+                      "oracle_corrections": oracle_corrections,
                       "outcomes": {value: outcomes.count(value) for value in sorted(set(outcomes))},
                       "usage": reply["usage"], "opencode_version": reply["runtime_version"],
                       "elapsed_seconds": round(time.monotonic() - started, 3)}
