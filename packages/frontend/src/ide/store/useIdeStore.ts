@@ -2,6 +2,8 @@ import { create } from "zustand";
 import {
   applyBuilderOperations,
   type BuilderBlock,
+  type FeatureBlueprint,
+  type FeatureSpec,
   type SynthesisBundle,
 } from "@splice/contracts";
 import { requestBuilderEdits } from "../../builder/api";
@@ -141,6 +143,7 @@ export interface IdeState {
   // Studio & Live App State
   studioSubMode: StudioSubMode;
   includedFeatureIds: string[];
+  nativeHandoff: { spec: FeatureSpec; blueprint: FeatureBlueprint } | null;
   bundle: SynthesisBundle;
   layout: BuilderBlock[];
   pastLayouts: BuilderBlock[][];
@@ -189,6 +192,7 @@ export interface IdeState {
     split?: boolean,
   ): void;
   setStudioSubMode(mode: StudioSubMode): void;
+  setNativeHandoff(spec: FeatureSpec, blueprint: FeatureBlueprint): void;
   toggleFeatureInBuild(featureId: string): void;
   toggleBlockWidth(blockId: string): void;
   removeBlock(blockId: string): void;
@@ -332,6 +336,7 @@ export const useIdeStore = create<IdeState>((set, get) => ({
 
   studioSubMode: "canvas",
   includedFeatureIds: ["inkwell.wikilink_graph", "recall.sm2_scheduler"],
+  nativeHandoff: null,
   bundle: IDE_DEFAULT_BUNDLE,
   layout: INITIAL_LAYOUT,
   pastLayouts: [],
@@ -797,18 +802,46 @@ export const useIdeStore = create<IdeState>((set, get) => ({
     });
     get().appendLog(
       "oracle",
-      "Checking all building blocks against original applications...",
+      "Checking bundled verification scenarios...",
     );
-    await new Promise((r) => setTimeout(r, 250));
-    get().appendLog(
-      "oracle",
-      "✓ Connected Notes & Backlinks matched Inkwell Notes (3 out of 3 scenarios).",
-    );
-    get().appendLog(
-      "oracle",
-      "✓ Smart Flashcard Scheduler matched Recall Flashcards (4 out of 4 scenarios).",
-    );
-    set((s) => ({ isRunningTests: false, testRunCount: s.testRunCount + 1 }));
+    try {
+      const included = get().includedFeatureIds;
+      const features = IDE_FEATURES.filter((feature) => included.includes(feature.featureId));
+      for (const feature of features) {
+        if (!feature.spec) {
+          throw new Error(`${feature.title} has no specification to check.`);
+        }
+        if (feature.spec.oracle.status !== "passed") {
+          const blueprint = get().nativeHandoff?.spec.feature_id === feature.featureId
+            ? get().nativeHandoff?.blueprint
+            : feature.blueprint;
+          if (!blueprint) throw new Error(`${feature.title} has no executable passing oracle scenarios.`);
+          const passed = blueprint.verification.tests.filter((result) => result.passed).length;
+          const total = blueprint.verification.tests.length;
+          if (blueprint.verification.status !== "passed" || passed !== total || total === 0) {
+            throw new Error(`${feature.title}: ${passed}/${total} local engine checks passed; original behavior is not executable.`);
+          }
+          get().appendLog("oracle", `✓ ${feature.title}: ${passed}/${total} local engine checks passed; original behavior was not exercised.`);
+          continue;
+        }
+        const passed = feature.spec.oracle.tests.filter((result) => result.passed).length;
+        const total = feature.spec.oracle.tests.length;
+        if (passed !== total || total === 0) {
+          throw new Error(`${feature.title}: ${passed}/${total} bundled oracle scenarios passed.`);
+        }
+        get().appendLog("oracle", `✓ ${feature.title}: ${passed}/${total} bundled oracle scenarios passed.`);
+      }
+      if (!features.length) get().appendLog("oracle", "No included features to verify.");
+      set((s) => ({ testRunCount: s.testRunCount + 1 }));
+    } catch (error) {
+      get().appendLog("system", `Verification unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      set({ isRunningTests: false });
+    }
+  },
+
+  setNativeHandoff(spec: FeatureSpec, blueprint: FeatureBlueprint) {
+    set({ nativeHandoff: { spec, blueprint } });
   },
 
   cancelCopilotPrompt() {

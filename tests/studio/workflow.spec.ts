@@ -1,4 +1,13 @@
 import { test, expect, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
+const fixture = (file: string) => JSON.parse(readFileSync(path.resolve(process.cwd(), file), "utf8"));
+const nativeSpec = fixture("fixtures/specs/_seed/mockpriority.priority_score.json");
+const nativeBlueprint = fixture("fixtures/blueprints/_seed/mockpriority.priority_score.json");
+const defaultBundle = fixture("fixtures/bundles/_seed/study-room.json");
+const sse = (...events: Array<{ type: string; [key: string]: unknown }>) =>
+  events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 960 });
@@ -202,11 +211,49 @@ test("assistant stays in chat on success and failure, cancels safely, and preser
   expect(errors).toEqual([]);
 });
 
-test("native target is visible, displays native ELF badge, adapts spec and reconstructs engine", async ({
+test("native target uses backend adapter and implementation results in the pipeline preview", async ({
   page,
 }) => {
   const errors: string[] = [];
+  const requests: Array<{ path: string; body: any }> = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  await page.route("**/api/health", route => route.fulfill({ json: {
+    ok: true,
+    rea: { connected: false, version: null, tool_count: 0 },
+    rea_mode: "replay",
+    llm_mode: "replay",
+    model: "test",
+    models: {},
+  } }));
+  await page.route("**/api/native-specs/adapt", async route => {
+    const body = route.request().postDataJSON();
+    requests.push({ path: "/api/native-specs/adapt", body });
+    await route.fulfill({ json: { spec: nativeSpec, feature_spec: nativeSpec } });
+  });
+  await page.route("**/api/implement", async route => {
+    const body = route.request().postDataJSON();
+    requests.push({ path: "/api/implement", body });
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream; charset=utf-8",
+      body: sse(
+        { type: "blueprint", run_id: "native-test", feature_id: nativeBlueprint.feature_id, ts: 1, blueprint: nativeBlueprint },
+        { type: "done", run_id: "native-test", feature_id: nativeBlueprint.feature_id, ts: 2, ok: true, replayed: false },
+      ),
+    });
+  });
+  await page.route("**/api/synthesize", async route => {
+    const body = route.request().postDataJSON();
+    requests.push({ path: "/api/synthesize", body });
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream; charset=utf-8",
+      body: sse(
+        { type: "bundle", run_id: "native-synth", ts: 3, bundle: defaultBundle },
+        { type: "done", run_id: "native-synth", ts: 4, ok: true },
+      ),
+    });
+  });
 
   await navigate(page, "App library");
   const applications = page.getByRole("region", {
@@ -214,6 +261,7 @@ test("native target is visible, displays native ELF badge, adapts spec and recon
   });
 
   const mockPriority = applications.getByRole("button", { name: /Mock Task Board/ });
+  await expect(applications).toBeVisible();
   await expect(mockPriority).toBeVisible();
   await expect(mockPriority).toContainText("Native ELF");
   await mockPriority.click();
@@ -243,7 +291,25 @@ test("native target is visible, displays native ELF badge, adapts spec and recon
   const nativeRadio = page.getByRole("radio", { name: /Native · Task Priority/ });
   await expect(nativeRadio).toBeVisible();
   await nativeRadio.click();
+  await expect(page.getByText("Native engine implementation verified · ready to fuse into a Studio preview.")).toBeVisible();
+  await expect(page.getByText(nativeSpec.consumer_title)).toBeVisible();
   await expect(page.getByText("Task priority scoring (mock decompilation)")).toBeVisible();
+
+  const fuse = page.getByRole("button", { name: /Fuse 1 verified engine/ });
+  await expect(fuse).toBeEnabled();
+  await fuse.click();
+  await expect(page.getByRole("heading", { name: defaultBundle.app_title })).toBeVisible();
+  expect(requests.map(request => request.path)).toEqual([
+    "/api/native-specs/adapt",
+    "/api/implement",
+    "/api/synthesize",
+  ]);
+  expect(requests[0].body).toMatchObject({
+    spec: { kind: "native_subsystem_spec" },
+    feature_id: nativeSpec.feature_id,
+  });
+  expect(requests[1].body.spec.feature_id).toBe(nativeSpec.feature_id);
+  expect(requests[2].body.blueprints.map((bp: any) => bp.feature_id)).toEqual([nativeBlueprint.feature_id]);
 
   expect(errors).toEqual([]);
 });
