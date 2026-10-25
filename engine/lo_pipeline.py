@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 import fnmatch
 import json
 import re
+import subprocess
 from pathlib import Path
 import time
 from typing import Callable
@@ -45,6 +46,7 @@ class LoPipelineConfig:
     max_depth: int = 2
     workers: int = 4
     investigate: bool = False
+    review_model_role: str = "legal_verification"   # models.json role for the independent review
     # Explicit until application-wide discovery can supply candidate scopes without known features.
     scoped_analysis: bool = False
 
@@ -214,7 +216,8 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
         raise ValueError("analyzed binary differs from the installed library LibreOffice loads")
     index = engine.index(manifest)
     image_base = int(index.get("image_base", "0"), 16)
-    summary.update(campaign=manifest["campaign"], function_count=manifest["function_count"])
+    summary.update(campaign=manifest["campaign"], function_count=manifest["function_count"],
+                   binary_sha256=manifest["binary_sha256"])
 
     if config.seed_source == "runtime":
         log(f"[triage] Frida via REA on {config.module}, {len(public)} public cases")
@@ -285,7 +288,7 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
         draft = deps.worker.run(manifest, scope_artifact, entry, runtime_observations=observations)
         if draft["state"] != "unreviewed":
             return {"entry": entry, "draft": draft, "review": None}
-        review = deps.reviewer.run(draft["artifact"])
+        review = deps.reviewer.run(draft["artifact"], model_role=config.review_model_role)
         if (config.investigate and deps.investigator is not None and
                 review["state"] == "reviewed"):
             investigation = deps.investigator.run(manifest, draft["artifact"], review["artifact"])
@@ -294,7 +297,8 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
                 revised = deps.worker.run(manifest, scope_artifact, entry, prior_artifact=context,
                                           runtime_observations=observations)
                 if revised["state"] == "unreviewed":
-                    second = deps.reviewer.run(revised["artifact"])
+                    second = deps.reviewer.run(revised["artifact"],
+                                               model_role=config.review_model_role)
                     if second["state"] == "reviewed":
                         return {"entry": entry, "draft": revised, "review": second,
                                 "investigation": investigation["artifact"]}
@@ -339,6 +343,7 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
                           "blockers": dossier.get("blockers", []),
                           "coverage": dossier.get("coverage")}
     log(f"[dossier] readiness {dossier['readiness']}")
+    summary["handoff"] = build_handoff(engine.store, analysed, scope, public, observations)
     if dossier["readiness"] == "ready_for_spec":
         spec = timed("spec", lambda: deps.persist_spec(engine.root, dossier["artifact"]))
         summary["spec"] = {key: spec.get(key) for key in
@@ -346,6 +351,118 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
     else:
         summary["spec"] = None
     return summary
+
+
+def build_handoff(store, analysed: list[dict], scope: dict, public: list[dict],
+                  observations: dict[str, dict]) -> dict:
+    """Evidence a spec author can turn into a FeatureSpec, even when the dossier is not ready.
+
+    Claims carry the independent review verdict; observed cases are real LibreOffice results.
+    Held-out cases are never passed in: they stay hidden from spec authors and implementers.
+    """
+    names = {item["entry"]: item.get("name") for item in scope["included"]}
+    readable = _demangle([name for name in names.values() if name])
+    functions = []
+    for item in analysed:
+        draft, review = item["draft"], item["review"]
+        symbol = names.get(item["entry"])
+        record = {"entry": item["entry"], "name": readable.get(symbol, symbol), "symbol": symbol,
+                  "draft_state": draft["state"], "review_state": review and review["state"],
+                  "claims": [], "dependencies": [], "unknowns": []}
+        if draft["state"] == "unreviewed":
+            answer = json.loads(store.get(draft["artifact"]))["answer"]
+            verdicts, missing = {}, []
+            if review is not None and review["state"] == "reviewed":
+                reviewed = json.loads(store.get(review["artifact"])).get("answer") or {}
+                verdicts = {r["claim_index"]: r for r in reviewed.get("reviews", [])}
+                missing = reviewed.get("missing_behavior", [])
+            record.update(
+                behavior={key: answer.get(key) for key in
+                          ("inputs", "outputs", "state", "side_effects", "errors")},
+                claims=[{"statement": claim["statement"],
+                         "evidence_addresses": claim.get("evidence_addresses", []),
+                         "assumptions": claim.get("assumptions", []),
+                         "review": ({"outcome": verdicts[i]["outcome"], "reason": verdicts[i]["reason"]}
+                                    if i in verdicts else None)}
+                        for i, claim in enumerate(answer.get("claims", []))],
+                dependencies=answer.get("dependencies", []), unknowns=answer.get("unknowns", []),
+                missing_behavior=missing)
+        functions.append(record)
+    cases = [{"id": case["id"], "formula": case["formula"], "cells": case.get("cells", {}),
+              "description": case.get("input_description"),
+              "observed": (observations.get(case["id"]) or {}).get("observed")}
+             for case in public]
+    return {"functions": functions, "observed_cases": cases}
+
+
+def write_handoff(folder: Path, summary: dict, handoff: dict | None, store) -> Path:
+    """evidence.json + README.md (+ native_spec.json when a spec was generated) for Engineer 2."""
+    folder.mkdir(parents=True, exist_ok=True)
+    handoff = handoff or {"functions": [], "observed_cases": []}
+    dossier = summary.get("dossier") or {}
+    outcomes = _count(claim["review"]["outcome"] if claim["review"] else "unreviewed"
+                      for function in handoff["functions"] for claim in function["claims"])
+    evidence = {"schema": 1,
+                "source": {"library": summary.get("library"), "lo_version": summary.get("lo_version"),
+                           "binary_sha256": summary.get("binary_sha256"),
+                           "campaign": summary.get("campaign")},
+                "readiness": dossier.get("readiness"), "blockers": dossier.get("blockers", []),
+                "coverage": dossier.get("coverage"), "claim_outcomes": outcomes,
+                "held_out_cases_withheld": (summary.get("cases") or {}).get("held_out", 0),
+                **handoff}
+    (folder / "evidence.json").write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
+    spec = summary.get("spec")
+    if spec and spec.get("artifact"):
+        (folder / "native_spec.json").write_bytes(store.get(spec["artifact"]))
+    drafted = sum(f["draft_state"] == "unreviewed" for f in handoff["functions"])
+    reviewed = sum(f["review_state"] == "reviewed" for f in handoff["functions"])
+    lines = [
+        "# LibreOffice Calc formula evaluation: decomp handoff", "",
+        f"Dossier readiness: **{dossier.get('readiness')}**. "
+        f"Functions drafted {drafted}/{len(handoff['functions'])}, independently reviewed {reviewed}.",
+        "Claim verdicts: " + (", ".join(f"{k} {v}" for k, v in sorted(outcomes.items())) or "none") + ".", "",
+        "## Using this for a FeatureSpec", "",
+        "- `supported_static` claims are candidate requirements. `uncertain` claims need runtime "
+        "confirmation. Drop `contradicted` claims. `unreviewed` claims are unverified.",
+        "- `observed_cases` are real results from LibreOffice "
+        f"{summary.get('lo_version')}; use them as acceptance-test examples.",
+        f"- {evidence['held_out_cases_withheld']} held-out cases are deliberately withheld for "
+        "independent checking. Do not ask for them.",
+        "- C++ mechanics (offsets, vtables, constructors) are not requirements; list them under "
+        "`stripped_glue` if needed.",
+    ]
+    if spec:
+        lines += ["- `native_spec.json` was generated from the ready dossier. Convert it with "
+                  "`POST /api/native-specs/adapt` and body `{\"spec\": <native_spec.json>}`."]
+    else:
+        lines += ["- No spec was generated (dossier not ready). Hand-author the FeatureSpec in "
+                  "the format of `fixtures/hand-authored/specs/*.json`."]
+    if evidence["blockers"]:
+        kinds = _count(b.get("kind", "other") if isinstance(b, dict) else str(b)
+                       for b in evidence["blockers"])
+        lines += ["", "## Readiness blockers (details in evidence.json)", ""]
+        lines += [f"- {kind}: {count}" for kind, count in sorted(kinds.items())]
+    lines += ["", "## Functions", ""]
+    for function in handoff["functions"]:
+        lines.append(f"### `{function['name'] or function['entry']}` ({function['entry']})")
+        lines.append(f"Draft {function['draft_state']}, review {function['review_state']}.")
+        for claim in function["claims"]:
+            verdict = claim["review"]["outcome"] if claim["review"] else "unreviewed"
+            lines.append(f"- [{verdict}] {claim['statement']}")
+        lines.append("")
+    (folder / "README.md").write_text("\n".join(lines) + "\n")
+    return folder
+
+
+def _demangle(names: list[str]) -> dict[str, str]:
+    """C++ display names via c++filt when available; the mangled symbol stays in the record."""
+    try:
+        result = subprocess.run(["c++filt"], input="\n".join(names) + "\n", capture_output=True,
+                                text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    lines = result.stdout.splitlines()
+    return dict(zip(names, lines)) if result.returncode == 0 and len(lines) == len(names) else {}
 
 
 def _count(values) -> dict[str, int]:
