@@ -30,7 +30,7 @@ from engine.dossier import persist_dossier  # noqa: E402
 from engine.investigator import Investigator  # noqa: E402
 from engine.libreoffice import UnoDriver, find_install, load_cases  # noqa: E402
 from engine.lo_pipeline import (DEFAULT_FRIDA_PATTERNS, LoPipelineConfig, LoPipelineDeps,  # noqa: E402
-                                run_pipeline, save_summary)
+                                run_pipeline, save_summary, write_handoff)
 from engine.scope import persist_scope  # noqa: E402
 from engine.specification import persist_spec  # noqa: E402
 from engine.validation.review import IndependentReviewer  # noqa: E402
@@ -54,6 +54,8 @@ def main() -> int:
                         help='scoped selects seeds first; light/full explicitly analyze the whole module')
     parser.add_argument("--investigate", action="store_true",
                         help="let an OpenCode agent with read-only REA/Ghidra tools answer review gaps")
+    parser.add_argument("--review-model-role", default="decomp_reviewer",
+                        help="models.json role for the independent review (decomp_reviewer = Qwen3 32B)")
     parser.add_argument("--uno-python", default=os.environ.get("LO_PYTHON", "/usr/bin/python3"))
     parser.add_argument("--opencode", type=Path,
                         default=Path(os.environ.get("OPENCODE_BIN", "/run/opencode-bin")))
@@ -77,7 +79,8 @@ def main() -> int:
         frida_patterns=args.frida_pattern or list(DEFAULT_FRIDA_PATTERNS),
         seed_source=args.seed_source, static_patterns=args.static_pattern,
         max_functions=args.max_functions, max_depth=args.max_depth, workers=args.workers,
-        investigate=args.investigate, scoped_analysis=args.analysis_profile == 'scoped')
+        investigate=args.investigate, scoped_analysis=args.analysis_profile == 'scoped',
+        review_model_role=args.review_model_role)
     deps = LoPipelineDeps(
         engine=engine, rea_factory=ReaSession.launch,
         driver_factory=lambda: UnoDriver(install["soffice"], python=args.uno_python),
@@ -89,10 +92,13 @@ def main() -> int:
         summary = run_pipeline(config, install, deps)
     finally:
         engine.close()
+    handoff = summary.pop("handoff", None)
     path = save_summary(state, summary)
+    folder = write_handoff(path.with_name(path.stem + "-handoff"), summary, handoff, engine.store)
     print(json.dumps({k: summary.get(k) for k in ("stages", "scope", "claims", "probes", "dossier", "spec")},
                      indent=2, default=str))
     print(f"summary: {path}")
+    print(f"handoff: {folder}")
     return 0 if summary.get("spec") else 2
 
 

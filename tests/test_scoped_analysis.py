@@ -259,6 +259,48 @@ class RuntimeHookTargetTests(unittest.TestCase):
         self.assertIn('const OFFSETS = {};', frida_hook_source('libsclo.so', ['*X*']))
 
 
+class HandoffTests(unittest.TestCase):
+    def test_claims_carry_review_verdicts_and_only_public_cases_are_written(self):
+        from engine.lo_pipeline import build_handoff, write_handoff
+        from types import SimpleNamespace
+        blobs = {
+            'draft': json.dumps({'answer': {'inputs': 'two numbers', 'outputs': 'sum', 'state': 's',
+                'side_effects': 'none', 'errors': 'none', 'unknowns': ['overflow'], 'dependencies': [],
+                'claims': [{'statement': 'adds the top two stack values', 'evidence_addresses': ['0010']},
+                           {'statement': 'never fails', 'evidence_addresses': ['0014']}]}}),
+            'review': json.dumps({'answer': {'missing_behavior': ['error propagation'], 'reviews': [
+                {'claim_index': 0, 'outcome': 'supported_static', 'reason': 'add at 0010'},
+                {'claim_index': 1, 'outcome': 'contradicted', 'reason': 'error branch at 0014'}]}})}
+        store = SimpleNamespace(get=lambda key: blobs[key].encode())
+        analysed = [
+            {'entry': '00100010', 'draft': {'state': 'unreviewed', 'artifact': 'draft'},
+             'review': {'state': 'reviewed', 'artifact': 'review'}},
+            {'entry': '00100040', 'draft': {'state': 'failed'}, 'review': None}]
+        scope = {'included': [{'entry': '00100010', 'name': 'ScAdd'}, {'entry': '00100040'}]}
+        public = [{'id': 'add', 'formula': '=1+2', 'cells': {}, 'expected': {'value': 3}}]
+        handoff = build_handoff(store, analysed, scope, public, {'add': {'observed': {'value': 3.0}},
+                                                                 'secret': {'observed': {'value': 9}}})
+        first = handoff['functions'][0]
+        self.assertEqual([c['review']['outcome'] for c in first['claims']],
+                         ['supported_static', 'contradicted'])
+        self.assertEqual(first['missing_behavior'], ['error propagation'])
+        self.assertEqual(handoff['functions'][1]['claims'], [])
+        self.assertEqual(handoff['observed_cases'],
+                         [{'id': 'add', 'formula': '=1+2', 'cells': {}, 'description': None,
+                           'observed': {'value': 3.0}}])
+        with tempfile.TemporaryDirectory() as temp:
+            summary = {'library': 'calc', 'cases': {'public': 1, 'held_out': 1}, 'spec': None,
+                       'dossier': {'readiness': 'partial', 'blockers': ['uncovered calls']}}
+            folder = write_handoff(Path(temp) / 'run-handoff', summary, handoff, store)
+            evidence = json.loads((folder / 'evidence.json').read_text())
+            readme = (folder / 'README.md').read_text()
+        self.assertEqual(evidence['claim_outcomes'], {'contradicted': 1, 'supported_static': 1})
+        self.assertEqual(evidence['held_out_cases_withheld'], 1)
+        self.assertNotIn('secret', json.dumps(evidence))
+        self.assertIn('[supported_static] adds the top two stack values', readme)
+        self.assertIn('Hand-author the FeatureSpec', readme)
+
+
 class ScopedProvenanceTests(unittest.TestCase):
     def test_upstream_result_is_preserved_with_distinct_effective_context(self):
         from engine.analysis.scoped_mcp import annotate, serve
