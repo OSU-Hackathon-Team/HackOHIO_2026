@@ -131,6 +131,11 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   self-testing, and mount isolation; `scripts/check_cleanroom.py --container` runs the same
   checks plus a scripted real-container session. Live model-driven workbench acceptance remains
   open.
+- **Saved library and building-block discovery:** finished decomp runs publish public evidence
+  to private S3 (`decomp/library.ts`, `routes/nativeLibrary.ts`). In App library, **Discover building
+  blocks** (`spec/discovery.ts`) proposes up to five capabilities from supported claims and writes
+  one draft spec per capability with Engineer 2's native writer. Drafts stay draft-only, and
+  adding one to App library is an explicit user action. See `docs/native-library.md`.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
   `trace_application_feature` and `binary_session` (live probe; catalog and samples in `fixtures/rea/`),

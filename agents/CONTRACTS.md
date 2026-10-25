@@ -758,3 +758,26 @@ clients cannot supply a name, description, readiness status or replacement spec.
 `GET /api/library/features` returns `{features: NativeExtraction[]}`. Membership does not promote
 readiness or create an engine. It is idempotent and makes no model calls. Added candidates are
 nested beneath their source analysis in App library and retain the needs-review state.
+### Agent-driven building-block discovery
+
+Schemas: `packages/contracts/src/nativeDiscovery.ts`. Additive; the extraction endpoints and stored
+records above are unchanged.
+
+- `NativeDiscoveryRequest`: strict `{confirm_cost:true}`. No prompt, function selection or claims.
+- `DiscoveredCapability`: `CAP-n` id, name (80 chars), purpose (400 chars), supporting claim IDs.
+- `UnassignedClaim`: an eligible claim not used by any capability, with disposition
+  `supporting_only`, `insufficient` or `deferred` and a reason.
+- `NativeDiscoveryReport`: content hash, pinned analysis snapshot hash, discovery model, status
+  (`complete`, `partial`, `empty`, `cancelled`, `failed`), explanation, eligible and omitted
+  claim counts, at most five capabilities, unassigned claims, per-capability candidates (`saved` with
+  extraction ID, `failed` with error, `not_attempted` with reason), error and limitations.
+- `NativeDiscoveryEvent`: `stage`, `progress`, `capabilities`, `draft` (a saved `NativeExtraction`),
+  `candidate_failed`, `report`, `error` and terminal `done` over POST-SSE.
+
+`POST /api/library/analyses/:id/discover` runs one discovery pass (at most two attempts) and then
+the existing native draft writer once per capability (three attempts each): 17 model attempts at
+most, a ten-minute overall deadline and three minutes per draft. Each draft is saved as an ordinary
+`NativeExtraction`, so `GET .../extractions` and `POST /api/library/features` work unchanged.
+Discovery never adds features to App library. It shares the per-analysis lock with `/extract` (409),
+returns 422 before model work for missing or oversized evidence, and 503 in replay mode.
+`GET /api/library/analyses/:id/discoveries` lists saved, hash-checked reports. No model runs.

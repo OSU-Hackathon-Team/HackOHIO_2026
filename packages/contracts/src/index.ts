@@ -6,6 +6,7 @@ export * from "./nativeSpec.js";
 export * from "./decompRun.js";
 export * from "./nativeLibrary.js";
 export * from "./nativeExtraction.js";
+export * from "./nativeDiscovery.js";
 export * from "./blueprint.js";
 export * from "./events.js";
 export * from "./synthesis.js";

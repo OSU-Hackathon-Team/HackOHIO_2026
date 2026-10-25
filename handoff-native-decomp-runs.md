@@ -39,6 +39,19 @@ unfinished runs from `decomp-state/runs/<id>.json`.
 **Live progress fix:** this run's stage lines all reached the UI at the end, because Python buffered
 stdout. The runner now sets `PYTHONUNBUFFERED=1`. That's not yet verified on a run.
 
+## Building-block discovery (after a run)
+
+Saved runs appear in App library. **Create building blocks → Discover building blocks** turns their
+supported claims into up to five named draft features, with no prompt needed:
+- `POST /api/library/analyses/:id/discover`;
+- at most 17 model attempts;
+- reports at `GET .../discoveries`.
+
+The live check on `run-258f6ec3` saved 5/5 drafts for about 2 cents. One of them (ScMatrix
+reference counting) is mechanics, not a feature. Details and limits are in
+`docs/native-library.md`. Richer runs (more functions, followed tail jumps) give discovery better
+material; the discovery stage itself stays app-agnostic.
+
 ## What exists (all on dev)
 
 | Piece | Where |

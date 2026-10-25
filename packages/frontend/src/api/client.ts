@@ -3,6 +3,7 @@ import {
   NativeSubsystemSpec, FeatureSpec, DecompTarget, DecompRun, DecompRunEvent,
   NativeLibrary, SavedAnalysis,
   NativeExtraction, NativeExtractionEvent, type NativeExtractionRequest, type AddLibraryFeatureRequest,
+  NativeDiscoveryReport, NativeDiscoveryEvent, type NativeDiscoveryRequest,
   type DecompRunRequest, type RefineRequest,
 } from "@splice/contracts";
 import { z } from "zod";
@@ -16,6 +17,8 @@ export interface Api {
   libraryFeatures?(signal?: AbortSignal): Promise<NativeExtraction[]>;
   addLibraryFeature?(request: AddLibraryFeatureRequest, signal?: AbortSignal): Promise<NativeExtraction>;
   extractSavedAnalysis?(id: string, request: NativeExtractionRequest, on: (event: NativeExtractionEvent) => void, signal?: AbortSignal): Promise<void>;
+  savedDiscoveries?(id: string, signal?: AbortSignal): Promise<NativeDiscoveryReport[]>;
+  discoverSavedAnalysis?(id: string, request: NativeDiscoveryRequest, on: (event: NativeDiscoveryEvent) => void, signal?: AbortSignal): Promise<void>;
   health(signal?: AbortSignal): Promise<HealthResponse>;
   pantry(signal?: AbortSignal): Promise<Pantry>;
   extract(
@@ -78,6 +81,11 @@ export const liveApi: Api = {
   },
   extractSavedAnalysis: (id, request, on, signal) => streamPost(`/api/library/analyses/${encodeURIComponent(id)}/extract`, request,
     on, { signal, schema: NativeExtractionEvent }),
+  async savedDiscoveries(id, signal) {
+    return z.object({ discoveries: z.array(NativeDiscoveryReport) }).parse(await getJson(`/api/library/analyses/${encodeURIComponent(id)}/discoveries`, signal)).discoveries;
+  },
+  discoverSavedAnalysis: (id, request, on, signal) => streamPost(`/api/library/analyses/${encodeURIComponent(id)}/discover`, request,
+    on, { signal, schema: NativeDiscoveryEvent }),
   async health(signal) {
     const value = await getJson("/api/health", signal);
     const parsed = HealthResponse.safeParse(value);
