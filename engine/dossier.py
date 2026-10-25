@@ -51,24 +51,8 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
              probe_link_artifacts: list[str] = (),
              dependency_resolution_artifacts: list[str] = (),
              contract_snapshot: dict | None = None,
-             gap_adjudication_artifacts: list[str] = (),
-             specified_artifact: str | None = None) -> dict:
+             gap_adjudication_artifacts: list[str] = ()) -> dict:
     scope = json.loads(engine.store.get(scope_artifact))
-    specified_examples: list[dict] = []
-    if specified_artifact is not None:
-        specified_record = json.loads(engine.store.get(specified_artifact))
-        if specified_record.get("schema") != 1 or not isinstance(
-                specified_record.get("cases"), list):
-            raise ValueError(f"invalid specified examples artifact {specified_artifact}")
-        seen_case_ids = set()
-        for case in specified_record["cases"]:
-            if not isinstance(case, dict) or not isinstance(case.get("case_id"), str):
-                raise ValueError("specified example needs a case_id")
-            if case["case_id"] in seen_case_ids:
-                raise ValueError(f"duplicate specified case {case['case_id']}")
-            seen_case_ids.add(case["case_id"])
-            specified_examples.append(case)
-    specified_by_id = {case["case_id"]: case for case in specified_examples}
     if scope["campaign"] != manifest["campaign"]:
         raise ValueError("scope and manifest campaign differ")
     if contract_snapshot is not None and contract_snapshot.get("campaign") != manifest["campaign"]:
@@ -273,25 +257,7 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
             if claim is None:
                 raise ValueError(f"probe link references unknown claim {key}")
             if "specified_artifact" in link:
-                if link["specified_artifact"] != specified_artifact:
-                    raise ValueError(f"specified link references unknown artifact {key}")
-                case = specified_by_id.get(link["case_id"])
-                if case is None:
-                    raise ValueError(f"specified link references unknown case {key}")
-                if link.get("expected_observed") != case.get("expected"):
-                    raise ValueError(f"specified link expectation mismatch {key}")
-                identity = (*key, link["specified_artifact"], link["case_id"])
-                if identity in seen_links:
-                    raise ValueError(f"duplicate probe link {identity}")
-                seen_links.add(identity)
-                claim.setdefault("probe_links", []).append({
-                    "link_artifact": artifact,
-                    "specified_artifact": link["specified_artifact"],
-                    "case_id": link["case_id"],
-                    "observed": None, "expected_observed": link["expected_observed"],
-                    "rationale": link["rationale"], "agreement": None,
-                    "basis": "specified_expectation"})
-                continue
+                raise ValueError("human-specified expectations cannot validate native behavior")
             probe_key = (link["probe_report_artifact"], link["case_id"])
             identity = (*key, *probe_key, link["observed_pointer"])
             if identity in seen_links:
@@ -320,8 +286,6 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                 claim["execution_state"] = "case_disagreement"
             elif any(link.get("agreement") is True for link in links):
                 claim["execution_state"] = "case_agreement"
-            else:
-                claim["execution_state"] = "specified"
     drafted_subjects = {draft["subject"] for draft in drafts.values()}
     missing = sorted(included - drafted_subjects)
     blockers = []
@@ -450,8 +414,6 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
               "tolerated_scope_edges": tolerated_scope_edges,
               "independent_review_gaps": review_gaps,
               "probes": probes, "blockers": blockers,
-              "specified_artifact": specified_artifact,
-              "specified_examples": specified_examples,
               "coverage": {"included_functions": len(included),
                            "drafted_functions": len(drafted_subjects),
                            "claims": len(claims),
@@ -467,9 +429,6 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                            "uncovered_direct_calls": len(uncovered_calls),
                            "unbound_indirect_sites": len(unbound_indirect_sites),
                            "tolerated_scope_edges": len(tolerated_scope_edges),
-                           "specified_examples": len(specified_examples),
-                           "claims_with_specified_expectation": sum(
-                               claim["execution_state"] == "specified" for claim in claims),
                            "claims_with_case_agreement": sum(
                                claim["execution_state"] == "case_agreement" for claim in claims),
                            "claims_with_case_disagreement": len(disagreements),
@@ -532,14 +491,10 @@ def render_markdown(dossier: dict) -> str:
         for review in claim["reviews"]:
             lines.append(f"  - Review `{review['review_artifact']}`: {review['reason']}")
         for link in claim.get("probe_links", []):
-            if link.get("basis") == "specified_expectation":
-                lines.append(f"  - Specified expectation `{link['case_id']}`: "
-                             f"{link['rationale']} (no original execution)")
-            else:
-                lines.append(f"  - Original case `{link['case_id']}` "
-                             f"(`{link['observed_pointer']}` = "
-                             f"`{json.dumps(link['observed'])}`): {link['rationale']} "
-                             f"({'agreement' if link['agreement'] else 'disagreement'})")
+            lines.append(f"  - Original case `{link['case_id']}` "
+                         f"(`{link['observed_pointer']}` = "
+                         f"`{json.dumps(link['observed'])}`): {link['rationale']} "
+                         f"({'agreement' if link['agreement'] else 'disagreement'})")
     lines += ["", "## Dependency contracts", ""]
     for dependency in dossier["dependency_contracts"]:
         refs = ", ".join(f"`{ref['artifact']}@{ref['address']}`"
@@ -560,11 +515,6 @@ def render_markdown(dossier: dict) -> str:
     lines += ["", "## Tolerated scope edges (virtual dispatch)", ""]
     for edge in dossier.get("tolerated_scope_edges", []):
         lines.append(f"- {json.dumps(edge, sort_keys=True)}")
-    lines += ["", "## Human-specified expectations (no original execution)", ""]
-    for case in dossier.get("specified_examples", []):
-        lines.append(f"- {case['case_id']}: input "
-                     f"{json.dumps(case.get('input'), sort_keys=True)}; "
-                     f"expected {json.dumps(case.get('expected'), sort_keys=True)}")
     lines += ["", "## Direct calls without bound dependencies", ""]
     for call in dossier["uncovered_direct_calls"]:
         lines.append(f"- `{call['subject']}@{call['call_site']}` → "
@@ -599,12 +549,11 @@ def persist_dossier(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                     probe_link_artifacts: list[str] = (),
                     dependency_resolution_artifacts: list[str] = (),
                     contract_snapshot: dict | None = None,
-                    gap_adjudication_artifacts: list[str] = (),
-                    specified_artifact: str | None = None) -> dict:
+                    gap_adjudication_artifacts: list[str] = ()) -> dict:
     record = assemble(engine, manifest, scope_artifact, draft_artifacts,
                       review_artifacts, probe_report_artifacts, probe_link_artifacts,
                       dependency_resolution_artifacts, contract_snapshot,
-                      gap_adjudication_artifacts, specified_artifact)
+                      gap_adjudication_artifacts)
     scope_id = record["scope_id"]
     folder = engine.root / "dossiers" / scope_id
     folder.mkdir(parents=True, exist_ok=True)

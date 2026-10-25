@@ -72,17 +72,9 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
                       if e.get("kind") != "indirect_call"]
     tolerated_edges = [e for e in scope.get("unresolved", [])
                        if e.get("kind") == "indirect_call"]
-    specified_ids = {c.get("case_id") for c in dossier.get("specified_examples", [])
-                     if isinstance(c, dict)}
-
     def _link_ok(link: dict) -> bool:
         if not isinstance(link, dict):
             return False
-        if link.get("basis") == "specified_expectation":
-            return (link.get("agreement") is None
-                    and link.get("case_id") in specified_ids
-                    and isinstance(link.get("rationale"), str)
-                    and bool(link["rationale"].strip()))
         return link.get("agreement") is True
 
     all_claims = dossier.get("claims", [])
@@ -112,7 +104,7 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
                 and all(d.get("review_state") == "supported_static" and
                         d.get("current_at_snapshot") is True
                         for d in dossier.get("dependency_contracts", []))
-                and all(c.get("execution_state") in ("case_agreement", "specified")
+                and all(c.get("execution_state") == "case_agreement"
                         and c.get("probe_links") for c in claims))
     functions = dossier.get("functions", [])
     included = scope.get("included", [])
@@ -131,13 +123,6 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
                                **({"observation_kind": case["kind"]}
                                   if case.get("kind") in {"executable", "shared"} else {}),
                                "expected_output": case["observed"]})
-    for case in dossier.get("specified_examples", []):
-        _require(isinstance(case, dict) and isinstance(case.get("case_id"), str),
-                 "specified example needs a case_id")
-        key = json.dumps([case.get("input"), case.get("expected")], sort_keys=True)
-        cases.setdefault(key, {"name": case["case_id"], "input": case.get("input"),
-                               "input_description": case.get("input_description"),
-                               "expected_output": case.get("expected")})
     verified = verified and bool(cases) and all(
         case.get("outcome") == "agreement" for case in dossier.get("probes", []))
     handoff = {
@@ -175,7 +160,6 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
                            for c in omitted],
         "blockers": blockers,
         "tolerated_unresolved": tolerated_edges,
-        "specified_examples": dossier.get("specified_examples", []),
         "analysis_provenance": dossier.get("analysis_provenance"),
         "coverage": dossier.get("coverage"),
         "writer_revision": writer_revision(),
