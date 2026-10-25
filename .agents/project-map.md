@@ -28,9 +28,10 @@ DecompPileline.md           engine architecture — takes precedence for native/
 DECOMP_IMPLEMENTATION_PLAN.md  phases, proposed engine/ layout, acceptance gates
 launch.py, agent_worker.py  current rename-attempt scaffold (OpenCode + Ghidra headless MCP)
 model_config.py             Python role resolver for models.json
-worker.Dockerfile, docker-compose.yml, compose.yaml   orchestrator + Podman worker images
+worker.Dockerfile, implementer.Dockerfile, docker-compose.yml, compose.yaml
+                            analysis worker image + public-only implementation sandbox
 docs/archive/               historical reviews; context only, not policy
-engine/                     native analysis, queue, dossier, and specification artifact generator
+engine/                     native analysis, queue, dossier, broker, workbench, and specification generator
 ```
 
 ## Backend (`packages/backend/src/`) by owner

@@ -105,6 +105,31 @@ run `python scripts/check_decomp_spec.py` for the handoff check. Backend callers
 `POST /api/native-specs` and `GET /api/native-specs/:artifact` with `DECOMP_STATE_DIR` pointing
 at the engine state directory if needed.
 
+### Cleanroom implementation workbench (optional)
+
+The implementer can run in a public-only container with full bash and its own public test
+harness. This needs Podman or Docker and an OpenCode binary; the image deliberately contains
+no repository, analysis state, original binary, or held-out cases.
+
+```bash
+podman build -t splice-cleanroom-implementer:local -f implementer.Dockerfile .
+python scripts/run_functional_c_e2e.py --state decomp-state \
+  --scope-artifact <scope> --public-report-artifact <training-report> \
+  --full-report-artifact <full-report> --interface token-array \
+  --workbench --build-workbench-image
+```
+
+Inside the container the agent edits `candidate.c`, runs `./run_tests.sh`, and uses
+`python3 broker/ask.py "question" --context "$(./run_tests.sh 2>&1 | tail -30)"` when a
+public mismatch is ambiguous. The broker socket is the only path to the decompilation side;
+audit records live outside the workspace. The driver validates public cases again, rejects a
+tampered harness, and runs held-out cases only after the container exits. `--workbench` is
+opt-in; the existing no-tools prompt loop remains the fallback. Run
+`python3 -m unittest discover -s tests -p "test_cleanroom.py"` for the broker, disclosure,
+segregation, and self-test checks. `python scripts/check_cleanroom.py --container` additionally
+runs the real implementer image with a scripted agent (no model call); it needs the image
+built and Podman/Docker available.
+
 ## Quick health check
 
 ```bash
