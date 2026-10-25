@@ -20,6 +20,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:python": "python3 -m unittest discover -s tests -p \"test_*.py\"",
+    "test:replay": "npm run test:replay --workspace=@splice/backend",
     "test:all": "npm run test && npm run test:python",
     "start": "npm run start --workspace=@splice/backend",
     "build:targets": "node scripts/build-targets.mjs",
