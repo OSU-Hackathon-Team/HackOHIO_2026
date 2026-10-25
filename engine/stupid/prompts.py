@@ -11,12 +11,20 @@ Goal: {goal}
 Known so far (JSON): {state}
 Reply with exactly one JSON object, no markdown, one of:
 {explore}
+{{"action": "search_strings", "substring": "percent", "limit": 50, "reason": "..."}}
 {{"action": "decompile", "entries": ["0x..."], "reason": "..."}}
 {{"action": "review", "entries": ["0x..."], "reason": "..."}}
 {{"action": "probe", "cases": [{{"kind": "describe what to run"}}], "reason": "..."}}
 {{"action": "done", "scope": ["0x..."], "readiness": "ready_for_spec or partial", "notes": "..."}}
-Rules: for large binaries the inventory is paged: use page to list slices and neighbors to walk
-callers/callees from entries you have seen; explored accumulates everything you have uncovered.
+Rules: for large binaries the inventory is paged: page returns offset/limit/total over the
+address-ordered function list; advance offset by limit until you have seen every slice exactly
+once, and never fetch the same offset twice. Use search_strings to find domain keywords in
+read-only strings, then neighbors to walk callers/callees from interesting entries; explored
+accumulates everything uncovered. Discovery strategy on stripped binaries: page through the
+list, sample-draft a few non-thunk entries per address region, read draft_digest, then grow
+the relevant cluster via neighbors and batch-decompile it. Do not decompile the first entries
+of page 0 blindly; init/fini boilerplate lives at the edges. Do not repeat an identical action:
+repeats are no-ops and three in a row end the run as partial.
 Decompile and review only entries present in explored (or the small-binary inventory).
 Entries must come from the inventory. Copy each entry character-for-character exactly as shown (for example 00101000, with no 0x prefix added or removed). Prefer small parallel batches.
 Use call_edges to find connected non-thunk clusters; prefer thunk_target over the thunk wrapper. draft_digest shows what each draft actually found: pivot toward entries whose claims match the goal, and stop re-requesting entries already in drafted (re-requesting drafted entries is a wasted no-op). needs_review lists drafted entries with no review yet: review exactly those, never entries already in reviewed. To repair a contradicted draft, decompile that entry again: this replaces the draft and clears its review for a fresh re-review. After three no-op rounds the loop ends as partial, so do not repeat requests. Emit done only when every scoped function has a reviewed claim, or when no further tool calls could change readiness (then readiness is partial and notes names the blocker)."""

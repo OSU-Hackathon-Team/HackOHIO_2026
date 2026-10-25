@@ -7,6 +7,7 @@ rounds; the orchestrator agent alone decides DONE and readiness.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -126,9 +127,21 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                 for outcome in pool.map(_safe(one), entries):
                     name, payload = outcome
                     if isinstance(payload, dict) and "_error" not in payload:
+                        fingerprint = hashlib.sha256(json.dumps(
+                            {k: payload.get(k) for k in
+                             ("claims", "dependencies", "unknowns", "pseudocode")},
+                            sort_keys=True).encode()).hexdigest()
+                        if name in drafts and drafts[name].get(
+                                "_fingerprint") == fingerprint:
+                            record("redundant_redraft", {"entry": name})
+                            noop_streak += 1
+                            continue
+                        payload["_fingerprint"] = fingerprint
                         drafts[name] = payload
                         artifact = tools.store.put(json.dumps(
-                            payload, sort_keys=True).encode())
+                            {k: val for k, val in payload.items()
+                             if k != "_fingerprint"},
+                            sort_keys=True).encode())
                         record("draft", {"entry": name,
                                          "artifact": artifact,
                                          "claims": len(payload.get("claims", [])),
@@ -189,6 +202,7 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
 
         pages: list[dict] = []
         explored: dict[str, dict] = {}
+        search_log: list[dict] = []
         neighbor_queries: set[str] = set()
         explore_help = ('{{"action": "page", "offset": 0, "limit": 100, "reason": "..."}}\n'
                         '{{"action": "neighbors", "entry": "00101000", "reason": "..."}}'
@@ -203,6 +217,7 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                                                 "pages_fetched": len(pages)},
                      "summary": summary,
                      "explored": explored,
+                     "searches": search_log[-6:],
                      "drafted": sorted(drafts),
                      "needs_review": [e for e in sorted(drafts) if e not in reviews],
                      "draft_digest": digest(drafts, ("claims", "unknowns",
@@ -282,6 +297,16 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                         explored.setdefault(other, {"entry": other})
                     record("neighbors", links)
                     noop_streak = 0
+            elif kind == "search_strings":
+                hits = tools.search_strings(
+                    manifest, str(action.get("substring", "")),
+                    int(action.get("limit", 50)))
+                record("search_strings", {"substring": hits["substring"],
+                                          "matches": hits["matches"]})
+                search_log.append({"substring": hits["substring"],
+                                   "matches": hits["matches"],
+                                   "items": hits["items"][:10]})
+                noop_streak = 0
             elif kind == "probe":
                 probes.append({"asked": action.get("cases", []),
                                "note": "probe execution is harness-driven; "

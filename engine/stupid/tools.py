@@ -68,6 +68,16 @@ class StupidTools:
                         if f.get("thunk_target") else {})}
                     for f in functions[offset:offset + limit]]}
 
+    def search_strings(self, manifest: dict, substr: str,
+                       limit: int = 50) -> dict:
+        """Dumb substring grep over redacted strings. The agent picks substrings."""
+        index = self._index(manifest)
+        needle = (substr or "").lower()
+        hits = [s for s in index.get("strings", [])
+                if needle and needle in str(s.get("value", "")).lower()]
+        return {"substring": substr, "matches": len(hits),
+                "items": hits[:max(1, min(limit, 200))]}
+
     def neighbors(self, manifest: dict, entry: str) -> dict:
         """Callers and callees of one entry. Graph walking for agents."""
         key = self.resolve_entry(manifest, entry)
