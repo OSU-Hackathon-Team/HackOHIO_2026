@@ -103,7 +103,8 @@ def main() -> None:
                         draft.get("scope_artifact") != scope["artifact"] or
                         draft.get("subject") != subject):
                     raise ValueError("saved semantic artifact does not match task")
-                if draft.get("prompt_version", 0) < SEMANTIC_PROMPT_VERSION:
+                if (draft.get("prompt_version", 0) < SEMANTIC_PROMPT_VERSION or
+                        draft.get("probe_report_artifact") != args.probe_report_artifact):
                     saved.pop("draft_artifact", None)
                     saved.pop("review_artifact", None)
                     saved.pop("pending_revision_context", None)
@@ -113,7 +114,8 @@ def main() -> None:
             if not draft_artifact:
                 prior_artifact = saved.get("pending_revision_context")
                 result = worker.run(manifest, scope["artifact"], subject,
-                                    model=args.model, prior_artifact=prior_artifact)
+                                    model=args.model, prior_artifact=prior_artifact,
+                                    probe_report_artifact=args.probe_report_artifact)
                 if result["state"] != "unreviewed":
                     saved["last_failure"] = {"stage": "semantic", "state": result["state"],
                                              "artifact": result["artifact"]}

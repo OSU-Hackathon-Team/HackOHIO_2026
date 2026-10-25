@@ -12,10 +12,11 @@ from engine.behavior import (is_observable_claim, normalize_input_names,
                              numeric_claim_errors)
 from engine.citations import evidence_addresses, normalize_references
 from engine.model_runtime import invoke_opencode
+from engine.validation.probes import select_original_cases
 from engine.validation.memory_ranges import overlap_claim_errors
 from model_config import get_model
 
-SEMANTIC_PROMPT_VERSION = 7
+SEMANTIC_PROMPT_VERSION = 8
 
 
 def parse_answer(text: str) -> dict:
@@ -224,7 +225,8 @@ class SemanticWorker:
 
     def run(self, manifest: dict, scope_artifact: str, subject: str,
             *, model: str | None = None, model_role: str = "decomp_worker",
-            prior_artifact: str | None = None) -> dict:
+            prior_artifact: str | None = None,
+            probe_report_artifact: str | None = None) -> dict:
         scope = json.loads(self.engine.store.get(scope_artifact))
         if scope["campaign"] != manifest["campaign"]:
             raise ValueError("scope and campaign differ")
@@ -239,6 +241,17 @@ class SemanticWorker:
         evidence_artifact = json.loads(pointer.read_text())["artifact"]
         prompt, truncated = prompt_for(task, scope, evidence,
                                        max_evidence_bytes=self.max_evidence_bytes)
+        original_cases = []
+        if probe_report_artifact:
+            report = json.loads(self.engine.store.get(probe_report_artifact))
+            names = {item["entry"]: item["name"] for item in scope["included"]}
+            original_cases = select_original_cases(
+                self.engine.store, report, manifest["binary_sha256"], names.get(subject))
+            prompt += ("\nThese are immutable outputs from the original binary. Derive "
+                       "caller-visible rules that explain them and cite raw instruction "
+                       "addresses. Do not copy individual cases into a lookup table or "
+                       "infer class layout as a requirement. Original observations: " +
+                       json.dumps(original_cases, separators=(",", ":")))
         if prior_artifact is not None:
             prior = json.loads(self.engine.store.get(prior_artifact))
             if (prior.get("campaign") != manifest["campaign"] or
@@ -286,6 +299,8 @@ class SemanticWorker:
                       "scope_artifact": scope_artifact, "task_key": task["deduplication_key"],
                       "subject": subject, "evidence_artifact": evidence_artifact,
                       "model": resolved_model, "model_role": model_role,
+                      "probe_report_artifact": probe_report_artifact,
+                      "original_case_count": len(original_cases),
                       "opencode_version": None, "prompt_version": SEMANTIC_PROMPT_VERSION,
                       "evidence_truncated": truncated, "state": "running"}
         if prior_artifact is not None:
