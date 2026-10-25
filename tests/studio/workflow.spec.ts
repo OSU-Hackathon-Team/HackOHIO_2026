@@ -233,6 +233,17 @@ test("native target is visible, displays native ELF badge, adapts spec and recon
 
   await expect(details.getByText("Engine Reconstructed")).toBeVisible({ timeout: 10000 });
   await expect(details.getByRole("button", { name: "Reconstruct Again", exact: true })).toBeVisible();
+  await expect(details.getByRole("button", { name: "Preview in Sandbox", exact: true })).toBeVisible();
+
+  // Verify transition from native spec reconstruction to sandbox pipeline bench
+  await details.getByRole("button", { name: "Preview in Sandbox", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Pipeline test" })).toBeVisible();
+
+  // Select Native spec source in Pipeline test bench
+  const nativeRadio = page.getByRole("radio", { name: /Native · Task Priority/ });
+  await expect(nativeRadio).toBeVisible();
+  await nativeRadio.click();
+  await expect(page.getByText("Task priority scoring (mock decompilation)")).toBeVisible();
 
   expect(errors).toEqual([]);
 });
