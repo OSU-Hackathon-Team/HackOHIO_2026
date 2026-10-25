@@ -78,6 +78,71 @@ class StupidTools:
         return {"substring": substr, "matches": len(hits),
                 "items": hits[:max(1, min(limit, 200))]}
 
+    def _export_table(self, manifest: dict) -> list[dict]:
+        """In-binary dynamic function symbols. Names never leave this module."""
+        if not hasattr(self, "_exports"):
+            completed = subprocess.run(
+                ["readelf", "-Ws", manifest["binary"]],
+                capture_output=True, text=True, timeout=120)
+            if completed.returncode != 0:
+                raise RuntimeError("readelf failed on binary")
+            table = []
+            for line in completed.stdout.splitlines():
+                parts = line.split()
+                if len(parts) >= 8 and parts[3] == "FUNC" and parts[6] != "UND":
+                    try:
+                        value = int(parts[1], 16)
+                    except ValueError:
+                        continue
+                    if value == 0:
+                        continue
+                    table.append({"value": value, "name": parts[7]})
+            self._exports = table
+        return self._exports
+
+    def _canon(self, entries: set[str], value: int) -> str | None:
+        """Dynamic symbol values are image-relative; index entries are absolute."""
+        raw = ("%x" % value).lstrip("0") or "0"
+        matches = [e for e in entries if (e.lower().lstrip("0") or "0") == raw]
+        return matches[0] if len(matches) == 1 else None
+
+    def export_entries(self, manifest: dict) -> dict:
+        """Defined dynamic function entry addresses. No names, no ranking."""
+        index = self._index(manifest)
+        entries = {f["entry"] for f in index.get("functions", [])}
+        try:
+            base = int(index.get("image_base", "0"), 16)
+        except ValueError:
+            base = 0
+        known = []
+        for sym in self._export_table(manifest):
+            hit = self._canon(entries, sym["value"] + base)
+            if hit is not None and hit not in known:
+                known.append(hit)
+        return {"count": len(known), "entries": sorted(known)}
+
+    def resolve_symbol(self, manifest: dict, substr: str) -> dict:
+        """Agent names a keyword; code returns matching export entries.
+
+        The keyword travels agent -> code only. Returned entries carry no names.
+        """
+        needle = (substr or "").lower()
+        if not needle:
+            return {"substring": substr, "entries": []}
+        index = self._index(manifest)
+        entries = {f["entry"] for f in index.get("functions", [])}
+        try:
+            base = int(index.get("image_base", "0"), 16)
+        except ValueError:
+            base = 0
+        hits = []
+        for sym in self._export_table(manifest):
+            if needle in sym["name"].lower():
+                match = self._canon(entries, sym["value"] + base)
+                if match is not None and match not in hits:
+                    hits.append(match)
+        return {"substring": substr, "entries": hits[:50]}
+
     def neighbors(self, manifest: dict, entry: str) -> dict:
         """Callers and callees of one entry. Graph walking for agents."""
         key = self.resolve_entry(manifest, entry)

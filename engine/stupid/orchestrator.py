@@ -316,6 +316,30 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                         explored.setdefault(other, {"entry": other})
                     record("neighbors", links)
                     noop_streak = 0
+            elif kind == "export_entries":
+                try:
+                    table = tools.export_entries(manifest)
+                except RuntimeError as error:
+                    record("export_error", {"error": str(error)[:200]})
+                    noop_streak += 1
+                    continue
+                for e in table["entries"]:
+                    explored.setdefault(e, {"entry": e, "exported": True})
+                record("export_entries", {"count": table["count"]})
+                noop_streak = 0
+            elif kind == "resolve_symbol":
+                try:
+                    hit = tools.resolve_symbol(
+                        manifest, str(action.get("substring", "")))
+                except RuntimeError as error:
+                    record("export_error", {"error": str(error)[:200]})
+                    noop_streak += 1
+                    continue
+                for e in hit["entries"]:
+                    explored.setdefault(e, {"entry": e})
+                record("resolve_symbol", {"substring": hit["substring"],
+                                          "entries": hit["entries"]})
+                noop_streak = 0
             elif kind == "search_strings":
                 hits = tools.search_strings(
                     manifest, str(action.get("substring", "")),
