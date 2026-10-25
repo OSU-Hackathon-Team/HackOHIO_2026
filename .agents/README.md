@@ -146,12 +146,12 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   blocks** (`spec/discovery.ts`) proposes up to five capabilities from supported claims and writes
   one draft spec per capability with Engineer 2's native writer. Drafts stay draft-only, and
   adding one to App library is an explicit user action. See `docs/native-library.md`.
-- **Electron reconstruction workbench:** archive analysis now inventories entries, IPC, bridges,
-  module links, assets, and unresolved constructs without target-specific rules. A CLI exports
-  verified portable blueprints as runnable Electron feature workbenches for both Recall and
-  Inkwell. A generic IPC/file differential verifier and coverage manifest reject claims of
-  full app parity when original channels, storage, or UI are absent. See
-  `docs/electron-generalization.md`; the reviewed Recall full-IPC adapter remains separate.
+- **Electron reconstruction workflow:** archive analysis inventories entries, IPC, bridges,
+  module links, assets, and unresolved constructs without target-specific rules. One CLI
+  automatically selects the reviewed Recall IPC/storage adapter with an original-behavior
+  check, or a runnable verified-feature workbench for Inkwell. A generic IPC/file differential
+  verifier and coverage manifest reject claims of full app parity when original channels,
+  storage, or UI are absent. See `docs/electron-generalization.md`.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
   `trace_application_feature` and `binary_session` (live probe; catalog and samples in `fixtures/rea/`),
