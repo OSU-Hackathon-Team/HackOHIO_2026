@@ -32,6 +32,13 @@ for statement in (
     "Traverses a pointer array with reference counting.",
     "The quadword at location 24 receives a bit pattern.",
     "Iterates through each token in an array.",
+    "Returns zero when the token buffer pointer is null.",
+    "Bytes at offsets +24 and +28 are copied to the output.",
+    "Allocates a contiguous block of memory for each token.",
+    "Releases the previous storage slot before assigning a new field.",
+    "Scans both internal ranges for a matching token.",
+    "Returns the first nonzero result from calling IsRef.",
+    "Previous allocations are released before byte +31 is copied.",
 ):
     assert validate_answer(answer(statement), evidence)
 assert not validate_answer(answer("A copied value preserves its visible text."), evidence)

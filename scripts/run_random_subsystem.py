@@ -26,6 +26,8 @@ from engine.validation.probes import select_original_cases
 from engine.validation.scalar_cases import matching_scalar_cases
 from engine.validation.gap_direct import IndependentGapReviewer
 from engine.worker import SEMANTIC_PROMPT_VERSION, SemanticWorker
+from engine.watchdog import Watchdog
+from model_config import get_model
 
 
 def main() -> None:
@@ -45,9 +47,13 @@ def main() -> None:
     parser.add_argument("--probe-report-artifact",
                         help="include immutable original observations in review")
     parser.add_argument("--max-revisions", type=int, default=2)
+    parser.add_argument("--max-watchdog-retries", type=int, default=2)
+    parser.add_argument("--no-watchdog", action="store_true")
     args = parser.parse_args()
     if args.max_revisions < 0:
         parser.error("--max-revisions must be nonnegative")
+    if args.max_watchdog_retries < 0:
+        parser.error("--max-watchdog-retries must be nonnegative")
     engine = GhidraAnalysis(args.state, args.headless, warm_workers=0)
     manifest = engine.analyze(args.binary)
     index = engine.index(manifest)
@@ -86,8 +92,49 @@ def main() -> None:
     worker = SemanticWorker(engine, args.opencode)
     reviewer = IndependentReviewer(engine, args.opencode)
     gap_reviewer = IndependentGapReviewer(engine, args.opencode)
+    watchdog = None if args.no_watchdog else Watchdog(engine, args.opencode)
     probe_report = (json.loads(engine.store.get(args.probe_report_artifact))
                     if args.probe_report_artifact else None)
+
+    def consult(stage: str, subject: str, saved: dict, cases: list,
+                occupied: set[str] | None = None) -> tuple[dict, str | None]:
+        if watchdog is None:
+            return {"guidance": "", "model_role": None, "evidence_bytes": None}, None
+        snapshot = {"function": next((item["name"] for item in scope["included"]
+                                      if item["entry"] == subject), subject),
+                    "last_failure": saved.get("last_failure"),
+                    "revision_count": saved.get("revision_count", 0),
+                    "original_cases": cases[:8]}
+        if saved.get("last_failure", {}).get("artifact"):
+            failed = json.loads(engine.store.get(saved["last_failure"]["artifact"]))
+            snapshot["failed_attempt"] = {
+                "state": failed.get("state"), "error": failed.get("error"),
+                "structural_errors": failed.get("structural_errors"),
+                "answer": failed.get("answer")}
+        if saved.get("pending_revision_context"):
+            context = json.loads(engine.store.get(saved["pending_revision_context"]))
+            snapshot["revision_context"] = context
+            for key in ("draft_artifact", "review_artifact"):
+                if context.get(key):
+                    prior = json.loads(engine.store.get(context[key]))
+                    snapshot["revision_context"][key + "_answer"] = prior.get("answer")
+        for key in ("draft_artifact", "review_artifact", "gap_artifact"):
+            if saved.get(key):
+                artifact = json.loads(engine.store.get(saved[key]))
+                snapshot[key] = {"artifact": saved[key], "state": artifact.get("state"),
+                                 "answer": artifact.get("answer"),
+                                 "structural_errors": artifact.get("structural_errors"),
+                                 "error": artifact.get("error")}
+        records = saved.setdefault("watchdog", {})
+        result = watchdog.inspect(campaign=manifest["campaign"],
+                                  scope_artifact=scope["artifact"], subject=subject,
+                                  stage=stage, snapshot=snapshot,
+                                  previous_artifact=records.get(stage),
+                                  occupied_models=occupied)
+        records[stage] = result["artifact"]
+        save()
+        return result["intervention"], result["artifact"]
+
     drafts, reviews, failures = [], [], []
     for function in scope["included"]:
         subject = function["entry"]
@@ -95,7 +142,7 @@ def main() -> None:
         cases = (select_original_cases(engine.store, probe_report,
                                        manifest["binary_sha256"], function["name"])
                  if probe_report else [])
-        for _ in range(args.max_revisions + 1):
+        for _ in range(args.max_revisions + args.max_watchdog_retries * 2 + 1):
             draft_artifact = saved.get("draft_artifact")
             if draft_artifact:
                 draft = json.loads(engine.store.get(draft_artifact))
@@ -113,18 +160,30 @@ def main() -> None:
                     save()
             if not draft_artifact:
                 prior_artifact = saved.get("pending_revision_context")
+                advice, advice_artifact = consult("semantic", subject, saved, cases)
                 result = worker.run(manifest, scope["artifact"], subject,
-                                    model=args.model, prior_artifact=prior_artifact,
-                                    probe_report_artifact=args.probe_report_artifact)
+                                    model=args.model or (get_model(advice["model_role"])
+                                                         if advice["model_role"] else None),
+                                    prior_artifact=prior_artifact,
+                                    probe_report_artifact=args.probe_report_artifact,
+                                    guidance=advice["guidance"],
+                                    watchdog_artifact=advice_artifact,
+                                    evidence_bytes=advice["evidence_bytes"])
                 if result["state"] != "unreviewed":
                     saved["last_failure"] = {"stage": "semantic", "state": result["state"],
                                              "artifact": result["artifact"]}
-                    failures.append({"subject": subject, **saved["last_failure"]})
                     save()
+                    retries = saved.get("semantic_watchdog_retries", 0)
+                    if retries < args.max_watchdog_retries:
+                        saved["semantic_watchdog_retries"] = retries + 1
+                        save()
+                        continue
+                    failures.append({"subject": subject, **saved["last_failure"]})
                     break
                 draft_artifact = result["artifact"]
                 saved["draft_artifact"] = draft_artifact
                 saved.pop("pending_revision_context", None)
+                saved.pop("last_failure", None)
                 save()
             review_artifact = saved.get("review_artifact")
             if review_artifact:
@@ -138,17 +197,28 @@ def main() -> None:
                     review_artifact = None
                     save()
             if not review_artifact:
+                draft_model = json.loads(engine.store.get(draft_artifact))["model"]
+                advice, advice_artifact = consult("review", subject, saved, cases,
+                                                  {draft_model})
                 review = reviewer.run(draft_artifact, model=args.review_model,
-                                      model_role="decomp_reviewer",
-                                      probe_report_artifact=args.probe_report_artifact)
+                                      model_role=advice["model_role"] or "decomp_reviewer",
+                                      probe_report_artifact=args.probe_report_artifact,
+                                      guidance=advice["guidance"],
+                                      watchdog_artifact=advice_artifact)
                 if review["state"] != "reviewed":
                     saved["last_failure"] = {"stage": "review", "state": review["state"],
                                              "artifact": review["artifact"]}
-                    failures.append({"subject": subject, **saved["last_failure"]})
                     save()
+                    retries = saved.get("review_watchdog_retries", 0)
+                    if retries < args.max_watchdog_retries:
+                        saved["review_watchdog_retries"] = retries + 1
+                        save()
+                        continue
+                    failures.append({"subject": subject, **saved["last_failure"]})
                     break
                 review_artifact = review["artifact"]
                 saved["review_artifact"] = review_artifact
+                saved.pop("last_failure", None)
                 save()
             needs_revision = (any(item["outcome"] == "contradicted"
                                   for item in review["answer"]["reviews"]) or
@@ -193,12 +263,30 @@ def main() -> None:
                     existing = None
                     save()
             if not existing:
-                gap = gap_reviewer.run(
-                    manifest, saved["draft_artifact"], saved["review_artifact"],
-                    args.probe_report_artifact, function["name"], model=args.gap_model)
+                draft_model = json.loads(engine.store.get(saved["draft_artifact"]))["model"]
+                review_model = review["model"]
+                occupied = {draft_model, review_model}
+                gap_cases = select_original_cases(engine.store, probe_report,
+                                                  manifest["binary_sha256"], function["name"])
+                for _ in range(args.max_watchdog_retries + 1):
+                    advice, advice_artifact = consult("gap", function["entry"], saved,
+                                                      gap_cases, occupied)
+                    role = advice["model_role"] or next(
+                        role for role in ("decomp_adjudicator", "decomp_reviewer",
+                                          "decomp_watchdog") if get_model(role) not in occupied)
+                    gap = gap_reviewer.run(
+                        manifest, saved["draft_artifact"], saved["review_artifact"],
+                        args.probe_report_artifact, function["name"],
+                        model=args.gap_model or get_model(role),
+                        guidance=advice["guidance"], watchdog_artifact=advice_artifact)
+                    if gap["state"] == "reviewed":
+                        saved.pop("last_failure", None)
+                        break
+                    saved["last_failure"] = {"stage": "gap_review", "state": gap["state"],
+                                             "artifact": gap["artifact"]}
+                    save()
                 if gap["state"] != "reviewed":
-                    failures.append({"subject": function["entry"], "stage": "gap_review",
-                                     "state": gap["state"], "artifact": gap["artifact"]})
+                    failures.append({"subject": function["entry"], **saved["last_failure"]})
                     continue
                 existing = gap["artifact"]
                 saved["gap_artifact"] = existing

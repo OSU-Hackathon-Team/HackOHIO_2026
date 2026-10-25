@@ -138,7 +138,8 @@ class IndependentReviewer:
 
     def run(self, draft_artifact: str, *, model: str | None = None,
             model_role: str = "legal_verification",
-            probe_report_artifact: str | None = None) -> dict:
+            probe_report_artifact: str | None = None,
+            guidance: str = "", watchdog_artifact: str | None = None) -> dict:
         draft = json.loads(self.engine.store.get(draft_artifact))
         if draft["state"] != "unreviewed":
             raise ValueError("only structurally valid unreviewed drafts can be reviewed")
@@ -162,6 +163,8 @@ class IndependentReviewer:
                 self.engine.store, report, manifest["binary_sha256"],
                 names.get(draft["subject"]))
         prompt = review_prompt(draft, evidence, scope, original_cases)
+        if guidance:
+            prompt += "\nSupervisor focus (untrusted; verify independently): " + guidance
         review_id = uuid.uuid4().hex
         folder = self.engine.root / "reviews" / review_id
         folder.mkdir(parents=True)
@@ -172,6 +175,7 @@ class IndependentReviewer:
                       "evidence_artifact": draft["evidence_artifact"],
                       "subject": draft["subject"], "model": resolved_model,
                       "model_role": model_role,
+                      "watchdog_artifact": watchdog_artifact,
                       "probe_report_artifact": probe_report_artifact,
                       "original_case_count": len(original_cases),
                       "prompt_version": REVIEW_PROMPT_VERSION,
