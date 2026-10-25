@@ -23,7 +23,8 @@ sys.path.insert(0, str(ROOT))
 
 from engine.analysis.rea import ReaSession, static_triage  # noqa: E402
 from engine.libreoffice import UnoDriver, find_install, load_cases, split_cases  # noqa: E402
-from engine.lo_pipeline import DEFAULT_FRIDA_PATTERNS, runtime_triage  # noqa: E402
+from engine.analysis.scoped import symbol_inventory  # noqa: E402
+from engine.lo_pipeline import DEFAULT_FRIDA_PATTERNS, hook_offsets, runtime_triage  # noqa: E402
 
 DEFAULT_CASES = ROOT / "fixtures/decomp/libreoffice/formula_cases.json"
 
@@ -46,10 +47,12 @@ def main() -> int:
     module = args.module or Path(library["path"]).name
     if args.mode == "runtime":
         public, _ = split_cases(load_cases(args.cases)["cases"])
+        patterns = args.pattern or DEFAULT_FRIDA_PATTERNS
+        offsets = hook_offsets(symbol_inventory(Path(library["path"])), patterns)
+        print(f"resolved {len(offsets)} hook targets from ELF/debug symbols")
         with ReaSession.launch() as session, UnoDriver(install["soffice"], python=args.uno_python) as driver:
-            result = runtime_triage(session, driver, public, module=module,
-                                    patterns=args.pattern or DEFAULT_FRIDA_PATTERNS,
-                                    image_base=int(args.image_base, 16))
+            result = runtime_triage(session, driver, public, module=module, patterns=patterns,
+                                    image_base=int(args.image_base, 16), offsets=offsets)
         print(f"hooked {result['hooked']} functions in {module}")
         for case_id, observation in result["cases"].items():
             top = ", ".join(f"{h['name']}×{h['count']}" for h in observation["hits"][:5])

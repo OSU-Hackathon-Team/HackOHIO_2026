@@ -2,7 +2,10 @@
 
     python3 scripts/lo_pipeline.py [--cases ...] [--seed-source runtime|rea_static] [--investigate]
 
-Stages: analyze (Ghidra, light profile) -> triage (REA: Frida runtime hits or static search)
+Default stages: analyze (Ghidra, light whole-module profile) -> triage (REA).
+Explicit --analysis-profile scoped locates seeds before bounded preparation and
+uses prepared read-only REA/Ghidra contexts. This requires observed or symbol seeds;
+automatic application-wide subsystem discovery remains separate work.
 -> scope from those seeds -> SemanticWorker claims + IndependentReviewer (OpenCode, Bedrock)
 -> optional OpenCode investigator for open review questions -> probes in real LibreOffice
 -> dossier (readiness decided by engine.dossier) -> spec only when ready_for_spec.
@@ -47,7 +50,8 @@ def main() -> int:
     parser.add_argument("--max-functions", type=int, default=60)
     parser.add_argument("--max-depth", type=int, default=2)
     parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--analysis-profile", default="light", choices=["light", "full"])
+    parser.add_argument("--analysis-profile", default="light", choices=["scoped", "light", "full"],
+                        help='scoped selects seeds first; light/full explicitly analyze the whole module')
     parser.add_argument("--investigate", action="store_true",
                         help="let an OpenCode agent with read-only REA/Ghidra tools answer review gaps")
     parser.add_argument("--uno-python", default=os.environ.get("LO_PYTHON", "/usr/bin/python3"))
@@ -63,7 +67,8 @@ def main() -> int:
     os.environ["DECOMP_STATE"] = str(state)  # engine.scope looks up debug symbols through it
     suite = load_cases(args.cases)
     install = find_install()
-    engine = GhidraAnalysis(state, args.headless, analysis_profile=args.analysis_profile,
+    engine = GhidraAnalysis(state, args.headless,
+                            analysis_profile='full' if args.analysis_profile == 'scoped' else args.analysis_profile,
                             timeout=int(os.environ.get("DECOMP_ANALYSIS_TIMEOUT", "3600")))
     config = LoPipelineConfig(
         cases=suite["cases"], query=suite["query"],
@@ -72,7 +77,7 @@ def main() -> int:
         frida_patterns=args.frida_pattern or list(DEFAULT_FRIDA_PATTERNS),
         seed_source=args.seed_source, static_patterns=args.static_pattern,
         max_functions=args.max_functions, max_depth=args.max_depth, workers=args.workers,
-        investigate=args.investigate)
+        investigate=args.investigate, scoped_analysis=args.analysis_profile == 'scoped')
     deps = LoPipelineDeps(
         engine=engine, rea_factory=ReaSession.launch,
         driver_factory=lambda: UnoDriver(install["soffice"], python=args.uno_python),
