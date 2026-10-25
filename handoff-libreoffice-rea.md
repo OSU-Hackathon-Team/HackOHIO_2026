@@ -147,3 +147,39 @@ python3 scripts/lo_pipeline.py --max-functions 20 --workers 2   # start small
   `docs/NATIVE_CLEANROOM_HANDOFF.md` (cleanroom separation; held-out cases stay hidden from the
   spec writer and implementer).
 - The plan is at `C:\Users\pohfe\.claude\plans\yeah-rename-the-branch-federated-eclipse.md`.
+
+## EC2 runtime follow-up (2026-10-24 local / 2026-10-25 UTC)
+
+See [the EC2 trial record](docs/LIBREOFFICE_EC2_TRIAL.md) for exact outcomes and
+resource IDs. Runtime setup is present in `7250435` (`EC2 Migration`); these
+follow-up diagnostics and documentation edits remain local. Existing user edits
+are preserved; this agent did not create that commit.
+
+- Native regression suite plus two new launcher regressions: **28/28 pass**.
+- Fixed REA's Node 18 import crash by pinning Node 22.19.0. REA 6.7.0 and Ghidra
+  MCP startup/catalog checks expose 207 and 212 tools respectively.
+- Explicit active Qwen registration, session title/small-model configuration,
+  and working-directory isolation fix OpenCode startup. A calculator smoke
+  returned 391; an EC2 model invocation successfully called `rea_open_binary`.
+- Worker now pins OpenCode 1.19.4 and isolates Frida CLI dependencies from the
+  main Python environment. Actual EC2 `pip check`: no broken requirements.
+- The matching debug package is `libreoffice-calc-nogui-dbgsym`. Ubuntu's server
+  returned 503/504; the complete symbols gate remains blocked. Hash-verified
+  download retries are present, but a successful installation is not claimed.
+- EC2 `i-01fbcb94645a47036` in us-east-2 uses m7i.2xlarge, encrypted 200 GB gp3,
+  a scoped instance role, SSM, and no inbound ports. No credential files were
+  uploaded. It is **stopped**, retaining disk and private S3 evidence.
+- First model trial timed out at 300.681 seconds during REA cold Ghidra analysis,
+  after opening the real binary. No independent Ghidra MCP decompilation ran.
+- A no-model repeat confirmed the supported 8 GB heap override and light
+  analysis settings, but hit its 540-second provider deadline. The timeout's
+  diagnostic exceeded REA's MCP response budget and became `resource_constraint`.
+- One further five-minute model trial is approved but unused: its prerequisite
+  free check failed. Keep that authorization; do not spend it on another known
+  cold-start timeout. Separate longer preparation and reusable sessions first.
+
+`scripts/lo_agent_trial.py` prepares by default; `--run-live` is explicit and
+bounded to 300 seconds. `scripts/ec2_lo_trial_bootstrap.sh` is the reproducible
+strict-preflight bootstrap; the exported-function experiment's missing-DWARF
+exception is recorded separately. Formula recovery and live pipeline readiness
+remain unverified. The user still owns `tests/test_lo_pipeline.py`.

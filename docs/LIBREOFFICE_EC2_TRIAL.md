@@ -75,6 +75,37 @@ no broken requirements and `nm -D --defined-only` confirmed
 `Calc_ScSpreadsheetSettings_get_implementation` at `0x00ba1490`. This target is
 dynamically named and does not require DWARF. `preflight-exception.json` records
 the limited exception; `preflight.json` retains the missing-symbol failure.
-Final execution results will be recorded after it completes. The live
-formula pipeline, Frida runtime triage, independent review, real oracle coverage,
-and a ready-for-spec dossier remain separate acceptance gates.
+
+The first live agent attempt (`20261025T022129`) used Qwen/OpenCode 1.19.4
+through the instance role. `rea_open_binary` returned the real Calc SHA-256 and
+architecture. The next procedure search triggered cold Ghidra analysis; the
+300-second invocation timed out after 300.681 seconds. No procedure search or
+separate Ghidra MCP decompilation completed. Ghidra used its default `-Xmx2G`:
+`JAVA_TOOL_OPTIONS` did not override the launcher's explicit heap argument.
+
+The EC2 bootstrap now sets `GHIDRA_HEADLESS_MAXMEM=8G` and
+`REA_GHIDRA_DISABLED_ANALYZERS` to the five existing light-profile analyzer names.
+A subsequent no-model check confirmed `-Xmx8G` and the REA analysis pre-script
+in the actual process command. It still hit its 540-second provider startup
+timeout during `binary_overview`. REA then reported `resource_constraint` because
+the original `provider_timeout` error exceeded its 10,484,736-byte MCP response
+budget (at least 10,516,651 bytes). This is a failed check, not a successful
+native analysis. Ghidra's captured log includes exception-analyzer errors and
+function-body repair warnings; these require investigation, not suppression.
+
+The user approved one additional five-minute model trial, conditional on the
+free check passing. That trial was **not invoked** because the free check failed.
+The instance stopped automatically. The private S3 results archive and local
+`decomp-state/ec2-tools/results/` retain the preflight, exception record, first
+agent events/summary, free-check traceback, and captured Ghidra diagnostics.
+Deployment helpers and manifests are local, ignored files under
+`decomp-state/ec2-tools/`; they contain no copied credential files.
+
+Next: separate a longer bounded cold-preparation stage (suggested 20 minutes)
+from the model invocation, preserve complete diagnostics before closing REA,
+and verify reuse of prepared analysis. Merely extending the agent deadline
+would repeat cold imports. The currently approved model budget remains five
+minutes; a longer model invocation requires a revised approval.
+
+The live formula pipeline, Frida runtime triage, independent review, real oracle
+coverage, and a ready-for-spec dossier remain separate acceptance gates.
