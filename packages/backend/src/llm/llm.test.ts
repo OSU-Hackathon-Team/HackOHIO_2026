@@ -60,7 +60,7 @@ afterEach(() => {
   setConverseClientForTests(null);
 });
 
-type ConverseReply = { tool?: string; text?: string; stop?: string };
+type ConverseReply = { tool?: string; text?: string; stop?: string; uses?: { id: string; name: string; input: string }[] };
 
 /** Bedrock Converse double: streams each reply as ConverseStream events and records every command input. */
 function fakeConverse(replies: ConverseReply[]) {
@@ -75,7 +75,11 @@ function fakeConverse(replies: ConverseReply[]) {
         const chunks = (s: string) => s.match(/.{1,5}/gs) ?? [];
         for (const c of chunks(r!.tool ?? "")) yield { contentBlockDelta: { contentBlockIndex: 0, delta: { toolUse: { input: c } } } };
         for (const c of chunks(r!.text ?? "")) yield { contentBlockDelta: { contentBlockIndex: 0, delta: { text: c } } };
-        yield { messageStop: { stopReason: r!.stop ?? (r!.tool ? "tool_use" : "end_turn") } };
+        for (const [i, u] of (r!.uses ?? []).entries()) {
+          yield { contentBlockStart: { contentBlockIndex: i + 1, start: { toolUse: { toolUseId: u.id, name: u.name } } } };
+          for (const c of chunks(u.input)) yield { contentBlockDelta: { contentBlockIndex: i + 1, delta: { toolUse: { input: c } } } };
+        }
+        yield { messageStop: { stopReason: r!.stop ?? (r!.tool || r!.uses ? "tool_use" : "end_turn") } };
         yield { metadata: { usage: { inputTokens: 12, outputTokens: 7 } } };
       }
       return { stream: stream() };
@@ -234,4 +238,49 @@ test("Converse can fall back once to a Claude override", async () => {
   assert.equal(result.model, bedrockModelId("refusal_fallback"));
   assert.equal(inputs.length, 1);
   assert.equal(requests.length, 1);
+});
+
+// ---- Converse tool loop (helper tools before the forced respond) ----
+
+const lookup = (log: unknown[] = []) => ({
+  name: "lookup",
+  description: "Look up a fact.",
+  inputSchema: { type: "object", properties: { key: { type: "string" } }, required: ["key"], additionalProperties: false },
+  async run(input: unknown) { log.push(input); return "17 * 23 = 391"; },
+});
+
+test("Converse runs helper tools, sends results back, then accepts respond", async () => {
+  const inputs = fakeConverse([
+    { text: "Checking.", uses: [{ id: "t1", name: "lookup", input: '{"key":"17x23"}' }] },
+    { uses: [{ id: "t2", name: "respond", input: '{"answer":391}' }] },
+  ]);
+  const log: unknown[] = [];
+  const r = await structuredCall(qwenOpts({ tools: [lookup(log)] }));
+  assert.deepEqual(r.value, { answer: 391 });
+  assert.deepEqual(log, [{ key: "17x23" }]);
+  assert.deepEqual(r.usage, { input_tokens: 24, output_tokens: 14 });
+  assert.deepEqual(inputs[0].toolConfig.toolChoice, { auto: {} });
+  assert.deepEqual(inputs[0].toolConfig.tools.map((t: any) => t.toolSpec.name), ["respond", "lookup"]);
+  assert.deepEqual(inputs[1].messages.slice(1), [
+    { role: "assistant", content: [{ text: "Checking." }, { toolUse: { toolUseId: "t1", name: "lookup", input: { key: "17x23" } } }] },
+    { role: "user", content: [{ toolResult: { toolUseId: "t1", content: [{ text: "17 * 23 = 391" }] } }] },
+  ]);
+});
+
+test("Converse forces respond once helper turns run out, and reports unknown tools as errors", async () => {
+  const inputs = fakeConverse([
+    { uses: [{ id: "a", name: "nonexistent", input: "{}" }] },
+    { tool: '{"answer":391}' },
+  ]);
+  const r = await structuredCall(qwenOpts({ tools: [lookup()], maxToolTurns: 1 }));
+  assert.deepEqual(r.value, { answer: 391 });
+  assert.deepEqual(inputs[1].toolConfig.toolChoice, { tool: { name: "respond" } });
+  const result = inputs[1].messages.at(-1).content[0].toolResult;
+  assert.equal(result.status, "error");
+  assert.match(result.content[0].text, /Unknown tool "nonexistent"/);
+});
+
+test("tool-assisted calls are refused on the Claude path rather than silently ignoring tools", async () => {
+  fakeClaude([]);
+  await assert.rejects(structuredCall(opts({ tools: [lookup()] })), /Converse path only/);
 });
