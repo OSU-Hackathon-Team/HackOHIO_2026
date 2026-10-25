@@ -8,7 +8,7 @@ The spec claims this module covers two specialized LibreOffice applications: **M
 
 ### Subsystems Covered
 - **Math (`starmath/`):**
-  - Equation Syntax Scanner & Grammar Parser.
+  - Equation Parser Factory (`starmath/source/parse.cxx:25-37`, `starmathdatabase::GetVersionSmParser` instantiates parser version, e.g., `SmParser5`; full grammar lives in `parse5.cxx`, NOT `parse.cxx`).
   - Abstract Formula Node Tree (`SmNode`, `SmTableNode`, `SmOperNode`, `SmSubSupNode`).
   - Mathematical Typography Layout Engine.
   - MathML (XML) Import & Export Filters.

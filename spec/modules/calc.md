@@ -80,15 +80,28 @@ To maximize cache locality and reduce memory overhead, spreadsheet cells are sto
 - **Block Types:** `EmptyBlock`, `NumericBlock` (contiguous IEEE-754 `double` arrays), `StringBlock` (string pointers), `FormulaBlock` (`ScFormulaCell` pointers).
 - **Advantage:** Storing 1,000,000 numbers in a column requires only one contiguous array of 8 MB, avoiding object overhead and pointer indirection.
 
-#### 2. `ScAddress` & Spatial Coordinates
-- **Representation:** Struct containing 32-bit `Row`, 16-bit `Column`, and 16-bit `Tab` (Sheet index). **VERIFIED:** `sc/inc/types.hxx`: `SCROW=sal_Int32`, `SCCOL/SCTAB=sal_Int16`.
-- **Limits:** Supports up to 16,384 columns (`MAXCOLCOUNT=16*1024` in `sc/inc/address.hxx:61`) and up to 10,000 sheets (`MAXTABCOUNT=10000`, `address.hxx:64`) — **VERIFIED**. Rows: default `MAXROWCOUNT=1024*1024` (1,048,576 rows, `address.hxx:60`); 16,777,216 rows applies only to `MAXROWCOUNT_JUMBO=16*1024*1024` (`address.hxx:70`), not the default. **PARTIALLY VERIFIED — prior unconditional “16,777,216 rows” corrected to distinguish default vs jumbo.**
+#### 2. `ScAddress` & Spatial Coordinates (VERIFIED)
+- **Representation:** Struct containing 32-bit `Row`, 16-bit `Column`, and 16-bit `Tab` (Sheet index). **VERIFIED** in `sc/inc/types.hxx`: `SCROW = sal_Int32`, `SCCOL = sal_Int16`, `SCTAB = sal_Int16`.
+- **Limits (VERIFIED against `sc/inc/address.hxx`):**
+  - Default Row Count: `MAXROWCOUNT = 1024 * 1024` (1,048,576 rows, `address.hxx:60`).
+  - Maximum Row Index: `MAXROWCOUNT - 1` (1,048,575; 0-indexed).
+  - Column Count: `MAXCOLCOUNT = 16 * 1024` (16,384 columns, `address.hxx:61`).
+  - Maximum Column Index: `MAXCOLCOUNT - 1` (16,383; 0-indexed).
+  - Sheet Count: `MAXTABCOUNT = 10000` (10,000 sheets, indexed 0..9,999, `address.hxx:64`).
+  - Jumbo Mode Row Count: `MAXROWCOUNT_JUMBO = 16 * 1024 * 1024` (16,777,216 rows, `address.hxx:70`; applies only when jumbo-row support is explicitly enabled, not the default).
 
-#### 3. Formula Token Bytecode (`TokenArray`)
+#### 3. Formula Token Bytecode (`TokenArray`) (PARTIALLY VERIFIED)
 - Formulas are compiled from text into Reverse Polish Notation (RPN) token arrays. Tokens represent:
   - Immediate Literals (Double, String).
   - Cell References (`SingleRef`, `AreaRef`).
-  - OpCodes (**VERIFIED** in `include/formula/opcode.hxx`: `ocAdd=51` (line 93), `ocMul=53` (line 95) — not `ocMultiply`; `ocSum=224` (line 263) — not `ocSUM`; `ocIf=6` (line 39) — not `ocIF`; `ocVLookup=286` (line 327) — not `ocVLOOKUP`). **CORRECTED — prior opcode casing/names were incorrect.** RPN execution order and dirty-propagation sequence remain **UNVERIFIED**.
+  - OpCodes (**VERIFIED** in `include/formula/opcode.hxx`):
+    - `ocIf = 6` (`opcode.hxx:39`)
+    - `ocAdd = 51` (`opcode.hxx:93`)
+    - `ocMul = 53` (`opcode.hxx:95`)
+    - `ocSum = 224` (`opcode.hxx:263`)
+    - `ocVLookup = 286` (`opcode.hxx:327`)
+    - *Canonical naming note:* Never use nonexistent or mis-cased names such as `ocMultiply`, `ocSUM`, `ocVLOOKUP`, or `ocIF`.
+  - *Uncertainty boundary:* RPN execution order and dirty-propagation sequence remain **UNVERIFIED**.
 
 ---
 
@@ -188,13 +201,28 @@ flowchart TD
 
 ---
 
-## 5. Error Handling & Edge Cases (PARTIALLY VERIFIED — codes verified; propagation behavior UNVERIFIED)
+## 5. Error Handling & Edge Cases (PARTIALLY VERIFIED — error codes VERIFIED against `include/formula/errorcodes.hxx`; propagation behavior UNVERIFIED)
 
-1. **Circular Reference Detection:** When formula evaluation encounters an indirect cycle ($A1 \to B1 \to C1 \to A1$):
+### Core Formula Error Codes (`include/formula/errorcodes.hxx`)
+
+| Error Code | Enum Identifier | UI Representation | Description / Trigger Condition |
+|:---:|---|:---:|---|
+| **502** | `FormulaError::IllegalArgument` | `#VALUE!` / Error 502 | Function argument is invalid (e.g., negative number for square root, or invalid domain). |
+| **503** | `FormulaError::IllegalFPOperation` | `#NUM!` / Error 503 | Floating-point domain error or overflow/underflow (not division by zero). |
+| **522** | `FormulaError::CircularReference` | Error 522 | Direct or indirect circular dependency cycle detected without convergence under iteration. |
+| **524** | `FormulaError::NoRef` | `#REF!` | Missing or deleted cell reference, coordinate overflow, or deleted sheet. |
+| **532** | `FormulaError::DivisionByZero` | `#DIV/0!` | Attempted arithmetic division by zero ($x / 0$). |
+
+### Edge Case Handling
+
+1. **Circular Reference Detection (`522`):** When formula evaluation encounters an indirect cycle ($A1 \to B1 \to C1 \to A1$):
    - The interpreter tracks evaluation depth on the active call stack (`RecursionCounter`). [UNVERIFIED — call-stack tracking not traced in this pass.]
    - If a cell is encountered while already in an evaluating state:
      - If Iterative Calculation is enabled, it stops when reaching `MaxIterations` or `MaxChange`. [UNVERIFIED.]
-     - If disabled, evaluation terminates immediately and sets the cell result to error code `522` (**VERIFIED** `FormulaError::CircularReference=522` in `include/formula/errorcodes.hxx:53`; **CORRECTED** — 522 is circular reference, not `#REF!`; `#REF!` is `NoRef=524` at `errorcodes.hxx:55`).
-2. **Division by Zero:** Evaluates to error code `532` (`#DIV/0!`) (**VERIFIED** `FormulaError::DivisionByZero=532` in `include/formula/errorcodes.hxx:65`; **CORRECTED — prior `503` was incorrect**: `503` is `IllegalFPOperation // #NUM!` at `errorcodes.hxx:36`). Propagation to dependents without crashing remains **UNVERIFIED**.
-3. **Invalid Range Expansion on Deleted Sheet:** When a referenced sheet is deleted from the workbook:
-   - References targeting the deleted sheet are rewritten to invalid ref tokens (`#REF!`).
+     - If disabled, evaluation terminates immediately and sets the cell result to error code `522` (**VERIFIED** `FormulaError::CircularReference = 522` in `include/formula/errorcodes.hxx:53`; **CORRECTED** — 522 is circular reference, not `#REF!`; `#REF!` is `NoRef = 524` at `errorcodes.hxx:55`).
+2. **Division by Zero (`532`):** Evaluates to error code `532` (`#DIV/0!`) (**VERIFIED** `FormulaError::DivisionByZero = 532` in `include/formula/errorcodes.hxx:65`; **CORRECTED — prior `503` was incorrect**: `503` is `IllegalFPOperation // #NUM!` at `errorcodes.hxx:36`). Propagation to dependents without crashing remains **UNVERIFIED**.
+3. **Illegal Floating-Point Operations (`503`):** Numerical calculation overflows or invalid floating-point operations return `FormulaError::IllegalFPOperation = 503` (`#NUM!`), distinct from division by zero (`532`).
+4. **Invalid Function Arguments (`502`):** Arguments violating mathematical function preconditions evaluate to `FormulaError::IllegalArgument = 502`.
+5. **Invalid Range Expansion on Deleted Sheet (`524`):** When a referenced sheet is deleted from the workbook:
+   - References targeting the deleted sheet are rewritten to invalid ref tokens (`#REF!`, `FormulaError::NoRef = 524`).
+

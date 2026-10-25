@@ -1,6 +1,6 @@
 # Module Specification: Writer (Word Processor)
 
-> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** `sw/source/core/doc/doc.cxx` exists and defines `SwDoc::acquire/release` (atomic refcount), `GetUndoManager`/`GetIDocumentUndoRedo`, `IDocumentDrawModelAccess/SettingAccess` managers (supports `SwDoc` + `IDocument*` + undo claims). `sw/` module existence verified. **Still UNVERIFIED in this pass:** `sw/source/core/layout/flowfrm.cxx`, `writerfilter/source/dmapper/DomainMapper.cxx` contents, `SwNodes`/`SwpHintsArray` flat-array partitioning, widow/orphan rules, follow-frame and hint-merging pseudocode step order — layout/filter sources not yet fetched.
+> **Verification Status (2026-10-24, rev.3 — LO core remote, master).** **Verified:** `sw/source/core/doc/doc.cxx` exists and defines `SwDoc::acquire/release` (atomic refcount), `GetUndoManager`/`GetIDocumentUndoRedo`, `IDocumentDrawModelAccess/SettingAccess` managers. `SwNodes` data structure is **VERIFIED** in `sw/inc/nodes.hxx` and `sw/inc/ndarr.hxx` (`class SwNodes final : private BigPtrArray` using paired `SwStartNode`/`SwEndNode` boundary markers; never `List<SwNode>`). **Still UNVERIFIED in this pass:** `sw/source/core/layout/flowfrm.cxx`, `writerfilter/source/dmapper/DomainMapper.cxx` contents, `SwpHintsArray` exact hints merging order, widow/orphan rules, follow-frame and hint-merging pseudocode step order — layout/filter sources not yet fetched.
 
 ## 1. Overview & Purpose (UNVERIFIED)
 
@@ -36,7 +36,7 @@ classDiagram
         +getIDocumentLayoutAccess() IDocumentLayoutAccess
     }
     class SwNodes {
-        -BigPtrArray nodeStore // VERIFIED: sw/inc/ndarr.hxx:105-106 `class SwNodes final : private BigPtrArray` (not List<SwNode> — CORRECTED)
+        -BigPtrArray nodeStore // VERIFIED: sw/inc/nodes.hxx: class SwNodes final : private BigPtrArray (never List<SwNode>)
         -SwNode EndOfPostIts/Inserts/Autotext/Redlines/Content markers // VERIFIED ndarr.hxx:121-123,169-180
         +InsertNode(SwNode node, SwNodeIndex pos) void // simplified; actual: InsertNode(SwNode*, SwNodeIndex/SwNodeOffset), RemoveNode/DelNodes/CopyNodes (ndarr.hxx) — PARTIALLY VERIFIED
         +DeleteNode(NodeIndex start, NodeIndex end) void // simplified illustration; see DelNodes/Delete(SwNodeIndex, SwNodeOffset) — PARTIALLY VERIFIED
@@ -79,12 +79,13 @@ classDiagram
     SwTextFrame --> SwTextNode : visual layout projection
 ```
 
-### Conceptual Data Structures (UNVERIFIED — no `SwNodes`/`SwpHintsArray` sources found)
+### Conceptual Data Structures (PARTIALLY VERIFIED — `SwNodes` VERIFIED in `sw/inc/nodes.hxx` and `sw/inc/ndarr.hxx`; `SwpHintsArray` internals unverified)
 
-#### 1. Flat Node Array (`SwNodes`)
-Unlike a recursive DOM tree, Writer stores all document content in a single linear array of `SwNode` pointers. Hierarchical sections (tables, headers, footnotes, nested sections) are bounded by paired sentinel nodes:
-- `SwStartNode` (Marks entry into section, table cell, or header).
-- `SwEndNode` (Marks termination of section, pointing back to paired `SwStartNode`).
+#### 1. Flat Node Array (`SwNodes`) — VERIFIED
+- **Implementation Structure:** Declared as `class SwNodes final : private BigPtrArray` (`sw/inc/nodes.hxx`, `sw/inc/ndarr.hxx:105-106`). Content is indexed via an optimized block-pointer array (`BigPtrArray`), **never** as a simple `List<SwNode>` or linked list.
+- **Sentinel Node Boundaries:** Hierarchical sections (tables, headers, footnotes, nested sections) are bounded by paired sentinel node structures rather than a recursive DOM tree:
+  - `SwStartNode`: Marks entry into a section, table cell, or header.
+  - `SwEndNode`: Marks termination of the section, pointing directly back to its paired `SwStartNode`.
 
 #### Top-Level Stream Partitioning:
 1. **Reserved Sentinel Block:** Internal root markers.

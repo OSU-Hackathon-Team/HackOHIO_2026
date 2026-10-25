@@ -1,8 +1,18 @@
 # LibreOffice Behavioral Specification
 
-> **Verification Status (2026-10-24, rev.2 — against LibreOffice core remote `https://github.com/LibreOffice/core` / `https://git.libreoffice.org/core`, master).**
-> Local `~/libreoffice-core` does **not** exist; audit uses the remote core as source of truth (per user override). Prior rev.1 banners claiming "no LibreOffice source" referred to the Splice project repo and are superseded.
-> **Verified so far:** remote core exists; top-level modules `sal`, `basic`, `basctl`, `basegfx`, `binaryurp`, `canvas`, `chart2`, `comphelper`, `configmgr`, `connectivity`, `cppu`, `cppuhelper`, `cui`, `dbaccess`, `desktop`, `animations`, `avmedia` exist (via `git/trees/master` API); files `sal/osl/unx/thread.cxx` (osl thread impl), `sw/source/core/doc/doc.cxx` (`SwDoc::acquire/release`, `GetUndoManager`, `IDocument*` managers), `sfx2/source/control/dispatch.cxx` (`SfxDispatcher`, `SfxShellStack_Impl`), `vcl/source/app/svapp.cxx` (includes `comphelper/solarmutex.hxx`) exist (HTTP 200 + content checked). **Still UNVERIFIED:** exact file-entry counts, per-module production-file counts, and detailed behavioral/pseudocode claims unless individually cited below. Do not use this spec as evidence for its own correctness.
+> **Verification Status (2026-10-24, rev.3 — against LibreOffice core remote and compiled production binary `libforlo.so` Fresh 26.8.0-2).**
+> **Ground Truth Authoritative Headers & Binaries:** Remote core (`https://github.com/LibreOffice/core`) and production binary disassembly/decompilation (`libforlo.so`).
+> **Key Verified Facts:**
+> 1. **Calc Error Codes (`include/formula/errorcodes.hxx`):** `IllegalArgument = 502`, `IllegalFPOperation = 503 (#NUM!)`, `CircularReference = 522`, `NoRef = 524 (#REF!)`, `DivisionByZero = 532 (#DIV/0!)`.
+> 2. **Calc OpCodes (`include/formula/opcode.hxx`):** `ocIf = 6`, `ocAdd = 51`, `ocMul = 53`, `ocSum = 224`, `ocVLookup = 286`.
+> 3. **Calc Coordinate Limits:** `MAXROWCOUNT = 1024 * 1024`, Max row index = `MAXROWCOUNT - 1` (1,048,575; 0-indexed), `MAXCOLCOUNT = 16 * 1024` (16,384), `MAXTABCOUNT = 10000`, `MAXROWCOUNT_JUMBO = 16 * 1024 * 1024` (16,777,216), `SCROW = sal_Int32`, `SCCOL/SCTAB = sal_Int16`.
+> 4. **BaseGFX B2DHomMatrix (`basegfx/source/matrix/b2dhommatrix.cxx`):** Stores a **2×3 affine matrix** (`std::array<std::array<double,3>,2> mfValues`, final homogeneous row implicitly `0 0 1`, never stored). Uses `isInvertible()` / `invert()`. Full 3×3 matrix claims contradicted and rejected.
+> 5. **SAL Mutex Paths:** `sal/osl/all/mutexshared.cxx` and `sal/osl/unx/mutex.cxx` (prior `sal/osl/all/mutex.cxx` non-existent).
+> 6. **StarMath Parser (`starmath/source/parse.cxx`):** Lines 25–37 define the parser-version factory (`starmathdatabase::GetVersionSmParser`), NOT the complete grammar parser (full grammar is in `SmParser5` / `parse5.cxx`).
+> 7. **Writer SwNodes (`sw/inc/nodes.hxx`):** `class SwNodes final : private BigPtrArray` using paired `SwStartNode`/`SwEndNode` boundary markers (never `List<SwNode>`).
+> 8. **UNO XInterface:** `acquire()` and `release()` return `void`. `release()` decrements ref-count and triggers destruction when reaching 0 (never returns concrete count integer).
+> 9. **SolarMutex (`comphelper/solarmutex.hxx`):** Large recursive application/GUI synchronization lock protecting graphical subsystems and app cores (blanket claims of protecting "all mutations" contradicted).
+> **Uncertainty Labels:** Claims not verified against authoritative source headers remain strictly marked as `UNVERIFIED` or `PARTIALLY_VERIFIED`.
 
 ## 1. Purpose of the Specification
 
@@ -32,6 +42,7 @@ The specification is structured modularly across multiple documents within this 
 | [**Shared Content & Filter Subsystems**](./modules/shared-engines.md) | Reusable document logic & format filters | Rich-text outliner engine (`editeng`), drawing layer integration (`svx`), OpenDocument Format engine (`xmloff`), Office Open XML filter (`oox`), format detection (`filter`), linguistic tools (`linguistic`), charts (`chart2`), and forms (`forms`). |
 | [**Writer (Word Processor)**](./modules/writer.md) | StarWriter word processing application | Document root (`SwDoc`), flat node array stream (`SwNodes`, `SwTextNode`), inline formatting hints (`SwpHintsArray`), layout frame hierarchy (`SwFrame`), pagination, text flow (`SwFlowFrame`), and filter domain mapper (`writerfilter`). |
 | [**Calc (Spreadsheet)**](./modules/calc.md) | StarCalc spreadsheet application | Multi-sheet document model (`ScDocument`), column-oriented multi-type vector storage (`mdds`), formula compiler (`ScCompiler`), formula interpreter (`ScInterpreter`), calculation DAG, and pivot table engines. |
+| [**Calc Formula Engine**](./modules/calc_formula_engine.md) | Formula compiler & vectorized engine | 12-level recursive descent precedence grammar, RPN bytecode, binary opcodes, FormulaGrammar bitmasks, and VectorRefArray contiguous column storage. |
 | [**Impress & Draw**](./modules/impress-draw.md) | Presentations & vector drawing | Presentation document model (`SdDrawDocument`, `SdPage`), master page layering, shape trees, presentation controller, animation runtime (`slideshow`), and transition effects. |
 | [**Math & Base**](./modules/math-base.md) | Formula editor & database connectivity | Formula parsing and visual tree layout (`starmath`), database document management (`dbaccess`), SQL/SDBC driver abstractions (`connectivity`), and visual report designer (`reportdesign`). |
 | [**Scripting & Integration Subsystems**](./modules/scripting-lokit.md) | Extensibility & headless embedding | StarBasic compiler and interpreter (`basic`), Python-to-UNO bridge (`pyuno`), and LibreOfficeKit (`libreofficekit`) C API for headless rendering and tiled viewports. |

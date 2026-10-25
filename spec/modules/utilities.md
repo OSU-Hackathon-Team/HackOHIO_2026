@@ -1,6 +1,6 @@
 # Module Specification: Core Utilities, Geometry & Internationalization
 
-> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** top-level dirs `basegfx`, `comphelper` exist (trees API); `vcl/source/app/svapp.cxx` includes `svl/poolitem.hxx/itemset.hxx/itempool.hxx` (supports `svl` pool claims indirectly). **Still UNVERIFIED in this pass:** `basegfx/matrix/b2dhommatrix.cxx`, `ucb/source/core/ucb.cxx`, `svl/source/items/itempool.cxx` contents, `B2DHomMatrix` 3x3 layout, `SfxItemPool`/`WhichId` mechanics, UCB scheme list, break-iterator and ZIP-manifest fallback details — those sources not yet fetched.
+> **Verification Status (2026-10-24, rev.3 — LO core remote, master).** **Verified:** top-level dirs `basegfx`, `comphelper` exist (trees API); `vcl/source/app/svapp.cxx` includes `svl/poolitem.hxx/itemset.hxx/itempool.hxx` (supports `svl` pool claims indirectly); `basegfx/source/matrix/b2dhommatrix.cxx` and `include/basegfx/matrix/b2dhommatrix.hxx` are **VERIFIED** (`mfValues[2][3]` affine storage, final homogeneous row implicitly `0 0 1`, `isInvertible()`, `invert()`). Full 3×3 matrix layout descriptions are **CONTRADICTED** and corrected. **Still UNVERIFIED in this pass:** `ucb/source/core/ucb.cxx`, `svl/source/items/itempool.cxx` contents, `SfxItemPool`/`WhichId` mechanics, UCB scheme list, break-iterator and ZIP-manifest fallback details — those sources not yet fetched.
 
 ## 1. Overview & Purpose (UNVERIFIED)
 
@@ -24,10 +24,11 @@ The spec claims the **Core Utilities Layer** provides fundamental mathematical, 
 classDiagram
     direction TB
     class B2DHomMatrix {
-        -double matrix[3][3]
+        -double matrix[2][3] // 2x3 affine matrix; final row implicitly [0,0,1]
         +rotate(double radians) void
         +scale(double sx, double sy) void
         +translate(double dx, double dy) void
+        +isInvertible() boolean
         +invert() boolean
         +transform(B2DPoint pt) B2DPoint
     }
@@ -63,11 +64,11 @@ classDiagram
     UniversalContentBroker ..> B2DHomMatrix : unrelated
 ```
 
-### Conceptual Data Structures (UNVERIFIED — no corresponding sources found)
+### Conceptual Data Structures (PARTIALLY VERIFIED — `B2DHomMatrix` VERIFIED against `basegfx/source/matrix/b2dhommatrix.cxx` and `include/basegfx/matrix/b2dhommatrix.hxx`; item pool / UCB internals unverified)
 
-#### 1. `B2DHomMatrix` (Affine 2D Transformation) — PARTIALLY VERIFIED
-- **Data Representation:** Stores a 2×3 array (`std::array<std::array<double,3>,2> mfValues` in `include/basegfx/matrix/b2dhommatrix.hxx:38`); the last row is implicitly `[0,0,1]` and “we don't bother to store it” (`b2dhommatrix.hxx:37`). **CORRECTED — prior “stored 3×3 `double[3][3]`” was incorrect.** Conceptually `[[a,c,tx],[b,d,ty],[0,0,1]]`.
-- **Invariants:** Bottom row is implicitly `[0,0,1]`. **VERIFIED:** `rotate/translate/scale/invert/isInvertible` declared at `b2dhommatrix.hxx:104-105` and defined in `basegfx/source/matrix/b2dhommatrix.cxx` (determinant-zero → `return false`). Affine parallel-line preservation remains UNVERIFIED phrasing.
+#### 1. `B2DHomMatrix` (Affine 2D Transformation) — VERIFIED
+- **Data Representation:** Stores a **2×3 affine matrix** (`std::array<std::array<double,3>,2> mfValues` in `include/basegfx/matrix/b2dhommatrix.hxx:38`); the final homogeneous row is implicitly `[0, 0, 1]` and is never stored in memory (`b2dhommatrix.hxx:37`). Conceptually `[[a, c, tx], [b, d, ty], [0, 0, 1]]`. Any description claiming a full 3×3 stored matrix is **CONTRADICTED** by source code and strictly prohibited.
+- **Invariants & APIs (VERIFIED):** Bottom row is implicitly `[0, 0, 1]`. Transformation methods `rotate()`, `translate()`, `scale()`, invertibility check `isInvertible()`, and matrix inversion `invert()` are declared in `include/basegfx/matrix/b2dhommatrix.hxx:104-105` and defined in `basegfx/source/matrix/b2dhommatrix.cxx` (singular determinant $\to$ `return false`). Affine parallel-line preservation remains UNVERIFIED phrasing.
 
 #### 2. `SfxItemPool` & `SfxItemSet` (Copy-on-Write Formatting Attributes)
 - **Purpose:** Eliminates redundant memory allocations across millions of formatted characters, paragraphs, and cells.
@@ -162,11 +163,11 @@ flowchart TD
 
 ---
 
-## 5. Error Handling & Edge Cases (UNVERIFIED — matrix-invert, ZIP-manifest, locale-fallback behaviors not observed)
+## 5. Error Handling & Edge Cases (PARTIALLY VERIFIED — matrix invert/isInvertible VERIFIED in `basegfx/source/matrix/b2dhommatrix.cxx`; ZIP-manifest and locale-fallback behaviors UNVERIFIED)
 
-1. **Non-Invertible Matrix:** When calling `B2DHomMatrix::invert()`, if the determinant $|\mathbf{A}| \approx 0$ (scale factors are zero or points are collinear):
-   - Inversion fails gracefully.
-   - The method returns `false`, leaving the destination matrix unchanged without throwing an uncaught arithmetic exception.
+1. **Non-Invertible Matrix (`isInvertible()`, `invert()`):** When evaluating a matrix for inversion, `B2DHomMatrix::isInvertible()` checks if the 2×2 determinant $|\mathbf{A}| \neq 0$:
+   - If the matrix is singular or non-invertible (e.g., zero scale factors or collinear points), `isInvertible()` returns `false`.
+   - Calling `invert()` on a non-invertible matrix fails gracefully and returns `false`, leaving the destination matrix unmodified without throwing an unhandled arithmetic exception.
 2. **Damaged ZIP Manifests:** If an ODF package container has a corrupted `META-INF/manifest.xml`:
    - The package reader attempts emergency file traversal by reading raw ZIP local file headers.
    - If `content.xml` is present, it constructs a fallback synthetic manifest and marks the document read-only with a repair warning.
