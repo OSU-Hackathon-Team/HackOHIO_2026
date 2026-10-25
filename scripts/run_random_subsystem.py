@@ -23,6 +23,8 @@ from engine.scope import persist_scope
 from engine.specification import persist_spec
 from engine.validation.review import REVIEW_PROMPT_VERSION, IndependentReviewer
 from engine.validation.probes import select_original_cases
+from engine.validation.scalar_cases import matching_scalar_cases
+from engine.validation.gap_direct import IndependentGapReviewer
 from engine.worker import SEMANTIC_PROMPT_VERSION, SemanticWorker
 
 
@@ -36,6 +38,7 @@ def main() -> None:
                         default=Path.home() / ".opencode/bin/opencode")
     parser.add_argument("--model")
     parser.add_argument("--review-model")
+    parser.add_argument("--gap-model")
     parser.add_argument("--seed", type=int)
     parser.add_argument("--max-functions", type=int, default=32)
     parser.add_argument("--scope-artifact", help="resume an existing discovered scope")
@@ -82,6 +85,7 @@ def main() -> None:
 
     worker = SemanticWorker(engine, args.opencode)
     reviewer = IndependentReviewer(engine, args.opencode)
+    gap_reviewer = IndependentGapReviewer(engine, args.opencode)
     probe_report = (json.loads(engine.store.get(args.probe_report_artifact))
                     if args.probe_report_artifact else None)
     drafts, reviews, failures = [], [], []
@@ -102,6 +106,8 @@ def main() -> None:
                 if draft.get("prompt_version", 0) < SEMANTIC_PROMPT_VERSION:
                     saved.pop("draft_artifact", None)
                     saved.pop("review_artifact", None)
+                    saved.pop("pending_revision_context", None)
+                    saved["revision_count"] = 0
                     draft_artifact = None
                     save()
             if not draft_artifact:
@@ -131,6 +137,7 @@ def main() -> None:
                     save()
             if not review_artifact:
                 review = reviewer.run(draft_artifact, model=args.review_model,
+                                      model_role="decomp_reviewer",
                                       probe_report_artifact=args.probe_report_artifact)
                 if review["state"] != "reviewed":
                     saved["last_failure"] = {"stage": "review", "state": review["state"],
@@ -164,13 +171,75 @@ def main() -> None:
             drafts.append(saved["draft_artifact"])
         if saved.get("review_artifact"):
             reviews.append(saved["review_artifact"])
+    gap_artifacts = []
+    if probe_report:
+        for function in scope["included"]:
+            saved = progress["subjects"].get(function["entry"], {})
+            if not saved.get("review_artifact"):
+                continue
+            review = json.loads(engine.store.get(saved["review_artifact"]))
+            if not any(review["answer"].get(field) for field in
+                       ("missing_behavior", "unresolved")):
+                continue
+            existing = saved.get("gap_artifact")
+            if existing:
+                gap = json.loads(engine.store.get(existing))
+                if (gap.get("state") != "reviewed" or
+                        gap.get("review_artifact") != saved["review_artifact"] or
+                        gap.get("probe_report_artifact") != args.probe_report_artifact):
+                    saved.pop("gap_artifact", None)
+                    existing = None
+                    save()
+            if not existing:
+                gap = gap_reviewer.run(
+                    manifest, saved["draft_artifact"], saved["review_artifact"],
+                    args.probe_report_artifact, function["name"], model=args.gap_model)
+                if gap["state"] != "reviewed":
+                    failures.append({"subject": function["entry"], "stage": "gap_review",
+                                     "state": gap["state"], "artifact": gap["artifact"]})
+                    continue
+                existing = gap["artifact"]
+                saved["gap_artifact"] = existing
+                save()
+            gap_artifacts.append(existing)
+    links = []
+    if probe_report:
+        for function in scope["included"]:
+            saved = progress["subjects"].get(function["entry"], {})
+            if not saved.get("draft_artifact") or not saved.get("review_artifact"):
+                continue
+            draft = json.loads(engine.store.get(saved["draft_artifact"]))
+            review = json.loads(engine.store.get(saved["review_artifact"]))
+            cases = select_original_cases(engine.store, probe_report,
+                                          manifest["binary_sha256"], function["name"])
+            supported = {item["claim_index"] for item in review["answer"]["reviews"]
+                         if item["outcome"] == "supported_static"}
+            for index, claim in enumerate(draft["answer"]["claims"]):
+                if index not in supported:
+                    continue
+                matches = matching_scalar_cases(claim["statement"], cases)
+                agreeing = next((item for item in matches if item["agreement"]), None)
+                if agreeing is not None and all(item["agreement"] for item in matches):
+                    links.append({"draft_artifact": saved["draft_artifact"],
+                                  "claim_index": index,
+                                  "probe_report_artifact": args.probe_report_artifact,
+                                  "case_id": agreeing["case_id"],
+                                  "observed_pointer": "/return",
+                                  "expected_observed": agreeing["expected"],
+                                  "rationale": "Restricted scalar rule predicts the "
+                                               "recorded original return for this input."})
+    link_artifacts = ([engine.store.put(json.dumps(
+        {"schema": 1, "links": links}, sort_keys=True).encode())] if links else [])
     dossier = persist_dossier(engine, manifest, scope["artifact"], drafts, reviews,
-                              [args.probe_report_artifact] if probe_report else [])
+                              [args.probe_report_artifact] if probe_report else [],
+                              link_artifacts, gap_adjudication_artifacts=gap_artifacts)
     spec = persist_spec(engine.root, dossier["artifact"])
     print(json.dumps({"seed": seed_name, "scope_artifact": scope["artifact"],
                       "included": len(scope["included"]),
                       "unresolved": len(scope["unresolved"]),
                       "drafts": len(drafts), "reviews": len(reviews),
+                      "probe_links": len(links),
+                      "gap_reviews": len(gap_artifacts),
                       "failures": failures, "dossier_artifact": dossier["artifact"],
                       "readiness": dossier["readiness"],
                       "blocker_counts": dict(Counter(item["kind"]
