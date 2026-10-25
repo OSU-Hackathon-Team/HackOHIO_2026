@@ -119,16 +119,20 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
         reviews: dict[str, dict] = {}
         probes: list[dict] = []
 
-        def effective(entries: list[str], have: dict) -> list[str]:
+        def effective(entries: list[str], have: dict,
+                      errors: list[str]) -> list[str]:
             seen = []
             for e in entries or []:
                 try:
                     key = tools.resolve_entry(manifest, e)
                 except ValueError:
                     record("unknown_entry", {"entry": e})
+                    errors.append(f"{e} is not a function entry in this binary")
                     continue
                 if large and key not in explored:
                     record("unexplored_entry", {"entry": key})
+                    errors.append(f"{key} is a real function but not in "
+                                  f"state.explored yet")
                     continue
                 if key not in have and key not in seen:
                     seen.append(key)
@@ -329,6 +333,7 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
             record("orchestrator", {"plan": plan,
                                    "reason": response.get("reason", "")})
             mark = len(log)
+            errors: list[str] = []
             signature = json.dumps(plan, sort_keys=True)
             if signature == last_signature:
                 # Fixation guard: repeating the identical plan teaches nothing.
@@ -352,7 +357,7 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                 nonlocal noop_streak, halt, final, exports_listed, total_redrafts
                 kind = action.get("action")
                 if kind == "decompile":
-                    work = effective(action.get("entries", []), {})
+                    work = effective(action.get("entries", []), {}, errors)
                     fresh = []
                     for e in work:
                         if e in drafts:
@@ -377,7 +382,8 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                         record("noop", {"action": action})
                         noop_streak += 1
                 elif kind == "review":
-                    work = [e for e in effective(action.get("entries", []), reviews)
+                    work = [e for e in effective(action.get("entries", []), reviews,
+                                              errors)
                             if e in drafts]
                     if work:
                         review(work)
@@ -524,6 +530,8 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
             produced = [e["kind"] for e in log[mark:]
                         if e["kind"] != "orchestrator"]
             last_result = {"produced": produced or ["nothing"]}
+            if errors:
+                last_result["errors"] = errors[:20]
             if produced == ["noop"] or not produced:
                 last_result["warning"] = ("that action changed nothing; "
                                           "varying the action is the only way forward")
