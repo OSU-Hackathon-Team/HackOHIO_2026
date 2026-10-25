@@ -4,7 +4,6 @@ import {
   FeatureBlueprint,
   type FeatureSpec,
   type TestCaseResult,
-  type RawEvidence,
 } from "@splice/contracts";
 import {
   ENGINE_SYSTEM,
@@ -30,7 +29,6 @@ export interface ImplementDeps {
 }
 
 export interface ImplementOptions {
-  rawEvidence?: RawEvidence;
   timeoutMs?: number;
 }
 
@@ -91,7 +89,6 @@ export async function implementEngine(
 
       const report = await evaluateEngineConformance(spec, code, {
         sandbox: deps.sandbox,
-        rawEvidence: options?.rawEvidence,
         signal: effectiveSignal,
         timeoutMs: options?.timeoutMs,
         onTestResult: hooks.onTestResult,
@@ -128,7 +125,16 @@ export async function implementEngine(
         "repairing_engine",
         `Repair ${attempt + 1}/${MAX_REPAIRS}: ${report.failures.length} failure(s), e.g. ${report.failures[0]?.message.slice(0, 140) ?? "unknown"}`,
       );
-      messages = deps.llm.continueWith(messages, res.assistantContent, report.actionable_feedback);
+      if (!report.clean_room.passed) {
+        // Do not replay a rejected candidate as assistant history: it may contain copied
+        // target text. Restart from the clean spec and sanitized clean-room feedback.
+        messages = [{
+          role: "user",
+          content: `${formatSpecForImplementer(spec)}\n\n${report.actionable_feedback}`,
+        }];
+      } else {
+        messages = deps.llm.continueWith(messages, res.assistantContent, report.actionable_feedback);
+      }
       res = await call("repairing_engine");
     }
   } finally {

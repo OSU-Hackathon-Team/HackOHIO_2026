@@ -1,8 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { implementEngine, MAX_REPAIRS, type ImplementHooks } from "./implement.js";
-import { ADAPTER_SENTINEL, GOOD_ENGINE, SOURCE_SENTINEL, fakeLlm, fakeSandbox, makeSpec, passAll } from "./testFixtures.js";
-
+import { ADAPTER_SENTINEL, GOOD_ENGINE, SOURCE_SENTINEL, TARGET_LINE_SENTINEL, TARGET_PATH_SENTINEL, fakeLlm, fakeSandbox, makeSpec, passAll } from "./testFixtures.js";
 const spec = makeSpec();
 const draft = (portable_code: string) => ({ portable_code, notes: ["note"] });
 
@@ -40,15 +39,32 @@ test("a passing engine is verified on the first attempt", async () => {
   assert.deepEqual(stages, ["implementing", "testing"]);
 });
 
-test("original source and adapter code never reach the model, including during repairs", async () => {
-  const llm = fakeLlm([draft(GOOD_ENGINE), draft(GOOD_ENGINE), draft(GOOD_ENGINE)]);
-  const sb = fakeSandbox(failOne);
-  await implementEngine(spec, hooks().h, { llm: llm.port, sandbox: sb.port });
+test("original source, identifiers, paths and adapter code never reach prompts or repair feedback", async () => {
+  const copiedEngine = `${GOOD_ENGINE}\n${TARGET_LINE_SENTINEL}`;
+  const llm = fakeLlm([draft(copiedEngine), draft(copiedEngine), draft(copiedEngine)]);
+  const sb = fakeSandbox(passAll);
+  const specWithTargetSnippet = makeSpec({
+    provenance: {
+      ...spec.provenance,
+      snippets: [{
+        location: `app.asar:${TARGET_PATH_SENTINEL}`,
+        symbol: "scheduleReview",
+        language: "javascript",
+        code: `${SOURCE_SENTINEL}\n${TARGET_LINE_SENTINEL}`,
+        full_module: true,
+      }],
+    },
+    oracle: { ...spec.oracle, adapter_code: `module.exports = require("${ADAPTER_SENTINEL}");` },
+  });
+  await implementEngine(specWithTargetSnippet, hooks().h, { llm: llm.port, sandbox: sb.port });
 
   assert.equal(llm.calls.length, 1 + MAX_REPAIRS);
-  const sent = JSON.stringify(llm.calls.map((c) => [c.system, c.messages]));
-  assert.ok(!sent.includes(SOURCE_SENTINEL), "original source leaked into the engine prompt");
-  assert.ok(!sent.includes(ADAPTER_SENTINEL), "adapter code leaked into the engine prompt");
+  assert.equal(sb.inputs.length, 0, "copied candidates must not reach sandbox execution");
+  const sent = JSON.stringify(llm.calls.map((call) => [call.system, call.messages]));
+  for (const sentinel of [SOURCE_SENTINEL, ADAPTER_SENTINEL, TARGET_PATH_SENTINEL, TARGET_LINE_SENTINEL, "scheduleReview"]) {
+    assert.ok(!sent.includes(sentinel), `${sentinel} leaked into an implementation prompt or repair feedback`);
+  }
+  assert.match(sent, /verbatim line from target evidence/);
   assert.ok(sent.includes("REQ-1"), "requirements must be sent");
 });
 
