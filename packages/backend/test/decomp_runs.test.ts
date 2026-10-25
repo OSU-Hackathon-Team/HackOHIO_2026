@@ -152,11 +152,34 @@ describe("decomp runs: API", () => {
     } finally { close(); }
   });
 
+  it("fails fast when the worker stops without finishing", async () => {
+    // The runner died at once: the instance is back to stopped and nothing was uploaded.
+    const worker = {
+      instanceState: async () => "stopped",
+      uploadPayload: async () => undefined,
+      start: async () => undefined,
+      readObject: async () => null,
+    };
+    const service = new DecompRunService({ worker, stateDir: path.join(dir, "dead"), repoRoot: dir,
+      runnerScript: async () => "", buildPayload: async () => undefined, pollMs: 5 });
+    const { base, close } = await serve(service);
+    try {
+      const res = await fetch(`${base}/api/decomp/runs`, { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ target_id: "libreoffice-calc", max_functions: 20, confirm_cost: true }) });
+      const { run } = await res.json();
+      const text = await (await fetch(`${base}/api/decomp/runs/${run.run_id}/events`)).text();
+      const events = text.split("\n").filter((l) => l.startsWith("data:")).map((l) => DecompRunEvent.parse(JSON.parse(l.slice(5))));
+      const error = events.find((e) => e.type === "error");
+      assert.match(error?.type === "error" ? error.message : "", /never finished/);
+      assert.equal(events.at(-1)?.type === "done" && events.at(-1)?.type, "done");
+    } finally { close(); }
+  });
+
   it("runs to done, streams the history, and refuses a second run meanwhile", async () => {
     let polls = 0;
     const started: unknown[] = [];
     const worker = {
-      instanceState: async () => "stopped",
+      instanceState: async () => (started.length ? "running" : "stopped"),
       uploadPayload: async () => undefined,
       start: async (id: string, args: unknown) => { started.push({ id, args }); },
       readObject: async (_id: string, name: string) => {

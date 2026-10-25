@@ -20,7 +20,9 @@ export function defaultDecompRunService(): DecompRunService {
     worker: enabled && instanceId && bucket ? ec2Worker({ region: config.awsRegion, instanceId, bucket }) : null,
     stateDir: path.resolve(process.env.DECOMP_STATE_DIR ?? path.join(REPO_ROOT, "decomp-state")),
     repoRoot: REPO_ROOT,
-    runnerScript: () => fs.readFile(path.join(REPO_ROOT, "infra", "decomp-ec2", "run-scoped-pipeline.sh"), "utf8"),
+    // Bash on the worker rejects CRLF; a Windows checkout may still have it.
+    runnerScript: async () => (await fs.readFile(path.join(REPO_ROOT, "infra", "decomp-ec2", "run-scoped-pipeline.sh"), "utf8"))
+      .replace(/\r\n/g, "\n"),
     buildPayload: (outFile) => buildPayload(REPO_ROOT, outFile),
   });
 }

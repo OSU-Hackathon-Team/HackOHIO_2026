@@ -55,6 +55,8 @@ export function ec2Worker(config: Ec2WorkerConfig): DecompWorker {
       const unit = `splice-run-${runId}`;
       const script = Buffer.from(runnerScript).toString("base64");
       const commands = [
+        // Backstop independent of the runner: if it dies before its own shutdown, the instance still stops.
+        `shutdown -h +${Math.ceil((config.runtimeMaxSeconds ?? 3600) / 60) + 15}`,
         `printf '%s' '${script}' | base64 -d > /opt/${unit}.sh`,
         `systemd-run --unit=${unit} --property=RuntimeMaxSec=${config.runtimeMaxSeconds ?? 3600} ` +
           `--setenv=TRIAL_BUCKET=${config.bucket} --setenv=AWS_DEFAULT_REGION=${config.region} ` +
