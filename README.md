@@ -100,6 +100,10 @@ The worker resolves its model through `models.json` (`decomp_worker` by default)
 
 For LibreOffice Calc intake, run `python scripts/run_calc_discovery.py --state decomp-state`. It discovers compiler, token, grammar, and vector scopes by symbols in the current binary, and records 70 original FormulaGrammar outputs without supplied expected values. The report's `original_observed` status is reference evidence only. Compiler and token scopes can retain unresolved edges; neither discovery nor original observations count as a generated reimplementation or an equivalence pass.
 
+Use `python scripts/run_random_subsystem.py <binary> --state decomp-state` for a randomized seed without authored claims. It runs semantic attempts and independent review for discovered functions, then persists the dossier and draft spec with unresolved blockers. `--seed` reproduces a draw; `--model` and `--review-model` can select configured models independently. The driver does not infer executable test inputs for arbitrary native interfaces and therefore cannot mark a subsystem equivalent without separate original probes.
+
+Original probe cases may omit `expected`: the runner records an immutable `observed` result. A candidate runner can then call `compare_case` with that artifact and a candidate adapter, recording agreement and the oracle artifact link. Human-specified expected results no longer enter native dossiers or the implementation-facing spec.
+
 Run semantic tasks through the durable queue after installing `python -m pip install -r requirements-decomp.txt` and setting `DECOMP_DATABASE_URL` to a PostgreSQL DSN:
 
 ```sh
