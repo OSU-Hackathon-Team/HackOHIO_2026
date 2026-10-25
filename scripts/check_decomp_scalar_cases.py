@@ -34,4 +34,22 @@ assert matching_scalar_cases(
     [{"case_id": "bit", "input": {"args": [3, True]},
       "observed": {"return": 16777219}}]
 )[0]["agreement"]
+assert matching_scalar_cases(
+    "When the boolean parameter is nonzero, the function returns the Grammar "
+    "parameter with bit 25 set",
+    [{"case_id": "one-based-bit", "input": {"args": [0, True]},
+      "observed": {"return": 16777216}}]
+)[0]["agreement"]
+assert scalar_counterexamples(
+    "Returns 1 when the input, after clearing bits 16 and 17 "
+    "(mask 4294836223), equals 65539",
+    [{"case_id": "wrong-mask", "input": {"args": [65539]},
+      "observed": {"return": 0}}]
+) == ["wrong-mask"]
+assert matching_scalar_cases(
+    "Returns 1 when the input minus 16842752 (16842752) results in a value "
+    "between 0 and 1 inclusive",
+    [{"case_id": "range-end", "input": {"args": [16842753]},
+      "observed": {"return": 1}}]
+)[0]["agreement"]
 print("scalar case checks passed")
