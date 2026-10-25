@@ -51,6 +51,7 @@ def main() -> None:
     parser.add_argument("--spec-artifact", required=True)
     parser.add_argument("--probe-report-artifact", required=True)
     parser.add_argument("--model")
+    parser.add_argument("--interface", choices=("scalar", "token-array"), default="scalar")
     parser.add_argument("--max-revisions", type=int, default=3)
     parser.add_argument("--opencode", type=Path,
                         default=Path.home() / ".opencode/bin/opencode")
@@ -78,18 +79,34 @@ def main() -> None:
                       if item.get("kind") == "shared" and
                       isinstance(item.get("input"), dict) and
                       isinstance(item["input"].get("symbol"), str)})
-    if not symbols:
+    if args.interface == "scalar" and not symbols:
         raise ValueError("no scalar C exports to implement")
-    prompt = (
-        "Implement the public native subsystem specification below in portable C11. "
-        "Export plain C functions with the listed names. Parameters are unsigned 32-bit "
+    if args.interface == "token-array" and any(
+            item.get("target") != "FormulaTokenArray" for item in held_out):
+        raise ValueError("token-array interface requires token-array original cases")
+    interface_contract = (
+        "Export names: " + json.dumps(symbols) + ". Parameters are unsigned 32-bit "
         "integers except boolean inputs, which are _Bool; EVERY function must return "
-        "uint32_t, including predicates. The public examples are normative: infer bit "
+        "uint32_t, including predicates. " if args.interface == "scalar" else
+        "Export exactly this functional C API: int token_array_run(const uint8_t *ops, "
+        "const uint16_t *opcodes, const double *numbers, uint32_t step_count, "
+        "const uint16_t *queries, uint32_t query_count, uint8_t *output). "
+        "Ops: 1 add opcode from opcodes[i], 2 add double from numbers[i], 3 clear, "
+        "4 finalize, 5 copy current array to a fresh array with the same behavior. "
+        "Write (step_count+1) consecutive snapshot rows to output, including the "
+        "initial empty state. Each row has 4+query_count bytes: nonempty, "
+        "has_references, has_external_ref, has_name, then has_opcode for each "
+        "queries[j]. Values are 0 or 1. Return 0 on success. "
+    )
+    prompt = (
+        "Implement the public native subsystem specification below in portable C11. " +
+        interface_contract +
+        "The public examples are normative: infer bit "
         "numbering and parameter order from their inputs and outputs. Check your rules "
         "against every public example before returning code. Use functional rules, "
         "not C++ object layout, vtables, dynamic loading, "
         "a table of example inputs, or external program calls. Return one C translation "
-        "unit only. Export names: " + json.dumps(symbols) + "\nPublic spec: " +
+        "unit only.\nPublic spec: " +
         json.dumps(spec, sort_keys=True))
     resolved_model = get_model("engine_writer", explicit=args.model)
     if args.max_revisions < 0 or args.max_revisions > 8:
@@ -100,7 +117,9 @@ def main() -> None:
         library_path = folder / "candidate.so"
         engine = GhidraAnalysis(args.state, args.headless, warm_workers=0)
         runner = NativeProbeRunner(
-            engine, Path(__file__).with_name("c_scalar_candidate_adapter.py"))
+            engine, Path(__file__).with_name(
+                "c_scalar_candidate_adapter.py" if args.interface == "scalar" else
+                "c_token_array_candidate_adapter.py"))
         attempts = []
         for revision in range(args.max_revisions + 1):
             reply = invoke_opencode(
@@ -156,6 +175,7 @@ def main() -> None:
                   for outcome in sorted({row["outcome"] for row in results})}
         record = {"schema": 1, "spec_artifact": args.spec_artifact,
                   "probe_report_artifact": args.probe_report_artifact,
+                  "interface": args.interface,
                   "prompt_artifact": prompt_artifact,
                   "source_artifact": source_artifact,
                   "attempts": attempts,
