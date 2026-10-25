@@ -52,13 +52,16 @@ export function sanitizeSegment(name: string): string {
 /** Produce a simple Zod schema string for a known TS primitive or named type.
  *  For complex types we fall back to z.unknown() and let runtime checks handle it. */
 export function typeToZod(typeText: string, typesCode: string): string {
-  const t = typeText.trim();
+  let t = typeText.trim();
+  if (t.endsWith("?")) {
+    return typeToZod(t.slice(0, -1), typesCode);
+  }
   if (t === "string") return "z.string()";
   if (t === "number") return "z.number()";
   if (t === "boolean") return "z.boolean()";
   if (t === "string[]" || t === "Array<string>") return "z.array(z.string())";
-  if (t === "number[]" || t === "Array<number>") return "z.array(z.number()";
-  if (t === "boolean[]" || t === "Array<boolean>") return "z.array(z.boolean()";
+  if (t === "number[]" || t === "Array<number>") return "z.array(z.number())";
+  if (t === "boolean[]" || t === "Array<boolean>") return "z.array(z.boolean())";
   if (t === "void" || t === "undefined") return "z.void()";
   if (t === "any") return "z.any()";
   if (t === "unknown") return "z.unknown()";
@@ -101,7 +104,8 @@ export function generateExpressRouter(spec: FeatureSpec, engineImport: string = 
   // For each function export, generate a route
   for (const exp of spec.interface.exports) {
     if (exp.kind !== "function") continue;
-    if (spec.placement !== "server" && spec.placement !== "either") continue;
+    const placement = spec.placement ?? "either";
+    if (placement !== "server" && placement !== "either") continue;
 
     const exportName = exp.name;
     const routePath = `/api/${featureId}/${exportName}`;
@@ -124,8 +128,8 @@ export function generateExpressRouter(spec: FeatureSpec, engineImport: string = 
       lines.push(`    const result = await ${exportName}(...args);`);
       lines.push(`    return res.json({ ok: true, result });`);
       lines.push(`  } catch (err: any) {`);
-      lines.push(`    if (err instanceof z.ZodError) {`);
-      lines.push(`      return res.status(400).json({ error: "Validation failed", details: err.errors });`);
+      lines.push(`    if (err instanceof z.ZodError || err?.name === "ZodError" || err instanceof RangeError || err?.name === "RangeError" || err instanceof TypeError || err?.name === "TypeError") {`);
+      lines.push(`      return res.status(400).json({ error: "Validation failed", details: err.errors ?? err.message });`);
       lines.push(`    }`);
       lines.push(`    console.error("[${featureId}] ${exportName} error:", err);`);
       lines.push(`    return res.status(500).json({ error: "Internal server error" });`);
@@ -140,9 +144,9 @@ export function generateExpressRouter(spec: FeatureSpec, engineImport: string = 
         // Strip optional marker
         const baseType = typeText.replace(/^\?/, "").trim();
         const zod = typeToZod(baseType, spec.interface.types_code);
-        // Handle optional parameters (trailing ? in signature)
-        const isOptional = exp.signature.includes(`${p}?`) || exp.signature.includes(`${p}:`);
-        return `    ${p}: ${zod}${isOptional ? " optional()" : ""}`;
+        // Handle optional parameters (trailing ? in signature or type)
+        const isOptional = exp.signature.includes(`${p}?:`) || exp.signature.includes(`${p}? :`) || typeText.endsWith("?");
+        return `    ${p}: ${zod}${isOptional ? ".optional()" : ""}`;
       }).join(",\n");
 
       lines.push(`const ${exportName}Params = z.object({`);
@@ -158,8 +162,8 @@ export function generateExpressRouter(spec: FeatureSpec, engineImport: string = 
       lines.push(`    const result = await ${exportName}(...args);`);
       lines.push(`    return res.json({ ok: true, result });`);
       lines.push(`  } catch (err: any) {`);
-      lines.push(`    if (err instanceof z.ZodError) {`);
-      lines.push(`      return res.status(400).json({ error: "Validation failed", details: err.errors });`);
+      lines.push(`    if (err instanceof z.ZodError || err?.name === "ZodError" || err instanceof RangeError || err?.name === "RangeError" || err instanceof TypeError || err?.name === "TypeError") {`);
+      lines.push(`      return res.status(400).json({ error: "Validation failed", details: err.errors ?? err.message });`);
       lines.push(`    }`);
       lines.push(`    console.error("[${featureId}] ${exportName} error:", err);`);
       lines.push(`    return res.status(500).json({ error: "Internal server error" });`);
@@ -199,7 +203,8 @@ export function generateApiClient(spec: FeatureSpec): string {
 
   for (const exp of spec.interface.exports) {
     if (exp.kind !== "function") continue;
-    if (spec.placement !== "server" && spec.placement !== "either") continue;
+    const placement = spec.placement ?? "either";
+    if (placement !== "server" && placement !== "either") continue;
 
     const exportName = exp.name;
     const routePath = `/api/${featureId}/${exportName}`;
