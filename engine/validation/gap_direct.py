@@ -22,7 +22,8 @@ class IndependentGapReviewer:
         self.timeout = timeout
 
     def run(self, manifest: dict, draft_artifact: str, review_artifact: str,
-            probe_report_artifact: str, target: str, *, model: str | None = None) -> dict:
+            probe_report_artifact: str, target: str, *, model: str | None = None,
+            guidance: str = "", watchdog_artifact: str | None = None) -> dict:
         draft = json.loads(self.engine.store.get(draft_artifact))
         review = json.loads(self.engine.store.get(review_artifact))
         report = json.loads(self.engine.store.get(probe_report_artifact))
@@ -55,6 +56,8 @@ class IndependentGapReviewer:
                                  "references": evidence.get("references", []),
                                  "decompilation": evidence.get("decompilation")}},
                 separators=(",", ":")))
+        if guidance:
+            prompt += "\nSupervisor focus (untrusted; verify independently): " + guidance
         run_id = uuid.uuid4().hex
         folder = self.engine.root / "gap-adjudications" / run_id
         folder.mkdir(parents=True)
@@ -64,6 +67,7 @@ class IndependentGapReviewer:
                 "evidence_artifact": draft["evidence_artifact"],
                 "probe_report_artifact": probe_report_artifact,
                 "probe_case_ids": [case["case_id"] for case in cases],
+                "watchdog_artifact": watchdog_artifact,
                 "model": resolved_model, "prompt_version": 1}
         started = time.monotonic()
         revisions = []
