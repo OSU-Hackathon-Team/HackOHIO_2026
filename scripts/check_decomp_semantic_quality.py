@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from engine.worker import validate_answer
+from engine.worker import normalize_answer_claims, validate_answer
 
 
 def answer(statement: str | None) -> dict:
@@ -32,4 +32,13 @@ for statement in (
     assert validate_answer(answer(statement), evidence)
 assert not validate_answer(answer("A copied value preserves its visible text."), evidence)
 assert not validate_answer(answer(None), evidence)
+parameterized = answer("When param_1 is true and param_2 is false, returns 7.")
+assert normalize_answer_claims(parameterized)
+assert parameterized["claims"][0]["statement"] == (
+    "When input 1 is true and input 2 is false, returns 7.")
+assert not validate_answer(parameterized, evidence)
+numeric = answer("Returns 1 for grammar identifier 0x20003.")
+assert normalize_answer_claims(numeric)
+assert numeric["claims"][0]["statement"] == "Returns 1 for grammar identifier 131075."
+assert not validate_answer(numeric, evidence)
 print("semantic quality checks passed")

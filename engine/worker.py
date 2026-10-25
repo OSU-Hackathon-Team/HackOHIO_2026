@@ -8,11 +8,13 @@ import time
 import uuid
 
 from engine.analysis.ghidra import GhidraAnalysis
-from engine.behavior import is_observable_claim
+from engine.behavior import is_observable_claim, normalize_input_names
 from engine.citations import evidence_addresses, normalize_references
 from engine.model_runtime import invoke_opencode
 from engine.validation.memory_ranges import overlap_claim_errors
 from model_config import get_model
+
+SEMANTIC_PROMPT_VERSION = 5
 
 
 def parse_answer(text: str) -> dict:
@@ -109,6 +111,22 @@ def normalize_answer_text_items(answer: dict) -> list[dict]:
                 values[index] = item["description"]
                 changes.append({"field": field, "index": index,
                                 "shape": "description_object_to_string"})
+    return changes
+
+
+def normalize_answer_claims(answer: dict) -> list[dict]:
+    changes = []
+    claims = answer.get("claims")
+    if not isinstance(claims, list):
+        return changes
+    for index, claim in enumerate(claims):
+        if not isinstance(claim, dict) or not isinstance(claim.get("statement"), str):
+            continue
+        old = claim["statement"]
+        claim["statement"] = normalize_input_names(old)
+        if claim["statement"] != old:
+            changes.append({"index": index, "original": old,
+                            "normalized": claim["statement"]})
     return changes
 
 
@@ -262,7 +280,7 @@ class SemanticWorker:
                       "scope_artifact": scope_artifact, "task_key": task["deduplication_key"],
                       "subject": subject, "evidence_artifact": evidence_artifact,
                       "model": resolved_model, "model_role": model_role,
-                      "opencode_version": None, "prompt_version": 3,
+                      "opencode_version": None, "prompt_version": SEMANTIC_PROMPT_VERSION,
                       "evidence_truncated": truncated, "state": "running"}
         if prior_artifact is not None:
             checkpoint["reassessment_of"] = prior_artifact
@@ -290,11 +308,13 @@ class SemanticWorker:
                     answer = parse_answer(model_reply["text"])
                     citation_normalizations = normalize_answer_citations(answer, evidence)
                     text_item_normalizations = normalize_answer_text_items(answer)
+                    claim_normalizations = normalize_answer_claims(answer)
                     errors = validate_answer(answer, evidence)
                 except (ValueError, json.JSONDecodeError) as parse_error:
                     answer = None
                     citation_normalizations = []
                     text_item_normalizations = []
+                    claim_normalizations = []
                     errors = [f"invalid JSON answer: {parse_error}"]
                 attempts.append({
                     "revision": revision + 1, "errors": errors,
@@ -335,6 +355,7 @@ class SemanticWorker:
                       "answer": answer, "structural_errors": errors,
                       "citation_normalizations": citation_normalizations,
                       "text_item_normalizations": text_item_normalizations,
+                      "claim_normalizations": claim_normalizations,
                       "suppressed_structural_claims": suppressed_claims,
                       "revisions": attempts,
                       "usage": {key: sum(item["usage"][key] for item in attempts)
