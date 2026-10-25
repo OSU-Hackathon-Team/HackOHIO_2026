@@ -1,19 +1,38 @@
 // Owner: Eng 3 (Implementation) — spec: agents/3_feature_implementation/06_state_and_api_client.md §1
 import type { ZodType } from "zod";
 
+type StreamOpts<E> = { signal?: AbortSignal; schema: ZodType<E> };
+
 /** Require done: a dropped connection must not look like a successful operation. */
 export async function streamPost<E extends { type: string }>(
   url: string,
   body: unknown,
   onEvent: (e: E) => void,
-  opts: { signal?: AbortSignal; schema: ZodType<E> },
+  opts: StreamOpts<E>,
 ): Promise<void> {
-  const response = await fetch(url, {
+  return streamSse(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
     body: JSON.stringify(body),
-    signal: opts.signal,
-  });
+  }, onEvent, opts);
+}
+
+/** GET form of streamPost, for streams that replay history (e.g. /api/decomp/runs/:id/events). */
+export async function streamGet<E extends { type: string }>(
+  url: string,
+  onEvent: (e: E) => void,
+  opts: StreamOpts<E>,
+): Promise<void> {
+  return streamSse(url, { headers: { Accept: "text/event-stream" } }, onEvent, opts);
+}
+
+async function streamSse<E extends { type: string }>(
+  url: string,
+  init: RequestInit,
+  onEvent: (e: E) => void,
+  opts: StreamOpts<E>,
+): Promise<void> {
+  const response = await fetch(url, { ...init, signal: opts.signal });
   if (!response.ok) throw new Error(`${url}: ${response.status} ${await response.text()}`);
   if (!response.body || !response.headers.get("content-type")?.includes("text/event-stream"))
     throw new Error(`${url}: expected an SSE response`);

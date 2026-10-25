@@ -344,13 +344,32 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
                           "coverage": dossier.get("coverage")}
     log(f"[dossier] readiness {dossier['readiness']}")
     summary["handoff"] = build_handoff(engine.store, analysed, scope, public, observations)
-    if dossier["readiness"] == "ready_for_spec":
-        spec = timed("spec", lambda: deps.persist_spec(engine.root, dossier["artifact"]))
-        summary["spec"] = {key: spec.get(key) for key in
-                           ("artifact", "markdown_path", "status", "requirements")}
-    else:
-        summary["spec"] = None
+    summary["spec"], error = timed("spec", lambda: spec_for_dossier(
+        deps.persist_spec, engine.store, engine.root, dossier))
+    if error:
+        summary["spec_error"] = error
+    log(f"[spec] {summary['spec']['status']} specification {summary['spec']['artifact']}"
+        if summary["spec"] else f"[spec] not generated: {error or 'dossier not specifiable'}")
     return summary
+
+
+def spec_for_dossier(persist_spec: Callable, store, root: Path, dossier: dict) -> tuple[dict | None, str | None]:
+    """persist_spec writes "ready_for_review" for verified dossiers and "draft" for partial ones.
+
+    A writer failure is returned rather than raised: the evidence handoff is useful without a spec.
+    """
+    if dossier["readiness"] not in ("ready_for_spec", "partial"):
+        return None, None
+    try:
+        spec = persist_spec(root, dossier["artifact"])
+        status = json.loads(store.get(spec["artifact"])).get("status")
+        # Which writer ran: the LLM spec_writer, or the deterministic fallback when Node is missing.
+        writer = (json.loads(store.get(spec["audit_artifact"])).get("model")
+                  if spec.get("audit_artifact") else None)
+    except Exception as error:
+        return None, f"{type(error).__name__}: {error}"
+    return {"artifact": spec["artifact"], "markdown_path": spec.get("markdown_path"),
+            "status": status, "requirements": spec.get("requirements"), "writer": writer}, None
 
 
 def build_handoff(store, analysed: list[dict], scope: dict, public: list[dict],
@@ -409,6 +428,7 @@ def write_handoff(folder: Path, summary: dict, handoff: dict | None, store) -> P
                 "readiness": dossier.get("readiness"), "blockers": dossier.get("blockers", []),
                 "coverage": dossier.get("coverage"), "claim_outcomes": outcomes,
                 "held_out_cases_withheld": (summary.get("cases") or {}).get("held_out", 0),
+                "spec": summary.get("spec"), "spec_error": summary.get("spec_error"),
                 **handoff}
     (folder / "evidence.json").write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
     spec = summary.get("spec")
@@ -431,12 +451,17 @@ def write_handoff(folder: Path, summary: dict, handoff: dict | None, store) -> P
         "- C++ mechanics (offsets, vtables, constructors) are not requirements; list them under "
         "`stripped_glue` if needed.",
     ]
-    if spec:
-        lines += ["- `native_spec.json` was generated from the ready dossier. Convert it with "
-                  "`POST /api/native-specs/adapt` and body `{\"spec\": <native_spec.json>}`."]
+    if spec and spec.get("status") == "ready_for_review":
+        lines += [f"- `native_spec.json` (artifact `{spec['artifact']}`) is ready for review. Convert "
+                  "it with `POST /api/native-specs/adapt` and body `{\"spec\": <native_spec.json>}`."]
+    elif spec:
+        lines += [f"- `native_spec.json` (artifact `{spec['artifact']}`) is a **draft**: the evidence "
+                  "is incomplete, so the adapter refuses it. Use it as a starting point and "
+                  "hand-author the FeatureSpec in the format of `fixtures/hand-authored/specs/*.json`."]
     else:
-        lines += ["- No spec was generated (dossier not ready). Hand-author the FeatureSpec in "
-                  "the format of `fixtures/hand-authored/specs/*.json`."]
+        lines += ["- No spec was generated" +
+                  (f" ({summary['spec_error']})" if summary.get("spec_error") else "") +
+                  ". Hand-author the FeatureSpec in the format of `fixtures/hand-authored/specs/*.json`."]
     if evidence["blockers"]:
         kinds = _count(b.get("kind", "other") if isinstance(b, dict) else str(b)
                        for b in evidence["blockers"])

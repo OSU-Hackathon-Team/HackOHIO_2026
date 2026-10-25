@@ -295,6 +295,23 @@ field types and must change with this section.
 
 ---
 
+## 4b. `src/decompRun.ts` - UI-triggered native decompilation runs
+
+Studio can start a native decompilation run on the EC2 worker. `DecompTarget` lists what can be
+analysed (id, name, library, allowed `function_budgets`, `estimated_cost_usd` per budget).
+`DecompRunRequest` is `{ target_id, max_functions, confirm_cost: true }`: the UI must show the
+estimate and get consent, and `max_functions` must be one of the target's budgets.
+`DecompRunEvent` is a discriminated union streamed over SSE: `stage` (`DecompStage`), `progress`
+(`label` drafted|reviewed, `done`, `total`), `log`, `result` (`DecompRunResult`), `error`
+(`fatal`), and a final `done { ok }`. `DecompRunResult` reports dossier readiness, the imported
+`NativeSubsystemSpec` artifact and status (or `spec_error`), which spec writer ran, claim review
+outcomes, function counts, public and held-out oracle agreement counts, the handoff folder, and
+token usage. Held-out cases are never included in a result or handoff. One run at a time; the
+backend persists runs under `decomp-state/runs/` so the stream replays after a reload.
+The TypeScript contract in `packages/contracts/src/decompRun.ts` is authoritative.
+
+---
+
 ## 5. `src/blueprint.ts` — output of Step 3a (engine), consumed by synthesis + UI
 
 ```ts
@@ -484,6 +501,9 @@ export type HealthResponse = z.infer<typeof HealthResponse>;
 | GET | `/api/blueprints` | – | `FeatureBlueprint[]` from `fixtures/blueprints` | Eng 3 |
 | POST | `/api/synthesize` | `SynthesizeRequest` | SSE `SynthEvent` stream | Eng 3 |
 | POST | `/api/refine` | `RefineRequest` | SSE `SynthEvent` stream | Eng 3 |
+| GET | `/api/decomp/targets` | - | `{ enabled, targets: DecompTarget[] }` | Eng 3 |
+| POST | `/api/decomp/runs` | `DecompRunRequest` | `202 { run: DecompRun }`; 403 disabled, 409 busy | Eng 3 |
+| GET | `/api/decomp/runs/:id/events` | - | SSE `DecompRunEvent` stream (history, then live) ending with `done` | Eng 3 |
 
 The frontend chains `/api/extract` → `/api/implement` for each selected feature, so a card goes
 **Harvesting → Spec verified → Engine passing** in front of the judges.

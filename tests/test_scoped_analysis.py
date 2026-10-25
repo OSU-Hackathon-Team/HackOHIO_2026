@@ -259,6 +259,30 @@ class RuntimeHookTargetTests(unittest.TestCase):
         self.assertIn('const OFFSETS = {};', frida_hook_source('libsclo.so', ['*X*']))
 
 
+class SpecForDossierTests(unittest.TestCase):
+    def test_partial_dossier_gets_a_draft_spec_and_writer_errors_are_returned(self):
+        from engine.lo_pipeline import spec_for_dossier
+        from types import SimpleNamespace
+        store = SimpleNamespace(get=lambda key: json.dumps({'status': 'draft'}).encode())
+        calls = []
+        def persist(root, artifact):
+            calls.append(artifact)
+            return {'artifact': 'spec-1', 'markdown_path': '/s.md', 'requirements': 3}
+        spec, error = spec_for_dossier(persist, store, Path('/state'),
+                                       {'readiness': 'partial', 'artifact': 'dossier-1'})
+        self.assertEqual(spec, {'artifact': 'spec-1', 'markdown_path': '/s.md', 'status': 'draft',
+                                'requirements': 3, 'writer': None})
+        self.assertIsNone(error)
+        self.assertEqual(calls, ['dossier-1'])
+        self.assertEqual(spec_for_dossier(persist, store, Path('/state'),
+                                          {'readiness': 'blocked', 'artifact': 'd'}), (None, None))
+        def broken(root, artifact):
+            raise RuntimeError('writer offline')
+        self.assertEqual(spec_for_dossier(broken, store, Path('/state'),
+                                          {'readiness': 'partial', 'artifact': 'd'}),
+                         (None, 'RuntimeError: writer offline'))
+
+
 class HandoffTests(unittest.TestCase):
     def test_claims_carry_review_verdicts_and_only_public_cases_are_written(self):
         from engine.lo_pipeline import build_handoff, write_handoff
