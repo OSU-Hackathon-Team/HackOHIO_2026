@@ -25,7 +25,7 @@ export function SavedBuildingBlocksWorkspace({ selection, addedFeatureIds, onAdd
       : !analysis ? <div role="status" className="space-y-4"><p className="text-sm text-stone-400">Loading saved application…</p><div className="h-8 rounded bg-stone-800" /><div className="h-24 rounded bg-stone-800" /></div>
       : <>
         <h2 className="text-balance text-2xl font-semibold">{analysis.title}</h2>
-        <p className="mt-3 text-pretty text-sm leading-6 text-stone-400">Describe a capability to turn its saved reverse-engineering evidence into a building block. Review the generated description and behavior, then save the candidate to App library.</p>
+        <p className="mt-3 text-pretty text-sm leading-6 text-stone-400">Discover the reusable capabilities in its saved reverse-engineering evidence. Review each generated description and behavior, then choose which candidates to save to App library.</p>
         <dl className="mt-5 grid grid-cols-3 gap-4 border-y border-stone-800 py-4 text-sm">
           <div><dt className="text-xs text-stone-500">Saved functions</dt><dd className="mt-1 tabular-nums">{analysis.functions.length}</dd></div>
           <div><dt className="text-xs text-stone-500">Reviewed functions</dt><dd className="mt-1 tabular-nums">{analysis.result.functions.reviewed}</dd></div>

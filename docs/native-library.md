@@ -77,6 +77,9 @@ evidence, reload, keyboard close/focus restoration, storage errors, and refresh 
 
 ## Extracting draft features from saved evidence
 
+> Studio now uses **Discover building blocks** (below) instead of this prompt-driven form. The
+> extraction endpoint, its records and library membership remain supported for compatibility.
+
 Open a saved analysis in App library, then use **Extract features**. Supply an optional
 natural-language capability and choose all reviewed functions or a single function. Every
 request requires a fresh paid-call confirmation. Drafts are listed beneath the controls and
@@ -153,3 +156,52 @@ existing chat/library/native-preview flows. All 105 selected backend source test
 unit tests passed. Production build and typecheck passed. The existing Windows native-Python
 source-test case was excluded explicitly. These new generation/save journeys use mocked model
 and S3 responses; no paid extraction or additional AWS resource was created for this UI work.
+
+## Discovering building blocks
+
+Open a saved application, choose **Create building blocks**, approve model usage and press
+**Discover building blocks**. No prompt or function selection is needed. The flow:
+
+1. **Reviewing evidence.** The backend loads and pins the saved S3 analysis revision and reuses the
+   saved-evidence adapter. Unsupported, contradicted, mechanical and source-like claims are
+   excluded exactly as for extraction.
+2. **Identifying capabilities.** One structured call on the configured `spec_writer` model
+   (`spec/discovery.ts`) receives only supported statements with stable claim IDs, arranged in
+   opaque groups (`G1`, `G2`, …). Function names, addresses, decompilation and review prose stay
+   out. It returns at most five capabilities (name, purpose, claim IDs) and must account for
+   every eligible claim, either by assigning it or by recording it as `supporting_only`,
+   `insufficient` or `deferred` with a reason. Shared claims are allowed.
+   - Validation rejects invented or duplicate IDs, identical claim sets, repeated names,
+     unaccounted claims and source-like text. One repair attempt follows a failure.
+   - Zero capabilities is a valid answer, but it must come with an explanation.
+3. **Writing draft N of M.** Each capability's claims, and only those, go to Engineer 2's
+   `writeNativeDraft`. The draft keeps that writer's requirement validation, source safety,
+   three attempts and draft-only status, and is saved as an ordinary immutable
+   `NativeExtraction` recording the answering model and the pinned analysis hash.
+   - Capabilities run one at a time.
+   - A failed draft is recorded and the next capability is still attempted.
+4. **Report.** `library/analyses/<id>/discoveries/<sha256>.json` records the assignments,
+   unassigned claims, saved extraction IDs, failures, discovery model and completion status. It
+   is saved even after cancellation.
+
+**Limits:**
+- 5 capabilities, 2 discovery attempts and 3 writer attempts per capability, so at most 17 model
+  attempts.
+- A ten-minute overall deadline, and three minutes per draft.
+- Evidence over 300 facts or 60,000 characters is rejected before model work rather than
+  truncated.
+- Discovery and extraction share the per-analysis lock.
+
+**What discovery doesn't do:**
+- It doesn't infer execution order, dependencies or combined behavior.
+- Public observations stay context, not acceptance examples.
+- **Add to App library** remains an explicit user action. Discovery never promotes a draft or
+  creates an engine.
+
+**Studio states:**
+- **Complete** and **partial** (with per-capability failures).
+- **Empty:** "no useful capabilities", with the model's explanation and the unassigned facts.
+- **Insufficient evidence:** no supported facts. The button is disabled, and the API returns 422
+  before model work.
+- **Cancelled:** drafts saved before cancelling remain available.
+- **Failed:** backend, model or storage failures. An incomplete stream counts as a failure.

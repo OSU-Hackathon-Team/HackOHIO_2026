@@ -3,8 +3,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { SavedAnalysis, SavedAnalysisSummary, SavedBlock, NativeLibraryId, NativeExtraction, NativeExtractionPayload, AddLibraryFeatureRequest,
-  type FeatureBlueprint, type DecompRun, type DecompRunResult } from "@splice/contracts";
-import { publicSpecContainsSource } from "../spec/nativeSafety.js";
+  NativeDiscoveryReport, NativeDiscoveryReportPayload, type FeatureBlueprint, type DecompRun, type DecompRunResult } from "@splice/contracts";
+import { publicSpecContainsSource, sourceLikeText } from "../spec/nativeSafety.js";
+
+function discoveryContainsSource(report: { explanation: string; capabilities: { name: string; purpose: string }[]; unassigned: { reason: string }[] }) {
+  return [report.explanation, ...report.capabilities.flatMap(c => [c.name, c.purpose]), ...report.unassigned.map(u => u.reason)]
+    .some(value => sourceLikeText(value));
+}
 
 /** The bucket stays private. The API serves selected public evidence, never the result archive. */
 export class NativeLibraryStore {
@@ -56,6 +61,40 @@ export class NativeLibraryStore {
     await this.put(`library/analyses/${snapshot.id}/snapshots/${payload.analysis_sha256}.json`, JSON.parse(bytes));
     await this.put(`library/analyses/${snapshot.id}/extractions/${id}.json`, record);
     return record;
+  }
+
+  async saveDiscovery(input: unknown, snapshot: SavedAnalysis): Promise<NativeDiscoveryReport> {
+    const payload = NativeDiscoveryReportPayload.parse(input);
+    const bytes = JSON.stringify(SavedAnalysis.parse(snapshot));
+    if (payload.analysis_id !== snapshot.id || createHash("sha256").update(bytes).digest("hex") !== payload.analysis_sha256) {
+      throw new Error("discovery report does not match its saved analysis snapshot");
+    }
+    if (discoveryContainsSource(payload)) throw new Error("discovery report contains source-like text");
+    const id = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+    const record = NativeDiscoveryReport.parse({ ...payload, id });
+    await this.put(`library/analyses/${snapshot.id}/snapshots/${payload.analysis_sha256}.json`, JSON.parse(bytes));
+    await this.put(`library/analyses/${snapshot.id}/discoveries/${id}.json`, record);
+    return record;
+  }
+
+  async discoveries(analysisId: string): Promise<NativeDiscoveryReport[]> {
+    NativeLibraryId.parse(analysisId);
+    const prefix = `library/analyses/${analysisId}/discoveries/`;
+    const records: NativeDiscoveryReport[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await this.client.send(new ListObjectsV2Command({ Bucket: this.bucket, Prefix: prefix, ContinuationToken: cursor }));
+      for (const item of page.Contents ?? []) {
+        const name = (item.Key ?? "").slice(prefix.length);
+        if (!(item.Key ?? "").startsWith(prefix) || !/^[a-f0-9]{64}\.json$/.test(name)) continue;
+        const record = NativeDiscoveryReport.parse(await this.read(item.Key!));
+        const hash = createHash("sha256").update(JSON.stringify(NativeDiscoveryReportPayload.parse(record))).digest("hex");
+        if (record.analysis_id !== analysisId || record.id !== hash || name !== `${hash}.json`) throw new Error("discovery report hash or identity mismatch");
+        records.push(record);
+      }
+      cursor = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (cursor);
+    return records.sort((a, b) => b.created_at - a.created_at);
   }
 
   async extractions(analysisId: string): Promise<NativeExtraction[]> {
