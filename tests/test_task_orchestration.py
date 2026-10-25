@@ -12,6 +12,7 @@ from engine.artifacts import LocalArtifactStore
 from engine.gui_workbench import (prepare_gui_workspace, run_gui_implementation,
                                   validate_deliverable)
 from engine.task_orchestrator import parse_outcome, run_task
+from engine.task_inventory import inventory
 
 
 def ready_spec(state: Path, *, status: str = "ready_for_review",
@@ -38,6 +39,23 @@ def ready_spec(state: Path, *, status: str = "ready_for_review",
 
 
 class TaskOrchestrationTest(unittest.TestCase):
+    def test_inventory_lists_typed_dossier_artifact(self) -> None:
+        with TemporaryDirectory() as folder:
+            state = Path(folder)
+            store = LocalArtifactStore(state / "artifacts")
+            dossier = store.put(json.dumps({
+                "campaign": "campaign", "readiness": "partial",
+                "scope_id": "scope", "blockers": ["missing probe"]}).encode())
+            markdown = store.put(b"# Dossier")
+            pointer = state / "dossiers" / "scope" / "latest.json"
+            pointer.parent.mkdir(parents=True)
+            pointer.write_text(json.dumps({"artifact": dossier,
+                                           "markdown_artifact": markdown,
+                                           "revision": 1}))
+            rows = inventory(state)["dossiers"]
+            self.assertEqual(rows[0]["artifact"], dossier)
+            self.assertEqual(rows[0]["blocker_count"], 1)
+
     def test_task_preparation_hashes_inputs_and_reports_tools(self) -> None:
         with TemporaryDirectory() as folder:
             root = Path(folder)

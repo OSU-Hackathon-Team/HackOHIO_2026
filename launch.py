@@ -339,6 +339,8 @@ def main() -> None:
     status = sub.add_parser("status", help="show persisted decomp campaign progress")
     status.add_argument("--state", type=Path, default=ENGINE_STATE)
     status.add_argument("--campaign", help="limit output to one campaign hash")
+    inventory = sub.add_parser("inventory", help="list typed project, scope, dossier, and spec artifacts")
+    inventory.add_argument("--state", type=Path, default=ENGINE_STATE)
     for name, help_text in (
         ("queue-init", "migrate PostgreSQL and register a native campaign"),
         ("queue-enqueue", "enqueue all deduplicated tasks from a scope revision"),
@@ -497,6 +499,9 @@ def main() -> None:
         print(json.dumps(result, indent=2))
         if result["state"] == "failed" or result.get("implementation", {}).get("state") == "failed":
             raise SystemExit(1)
+    elif args.command == "inventory":
+        from engine.task_inventory import inventory
+        print(json.dumps(inventory(args.state), indent=2))
     elif args.command == "gui-implement":
         from engine.gui_workbench import run_gui_implementation
         result = run_gui_implementation(
