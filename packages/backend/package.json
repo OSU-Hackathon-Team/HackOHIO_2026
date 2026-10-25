@@ -23,7 +23,8 @@
     "test:replay": "tsx src/scripts/testReplayPipeline.ts",
     "test:unit": "node --import tsx --test \"src/**/*.test.ts\"",
     "seed:studio": "tsx src/scripts/seedStudio.ts",
-    "test": "npm run build && node --test \"test/**/*.test.ts\""
+    "pretest": "npm run build --workspace=@splice/contracts",
+  "test": "npm run build && node --test \"test/**/*.test.ts\""
   },
   "dependencies": {
     "@anthropic-ai/bedrock-sdk": "^1.1.0",
