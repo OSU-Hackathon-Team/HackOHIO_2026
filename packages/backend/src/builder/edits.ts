@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { BuilderDraft, BuilderEditRequest, applyBuilderOperations, assertLayoutFeatures, SAMPLE_FEATURES } from "@splice/contracts";
 import { structuredCall, formatLlmError } from "../llm/llm.js";
+import { config } from "../config.js";
 
 const blockSchema = {
   type: "object", additionalProperties: false, required: ["id", "kind", "title", "description", "visible", "width"],
@@ -22,6 +23,10 @@ export function createBuilderRouter(call: typeof structuredCall = structuredCall
     try { assertLayoutFeatures(input.layout, input.featureIds); }
     catch (error) { return res.status(400).json({ error: (error as Error).message }); }
     if (input.selectedBlockId && !input.layout.some(b => b.id === input.selectedBlockId)) return res.status(400).json({ error: "Selected section no longer exists" });
+    // In mock/replay mode, the LLM is unavailable — return a no-op response instead of crashing.
+    if (config.llmMode === "replay") {
+      return res.json({ summary: "Builder edits require a live LLM connection. Running in mock/replay mode — your layout was not changed.", operations: [], revision: input.revision, model: "mock" });
+    }
     const controller = new AbortController();
     res.on("close", () => { if (!res.writableEnded) controller.abort(); });
     try {
