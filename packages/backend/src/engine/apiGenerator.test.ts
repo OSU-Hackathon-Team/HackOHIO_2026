@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
 import { z } from "zod";
-import { app } from "../server.js";
+import express from "express";
 import { generateExpressRouter, generateApiClient, extractParamNames, typeToZod } from "./apiGenerator.js";
 import { FeatureSpec } from "@splice/contracts";
 
@@ -138,18 +138,28 @@ function extractWikiLinks(line: string): Array<{ target: string; heading: string
   return results;
 }
 
+function stripCodeSpans(text: string): string {
+  const parts = text.split(String.fromCharCode(96));
+  let result = "";
+  for (let i = 0; i < parts.length; i += 2) {
+    result += parts[i];
+  }
+  return result;
+}
+
 export function parseWikiLinks(markdown: string): WikiLink[] {
   const links: WikiLink[] = [];
-  const lines = markdown.split("\n");
+  const lines = markdown.split("\\n");
   let inFence = false;
+  const fence = String.fromCharCode(96, 96, 96);
   for (const rawLine of lines) {
     const trimmed = rawLine.trim();
-    if (trimmed.startsWith("\`\`\`")) {
+    if (trimmed.startsWith(fence)) {
       inFence = !inFence;
       continue;
     }
     if (inFence) continue;
-    const line = rawLine.replace(/\`[^\`]*\`/g, "");
+    const line = stripCodeSpans(rawLine);
     for (const link of extractWikiLinks(line)) {
       links.push(link);
     }
@@ -158,7 +168,7 @@ export function parseWikiLinks(markdown: string): WikiLink[] {
 }
 
 export function normalizeTitle(title: string): string {
-  return title.trim().toLowerCase().replace(/\s+/g, " ");
+  return title.trim().toLowerCase().replace(/\\s+/g, " ");
 }
 
 export function buildLinkGraph(notes: NoteInput[]): GraphResult {
@@ -199,14 +209,10 @@ export function buildLinkGraph(notes: NoteInput[]): GraphResult {
 // ---------------------------------------------------------------------------
 
 function stripEngineImport(routerCode: string): string {
-  const importStart = "import { ";
-  const idx = routerCode.indexOf(importStart);
-  if (idx === -1) return routerCode;
-  const fromIdx = routerCode.indexOf('from "', idx);
-  if (fromIdx === -1) return routerCode;
-  const endIdx = routerCode.indexOf('";', fromIdx);
-  if (endIdx === -1) return routerCode;
-  return routerCode.substring(0, idx) + routerCode.substring(endIdx + 2);
+  return routerCode
+    .split("\n")
+    .filter((line) => !line.includes("@/engines/"))
+    .join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -214,26 +220,6 @@ function stripEngineImport(routerCode: string): string {
 // ---------------------------------------------------------------------------
 
 describe("apiGenerator — deterministic Express router and typed client generator", () => {
-  let server: any;
-  let baseUrl: string;
-
-  before(async () => {
-    await new Promise<void>((resolve) => {
-      server = app.listen(0, "127.0.0.1", () => {
-        const addr = server.address();
-        if (typeof addr === "object" && addr !== null) {
-          baseUrl = `http://127.0.0.1:${addr.port}`;
-        }
-        resolve();
-      });
-    });
-  });
-
-  after(async () => {
-    await new Promise<void>((resolve) => {
-      server.close(() => resolve());
-    });
-  });
 
   describe("extractParamNames", () => {
     it("extracts param names from simple function signature", () => {
@@ -303,69 +289,79 @@ describe("apiGenerator — deterministic Express router and typed client generat
 
         const mod = await import(path.join(tmpDir, "sm2Router.js"));
         const router = mod.default;
-        app.use(router);
+        const testApp = express();
+        testApp.use(express.json());
+        testApp.use(router);
+        const testServer = testApp.listen(0, "127.0.0.1");
+        await new Promise<void>((resolve) => testServer.once("listening", resolve));
+        const addr = testServer.address() as any;
+        const testBaseUrl = `http://127.0.0.1:${addr.port}`;
 
-        // Test scheduleReview endpoint
-        const res1 = await fetch(`${baseUrl}/api/recall.sm2_scheduler/scheduleReview`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            card: { reps: 0, interval: 0, ease: 2.5, lapses: 0 },
-            grade: 5,
-            now: 1730000000000,
-          }),
-        });
-        assert.equal(res1.status, 200);
-        const body1 = (await res1.json()) as any;
-        assert.equal(body1.ok, true);
-        assert.equal(body1.result.reps, 1);
-        assert.equal(body1.result.interval, 1);
-        assert.equal(body1.result.ease, 2.6);
+        try {
+          // Test scheduleReview endpoint
+          const res1 = await fetch(`${testBaseUrl}/api/recall.sm2_scheduler/scheduleReview`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              card: { reps: 0, interval: 0, ease: 2.5, lapses: 0 },
+              grade: 5,
+              now: 1730000000000,
+            }),
+          });
+          assert.equal(res1.status, 200);
+          const body1 = (await res1.json()) as any;
+          assert.equal(body1.ok, true);
+          assert.equal(body1.result.reps, 1);
+          assert.equal(body1.result.interval, 1);
+          assert.equal(body1.result.ease, 2.6);
 
-        // Test second review
-        const res2 = await fetch(`${baseUrl}/api/recall.sm2_scheduler/scheduleReview`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            card: { reps: 1, interval: 1, ease: 2.6, lapses: 0 },
-            grade: 4,
-            now: 1730000000000,
-          }),
-        });
-        assert.equal(res2.status, 200);
-        const body2 = (await res2.json()) as any;
-        assert.equal(body2.ok, true);
-        assert.equal(body2.result.reps, 2);
-        assert.equal(body2.result.interval, 6);
+          // Test second review
+          const res2 = await fetch(`${testBaseUrl}/api/recall.sm2_scheduler/scheduleReview`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              card: { reps: 1, interval: 1, ease: 2.6, lapses: 0 },
+              grade: 4,
+              now: 1730000000000,
+            }),
+          });
+          assert.equal(res2.status, 200);
+          const body2 = (await res2.json()) as any;
+          assert.equal(body2.ok, true);
+          assert.equal(body2.result.reps, 2);
+          assert.equal(body2.result.interval, 6);
 
-        // Test updateEase endpoint
-        const res3 = await fetch(`${baseUrl}/api/recall.sm2_scheduler/updateEase`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ease: 2.5, grade: 5 }),
-        });
-        assert.equal(res3.status, 200);
-        const body3 = (await res3.json()) as any;
-        assert.equal(body3.ok, true);
-        assert.ok(Math.abs(body3.result - 2.6) < 0.001, "updateEase(2.5, 5) should be approximately 2.6");
+          // Test updateEase endpoint
+          const res3 = await fetch(`${testBaseUrl}/api/recall.sm2_scheduler/updateEase`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ease: 2.5, grade: 5 }),
+          });
+          assert.equal(res3.status, 200);
+          const body3 = (await res3.json()) as any;
+          assert.equal(body3.ok, true);
+          assert.ok(Math.abs(body3.result - 2.6) < 0.001, "updateEase(2.5, 5) should be approximately 2.6");
 
-        // Test invalid grade -> 400
-        const res4 = await fetch(`${baseUrl}/api/recall.sm2_scheduler/updateEase`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ease: 2.5, grade: 6 }),
-        });
-        assert.equal(res4.status, 400);
-        const errBody = (await res4.json()) as any;
-        assert.equal(errBody.error, "Validation failed");
+          // Test invalid grade -> 400
+          const res4 = await fetch(`${testBaseUrl}/api/recall.sm2_scheduler/updateEase`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ease: 2.5, grade: 6 }),
+          });
+          assert.equal(res4.status, 400);
+          const errBody = (await res4.json()) as any;
+          assert.equal(errBody.error, "Validation failed");
 
-        // Test missing field -> 400
-        const res5 = await fetch(`${baseUrl}/api/recall.sm2_scheduler/scheduleReview`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ card: { reps: 0 } }),
-        });
-        assert.equal(res5.status, 400);
+          // Test missing field -> 400
+          const res5 = await fetch(`${testBaseUrl}/api/recall.sm2_scheduler/scheduleReview`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ card: { reps: 0 } }),
+          });
+          assert.equal(res5.status, 400);
+        } finally {
+          await new Promise<void>((resolve) => testServer.close(() => resolve()));
+        }
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }
@@ -418,62 +414,72 @@ describe("apiGenerator — deterministic Express router and typed client generat
 
         const mod = await import(path.join(tmpDir, "wikiRouter.js"));
         const router = mod.default;
-        app.use(router);
+        const testApp = express();
+        testApp.use(express.json());
+        testApp.use(router);
+        const testServer = testApp.listen(0, "127.0.0.1");
+        await new Promise<void>((resolve) => testServer.once("listening", resolve));
+        const addr = testServer.address() as any;
+        const testBaseUrl = `http://127.0.0.1:${addr.port}`;
 
-        // Test parseWikiLinks
-        const res1 = await fetch(`${baseUrl}/api/inkwell.wikilink_graph/parseWikiLinks`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ markdown: "Read [[Architecture]] or [[Guide|the guide]]" }),
-        });
-        assert.equal(res1.status, 200);
-        const body1 = (await res1.json()) as any;
-        assert.equal(body1.ok, true);
-        assert.equal(body1.result.length, 2);
-        assert.equal(body1.result[0].target, "Architecture");
-        assert.equal(body1.result[1].target, "Guide");
-        assert.equal(body1.result[1].alias, "the guide");
+        try {
+          // Test parseWikiLinks
+          const res1 = await fetch(`${testBaseUrl}/api/inkwell.wikilink_graph/parseWikiLinks`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ markdown: "Read [[Architecture]] or [[Guide|the guide]]" }),
+          });
+          assert.equal(res1.status, 200);
+          const body1 = (await res1.json()) as any;
+          assert.equal(body1.ok, true);
+          assert.equal(body1.result.length, 2);
+          assert.equal(body1.result[0].target, "Architecture");
+          assert.equal(body1.result[1].target, "Guide");
+          assert.equal(body1.result[1].alias, "the guide");
 
-        // Test normalizeTitle
-        const res2 = await fetch(`${baseUrl}/api/inkwell.wikilink_graph/normalizeTitle`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: "  My   Note  " }),
-        });
-        assert.equal(res2.status, 200);
-        const body2 = (await res2.json()) as any;
-        assert.equal(body2.ok, true);
-        assert.equal(body2.result, "my note");
+          // Test normalizeTitle
+          const res2 = await fetch(`${testBaseUrl}/api/inkwell.wikilink_graph/normalizeTitle`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: "  My   Note  " }),
+          });
+          assert.equal(res2.status, 200);
+          const body2 = (await res2.json()) as any;
+          assert.equal(body2.ok, true);
+          assert.equal(body2.result, "my note");
 
-        // Test buildLinkGraph
-        const res3 = await fetch(`${baseUrl}/api/inkwell.wikilink_graph/buildLinkGraph`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            notes: [
-              { id: "1", title: "Index", body: "Links to [[Guide]]" },
-              { id: "2", title: "Guide", body: "Back to [[Index]]" },
-            ],
-          }),
-        });
-        assert.equal(res3.status, 200);
-        const body3 = (await res3.json()) as any;
-        assert.equal(body3.ok, true);
-        assert.equal(body3.result.nodes.length, 2);
-        assert.equal(body3.result.edges.length, 2);
-        assert.deepEqual(body3.result.backlinks["1"], ["2"]);
-        assert.deepEqual(body3.result.backlinks["2"], ["1"]);
+          // Test buildLinkGraph
+          const res3 = await fetch(`${testBaseUrl}/api/inkwell.wikilink_graph/buildLinkGraph`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              notes: [
+                { id: "1", title: "Index", body: "Links to [[Guide]]" },
+                { id: "2", title: "Guide", body: "Back to [[Index]]" },
+              ],
+            }),
+          });
+          assert.equal(res3.status, 200);
+          const body3 = (await res3.json()) as any;
+          assert.equal(body3.ok, true);
+          assert.equal(body3.result.nodes.length, 2);
+          assert.equal(body3.result.edges.length, 2);
+          assert.deepEqual(body3.result.backlinks["1"], ["2"]);
+          assert.deepEqual(body3.result.backlinks["2"], ["1"]);
 
-        // Test code blocks are ignored by parseWikiLinks
-        const res4 = await fetch(`${baseUrl}/api/inkwell.wikilink_graph/parseWikiLinks`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ markdown: "`[[Hidden]]` and ```[[AlsoHidden]]```" }),
-        });
-        assert.equal(res4.status, 200);
-        const body4 = (await res4.json()) as any;
-        assert.equal(body4.ok, true);
-        assert.equal(body4.result.length, 0);
+          // Test code blocks are ignored by parseWikiLinks
+          const res4 = await fetch(`${testBaseUrl}/api/inkwell.wikilink_graph/parseWikiLinks`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ markdown: "`[[Hidden]]` and ```[[AlsoHidden]]```" }),
+          });
+          assert.equal(res4.status, 200);
+          const body4 = (await res4.json()) as any;
+          assert.equal(body4.ok, true);
+          assert.equal(body4.result.length, 0);
+        } finally {
+          await new Promise<void>((resolve) => testServer.close(() => resolve()));
+        }
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }

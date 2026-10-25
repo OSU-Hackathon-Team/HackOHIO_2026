@@ -21,10 +21,10 @@
     "test:implement": "tsx src/scripts/testImplement.ts",
     "test:synthesis": "tsx src/scripts/testSynthesis.ts",
     "test:replay": "tsx src/scripts/testReplayPipeline.ts",
-    "test:unit": "node --import tsx --test \"src/**/*.test.ts\"",
+    "test:unit": "node --import tsx --test --test-force-exit \"src/**/*.test.ts\"",
     "seed:studio": "tsx src/scripts/seedStudio.ts",
     "pretest": "npm run build --workspace=@splice/contracts",
-    "test": "npm run build && node --test \"test/**/*.test.ts\""
+    "test": "npm run build && node --test --test-force-exit \"test/**/*.test.ts\""
   },
   "dependencies": {
     "@anthropic-ai/bedrock-sdk": "^1.1.0",
