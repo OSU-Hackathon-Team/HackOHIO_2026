@@ -32,10 +32,11 @@ fetched, the total, and the next_offset to ask for; paging continues automatical
 repeat the page action. Fetch every slice exactly once, then stop paging and analyze. Use search_strings to find domain keywords in
 read-only strings, then neighbors to walk callers/callees from interesting entries; explored
 accumulates everything uncovered. String hits are data addresses, not functions: decompile
-their referenced_by entries, never the string address itself. Discovery strategy on stripped binaries: start with
-export_entries for the binary's own exported function addresses, and resolve_symbol with
-goal keywords (for example CompileTokenArray) for seed entries; then grow the relevant
-cluster via neighbors and batch-decompile it, paging only to survey address regions. Do not decompile the first entries
+their referenced_by entries, never the string address itself. Discovery strategy on stripped binaries: explored is pre-seeded with the binary's own
+exported function addresses (export_entries already ran), so start by decompiling the most
+goal-relevant of those; use resolve_symbol with goal keywords (for example CompileTokenArray)
+for more seeds only if the exports look irrelevant; then grow the relevant cluster via
+neighbors and batch-decompile it, paging only to survey address regions. Do not decompile the first entries
 of page 0 blindly; init/fini boilerplate lives at the edges. Do not repeat an identical action:
 repeats are no-ops and three in a row end the run as partial.
 Decompile and review only entries present in explored (or the small-binary inventory).

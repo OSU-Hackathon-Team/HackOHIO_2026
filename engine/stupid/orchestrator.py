@@ -95,8 +95,26 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
         summary = tools.inventory_summary(manifest)
         large = summary["function_count"] > 150
         inventory = None if large else tools.inventory(manifest)
-        record("analyzed", {"campaign": manifest["campaign"], **summary,
-                            "paged": large})
+        pages: list[dict] = []
+        explored: dict[str, dict] = {}
+        if large:
+            # The export list is meaning-free inventory, not a judgment: every
+            # exported address is a candidate the agent may accept or ignore.
+            try:
+                table = tools.export_entries(manifest)
+            except RuntimeError as error:
+                record("analyzed", {"campaign": manifest["campaign"], **summary,
+                                    "paged": large,
+                                    "export_error": str(error)[:200]})
+            else:
+                for e in table["entries"]:
+                    explored.setdefault(e, {"entry": e, "exported": True})
+                record("analyzed", {"campaign": manifest["campaign"], **summary,
+                                    "paged": large,
+                                    "exported": table["count"]})
+        else:
+            record("analyzed", {"campaign": manifest["campaign"], **summary,
+                                "paged": large})
         drafts: dict[str, dict] = {}
         reviews: dict[str, dict] = {}
         probes: list[dict] = []
@@ -225,13 +243,11 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                 out[entry_key] = short
             return out
 
-        pages: list[dict] = []
-        explored: dict[str, dict] = {}
         search_log: list[dict] = []
         neighbor_queries: set[str] = set()
         seen_resolves: set[str] = set()
         seen_searches: set[str] = set()
-        exports_listed = False
+        exports_listed = True
         explore_help = ('{{"action": "page", "offset": 0, "limit": 100, "reason": "..."}}\n'
                         '{{"action": "neighbors", "entry": "00101000", "reason": "..."}}'
                         if large else
