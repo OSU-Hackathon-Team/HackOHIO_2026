@@ -1,6 +1,7 @@
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { liveApi } from "../src/api/client";
+import { mockNativeSpec } from "../src/ide/data/ideFixtures";
 import { createStudio } from "../src/store/studioState";
 import {
   FeatureSpec,
@@ -39,6 +40,21 @@ const validSpec = FeatureSpec.parse(sm2SpecJson);
 const validBlueprint = FeatureBlueprint.parse(sm2BpJson);
 const validBundle = SynthesisBundle.parse(studyRoomJson);
 const validPantry = Pantry.parse(manifest);
+const validNativeSpec = {
+  schema: 2 as const,
+  kind: "native_subsystem_spec" as const,
+  status: "ready_for_review" as const,
+  title: "Task Priority Scoring Subsystem",
+  purpose: "Score task priorities.",
+  boundary: "subsystem" as const,
+  interface: { inputs: ["Task"], outputs: ["Priority"], state: [] },
+  requirements: [{ id: "REQ-1", statement: "Completed tasks score zero." }],
+  behavior_steps: ["Check completion."],
+  examples: [{ name: "completed", input: { completed: true }, expected_output: 0 }],
+  acceptance_criteria: ["Completed tasks score zero."],
+  deviations: [],
+  exclusions: [],
+};
 
 test("liveApi.health validates health contract and rejects incomplete payloads", async () => {
   globalThis.fetch = async (url: any) => {
@@ -171,6 +187,63 @@ test("liveApi.extract and liveApi.implement stream pipeline events and forward f
   assert.equal(implementBody.force_mode, "replay");
   assert.equal(implementEvents.length, 3);
   assert.equal(implementEvents[1].type, "blueprint");
+});
+
+test("liveApi native spec methods validate routes and response contracts", async () => {
+  const artifact = "a".repeat(64);
+  let calls: Array<{ url: string; method: string; body?: unknown }> = [];
+  globalThis.fetch = async (url: any, options: any = {}) => {
+    calls.push({ url, method: options.method ?? "GET", body: options.body ? JSON.parse(options.body) : undefined });
+    if (url === "/api/native-specs" && options.method === "POST") {
+      return new Response(JSON.stringify({ artifact, spec: validNativeSpec }));
+    }
+    if (url === `/api/native-specs/${artifact}`) return new Response(JSON.stringify(validNativeSpec));
+    if (url === "/api/native-specs") return new Response(JSON.stringify({ specs: [{ artifact, spec: validNativeSpec }] }));
+    if (url === "/api/native-specs/adapt") return new Response(JSON.stringify({ spec: validSpec, feature_spec: validSpec }));
+    throw new Error(`Unexpected URL/method ${options.method ?? "GET"} ${url}`);
+  };
+
+  const generated = await liveApi.nativeSpec!("b".repeat(64));
+  assert.deepEqual(generated, { artifact, spec: validNativeSpec });
+  assert.deepEqual(await liveApi.getNativeSpec!(artifact), validNativeSpec);
+  assert.deepEqual(await liveApi.listNativeSpecs!(), [{ artifact, spec: validNativeSpec }]);
+  assert.deepEqual(await liveApi.adaptNativeSpec!({ spec: validNativeSpec, feature_id: validSpec.feature_id }), validSpec);
+  assert.deepEqual(calls.map(({ url, method }) => [method, url]), [
+    ["POST", "/api/native-specs"],
+    ["GET", `/api/native-specs/${artifact}`],
+    ["GET", "/api/native-specs"],
+    ["POST", "/api/native-specs/adapt"],
+  ]);
+  assert.deepEqual(calls[0].body, { dossier_artifact: "b".repeat(64) });
+
+  globalThis.fetch = async () => new Response(JSON.stringify({ specs: [{ artifact: "bad", spec: validNativeSpec }] }));
+  await assert.rejects(liveApi.listNativeSpecs!());
+  globalThis.fetch = async () => new Response(JSON.stringify({ artifact, spec: { bad: true } }));
+  await assert.rejects(liveApi.nativeSpec!("b".repeat(64)));
+});
+
+test("liveApi validates native API response envelopes and preserves backend errors", async () => {
+  const artifact = "a".repeat(64);
+  globalThis.fetch = async (url: any, options: any = {}) => {
+    if (url === "/api/native-specs" && options.method === "POST") {
+      return new Response(JSON.stringify({ artifact, spec: { invalid: true } }), { headers: { "Content-Type": "application/json" } });
+    }
+    if (url === "/api/native-specs") {
+      return new Response(JSON.stringify({ specs: [{ artifact: "bad-digest", spec: {} }] }), { headers: { "Content-Type": "application/json" } });
+    }
+    if (url === `/api/native-specs/${artifact}`) {
+      return new Response(JSON.stringify({ error: "spec artifact not found" }), { status: 404 });
+    }
+    if (url === "/api/native-specs/adapt") {
+      return new Response(JSON.stringify({ spec: { invalid: true } }), { headers: { "Content-Type": "application/json" } });
+    }
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+
+  await assert.rejects(liveApi.nativeSpec!(artifact));
+  await assert.rejects(liveApi.listNativeSpecs!());
+  await assert.rejects(liveApi.getNativeSpec!(artifact), /404.*spec artifact not found/);
+  await assert.rejects(liveApi.adaptNativeSpec!({ spec: mockNativeSpec }));
 });
 
 test("liveApi.synthesize and liveApi.refine stream synthesis events", async () => {

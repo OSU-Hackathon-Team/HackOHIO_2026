@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { useIdeStore, PRESET_WINDOWS } from "../src/ide/store/useIdeStore";
+import { IDE_FEATURES } from "../src/ide/data/ideFixtures";
 
 test("IDE store starts calm with zero open tabs and closed side/bottom panels", () => {
   useIdeStore.getState().closeAllTabs();
@@ -68,6 +69,27 @@ test("toggleFeatureInBuild enforces Engineer 2 gating on blocked and needs_revie
   next = useIdeStore.getState();
   assert.equal(next.includedFeatureIds.includes("inkwell.fuzzy_search"), false);
   assert.match(next.statusError ?? "", /Cannot (fuse|add) '(Instant Title Search|Quick Note Finder)'/);
+});
+
+test("verification reports bundled oracle results honestly and labels native checks as local", async () => {
+  const store = useIdeStore;
+  store.setState({
+    includedFeatureIds: ["mockpriority.priority_score"],
+    nativeHandoff: null,
+    terminalLogs: [],
+    testRunCount: 0,
+    isRunningTests: false,
+  });
+
+  await store.getState().runAllVerificationTests();
+  const logs = store.getState().terminalLogs.map(entry => entry.text).join("\n");
+  const feature = IDE_FEATURES.find(item => item.featureId === "mockpriority.priority_score")!;
+  assert.match(logs, /local engine checks passed/);
+  assert.match(logs, /original behavior was not exercised/);
+  assert.doesNotMatch(logs, /matched .* original/);
+  assert.equal(store.getState().testRunCount, 1);
+  assert.equal(store.getState().isRunningTests, false);
+  assert.ok(feature.blueprint);
 });
 
 test("gradeFlashcard executes clean-room SM-2 schedule with ease floor 1.30 and leech threshold 8", () => {

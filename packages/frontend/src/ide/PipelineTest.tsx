@@ -17,6 +17,7 @@ import {
   type SynthesisBundle,
 } from "@splice/contracts";
 import { liveApi } from "../api/client";
+import { useIdeStore } from "./store/useIdeStore";
 import { exportBundleJson } from "../lib/exportZip";
 import { WorkspaceButton } from "./WorkspaceButton";
 import { cn } from "../lib/cn";
@@ -64,7 +65,18 @@ interface LogLine { at: number; tag: string; text: string; tone?: "error" | "ok"
 
 export function PipelineTest() {
   const [source, setSource] = useState<SourceId>("handAuthored");
-  const { specs, errors: specErrors } = useMemo(() => loadSpecs(source), [source]);
+  const nativeHandoff = useIdeStore(s => s.nativeHandoff);
+  const { specs, errors: specErrors } = useMemo(() => {
+    const loaded = loadSpecs(source);
+    if (source !== "native" || !nativeHandoff) return loaded;
+    return {
+      ...loaded,
+      specs: [
+        ...loaded.specs.filter(spec => spec.feature_id !== nativeHandoff.spec.feature_id),
+        nativeHandoff.spec,
+      ],
+    };
+  }, [source, nativeHandoff]);
   const [selected, setSelected] = useState<string[]>([]);
   const [runs, setRuns] = useState<Record<string, EngineRun>>({});
   const [prompt, setPrompt] = useState(STUDY_PROMPT);
@@ -75,7 +87,23 @@ export function PipelineTest() {
   const [health, setHealth] = useState<HealthResponse | string | null>(null);
   const controller = useRef<AbortController | null>(null);
 
-  useEffect(() => { setSelected(specs.map(s => s.feature_id)); setRuns({}); setBundle(null); }, [specs]);
+  useEffect(() => {
+    if (nativeHandoff) setSource("native");
+  }, [nativeHandoff]);
+  useEffect(() => {
+    setSelected(specs.map(s => s.feature_id));
+    const handoffSpec = nativeHandoff && specs.find(s => s.feature_id === nativeHandoff.spec.feature_id);
+    setRuns(handoffSpec ? {
+      [handoffSpec.feature_id]: {
+        status: "passed",
+        message: "Native engine implementation verified",
+        testsPassed: nativeHandoff.blueprint.verification.passed,
+        testsRun: nativeHandoff.blueprint.verification.total,
+        blueprint: nativeHandoff.blueprint,
+      },
+    } : {});
+    setBundle(null);
+  }, [specs, nativeHandoff]);
   useEffect(() => {
     const abort = new AbortController();
     liveApi.health(abort.signal).then(setHealth, (e: Error) => { if (!abort.signal.aborted) setHealth(e.message); });
@@ -91,6 +119,7 @@ export function PipelineTest() {
   async function implementOne(spec: FeatureSpec, signal: AbortSignal) {
     const id = spec.feature_id, started = performance.now();
     let blueprint: FeatureBlueprint | undefined;
+    let done = false, ok = false, fatal: string | undefined;
     setRuns(r => ({ ...r, [id]: { status: "running", message: "Starting", testsPassed: 0, testsRun: 0 } }));
     try {
       await liveApi.implement(spec, e => {
@@ -108,11 +137,22 @@ export function PipelineTest() {
           append(id, `${v.status} · ${v.passed}/${v.total} tests · ${v.repair_attempts} repairs · ${v.model} (${v.mode})`, v.status === "passed" ? "ok" : "error");
         } else if (e.type === "error") {
           append(id, e.message, "error");
-          if (e.fatal) patch(id, { error: e.message });
+          if (e.fatal) {
+            fatal = e.message;
+            patch(id, { error: e.message });
+          }
+        } else if (e.type === "done") {
+          done = true;
+          ok = e.ok;
         }
       }, signal, { force_mode: "live" });
-      const passed = blueprint?.verification.status === "passed";
-      patch(id, { status: passed ? "passed" : "failed", blueprint, message: passed ? "Engine verified" : "Engine did not pass", seconds: (performance.now() - started) / 1000 });
+      const passed = done && ok && !fatal && blueprint?.feature_id === id &&
+        blueprint.verification.status === "passed" &&
+        blueprint.verification.total > 0 &&
+        blueprint.verification.passed === blueprint.verification.total &&
+        blueprint.verification.purity_violations.length === 0 &&
+        blueprint.verification.type_errors.length === 0;
+      patch(id, { status: passed ? "passed" : "failed", blueprint, message: passed ? "Engine verified" : fatal ?? "Engine did not pass", seconds: (performance.now() - started) / 1000 });
     } catch (error) {
       const cancelled = signal.aborted;
       patch(id, { status: cancelled ? "cancelled" : "failed", message: cancelled ? "Cancelled" : "Request failed", error: cancelled ? undefined : (error as Error).message, seconds: (performance.now() - started) / 1000 });
@@ -128,23 +168,32 @@ export function PipelineTest() {
   }
 
   const passedBlueprints = specs
-    .map(s => runs[s.feature_id]?.blueprint)
+    .filter(spec => runs[spec.feature_id]?.status === "passed")
+    .map(spec => runs[spec.feature_id].blueprint)
     .filter((bp): bp is FeatureBlueprint => bp?.verification.status === "passed");
   const excluded = specs.filter(s => selected.includes(s.feature_id) && runs[s.feature_id] &&
-    runs[s.feature_id].status !== "running" && runs[s.feature_id].blueprint?.verification.status !== "passed");
+    runs[s.feature_id].status !== "running" && runs[s.feature_id].status !== "passed");
 
   async function synthesize() {
     const abort = new AbortController(); controller.current = abort;
     setPhase("synthesizing"); setBundle(null); setSynthError(null);
     let failure: string | null = null;
+    let candidate: SynthesisBundle | undefined;
+    let done = false, ok = false;
     try {
       await liveApi.synthesize(passedBlueprints, prompt.trim(), e => {
         if (e.type === "stage") append("synthesize", `${e.stage} · ${e.message}`);
         else if (e.type === "validation") append("synthesize", e.ok ? "Validation passed" : `Validation failed: ${e.errors.join("; ")}`, e.ok ? "ok" : "error");
-        else if (e.type === "bundle") { setBundle(e.bundle); append("synthesize", `Bundle ready · ${Object.keys(e.bundle.files).length} files (${e.bundle.mode})`, "ok"); }
+        else if (e.type === "bundle") candidate = e.bundle;
         else if (e.type === "error") { append("synthesize", e.message, "error"); if (e.fatal) failure = e.message; }
-        else if (e.type === "done" && !e.ok) failure ??= "Synthesis did not produce a valid bundle";
+        else if (e.type === "done") { done = true; ok = e.ok; }
       }, abort.signal);
+      if (!failure && done && ok && candidate) {
+        setBundle(candidate);
+        append("synthesize", `Bundle ready · ${Object.keys(candidate.files).length} files (${candidate.mode})`, "ok");
+      } else {
+        failure ??= "Synthesis did not produce a successful bundle";
+      }
     } catch (error) {
       failure = abort.signal.aborted ? "Cancelled" : (error as Error).message;
     }
@@ -174,6 +223,11 @@ export function PipelineTest() {
             Implements an engine from each spec with the configured model, runs its acceptance tests in the sandbox,
             then fuses the passing engines into an app. This skips REA and spec writing. Every run calls Bedrock and costs money.
           </p>
+          {nativeHandoff && source === "native" && (
+            <p role="status" className="text-xs text-emerald-300">
+              Native engine implementation verified · ready to fuse into a Studio preview.
+            </p>
+          )}
           {healthy && health.llm_mode === "replay" && (
             <p role="alert" className="rounded-lg border border-amber-800 bg-amber-950/30 p-3 text-sm text-amber-200">
               The backend is in LLM replay mode. Engines are forced live, but synthesis will replay a recording if one exists.

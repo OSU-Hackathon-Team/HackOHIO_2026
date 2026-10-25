@@ -28,7 +28,7 @@ import { IDE_TARGETS, IDE_FEATURES } from "./data/ideFixtures";
 import { useIdeStore } from "./store/useIdeStore";
 import { WorkspaceButton } from "./WorkspaceButton";
 import { cn } from "../lib/cn";
-import { api } from "../api/client";
+import { api, developmentMode } from "../api/client";
 import { mockApi } from "../api/mock";
 import type { FeatureSpec, FeatureBlueprint } from "@splice/contracts";
 
@@ -69,29 +69,19 @@ export function AppLibrary() {
       // 1. Adapt NativeSubsystemSpec -> FeatureSpec
       const nativeSpec = target.nativeSpec;
       let adaptedSpec: FeatureSpec;
-      try {
-        if (api.adaptNativeSpec && nativeSpec) {
-          adaptedSpec = await api.adaptNativeSpec({
-            spec: nativeSpec,
-            feature_id: feature.featureId,
-          });
-        } else if (feature.spec) {
-          adaptedSpec = feature.spec;
-        } else {
-          throw new Error("No native specification available to adapt");
-        }
-      } catch {
-        // Fall back to offline / mock adaptation if live backend is unreachable
-        if (mockApi.adaptNativeSpec && nativeSpec) {
-          adaptedSpec = await mockApi.adaptNativeSpec({
-            spec: nativeSpec,
-            feature_id: feature.featureId,
-          });
-        } else if (feature.spec) {
-          adaptedSpec = feature.spec;
-        } else {
-          throw new Error("No native specification available to adapt");
-        }
+      if (!nativeSpec) throw new Error("No native specification available to adapt");
+      if (developmentMode) {
+        adaptedSpec = await mockApi.adaptNativeSpec!({
+          spec: nativeSpec,
+          feature_id: feature.featureId,
+        });
+      } else if (api.adaptNativeSpec) {
+        adaptedSpec = await api.adaptNativeSpec({
+          spec: nativeSpec,
+          feature_id: feature.featureId,
+        });
+      } else {
+        throw new Error("The configured API does not support native specification adaptation");
       }
 
       setReconstructStage("Implementing clean-room engine...");
@@ -99,37 +89,44 @@ export function AppLibrary() {
 
       let testsPassed = 0;
       let testsTotal = 0;
+      let blueprint: FeatureBlueprint | undefined;
+      let done = false;
+      let ok = false;
+      let fatal: string | undefined;
 
-      const runImplement = async (client: typeof api) => {
-        await client.implement(
-          adaptedSpec,
-          (e) => {
-            if (e.type === "stage") {
-              setReconstructStage(e.message);
-            } else if (e.type === "llm_progress") {
-              setReconstructProgress(
-                `${e.phase === "implementing" ? "Writing engine code" : "Repairing engine"} (${e.output_chars.toLocaleString()} chars)`
-              );
-            } else if (e.type === "test_result") {
-              testsTotal += 1;
-              if (e.passed) testsPassed += 1;
-              setReconstructTests({ passed: testsPassed, total: testsTotal });
-            } else if (e.type === "blueprint") {
-              setReconstructedBp(e.blueprint);
-            } else if (e.type === "error") {
-              setReconstructError(e.message);
-            }
-          }
-        );
-      };
+      await api.implement(adaptedSpec, (e) => {
+        if (e.type === "stage") {
+          setReconstructStage(e.message);
+        } else if (e.type === "llm_progress") {
+          setReconstructProgress(
+            `${e.phase === "implementing" ? "Writing engine code" : "Repairing engine"} (${e.output_chars.toLocaleString()} chars)`
+          );
+        } else if (e.type === "test_result") {
+          testsTotal += 1;
+          if (e.passed) testsPassed += 1;
+          setReconstructTests({ passed: testsPassed, total: testsTotal });
+        } else if (e.type === "blueprint") {
+          blueprint = e.blueprint;
+        } else if (e.type === "error" && e.fatal) {
+          fatal = e.message;
+        } else if (e.type === "done") {
+          done = true;
+          ok = e.ok;
+        }
+      });
 
-      try {
-        await runImplement(api);
-      } catch {
-        // Fall back to offline / mock implementation if live backend is unreachable
-        await runImplement(mockApi);
+      if (fatal || !done || !ok || !blueprint) {
+        throw new Error(fatal ?? "Native engine implementation did not complete successfully.");
       }
-
+      const verification = blueprint.verification;
+      if (blueprint.feature_id !== adaptedSpec.feature_id ||
+          verification.status !== "passed" || verification.total === 0 ||
+          verification.passed !== verification.total || verification.purity_violations.length ||
+          verification.type_errors.length) {
+        throw new Error("Native engine verification did not pass.");
+      }
+      useIdeStore.getState().setNativeHandoff(adaptedSpec, blueprint);
+      setReconstructedBp(blueprint);
       setReconstructStage("Engine Reconstructed");
       setReconstructProgress(null);
       if (!included.includes(feature.featureId)) {

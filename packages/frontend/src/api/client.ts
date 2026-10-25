@@ -91,18 +91,21 @@ export const liveApi: Api = {
     });
     if (!res.ok) throw new Error(`/api/native-specs: ${res.status} ${await res.text()}`);
     const data = await res.json();
-    return { artifact: data.artifact, spec: NativeSubsystemSpec.parse(data.spec) };
+    const parsed = z.object({ artifact: z.string().regex(/^[a-f0-9]{64}$/), spec: NativeSubsystemSpec }).parse(data);
+    return parsed;
   },
   async getNativeSpec(artifact, signal) {
     const value = await getJson(`/api/native-specs/${artifact}`, signal);
     return NativeSubsystemSpec.parse(value);
   },
   async listNativeSpecs(signal) {
-    const value = (await getJson("/api/native-specs", signal)) as { specs?: Array<{ artifact: string; spec: any }> };
-    return (value.specs ?? []).map((s) => ({
-      artifact: s.artifact,
-      spec: NativeSubsystemSpec.parse(s.spec),
-    }));
+    const value = z.object({
+      specs: z.array(z.object({
+        artifact: z.string().regex(/^[a-f0-9]{64}$/),
+        spec: NativeSubsystemSpec,
+      })),
+    }).parse(await getJson("/api/native-specs", signal));
+    return value.specs;
   },
   async adaptNativeSpec(req, signal) {
     const res = await fetch("/api/native-specs/adapt", {
@@ -112,8 +115,13 @@ export const liveApi: Api = {
       signal,
     });
     if (!res.ok) throw new Error(`/api/native-specs/adapt: ${res.status} ${await res.text()}`);
-    const data = await res.json();
-    return FeatureSpec.parse(data.spec ?? data.feature_spec);
+    const data = z.object({
+      spec: FeatureSpec.optional(),
+      feature_spec: FeatureSpec.optional(),
+    }).refine(value => value.spec !== undefined || value.feature_spec !== undefined, {
+      message: "Native adapter response did not include a FeatureSpec",
+    }).parse(await res.json());
+    return data.spec ?? data.feature_spec!;
   },
 };
 
