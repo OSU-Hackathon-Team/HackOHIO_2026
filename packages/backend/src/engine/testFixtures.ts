@@ -6,6 +6,8 @@ import type { ChatMessage, LlmPort, RunTestsInput, RunTestsResult, SandboxPort, 
 /** Planted where Step 3 must never look. Any prompt containing them is a leak. */
 export const SOURCE_SENTINEL = "SENTINEL_ORIGINAL_SOURCE_7f3a";
 export const ADAPTER_SENTINEL = "SENTINEL_ADAPTER_CODE_91bc";
+export const TARGET_PATH_SENTINEL = "private/target/source-with-secrets.js";
+export const TARGET_LINE_SENTINEL = "const hiddenAlgorithm = originalSecretFunction(input);";
 
 export const TYPES_CODE = `export declare const MIN_EASE: number;
 export interface ReviewResult { ease: number; interval: number }
@@ -77,7 +79,7 @@ export function makeSpec(overrides: Partial<FeatureSpec> = {}): FeatureSpec {
       target,
       rea_package_version: "6.7.0",
       tool_calls: [],
-      snippets: [{ location: "app.asar:src/scheduler/sm2.js", symbol: "scheduleReview", language: "javascript", code: `// ${SOURCE_SENTINEL}`, full_module: true }],
+      snippets: [{ location: `app.asar:${TARGET_PATH_SENTINEL}`, symbol: "scheduleReview", language: "javascript", code: `// ${SOURCE_SENTINEL}\n${TARGET_LINE_SENTINEL}`, full_module: true }],
       limitations: [],
       unknowns: [],
       collected_at: "2026-10-24T00:00:00.000Z",

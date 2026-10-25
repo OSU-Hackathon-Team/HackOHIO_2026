@@ -1,5 +1,5 @@
 // Owner: Eng 3 (Implementation) — Step 3 Conformance Oracle & Behavioral Evaluation
-import type { FeatureSpec, RawEvidence, TestCaseResult, Requirement } from "@splice/contracts";
+import type { FeatureSpec, SourceSnippet, TestCaseResult, Requirement } from "@splice/contracts";
 import type { SandboxPort } from "./ports.js";
 import { purityViolations } from "./purity.js";
 import { conformanceErrors } from "./conformance.js";
@@ -28,7 +28,6 @@ export interface ActionableFailure {
 
 export interface ConformanceOptions {
   sandbox: SandboxPort;
-  rawEvidence?: RawEvidence;
   signal?: AbortSignal;
   timeoutMs?: number;
   onTestResult?: (t: TestCaseResult) => void;
@@ -80,9 +79,12 @@ export const ORACLE_LIMITATIONS: readonly string[] = [
  */
 export function checkCleanRoomIndependence(
   candidateCode: string,
-  rawEvidence?: RawEvidence,
+  snippets: unknown,
 ): { passed: boolean; violations: string[] } {
-  if (!rawEvidence?.snippets || rawEvidence.snippets.length === 0) {
+  if (!Array.isArray(snippets)) {
+    return { passed: false, violations: ["Target evidence snippets are missing or malformed; clean-room verification is unavailable."] };
+  }
+  if (snippets.length === 0) {
     return { passed: true, violations: [] };
   }
 
@@ -92,7 +94,10 @@ export function checkCleanRoomIndependence(
     .map((l) => l.trim())
     .filter((l) => l.length > 25 && !l.startsWith("//") && !l.startsWith("/*") && !l.startsWith("export type") && !l.startsWith("export interface"));
 
-  for (const snippet of rawEvidence.snippets) {
+  for (const snippet of snippets as SourceSnippet[]) {
+    if (!snippet || typeof snippet.code !== "string") {
+      return { passed: false, violations: ["Target evidence snippets are missing or malformed; clean-room verification is unavailable."] };
+    }
     const snippetLines = new Set(
       snippet.code
         .split("\n")
@@ -102,9 +107,7 @@ export function checkCleanRoomIndependence(
 
     for (const candLine of candidateLines) {
       if (snippetLines.has(candLine)) {
-        violations.push(
-          `Candidate engine contains verbatim line from target source snippet (${snippet.location}): "${candLine}"`,
-        );
+        violations.push("Candidate engine contains a verbatim line from target evidence.");
       }
     }
   }
@@ -207,7 +210,7 @@ export function formatActionableFeedback(failures: ActionableFailure[], spec: Fe
 }
 
 /**
- * Evaluates candidate engine code against the FeatureSpec, RawEvidence, and runtime acceptance tests.
+ * Evaluates candidate engine code against the FeatureSpec and runtime acceptance tests.
  * Performs purity scans, strict type conformance, clean-room checks, sandbox execution,
  * contract/invariant checks, and differential comparison against original target oracle results.
  */
@@ -221,33 +224,9 @@ export async function evaluateEngineConformance(
 
   const failures: ActionableFailure[] = [];
 
-  // 1. Purity Verification (AST-based clean-room checks)
-  const purity = purityViolations(candidateCode);
-  for (const p of purity) {
-    failures.push({
-      category: "purity",
-      message: `Purity: ${p}`,
-      suggestion:
-        "Remove all external imports, environment globals (process/window/localStorage), console calls, and nondeterministic functions (Math.random, Date.now). Pure modules must be completely self-contained and deterministic.",
-    });
-  }
-
-  // 2. Interface and Type Conformance (TypeScript strict mode virtual check)
-  let typeErrors: string[] = [];
-  if (purity.length === 0) {
-    typeErrors = conformanceErrors(spec, candidateCode);
-    for (const e of typeErrors) {
-      failures.push({
-        category: "type",
-        message: `Type: ${e}`,
-        suggestion:
-          "Ensure all declared functions, types, and consts in spec.interface are exported with matching signatures and bidirectional type assignability under TypeScript strict mode.",
-      });
-    }
-  }
-
-  // 3. Clean-Room Independence Verification (anti-plagiarism vs RawEvidence)
-  const cleanRoom = checkCleanRoomIndependence(candidateCode, opts.rawEvidence);
+  // 1. Run the clean-room gate first. Copied source text must not reach diagnostics
+  // that are later used as feedback to the repair model.
+  const cleanRoom = checkCleanRoomIndependence(candidateCode, spec.provenance.snippets);
   if (!cleanRoom.passed) {
     for (const v of cleanRoom.violations) {
       failures.push({
@@ -259,7 +238,31 @@ export async function evaluateEngineConformance(
     }
   }
 
-  // 4. Sandbox Acceptance Testing
+  // 2. Purity and type diagnostics run only when the source-copy gate passes.
+  const purity = cleanRoom.passed ? purityViolations(candidateCode) : [];
+  for (const p of purity) {
+    failures.push({
+      category: "purity",
+      message: `Purity: ${p}`,
+      suggestion:
+        "Remove all external imports, environment globals (process/window/localStorage), console calls, and nondeterministic functions (Math.random, Date.now). Pure modules must be completely self-contained and deterministic.",
+    });
+  }
+
+  let typeErrors: string[] = [];
+  if (cleanRoom.passed && purity.length === 0) {
+    typeErrors = conformanceErrors(spec, candidateCode);
+    for (const e of typeErrors) {
+      failures.push({
+        category: "type",
+        message: `Type: ${e}`,
+        suggestion:
+          "Ensure all declared functions, types, and consts in spec.interface are exported with matching signatures and bidirectional type assignability under TypeScript strict mode.",
+      });
+    }
+  }
+
+  // 3. Sandbox Acceptance Testing
   let testResults: TestCaseResult[] = [];
   let fatalError: string | null = null;
 

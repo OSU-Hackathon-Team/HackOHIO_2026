@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import type { RawEvidence } from "@splice/contracts";
+import { RawEvidence, type FeatureSpec, type RawEvidence as RawEvidenceType } from "@splice/contracts";
 import {
   evaluateEngineConformance,
   checkCleanRoomIndependence,
@@ -221,7 +221,7 @@ describe("Step 3: Conformance Oracle & Behavioral Checks", () => {
   });
 
   test("enforces clean-room independence and rejects verbatim code copied from RawEvidence", async () => {
-    const rawEvidence: RawEvidence = {
+    const rawEvidence: RawEvidenceType = {
       app_id: "recall",
       feature_id: "recall.sm2_scheduler",
       target: { path: "targets/build/recall/app.asar", artifact_type: "electron_asar", sha256: "0".repeat(64) },
@@ -251,21 +251,46 @@ describe("Step 3: Conformance Oracle & Behavioral Checks", () => {
       GOOD_ENGINE +
       `\nconst secretOriginalAlgorithmLine = "VERBATIM_ORIGINAL_LINE_FROM_TARGET_CODE_12345";\n`;
 
-    const cleanRoomCheck = checkCleanRoomIndependence(plagiarizedEngine, rawEvidence);
+    const parsedEvidence = RawEvidence.parse(rawEvidence);
+    const cleanRoomCheck = checkCleanRoomIndependence(plagiarizedEngine, parsedEvidence.snippets);
     assert.equal(cleanRoomCheck.passed, false);
     assert.ok(cleanRoomCheck.violations.length > 0);
-    assert.ok(cleanRoomCheck.violations[0].includes("src/scheduler/sm2.js"));
+    assert.equal(cleanRoomCheck.violations[0], "Candidate engine contains a verbatim line from target evidence.");
+    assert.ok(!cleanRoomCheck.violations[0].includes("src/scheduler/sm2.js"));
+    assert.ok(!cleanRoomCheck.violations[0].includes("VERBATIM_ORIGINAL_LINE_FROM_TARGET_CODE_12345"));
 
     const sb = fakeSandbox(passAll);
-    const report = await evaluateEngineConformance(spec, plagiarizedEngine, {
+    const specWithTargetSnippet = makeSpec({
+      provenance: { ...spec.provenance, snippets: rawEvidence.snippets },
+    });
+    const report = await evaluateEngineConformance(specWithTargetSnippet, plagiarizedEngine, {
       sandbox: sb.port,
-      rawEvidence,
     });
 
     assert.equal(report.passed, false);
     assert.equal(report.status, "failed");
     assert.ok(report.failures.some((f) => f.category === "clean_room_violation"));
+    assert.ok(!report.actionable_feedback.includes("src/scheduler/sm2.js"));
+    assert.ok(!report.actionable_feedback.includes("VERBATIM_ORIGINAL_LINE_FROM_TARGET_CODE_12345"));
     assert.equal(sb.inputs.length, 0, "sandbox must not execute plagiarized candidate");
+  });
+
+  test("clean-room check safely treats absent or malformed evidence snippets as unavailable", async () => {
+    const malformedEvidence = { ...spec.provenance, snippets: undefined } as unknown as FeatureSpec["provenance"];
+    assert.equal(RawEvidence.safeParse({ ...spec.provenance, snippets: undefined }).success, false);
+    assert.equal(RawEvidence.safeParse({ ...spec.provenance, snippets: [{ code: 42 }] }).success, false);
+    const malformedSpec = { ...spec, provenance: malformedEvidence } as FeatureSpec;
+
+    for (const snippets of [undefined, null, [{ code: 42 }]]) {
+      const result = checkCleanRoomIndependence(GOOD_ENGINE, snippets);
+      assert.equal(result.passed, false);
+      assert.match(result.violations[0], /missing or malformed/);
+    }
+    const sb = fakeSandbox(passAll);
+    const report = await evaluateEngineConformance(malformedSpec, GOOD_ENGINE, { sandbox: sb.port });
+    assert.equal(report.passed, false);
+    assert.ok(report.failures.some(f => f.category === "clean_room_violation"));
+    assert.equal(sb.inputs.length, 0);
   });
 
   test("flags differential divergence when candidate fails test that passed against original target oracle", async () => {
