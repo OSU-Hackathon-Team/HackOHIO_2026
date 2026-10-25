@@ -1,4 +1,4 @@
-"""Discover three Calc families and record live original behavior without expected answers.
+"""Discover four Calc families and record live original behavior without expected answers.
 
 This is intake evidence, not a reimplementation result. A passing comparison must
 later run an independently generated implementation against these observations.

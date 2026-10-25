@@ -107,8 +107,10 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   feed implementation. Semantic attempts now retry invalid model answers twice and retain
   each revision; structural claims are suppressed from functional requirements. The old
   hand-authored Calc and telemetry "cleanroom" success scripts were removed. Calc intake
-  now discovers four scopes and records live original grammar observations, but generated
-  C implementations and equivalence checks are still outstanding.
+  now discovers four scopes and records live original grammar observations. One
+  FormulaGrammar scope has a ready 17-claim dossier and an automatically generated
+  plain C candidate that matched 99 held-out original cases; broader Calc equivalence
+  and the compiler, token, and vector scopes remain open.
   The reported telemetry dossier remains partial because 26 claims lack original case
   links. Spec quality, human containment review, and downstream implementation gates
   remain open. A bounded O2 executable pilot found that a semantic model and independent
