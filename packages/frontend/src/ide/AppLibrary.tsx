@@ -30,7 +30,8 @@ import { WorkspaceButton } from "./WorkspaceButton";
 import { cn } from "../lib/cn";
 import { api } from "../api/client";
 import { mockApi } from "../api/mock";
-import type { FeatureSpec, FeatureBlueprint } from "@splice/contracts";
+import type { FeatureSpec, FeatureBlueprint, NativeSubsystemSpec } from "@splice/contracts";
+import { useEffect } from "react";
 
 export function AppLibrary() {
   const selectedId = useIdeStore((s) => s.selectedFeatureId);
