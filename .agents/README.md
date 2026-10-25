@@ -100,9 +100,11 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   instructions outside functions, and bytes classified as neither instructions nor defined
   data, exposing gaps that `export-all` success alone cannot rule out. Scale and recovery gates
   remain open. Read-only gap exports now preserve raw bytes and reference context for targeted
-  adjudication. The native spec handoff now refuses partial dossiers and sends reviewed
-  behavioral facts through the regular Step 2 spec writer. It publishes a prose-only
-  schema 2 spec and keeps evidence and review links in a separate analyst audit artifact.
+  adjudication. The native spec handoff now persists a draft for partial dossiers, filters
+  structural and compiler-mechanics claims, and sends reviewed observable behavior through
+  the regular Step 2 spec writer. The prose-only schema 2 spec keeps evidence, omitted
+  claims, blockers, and review links in a separate analyst audit artifact. Drafts cannot
+  feed implementation.
   The reported telemetry dossier remains partial because 26 claims lack original case
   links. Spec quality, human containment review, and downstream implementation gates
   remain open. A bounded O2 executable pilot found that a semantic model and independent

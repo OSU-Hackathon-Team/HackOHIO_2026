@@ -197,18 +197,14 @@ Check whether a dossier is eligible for the cleanroom writer without a model cal
 python scripts/check_decomp_handoff.py --dossier-artifact <dossier-artifact-sha256>
 ```
 
-A dossier becomes `ready_for_spec` only after its blockers are resolved. The native
-specification command requires that status, static support and agreeing original cases
-for every claim, behavior phrased without raw register/address or vague helper details,
-current dependency contracts, and no unresolved scope edges. The
-sample telemetry dossier at revision 3 is partial (26 claims lack original case links),
-so the command now rejects it instead of publishing a misleading report.
-The handoff check lists unlinked claims by function and claim index. Analysts should
-revise source-level microclaims into observable behavioral claims where appropriate
-(using the reviewed semantic revision path above),
-run targeted original cases, and reassemble a dossier with justified links. Historical
-drafts remain in the analyst audit; unobservable instruction details do not belong in
-the new implementer requirements.
+The specification command persists a draft at each dossier revision, including partial
+revisions with no original cases. It selects reviewed observable claims and keeps structural
+analysis details, C++ runtime layout, omitted claims, and blockers in the private audit.
+The handoff check reports `draft` until functional behavior and original cases are sufficient.
+An incomplete draft cannot be adapted into an implementation input. Static instruction counts
+or callee names alone cannot establish what a `Clone` operation does; the semantic worker and
+independent reviewer now ask for caller-visible behavior. The same functional requirements
+can guide a C implementation even when the original binary came from C++.
 
 ```sh
 python launch.py spec --dossier-artifact <dossier-artifact-sha256>
@@ -217,13 +213,13 @@ python scripts/check_decomp_spec.py
 
 The command invokes the same configured Step 2 `spec_writer` engine used for source-tree
 features. It supplies reviewed behavioral facts and original input/output examples, then
-checks that every supported fact appears in the draft and that its prose contains no
+checks that every selected functional fact appears in the draft and that its prose contains no
 source-like text or type-declaration shorthand. It rejects deviations and exclusions
 without a supplied basis. The public JSON and Markdown under `decomp-state/specifications/<scope-id>/`
 contain an interface described in words, requirements, a high-level behavior outline,
 original examples, and acceptance criteria. They contain no C, assembly, TypeScript,
 executable tests, raw addresses, draft pseudocode, or review report details. An immutable
-`audit_artifact` separately holds evidence links, review and probe records, model identity,
+`audit_artifact` separately holds evidence links, omitted claims, blockers, review and probe records, model identity,
 and claim-to-requirement mappings for the analyst. Never give the audit artifact or dossier
 to an implementer. Repeating the command for the same dossier and writer revision reuses
 the artifact. A new writer revision or dossier produces a new artifact. A human must review
@@ -233,7 +229,7 @@ the result for behavioral completeness and cleanroom containment before implemen
 The Node backend exposes the public artifact through `POST /api/native-specs`
 (`{"dossier_artifact":"<sha256>"}`) and `GET /api/native-specs/<spec-artifact-sha256>`;
 set `DECOMP_STATE_DIR` when engine state is outside the repository. A partial dossier
-returns HTTP 409. Historical schema 1 spec artifacts are rejected by the API.
+returns a `draft` artifact. Historical schema 1 spec artifacts are rejected by the API.
 The analyst and implementer workflow, review gate, and rights checks are in
 [`docs/NATIVE_CLEANROOM_HANDOFF.md`](docs/NATIVE_CLEANROOM_HANDOFF.md).
 

@@ -218,8 +218,10 @@ Deliverables:
   validation status, and coverage fields explicitly.
 - A durable campaign/job API with separate create, status, result, and event-subscription operations.
   Transport disconnects must not silently discard durable work; cancellation is an explicit operation.
-- The regular Step 2 spec writer consumes reviewed behavioral facts and original examples only
-  after readiness gates pass. Render draft pseudocode for analysts in the dossier only.
+- The regular Step 2 spec writer consumes reviewed behavioral facts and available original
+  examples at each dossier revision. Persist incomplete output as a draft with blockers
+  in the analyst audit; promote only after readiness gates pass. Render draft pseudocode
+  for analysts in the dossier only.
   Publish prose requirements, a descriptive interface, high-level steps, acceptance criteria,
   and original input/output examples as the public implementer artifact.
 - Store citations, claim mappings, model/runtime provenance, reviews, and unresolved work in

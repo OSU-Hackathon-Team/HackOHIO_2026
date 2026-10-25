@@ -26,6 +26,15 @@ visible. Budget exhaustion produces a partial dossier, never a successful comple
 Readiness is relative to the declared boundary and evidence revision; it is not proof that
 all possible runtime behavior was discovered.
 
+Specification generation persists a draft for every dossier revision, even when original
+cases are unavailable. Only reviewed, observable claims become draft requirements;
+instruction counts, call-graph bookkeeping, virtual tables, and other compiler mechanics
+stay in the private audit. A draft cannot feed implementation. The spec is promoted to
+`ready_for_review` only after functional readiness gates pass and every included behavioral claim
+has an agreeing original case or an explicitly specified expectation. Requirements describe
+functional behavior independently of the source and destination languages; a C implementation
+of behavior recovered from C++ is valid.
+
 ## Current implementation and remaining design
 
 The Python engine now imports and indexes each binary by analysis identity, exports
