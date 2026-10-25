@@ -3,6 +3,7 @@
   "default": "amazon-bedrock/deepseek.v3.2",
   "roles": {
     "decomp_worker": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "decomp_orchestrator": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
     "decomp_reviewer": "amazon-bedrock/qwen.qwen3-32b-v1:0",
     "decomp_adjudicator": "amazon-bedrock/deepseek.v3.2",
     "decomp_watchdog": "amazon-bedrock/zai.glm-5",
@@ -13,6 +14,7 @@
     "legal_verification": "amazon-bedrock/anthropic.claude-opus-4-6-v1"
   },
   "role_notes": {
+    "decomp_orchestrator": "Task-level OpenCode agent choosing native pipelines and handing off a ready public spec.",
     "decomp_worker": "Python OpenCode/Ghidra worker (launch.py). Any OpenCode-supported model.",
     "spec_writer": "Splice spec_writer: Qwen3 Coder 480B via Bedrock Converse. Environment overrides remain supported.",
     "engine_writer": "Splice engine_writer: Qwen3 Coder 480B via Bedrock Converse. Environment overrides remain supported.",

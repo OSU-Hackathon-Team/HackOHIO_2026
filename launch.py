@@ -205,6 +205,33 @@ def dispatch_many(assignments: list[dict], max_workers: int = 2) -> list[Path]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+    task = sub.add_parser("task", help="let a task agent select native pipelines and dispatch a ready GUI spec")
+    task.add_argument("--task", required=True, help="user-level outcome to pursue")
+    task.add_argument("--input", type=Path, action="append", default=[],
+                      help="supplied original binary, package, or other task input; repeatable")
+    task.add_argument("--state", type=Path, default=ENGINE_STATE)
+    task.add_argument("--model", help="override the decomp_orchestrator model role")
+    task.add_argument("--opencode", type=Path,
+                      default=Path(os.environ.get("OPENCODE_BIN", "/run/opencode-bin")))
+    task.add_argument("--timeout", type=int, default=1800)
+    task.add_argument("--prepare-only", action="store_true",
+                      help="write the task prompt and capability inventory without a model call")
+    task.add_argument("--no-implementation", action="store_true",
+                      help="stop after a ready public specification")
+    gui = sub.add_parser("gui-implement", help="implement a ready public native spec as a Linux GUI")
+    gui.add_argument("--spec-artifact", action="append", required=True,
+                     help="ready public spec artifact; repeat for multiple subsystems")
+    gui.add_argument("--task", required=True)
+    gui.add_argument("--state", type=Path, default=ENGINE_STATE)
+    gui.add_argument("--model", help="override the engine_writer model role")
+    gui.add_argument("--runtime", choices=("podman", "docker"), default="podman")
+    gui.add_argument("--opencode", type=Path,
+                     default=Path(os.environ.get("OPENCODE_BIN", "/run/opencode-bin")))
+    gui.add_argument("--auth-file", type=Path,
+                     default=Path(os.environ.get("OPENCODE_AUTH_FILE", "/run/opencode-auth.json")))
+    gui.add_argument("--timeout", type=int, default=3600)
+    gui.add_argument("--prepare-only", action="store_true")
+    gui.add_argument("--build-image", action="store_true")
     analyze = sub.add_parser("analyze", help="import a native executable or shared library and index it")
     analyze.add_argument("--binary", type=Path, required=True)
     analyze.add_argument("--state", type=Path, default=ENGINE_STATE)
@@ -441,7 +468,34 @@ def main() -> None:
     batch.add_argument("--max-workers", type=int, default=2)
     sub.add_parser("list-models", help="print resolved role -> model table from models.json")
     args = parser.parse_args()
-    if args.command == "analyze":
+    if args.command == "task":
+        from engine.task_orchestrator import run_task
+        if not args.prepare_only:
+            check_container_guard("task")
+        result = run_task(args.task, args.input, args.state, args.opencode,
+                          model=args.model, timeout=args.timeout,
+                          prepare_only=args.prepare_only)
+        if (result["state"] == "ready_for_implementation" and
+                not args.no_implementation):
+            from engine.gui_workbench import run_gui_implementation
+            result["implementation"] = run_gui_implementation(
+                args.state, result["outcome"]["spec_artifacts"], args.task,
+                opencode=args.opencode, build=True)
+            (Path(result["run_dir"]) / "result.json").write_text(
+                json.dumps(result, indent=2) + "\n")
+        print(json.dumps(result, indent=2))
+        if result["state"] == "failed" or result.get("implementation", {}).get("state") == "failed":
+            raise SystemExit(1)
+    elif args.command == "gui-implement":
+        from engine.gui_workbench import run_gui_implementation
+        result = run_gui_implementation(
+            args.state, args.spec_artifact, args.task, model=args.model,
+            runtime=args.runtime, opencode=args.opencode, auth_file=args.auth_file,
+            timeout=args.timeout, prepare_only=args.prepare_only, build=args.build_image)
+        print(json.dumps(result, indent=2))
+        if result["state"] == "failed":
+            raise SystemExit(1)
+    elif args.command == "analyze":
         if not args.binary.is_file():
             raise FileNotFoundError(f"Binary file not found: '{args.binary}'")
         engine = GhidraAnalysis(args.state, check_headless(args.headless))

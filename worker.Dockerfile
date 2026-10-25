@@ -35,7 +35,8 @@ ARG REA_VERSION=6.7.0
 ARG OPENCODE_VERSION=1.19.4
 ARG LO_DEBUG_SYMBOLS=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      libreoffice-calc-nogui python3-uno binutils gdb ubuntu-dbgsym-keyring \
+      libreoffice-calc-nogui python3-uno binutils file gdb ubuntu-dbgsym-keyring \
+      xvfb xauth xdotool scrot \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g "rea-agents@${REA_VERSION}" "opencode-ai@${OPENCODE_VERSION}" \
     && /opt/venv/bin/pip install --no-cache-dir 'frida==17.2.17' \
