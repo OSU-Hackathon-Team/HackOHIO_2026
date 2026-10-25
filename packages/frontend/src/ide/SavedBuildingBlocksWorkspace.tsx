@@ -6,8 +6,9 @@ import { WorkspaceButton } from "./WorkspaceButton";
 
 export interface SavedLibrarySelection { analysisId: string; featureId?: string }
 
-export function SavedBuildingBlocksWorkspace({ selection, addedFeatureIds, onAdded }: {
+export function SavedBuildingBlocksWorkspace({ selection, addedFeatureIds, onAdded, onBlockSaved }: {
   selection: SavedLibrarySelection; addedFeatureIds: string[]; onAdded: (feature: NativeExtraction) => void;
+  onBlockSaved?: () => void;
 }) {
   const [analysis, setAnalysis] = useState<SavedAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -32,7 +33,7 @@ export function SavedBuildingBlocksWorkspace({ selection, addedFeatureIds, onAdd
           <div><dt className="text-xs text-stone-500">Evidence readiness</dt><dd className="mt-1">{analysis.result.readiness ?? "Unassessed"}</dd></div>
         </dl>
         <NativeExtractionPanel key={analysis.id} analysis={analysis} initialSelection={selection.featureId}
-          addedFeatureIds={addedFeatureIds} onAdded={onAdded} />
+          addedFeatureIds={addedFeatureIds} onAdded={onAdded} onBlockSaved={onBlockSaved} />
       </>}
   </div>;
 }

@@ -11,12 +11,16 @@ export const SavedAnalysisSummary = z.object({
 export const SavedFunction = z.object({
   entry: z.string(), name: z.string().nullable(), draft_state: z.string(), review_state: z.string().nullable(),
   decompilation: z.string().nullable(),
-  claims: z.array(z.object({ statement: z.string(), review: z.object({ outcome: z.string(), reason: z.string() }).nullable() })),
+  claims: z.array(z.object({ statement: z.string(), review: z.object({ outcome: z.string(), reason: z.string() }).nullable(),
+    // Blind predictions from this claim compared with public original cases (absent before linking existed).
+    case_links: z.array(z.object({ case_id: z.string(), agreement: z.boolean() })).optional() })),
   unknowns: z.array(z.string()),
 });
 export const SavedAnalysis = SavedAnalysisSummary.extend({
   schema: z.literal(1), functions: z.array(SavedFunction),
-  observed_cases: z.array(z.object({ id: z.string(), formula: z.string(), cells: z.record(z.unknown()).optional(), observed: z.unknown() })),
+  // formula: the readable invocation (a formula, or a command line); input: exactly what the oracle ran.
+  observed_cases: z.array(z.object({ id: z.string(), formula: z.string(), cells: z.record(z.unknown()).optional(),
+    input: z.unknown().optional(), observed: z.unknown() })),
   spec: NativeSubsystemSpec.nullable(),
 });
 export type SavedAnalysis = z.infer<typeof SavedAnalysis>;

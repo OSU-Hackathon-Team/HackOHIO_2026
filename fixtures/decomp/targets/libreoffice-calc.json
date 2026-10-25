@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "id": "libreoffice-calc",
+  "name": "LibreOffice Calc",
+  "description": "Formula evaluation in libsclo.so: runtime-seeded scope, reviewed claims, real LibreOffice oracle.",
+  "driver": "uno",
+  "library": "calc",
+  "cases": "fixtures/decomp/libreoffice/formula_cases.json",
+  "trace_patterns": ["*ScInterpreter*", "*ScCompiler*", "*FormulaCompiler*"],
+  "function_budgets": [20, 40],
+  "estimated_cost_usd": { "20": 0.6, "40": 1.5 },
+  "depth_by_budget": { "20": 2, "40": 3 },
+  "handoff": "libreoffice-formula"
+}

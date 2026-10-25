@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "id": "gnu-units",
+  "name": "GNU units",
+  "description": "Unit conversion and dimensional analysis in the units command-line program; the real program is the oracle.",
+  "driver": "cli",
+  "library": "units",
+  "install": { "apt": "units", "binary": "/usr/bin/units" },
+  "cases": "fixtures/decomp/cli/gnu_units_cases.json",
+  "trace_patterns": ["*"],
+  "function_budgets": [20, 30],
+  "estimated_cost_usd": { "20": 0.6, "30": 0.9 },
+  "depth_by_budget": { "20": 2, "30": 2 },
+  "handoff": "gnu-units"
+}

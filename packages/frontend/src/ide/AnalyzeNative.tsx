@@ -12,9 +12,9 @@ import { WorkspaceButton } from "./WorkspaceButton";
 
 const STAGE_LABELS: Record<string, string> = {
   queued: "Queued", uploading: "Packaging analysis code", instance_starting: "Starting the analysis worker",
-  setup: "Preparing tools", triage: "Observing LibreOffice at runtime", analyze: "Decompiling the observed functions",
+  setup: "Preparing tools", triage: "Observing the program at runtime", analyze: "Decompiling the observed functions",
   scope: "Choosing the functions to analyse", claims: "Drafting and reviewing behavior claims",
-  oracle: "Checking real LibreOffice results", dossier: "Assembling the evidence", spec: "Writing the specification",
+  oracle: "Checking results from the real program", dossier: "Assembling the evidence", spec: "Writing the specification",
   importing: "Importing results", complete: "Complete", failed: "Failed",
 };
 
@@ -22,6 +22,7 @@ export function AnalyzeNative() {
   const run = useIdeStore((s) => s.decompRun);
   const [targets, setTargets] = useState<DecompTarget[]>([]);
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [targetId, setTargetId] = useState<string | null>(null);
   const [budget, setBudget] = useState<number | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [unavailable, setUnavailable] = useState<string | null>(null);
@@ -32,6 +33,7 @@ export function AnalyzeNative() {
       .then((value) => {
         setEnabled(value.enabled);
         setTargets(value.targets);
+        setTargetId(value.targets[0]?.id ?? null);
         setBudget(value.targets[0]?.function_budgets[0] ?? null);
       })
       .catch((error) => {
@@ -42,7 +44,7 @@ export function AnalyzeNative() {
     return () => controller.abort();
   }, []);
 
-  const target = targets[0];
+  const target = targets.find((t) => t.id === targetId) ?? targets[0];
   if (!api.decompTargets) return null; // offline mock mode has no worker
   if (!target) {
     return (
@@ -95,6 +97,22 @@ export function AnalyzeNative() {
         </p>
       ) : (
         <div className="mt-3 flex flex-wrap items-center gap-2">
+          <label className="text-xs text-stone-400" htmlFor="decomp-target">Application</label>
+          <select
+            id="decomp-target"
+            className="rounded border border-stone-700 bg-stone-900 px-2 py-1 text-xs text-stone-200"
+            value={target.id}
+            disabled={running}
+            onChange={(e) => {
+              const next = targets.find((t) => t.id === e.target.value);
+              setTargetId(e.target.value);
+              setBudget(next?.function_budgets[0] ?? null);
+            }}
+          >
+            {targets.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}{t.driver === "cli" ? " (command line)" : ""}</option>
+            ))}
+          </select>
           <label className="text-xs text-stone-400" htmlFor="decomp-budget">Functions</label>
           <select
             id="decomp-budget"
@@ -120,7 +138,7 @@ export function AnalyzeNative() {
                     <>
                       <Heading slot="title" className="text-lg font-semibold">Start a decompilation run?</Heading>
                       <p className="mt-3 text-sm leading-6 text-stone-400">
-                        This starts the analysis worker and uses model calls for {budget} functions,
+                        This analyses {target.name}. It starts the analysis worker and uses model calls for {budget} functions,
                         estimated at <strong className="text-stone-200">${cost?.toFixed(2)}</strong>. It takes
                         about 10 to 20 minutes, and the worker stops itself when finished.
                       </p>
@@ -159,7 +177,7 @@ export function AnalyzeNative() {
             <div className="mt-3 space-y-1 text-stone-300">
               <p>
                 Evidence <strong>{run.result.readiness ?? "unknown"}</strong>
-                {" · "}LibreOffice agreed on {run.result.oracle.public_agreement} public and{" "}
+                {" · "}The original program confirmed {run.result.oracle.public_agreement} public and{" "}
                 {run.result.oracle.held_out_agreement} held-out cases
               </p>
               <p className="tabular-nums">

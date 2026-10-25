@@ -7,6 +7,7 @@ export const DecompTarget = z.object({
   name: z.string(),                     // "LibreOffice Calc"
   description: z.string(),
   library: z.string(),                  // engine library key, e.g. "calc" -> libsclo.so
+  driver: z.enum(["uno", "cli"]).optional(),  // how cases run; absent means uno (older backends)
   function_budgets: z.array(z.number().int().positive()),   // allowed max_functions values
   estimated_cost_usd: z.record(z.string(), z.number()),     // by budget, e.g. {"20": 0.5}
 });

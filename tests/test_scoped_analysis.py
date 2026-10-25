@@ -311,7 +311,7 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(handoff['functions'][1]['claims'], [])
         self.assertEqual(handoff['observed_cases'],
                          [{'id': 'add', 'formula': '=1+2', 'cells': {}, 'description': None,
-                           'observed': {'value': 3.0}}])
+                           'input': {'formula': '=1+2', 'cells': {}}, 'observed': {'value': 3.0}}])
         with tempfile.TemporaryDirectory() as temp:
             summary = {'library': 'calc', 'cases': {'public': 1, 'held_out': 1}, 'spec': None,
                        'dossier': {'readiness': 'partial', 'blockers': ['uncovered calls']}}

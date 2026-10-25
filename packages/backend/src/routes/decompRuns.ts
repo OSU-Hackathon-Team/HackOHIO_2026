@@ -27,9 +27,9 @@ export function defaultDecompRunService(): DecompRunService {
     runnerScript: async () => (await fs.readFile(path.join(REPO_ROOT, "infra", "decomp-ec2", "run-scoped-pipeline.sh"), "utf8"))
       .replace(/\r\n/g, "\n"),
     buildPayload: (outFile) => buildPayload(REPO_ROOT, outFile),
-    publishAnalysis: library ? (run, result, progress) => {
+    publishAnalysis: library ? (run, result, progress, target) => {
       if (!result.handoff_path) throw new Error("run has no public handoff to publish");
-      return publishImportedAnalysis(library, run, result, stateDir, path.join(REPO_ROOT, result.handoff_path), progress);
+      return publishImportedAnalysis(library, run, result, stateDir, path.join(REPO_ROOT, result.handoff_path), progress, target.name);
     } : undefined,
   });
 }

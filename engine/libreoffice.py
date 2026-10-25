@@ -212,37 +212,53 @@ class UnoDriver:
             process.kill()
 
 
+def formula_input(case: dict) -> dict:
+    return {"formula": case["formula"], "cells": case.get("cells", {})}
+
+
 def probe_report(store, cases: list[dict], observations: dict[str, dict], *,
                  binary_sha256: str, lo_version: str | None,
-                 targets: dict[str, str | None]) -> dict:
-    """Store one probe record per case and a report in engine.validation.probes' format."""
+                 targets: dict[str, str | None], kind: str = "uno_formula",
+                 case_input: Callable[[dict], dict] = formula_input,
+                 adapter: Path = UNO_DRIVER, match: Callable[[dict, dict], bool] | None = None,
+                 driver: str = "uno") -> dict:
+    """Store one probe record per case and a report in engine.validation.probes' format.
+
+    A case without an expected result records outcome "observed": the original program's
+    result is the oracle (command-line targets).
+    """
     runner_sha = file_hash(Path(__file__))
-    adapter_sha = file_hash(UNO_DRIVER)
+    adapter_sha = file_hash(adapter)
+    match = match or matches
     results = []
     for case in cases:
         reply = observations.get(case["id"], {})
         observed = reply.get("observed")
         error = reply.get("error")
+        expected = case.get("expected")
         if observed is None:
             outcome = "execution_error"
-            error = error or "no observation from LibreOffice"
+            error = error or "no observation from the original program"
+        elif expected is None:
+            outcome = "observed"
         else:
-            outcome = "agreement" if matches(case["expected"], observed) else "disagreement"
-        record = {"schema": 1, "case_id": case["id"], "kind": "uno_formula",
+            outcome = "agreement" if match(expected, observed) else "disagreement"
+        record = {"schema": 1, "case_id": case["id"], "kind": kind,
                   "target": targets.get(case["id"]), "binary_sha256": binary_sha256,
                   "runner_sha256": runner_sha, "adapter_sha256": adapter_sha,
-                  "input": {"formula": case["formula"], "cells": case.get("cells", {})},
+                  "input": case_input(case),
                   "input_description": case.get("input_description"),
-                  "expected": case["expected"], "observed": observed, "outcome": outcome,
+                  "expected": expected, "observed": observed, "outcome": outcome,
                   "error": error, "execution_mode": "original",
-                  "environment": {"lo_version": lo_version, "driver": "uno"}}
+                  "environment": {"lo_version": lo_version, "driver": driver}}
         artifact = store.put(json.dumps(record, sort_keys=True).encode())
         results.append({**record, "artifact": artifact})
     counts = {outcome: sum(item["outcome"] == outcome for item in results)
               for outcome in sorted({item["outcome"] for item in results})}
     suite_sha = hashlib.sha256(json.dumps(cases, sort_keys=True).encode()).hexdigest()
     report = {"schema": 1, "suite_sha256": suite_sha, "results": results, "counts": counts,
-              "complete": bool(results) and counts.get("agreement", 0) == len(results)}
+              "complete": bool(results) and
+              counts.get("agreement", 0) + counts.get("observed", 0) == len(results)}
     artifact = store.put(json.dumps(report, sort_keys=True).encode())
     return {**report, "artifact": artifact}
 

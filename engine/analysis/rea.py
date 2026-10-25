@@ -197,12 +197,20 @@ for (const address of targets.values()) {
     Interceptor.attach(address, { onEnter() { counts[offset] = (counts[offset] || 0) + 1; } });
   } catch (e) { delete names[offset]; }
 }
-setInterval(() => {
+const flush = () => {
   if (Object.keys(counts).length === 0) return;
   seq += 1;
   send({ type: "hits", seq: seq, hits: counts });
   counts = {};
-}, __FLUSH_MS__);
+};
+setInterval(flush, __FLUSH_MS__);
+// A short-lived spawned program can exit between intervals; flush its last counts on the way out.
+for (const name of ["exit", "_exit"]) {
+  try {
+    const f = Module.findGlobalExportByName ? Module.findGlobalExportByName(name) : Module.findExportByName(null, name);
+    if (f) Interceptor.attach(f, { onEnter: flush });
+  } catch (e) {}
+}
 send({ type: "ready", hooked: Object.keys(names).length, names: names });
 """
 
@@ -229,6 +237,39 @@ def script_messages(payload: object) -> list[dict]:
         if isinstance(inner, dict) and inner.get("type") in {"ready", "hits"}:
             found.append(inner)
     return found
+
+
+def spawn_triage(session: "ReaSession", cases: list[dict], *, program: str,
+                 argv_for: Callable[[dict], list[str]], module: str, patterns: list[str],
+                 image_base: int, offsets: dict[str, str] | None = None, limit: int = 1500,
+                 duration_ms: int = 3000) -> dict:
+    """Per case: spawn the program under Frida with that case's arguments and count entries.
+
+    For short-lived command-line programs, which cannot be attached to once and driven.
+    argv includes argv[0], as the program would receive it.
+    """
+    source = frida_hook_source(module, patterns, limit=max(limit, len(offsets or {})),
+                               flush_ms=50, offsets=offsets)
+    names: dict[str, str] = {}
+    observed = {}
+    for case in cases:
+        payload = session.call("instrument_with_frida", {
+            "mode": "spawn", "program": program, "argv": [program, *argv_for(case)],
+            "source_kind": "inline", "source": source, "duration_ms": duration_ms},
+            timeout=duration_ms / 1000 + 60)
+        counts: dict[str, int] = {}
+        for message in script_messages(payload):
+            if message["type"] == "ready":
+                names.update(message.get("names") or {})
+            for offset, count in (message.get("hits") or {}).items():
+                counts[offset] = counts.get(offset, 0) + int(count)
+        observed[case["id"]] = {"label": case["id"], "outcome": None, "hits": [
+            {"offset": offset, "entry": format(image_base + int(offset, 16), "08x"),
+             "name": names.get(offset, offset), "count": count}
+            for offset, count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]}
+    if not names:
+        raise RuntimeError(f"no functions in {module} matched {patterns}; are debug symbols installed?")
+    return {"hooked": len(names), "cases": observed}
 
 
 class RuntimeTracer:
