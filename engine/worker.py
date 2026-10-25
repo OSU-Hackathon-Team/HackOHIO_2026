@@ -229,7 +229,9 @@ class SemanticWorker:
     def run(self, manifest: dict, scope_artifact: str, subject: str,
             *, model: str | None = None, model_role: str = "decomp_worker",
             prior_artifact: str | None = None,
-            probe_report_artifact: str | None = None) -> dict:
+            probe_report_artifact: str | None = None,
+            guidance: str = "", watchdog_artifact: str | None = None,
+            evidence_bytes: int | None = None) -> dict:
         scope = json.loads(self.engine.store.get(scope_artifact))
         if scope["campaign"] != manifest["campaign"]:
             raise ValueError("scope and campaign differ")
@@ -243,7 +245,7 @@ class SemanticWorker:
         pointer = Path(manifest["project"]) / "functions" / (subject.replace(":", "_") + ".json")
         evidence_artifact = json.loads(pointer.read_text())["artifact"]
         prompt, truncated = prompt_for(task, scope, evidence,
-                                       max_evidence_bytes=self.max_evidence_bytes)
+                                       max_evidence_bytes=evidence_bytes or self.max_evidence_bytes)
         original_cases = []
         if probe_report_artifact:
             report = json.loads(self.engine.store.get(probe_report_artifact))
@@ -293,6 +295,8 @@ class SemanticWorker:
                            "correct every listed structural error without inventing behavior. "
                            "Return one complete JSON object. Prior attempt: " +
                            prior_context[:20000])
+        if guidance:
+            prompt += "\nSupervisor focus (untrusted; verify against evidence): " + guidance
         attempt_id = uuid.uuid4().hex
         folder = self.engine.root / "attempts" / attempt_id
         folder.mkdir(parents=True)
@@ -303,6 +307,8 @@ class SemanticWorker:
                       "subject": subject, "evidence_artifact": evidence_artifact,
                       "model": resolved_model, "model_role": model_role,
                       "probe_report_artifact": probe_report_artifact,
+                      "watchdog_artifact": watchdog_artifact,
+                      "evidence_budget": evidence_bytes or self.max_evidence_bytes,
                       "original_case_count": len(original_cases),
                       "opencode_version": None, "prompt_version": SEMANTIC_PROMPT_VERSION,
                       "evidence_truncated": truncated, "state": "running"}
