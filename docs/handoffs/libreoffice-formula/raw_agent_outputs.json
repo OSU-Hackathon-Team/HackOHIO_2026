@@ -1,0 +1,1777 @@
+[
+  {
+    "entry": "0049f990",
+    "name": "ScAttrArray::GetPattern(int) const",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "One implicit this pointer, one int parameter",
+      "outputs": "Pointer-sized value or null",
+      "state": "Object field array and nested object fields",
+      "side_effects": "None observed",
+      "errors": "Stack guard failure calls external handler",
+      "pseudocode": "if this->field3 != this->field2:\n  success = search_interval(this->field2, inputInt, &tmpIndex)\n  if success:\n    patternPtr = this->field2[tmpIndex].pattern\n  else:\n    patternPtr = NULL\nelse:\n  defaultItem = this->field1\n  maxIndex = defaultItem.derivedField0x10\n  if inputInt >= 0 and inputInt <= maxIndex:\n    patternPtr = call GetDefaultItem(defaultItem.vtableEntry0x60, 0x9c)\n  else:\n    patternPtr = NULL\nreturn patternPtr",
+      "claims": [
+        {
+          "statement": "Returns a stored pattern pointer when input index matches an interval in the primary array",
+          "evidence_addresses": [
+            "0049f9c2",
+            "0049f9cb",
+            "0049f9cf",
+            "0049f9d3"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Returns null when index search fails to find a matching interval",
+          "evidence_addresses": [
+            "0049f9c9",
+            "0049f9f0",
+            "0049f9f2"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Uses secondary object access when primary array pointers are equal",
+          "evidence_addresses": [
+            "0049f9f8",
+            "0049f9fc",
+            "0049fa03"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Returns default item pattern when using secondary path and index is within bounds",
+          "evidence_addresses": [
+            "0049fa20"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Returns null when using secondary path and index is out of bounds",
+          "evidence_addresses": [
+            "0049fa06",
+            "0049fa0a",
+            "0049f9f0"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "search_interval",
+          "contract": "Searches array of intervals and returns success flag and index",
+          "evidence_addresses": [
+            "0049f9c2"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "stack_check_handler",
+          "contract": "Handles stack corruption failures",
+          "evidence_addresses": [
+            "0049fa25"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Exact type of returned pattern pointer",
+        "Structure of ScAttrArray fields beyond array access",
+        "Meaning of constant 0x9c in GetDefaultItem call",
+        "Complete specification of GetDefaultItem behavior"
+      ],
+      "evidence_requests": [
+        "Declaration and structure of ScAttrArray type",
+        "Declaration of search_interval function",
+        "Specification of GetDefaultItem contract"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "At address 0049f9c9, JZ 0x0049f9f0 conditionally skips returning a pattern when AL=0 after the CALL at 0049f9c2. At 0049f9cb, RAX is loaded with a value from stack local [-0x28]. Then at 0049f9cf and 0049f9d3, RAX is used to compute an offset into [RBX] and load a pointer result into RAX which is ultimately returned. This confirms that when input index matches an interval in the primary array, a stored pattern pointer is returned.",
+          "evidence_addresses": [
+            "0049f9c2",
+            "0049f9c7",
+            "0049f9c9",
+            "0049f9cb",
+            "0049f9cf",
+            "0049f9d3"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "supported_static",
+          "reason": "At 0049f9c7, TEST AL,AL sets flags based on the result of the called function at 0049f9c2. At 0049f9c9, JZ 0x0049f9f0 jumps to a block initializing RAX=0 (at 0049f9f0). The JMP at 0049f9f2 leads to the epilogue where RAX=0 is returned, confirming null is returned when index search fails.",
+          "evidence_addresses": [
+            "0049f9c7",
+            "0049f9c9",
+            "0049f9f0",
+            "0049f9f2"
+          ]
+        },
+        {
+          "claim_index": 2,
+          "outcome": "supported_static",
+          "reason": "The CMP at 0049f9b0 tests equality of [RDI+0x18] and RBX (loaded from [RDI+0x10]). The JZ 0x0049f9f8 at 0049f9b4 jumps to a path where RDI is reloaded from [RDI+0x8] (0049f9f8), and further operations occur (e.g., loading RAX from [RDI+0xd0] at 0049f9fc). This confirms that a secondary object is accessed when the two primary array pointers are equal.",
+          "evidence_addresses": [
+            "0049f9b0",
+            "0049f9b4",
+            "0049f9f8",
+            "0049f9fc"
+          ]
+        },
+        {
+          "claim_index": 3,
+          "outcome": "uncertain",
+          "reason": "Claim depends on what is returned from 005e2f80 jumped to at 0049fa20. Since that target is external and not analyzed in provided raw evidence, its behavior cannot be confirmed statically here. Therefore, the claim cannot be evaluated with available evidence.",
+          "evidence_addresses": [
+            "0049fa20"
+          ]
+        },
+        {
+          "claim_index": 4,
+          "outcome": "supported_static",
+          "reason": "In the secondary path starting at 0049f9f8, the comparison at 0049fa03 checks if ESI (input index) exceeds [RAX+0x10]. JG 0x0049f9f0 at 0049fa06 handles index > bound case. JS 0x0049f9f0 at 0049fa0a handles negative indices. Both lead to setting RAX=0 (at 0049f9f0) and returning. This confirms null is returned for out-of-bounds indices in the secondary path.",
+          "evidence_addresses": [
+            "0049f9f8",
+            "0049fa03",
+            "0049fa06",
+            "0049fa08",
+            "0049fa0a",
+            "0049f9f0"
+          ]
+        }
+      ],
+      "missing_behavior": [
+        "Function calls external helper 0x0049f8e0 to process input index during primary path but provides no local implementation details for how the interval match is computed",
+        "Function calls external helper 0x00374ed0 at epilogue (addresses 0049fa25 and others) possibly for stack canary checking or error handling, not captured in return semantics",
+        "Exact structure layout and meaning of fields in [RDI+0x10], [RDI+0x18], [RDI+0x8], and [RDI+0xd0] are not specified locally despite their usage influencing control flow"
+      ],
+      "unresolved": [
+        "Behavior and return value of callee at 005e2f80 jumped to from 0049fa20 needed to confirm claim 3 about default item pattern return",
+        "Internal contract and behavior of func_0x0049f8e0 called at 0049f9c2 which affects whether the primary pattern lookup path succeeds or fails"
+      ]
+    }
+  },
+  {
+    "entry": "005a0830",
+    "name": "ScValueIterator::ScValueIterator(ScInterpreterContext&, ScRange const&, SubtotalFlags, bool)",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "Five parameters: an ScInterpreterContext reference, an ScRange reference, SubtotalFlags integer, and a boolean",
+      "outputs": "None (constructor initializes object state)",
+      "state": "ScValueIterator object initialized with contextual data including range bounds, document configuration flags, table constraints, and normalization metadata",
+      "side_effects": "None observed directly from this function; initialization occurs in private memory space without external interaction",
+      "errors": "No explicit error path shown in control flow",
+      "pseudocode": "Initialize iterator fields from context and range. Normalize row/column/sheet indices based on document boundaries.",
+      "claims": [],
+      "dependencies": [
+        {
+          "target": "_ZNK10ScDocument13GetDocOptionsEv",
+          "contract": "Returns pointer to document-specific configuration options.",
+          "evidence_addresses": [
+            "005a088c"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZNK10ScDocument13GetTableCountEv",
+          "contract": "Returns total count of sheets in the current document as a short integer.",
+          "evidence_addresses": [
+            "005a08e4"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Semantics of the SubtotalFlags input affecting behavior outside this constructor",
+        "Functional meaning of stored byte at offset 0x3e and word at offset 0x3f in relation to overall iteration logic",
+        "Purpose of clamping comparisons (e.g., against 0x270f) applied to sheet indices",
+        "Exact use of initial zero-initialized wide fields at offsets 0x48, 0x58–0xa0 in subsequent processing"
+      ],
+      "evidence_requests": [
+        "Documentation explaining the role of the SubtotalFlags parameter in higher-level spreadsheet evaluation contexts",
+        "Observations showing access patterns to the initialized iterator object after construction",
+        "Definition of the structure returned by _ZNK10ScDocument13GetDocOptionsEv revealing significance of offset 0x1e"
+      ]
+    },
+    "review": {
+      "reviews": [],
+      "missing_behavior": [
+        "The function initializes multiple fields of the ScValueIterator object with zeros or specific constants, such as setting offsets 0x10, 0x18, 0x30, 0x48, 0x78, 0xb0 to zero, and offset 0x50 to 0xffffffff.",
+        "The function combines two bytes (uVar1 from callee and param_5) into a ushort stored at offset 0x3f using CONCAT11-like behavior via MOV AH, CL instruction.",
+        "The function performs bounds adjustment logic on several member variables including clamping values based on comparisons with limits derived from document/table properties.",
+        "The function calls two external functions (_ZNK10ScDocument13GetDocOptionsEv and _ZNK10ScDocument13GetTableCountEv) whose results influence internal state assignments."
+      ],
+      "unresolved": [
+        "_ZNK10ScDocument13GetDocOptionsEv",
+        "_ZNK10ScDocument13GetTableCountEv"
+      ]
+    }
+  },
+  {
+    "entry": "005bbdf0",
+    "name": "ScDocument::GetDocOptions() const",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "One implicit `this` parameter pointing to a ScDocument instance",
+      "outputs": "Returns an 8-byte value read from offset 0x210 relative to the input object",
+      "state": "The function accesses internal state of the ScDocument object at a fixed offset",
+      "side_effects": "No side effects observed",
+      "errors": "No explicit error path detected",
+      "pseudocode": "return this->docOptions; // where docOptions is at offset 0x210",
+      "claims": [
+        {
+          "statement": "The function retrieves a value stored within the ScDocument object at a fixed byte offset",
+          "evidence_addresses": [
+            "005bbdf4"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [],
+      "unknowns": [
+        "The semantic meaning of the returned value at offset 0x210",
+        "Whether the value represents a pointer, integer, or structured data",
+        "If the offset 0x210 is part of a stable ABI or subject to change",
+        "Any concurrency or synchronization guarantees around the accessed field"
+      ],
+      "evidence_requests": []
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "The instruction at 005bbdf4 directly loads a value from a fixed offset (0x210) relative to the input parameter stored in RDI into RAX, which is the return register. This matches the claim that the function retrieves a value stored within the ScDocument object at a fixed byte offset.",
+          "evidence_addresses": [
+            "005bbdf4"
+          ]
+        }
+      ],
+      "missing_behavior": [],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "005d9db0",
+    "name": "ScDocument::GetTableCount() const",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "One implicit `this` parameter pointing to a ScDocument instance",
+      "outputs": "A signed 64-bit integer representing the table count",
+      "state": "The ScDocument object’s internal state containing two 64-bit fields at offsets 0xb8 and 0xc0",
+      "side_effects": "No side effects",
+      "errors": "No explicit error path",
+      "pseudocode": "result = (this[0xc0] - this[0xb8]) >> 3",
+      "claims": [
+        {
+          "statement": "Returns the difference between two object fields shifted right by three bits",
+          "evidence_addresses": [
+            "005d9db4",
+            "005d9dbb",
+            "005d9dc2"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [],
+      "unknowns": [
+        "The semantic meaning of the fields at offsets 0xb8 and 0xc0",
+        "Whether the shift operation implies an array length calculation or other structured data interpretation",
+        "If the input pointer is validated elsewhere or can lead to undefined behavior if misaligned or null"
+      ],
+      "evidence_requests": [
+        "Documentation or code showing how the ScDocument class initializes and uses the fields at offsets 0xb8 and 0xc0",
+        "Definition of ScDocument class layout including member names and types for offsets 0xb8 and 0xc0"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "The instruction sequence at 005d9db4 (MOV), 005d9dbb (SUB), and 005d9dc2 (SAR) directly implements the claimed behavior: loading two qword fields from offset 0xc0 and 0xb8 respectively, computing their difference, and shifting the result right by 3 bits. The final value is returned via RAX as expected.",
+          "evidence_addresses": [
+            "005d9db4",
+            "005d9dbb",
+            "005d9dc2"
+          ]
+        }
+      ],
+      "missing_behavior": [],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "005db6d0",
+    "name": "ScDocument::HasTable(short) const",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "A document pointer and a table index",
+      "outputs": "A boolean indicating whether the document contains the specified table",
+      "state": "Document table registry and count",
+      "side_effects": "None",
+      "errors": "No handling for invalid document pointers or memory access issues",
+      "pseudocode": "if (table_index > 9999) return false; table_count = GetTableCount(); if (table_index >= table_count) return false; table_array = document->tables; return table_array[table_index] != null;",
+      "claims": [
+        {
+          "statement": "Returns false when table index exceeds 9999",
+          "evidence_addresses": [
+            "005db6d4",
+            "005db6d9",
+            "005db6db"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Returns false when table index is greater than or equal to table count",
+          "evidence_addresses": [
+            "005db6f1",
+            "005db6f4",
+            "005db6f6",
+            "005db6f7"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Returns true when the table entry at the given index is non-null",
+          "evidence_addresses": [
+            "005db70c",
+            "005db712"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "_ZNK10ScDocument13GetTableCountEv",
+          "contract": "Provides the number of tables in the document",
+          "evidence_addresses": [
+            "005db6ec"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "The signedness or exact width of internal table count comparisons"
+      ],
+      "evidence_requests": []
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "Instruction 005db6d4 compares SI (param_2) with 0x270f (decimal 9999). The JBE at 005db6d9 branches to success path; falling through leads directly to XOR EAX,EAX (zero return) and RET at 005db6dd. This confirms immediate false return for inputs exceeding 9999.",
+          "evidence_addresses": [
+            "005db6d4",
+            "005db6d9",
+            "005db6db",
+            "005db6dd"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "contradicted",
+          "reason": "At 005db6f1, AX holds the result of a call to GetTableCount(), which is compared against BX (the input param_2). The conditional jump JG at 005db6f4 jumps on 'AX > BX' to the true path starting 005db700. Falling through executes XOR EAX,EAX and returns 0 when AX <= BX. Hence, equality (index >= table count) causes a false return as claimed. However, inspection reveals that equality is not excluded — indeed it's handled correctly: e.g., param_2=10 and GetTableCount() returning 10 will take the fallthrough path that zeroes EAX and returns 0. Thus this matches the claim semantically. Correction: upon re-evaluation, this statement actually aligns with the control flow since index >= GetTableCount implies (AX <= BX), leading to EAX=0 via XOR, validating the claim. It was misclassified initially; correcting now to supported_static based purely on static match.",
+          "evidence_addresses": [
+            "005db6f1",
+            "005db6f4",
+            "005db6f7",
+            "005db6fc"
+          ]
+        },
+        {
+          "claim_index": 2,
+          "outcome": "supported_static",
+          "reason": "Control reaches 005db70c where [RAX + RBX*0x8] is checked for non-zero. SETNZ AL sets AL=1 if nonzero, otherwise 0. Subsequent RET uses full RAX as return value, so only low byte matters but whole register returned by ABI convention. Matches behavior: true iff entry is non-null.",
+          "evidence_addresses": [
+            "005db70c",
+            "005db712",
+            "005db718"
+          ]
+        }
+      ],
+      "missing_behavior": [],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "005ddbb0",
+    "name": "ScDocument::GetNumberFormat(ScInterpreterContext const&, ScAddress const&) const",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "A ScDocument instance, a ScInterpreterContext reference, and a ScAddress reference containing sheet, column, and row coordinates",
+      "outputs": "Returns a ulong representing a display format identifier for the cell's content",
+      "state": "The document's sheet existence and bounds; cell attribute patterns; interpreter's format cache under threading",
+      "side_effects": "None",
+      "errors": "Returns zero if sheet index is invalid or row/column coordinates fall outside the sheet's limits",
+      "pseudocode": "if !document.contains_sheet(address.sheet):\n  return 0\nsheet = document.sheets[address.sheet]\nif !(0 <= address.row < sheet.row_limit and 0 <= address.column < sheet.column_limit):\n  return 0\ncached_format_key = sheet.cell_attributes[address.row][address.column].get_cached_number_format()\nif cached_format_key.valid() and context.is_thread_cache_active():\n  thread_cached_id = context.lookup_cached_format(cached_format_key)\n  if thread_cached_id.found: return thread_cached_id.value\nresolved_id = global_formatter.resolve_builtin_format(cached_format_key)\nreturn resolved_id",
+      "claims": [],
+      "dependencies": [
+        {
+          "target": "_ZNK10ScDocument8HasTableEs",
+          "contract": "Takes a sheet index and returns whether that sheet exists in the document",
+          "evidence_addresses": [
+            "005ddbd0"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Signedness and bit width of ScAddress row and column fields",
+        "Caching policy and key composition used in ScInterpreterContext",
+        "Detailed control flow through secondary format resolution branches",
+        "Structure and validity criteria of cell pattern metadata",
+        "Public API behavior of SvNumberFormatter language-aware resolution",
+        "The available evidence does not establish the caller-visible effects of the omitted implementation mechanics."
+      ],
+      "evidence_requests": [
+        "Precise type and signedness of row and column members of ScAddress",
+        "Specification of format caching logic in ScInterpreterContext including key generation rules",
+        "Conditions triggering lookup versus global resolution paths in threaded mode",
+        "Cell pattern internal layout and number format property encoding",
+        "Complete contract for SvNumberFormatter.GetFormatForLanguageIfBuiltIn including error modes",
+        "Inspect the called functions and execute original cases that expose the returned value and state changes."
+      ]
+    },
+    "review": {
+      "reviews": [],
+      "missing_behavior": [
+        "The function accesses a table structure based on input indices but does not validate upper bounds beyond null checks, potentially allowing out-of-bounds reads.",
+        "The function conditionally calls external functions but does not handle or document potential side effects or errors from those calls.",
+        "Significant control flow depends on global state (_ZN8ScGlobal28bThreadedGroupCalcInProgressE) which is not documented or constrained within this function’s scope."
+      ],
+      "unresolved": [
+        "_ZNK10ScDocument8HasTableEs",
+        "_ZNK11ScAttrArray10GetPatternEi",
+        "func_0x00374d20",
+        "_ZN17SvNumberFormatter29GetFormatForLanguageIfBuiltInEjN4o3tl10strong_intIt15LanguageTypeTagEE"
+      ]
+    }
+  },
+  {
+    "entry": "00722c30",
+    "name": "ScTable::GetNumberFormat(ScInterpreterContext const&, ScAddress const&) const",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "One ScTable instance pointer, one ScInterpreterContext reference, and one ScAddress reference containing column and row coordinates",
+      "outputs": "Returns an unsigned long integer representing a number format code derived from cell pattern data",
+      "state": "Reads table dimensions and column arrays from the ScTable instance; accesses pattern data through ScAttrArray instances; reads interpreter context including thread-local formatting overrides",
+      "side_effects": "No observable side effects",
+      "errors": "No explicit error path, returns zero for negative or out-of-bounds coordinates",
+      "pseudocode": "if (column < 0 OR column >= max_column) return 0; if (row < 0 OR row >= max_row) return 0; pattern = get_cell_pattern(column, row); return extract_number_format(pattern)",
+      "claims": [
+        {
+          "statement": "Returns zero when the column index from ScAddress is less than zero",
+          "evidence_addresses": [
+            "00722c4d",
+            "00722c50"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Returns zero when the row index from ScAddress is less than zero",
+          "evidence_addresses": [
+            "00722c65",
+            "00722c67"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Returns zero when the column index from ScAddress is greater than or equal to the table's maximum column count",
+          "evidence_addresses": [
+            "00722c47",
+            "00722c4b"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Returns zero when the row index from ScAddress is greater than or equal to the table's maximum row count",
+          "evidence_addresses": [
+            "00722c60",
+            "00722c63"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Computes a cell-specific number format identifier by accessing pattern information based on column and row indices",
+          "evidence_addresses": [
+            "00722c83",
+            "00722c87",
+            "00722c8a"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "_ZNK11ScAttrArray10GetPatternEi",
+          "contract": "Returns formatting pattern object for a specified row within an attribute array",
+          "evidence_addresses": [
+            "00722c8a"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Exact mapping from pattern objects to final number format codes",
+        "Behavioral significance of conditional branching at 00722c9a leading to an external jump target",
+        "Role of SvNumberFormatter interaction and language-tag handling in final output selection"
+      ],
+      "evidence_requests": [
+        "Specification of ScTable member layout especially concerning column storage offsets near 0x1b8 and 0x330",
+        "Definition of ScAttrArray pattern structure and its relation to number formatting properties",
+        "Semantic meaning of magic constants 0x92 and 0x93 passed to func_0x00374d20 during pattern interpretation"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "At 00722c4d, TEST AX,AX is performed followed by JS at 00722c50 which jumps to 00722cb0 where XOR EAX,EAX sets return value to zero. This confirms returning zero when column index (AX) is less than zero.",
+          "evidence_addresses": [
+            "00722c4d",
+            "00722c50",
+            "00722cb0",
+            "00722cb2"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "supported_static",
+          "reason": "At 00722c65, TEST ESI,ESI is performed followed by JS at 00722c67 which jumps to 00722ca0 where XOR EAX,EAX sets return value to zero. This confirms returning zero when row index (ESI) is less than zero.",
+          "evidence_addresses": [
+            "00722c65",
+            "00722c67",
+            "00722ca0",
+            "00722ca7"
+          ]
+        },
+        {
+          "claim_index": 2,
+          "outcome": "supported_static",
+          "reason": "At 00722c47, CMP AX,word ptr [RCX + 0xc] compares column index with max column count, then JG at 00722c4b jumps to 00722cb0 where XOR EAX,EAX returns zero. Thus, return zero when column index >= max column count.",
+          "evidence_addresses": [
+            "00722c47",
+            "00722c4b",
+            "00722cb0",
+            "00722cb2"
+          ]
+        },
+        {
+          "claim_index": 3,
+          "outcome": "supported_static",
+          "reason": "At 00722c60, CMP ESI,dword ptr [RCX + 0x10] compares row index with max row count, then JG at 00722c63 jumps to 00722ca0 where XOR EAX,EAX sets return to zero. Thus, returns zero for row index >= max row count.",
+          "evidence_addresses": [
+            "00722c60",
+            "00722c63",
+            "00722ca0",
+            "00722ca7"
+          ]
+        },
+        {
+          "claim_index": 4,
+          "outcome": "uncertain",
+          "reason": "The claim references computation via pattern access using col/row indices, pointing to instructions like MOV RDI,qword ptr [RCX + RAX*0x8] (00722c83), and subsequent CALL at 00722c8a. However, specific linkage between these ops and number format derivation isn't directly shown without callee analysis. There's no explicit mapping of the pattern data usage or how it relates numerically to a number format ID within the current listing boundaries.",
+          "evidence_addresses": [
+            "00722c83",
+            "00722c87",
+            "00722c8a"
+          ]
+        }
+      ],
+      "missing_behavior": [
+        "Function accesses ScAttrArray::GetPattern and performs conditional logic involving SvNumberFormatter::GetFormatForLanguageIfBuiltIn, but neither is documented in the behavioral claims despite being part of execution flow.",
+        "Return value may involve merging upper and lower parts of uVar4 and uVar2 into a single return due to shift/or operation ((ulong)uVar4 << 0x20 | (ulong)uVar2), which is not captured in behavioral description."
+      ],
+      "unresolved": [
+        "_ZNK11ScAttrArray10GetPatternEi called at 00722c8a not analyzed for internal behavior impact",
+        "_ZN17SvNumberFormatter29GetFormatForLanguageIfBuiltInEjN4o3tl10strong_intIt15LanguageTypeTagEE call implications unresolved"
+      ]
+    }
+  },
+  {
+    "entry": "0077de00",
+    "name": "ScRange::Parse(rtl::OUString const&, ScDocument const&, ScAddress::Details const&, ScAddress::ExternalInfo*, com::sun::star::uno::Sequence<com::sun::star::sheet::ExternalLinkInfo> const*, rtl::OUString const*)",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "Pointer to ScRange output structure, reference to input string, document context, address details configuration, optional external link information, and supplementary link metadata sequence",
+      "outputs": "Returns status code as unsigned integer reflecting overall parse outcome; modifies target ScRange with resolved coordinates and metadata flags",
+      "state": "The ScRange object maintains start/end sheet-row-column coordinates plus bitflags tracking parsing modes applied during resolution. Document context constrains valid ranges.",
+      "side_effects": "Updates the output ScRange record with parsed boundary values, flag fields indicating resolution completeness and detected reference modes including relative/absolute designations",
+      "errors": "Returns zero when input has no characters or when core structural checks reject components during delimited dual-parse. Stack guard mismatches abort to external failure handler",
+      "pseudocode": "IF input.length == 0 THEN RETURN 0 END\nIF address_details.type == 3 THEN forward_with_null_range()\nELSIF address_details.type IN {2,4} THEN simple_parse_via_call()\nELSE colon_index = locate_unquoted_colon()\n     IF colon_index == -1 THEN RETURN 0 END\n     prepare_substring_regions()\n     left_result = parse_single_address()\n     right_result = parse_single_address()\n     IF either_parse_failed(left,right) THEN return_code = 0\n     ELSE adjust_relative_flags()\n          normalize_ordering()\n          finalize_flags_based_on_modes()\n          return_code = composed_status(left,right)\n     END\nEND\nRETURN return_code",
+      "claims": [
+        {
+          "statement": "Returns numerical zero immediately without altering output range when initial input length equals zero",
+          "evidence_addresses": [
+            "0077de32",
+            "0077de35",
+            "0077dee0",
+            "0077dee2"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Returns numerical zero when fundamental parse operations signal invalid syntax or structure in substring components post-separation",
+          "evidence_addresses": [
+            "0077df84",
+            "0077df87",
+            "0077e180",
+            "0077e182"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "?",
+          "contract": "Finds earliest position of ASCII colon not surrounded by even quotes using reverse-skipping heuristic",
+          "evidence_addresses": [
+            "0077de61"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "?",
+          "contract": "Resolves basic standalone address expression formats either treating entire input as one part or splitting known two-part forms simply before calling subordinate resolution logic once",
+          "evidence_addresses": [
+            "0077df01"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "?",
+          "contract": "Copies Unicode codepoints bounded by input segment offsets into scratch temporary buffer memory space with null termination",
+          "evidence_addresses": [
+            "0077df3a"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "?",
+          "contract": "Determines individual element address validity setting corresponding ScRefFlags bits reflecting discovered addressing mode characteristics",
+          "evidence_addresses": [
+            "0077df78",
+            "0077dfd6"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "?",
+          "contract": "Deallocates dynamic storage previously allocated through runtime allocator for local work buffers avoiding leaks on all exit paths",
+          "evidence_addresses": [
+            "0077e107"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Internal format and semantics of returned status number combining multiple component outcomes",
+        "Execution consequences from jump destination 0077d5c0 bypassing regular return pipeline",
+        "Purpose and usage pattern of passed-in external info pointer and linked metadata sequence within primary algorithmic decision points",
+        "Activation scenarios causing conditional branch leading towards trap label 003a2c72",
+        "Significance differences between other potential values the 'address details type' discriminator might hold outside sample occurrences",
+        "The available evidence does not establish the caller-visible effects of the omitted implementation mechanics."
+      ],
+      "evidence_requests": [
+        "Behavioral interfaces for each named callable symbol referenced indirectly but never shown in full here particularly those indexed at call sites listed",
+        "Execution traces covering edge-case malformed strings failing intermediate steps exposing more specifics about fault detection timing",
+        "Content snapshot comparisons made between validly-processed versus rejected outputs enabling insight into partial success scenarios",
+        "Comprehensive documentation describing all recognized classifications the address detail identifier supports throughout its domain",
+        "Inspect the called functions and execute original cases that expose the returned value and state changes."
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "The function tests if the input length (dword ptr [RSI + 0x4]) is zero at address 0077de32, and jumps to 0077dee0 where it sets EAX to zero and returns immediately via 0077de78. This matches the claimed behavior.",
+          "evidence_addresses": [
+            "0077de32",
+            "0077de35",
+            "0077dee0",
+            "0077dee2"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "supported_static",
+          "reason": "At address 0077df84, the function tests the result of a parsing operation (AX register). If the test result is not zero (indicating a valid parse), it continues processing. If the test result is zero, it proceeds through conditions checking flags (addresses 0077df93, 0077df9f) before eventually jumping to 0077e180 on certain condition failures, where EAX is set to zero and it jumps to exit. This supports the claim that it returns numerical zero when parsing fails due to invalid syntax or structure.",
+          "evidence_addresses": [
+            "0077df84",
+            "0077df87",
+            "0077e180",
+            "0077e182"
+          ]
+        }
+      ],
+      "missing_behavior": [],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "007b5220",
+    "name": "(anonymous namespace)::ConventionOOO_A1::getSpecialSymbol(ScCompiler::Convention::SpecialSymbolType) const",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "One implicit this pointer, one integer parameter",
+      "outputs": "Returns a single 64-bit value representing a special symbol character code",
+      "state": "No observable state mutations",
+      "side_effects": "No side effects",
+      "errors": "No explicit error path",
+      "pseudocode": "function getSpecialSymbol(symbolType):\n  if symbolType == 0:\n    return 0x2e\n  else if symbolType == 1:\n    return 0x24\n  else:\n    return 0",
+      "claims": [
+        {
+          "statement": "Returns decimal point character code 46 when the input symbol type equals zero",
+          "evidence_addresses": [
+            "007b5224",
+            "007b5229",
+            "007b522b"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Returns dollar sign character code 36 when the input symbol type equals one",
+          "evidence_addresses": [
+            "007b522d",
+            "007b5230",
+            "007b523a"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Returns zero for all input symbol types greater than one",
+          "evidence_addresses": [
+            "007b522d",
+            "007b5235",
+            "007b523a"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [],
+      "unknowns": [
+        "Whether the returned value represents ASCII character codes or some other encoding",
+        "The semantic meaning of SpecialSymbolType values beyond 0 and 1",
+        "Whether negative input values follow the same return pattern as positive values > 1"
+      ],
+      "evidence_requests": []
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "When ESI (input symbol type) is zero, instruction at 007b5229 (TEST ESI,ESI) sets ZF=1 and the JZ at 007b522b jumps to 007b523d. At 007b5224, EAX was set to 0x2e (decimal 46). No further modifications occur on this path before RET at 007b523d. This supports returning 46 when input equals 0.",
+          "evidence_addresses": [
+            "007b5224",
+            "007b5229",
+            "007b522b",
+            "007b523d"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "supported_static",
+          "reason": "When ESI == 1, TEST ESI,ESI (007b5229) clears ZF, so the JZ at 007b522b falls through. Then CMP ESI,0x1 (007b522d) sets ZF=1 and MOV EAX,0x24 (007b5230) loads 36 into EAX. CMOVNZ EAX,EDX (007b523a) does not execute since ZF=1. RET at 007b523d returns 36.",
+          "evidence_addresses": [
+            "007b5229",
+            "007b522b",
+            "007b522d",
+            "007b5230",
+            "007b523a",
+            "007b523d"
+          ]
+        },
+        {
+          "claim_index": 2,
+          "outcome": "supported_static",
+          "reason": "When ESI > 1 (e.g., ESI=2), TEST ESI,ESI (007b5229) clears ZF causing fall-through at 007b522b. CMP ESI,0x1 (007b522d) clears ZF since ESI!=1. Thus, CMOVNZ EAX,EDX (007b523a) executes and copies EDX (set to 0 at 007b5235) into EAX before RET at 007b523d.",
+          "evidence_addresses": [
+            "007b5229",
+            "007b522b",
+            "007b522d",
+            "007b5235",
+            "007b523a",
+            "007b523d"
+          ]
+        }
+      ],
+      "missing_behavior": [],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "007bd200",
+    "name": "ScCompiler::ParseDoubleReference(rtl::OUString const&, rtl::OUString const*)",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "Three parameters passed via RDI, RSI, RDX registers; first is a pointer to ScCompiler instance; second is a pointer to OUString; third is a pointer to output buffer",
+      "outputs": "Returns an unsigned long in RAX; writes parsed reference data to memory location pointed to by third parameter",
+      "state": "Internal stack-based working storage for parsing state including sheet limits, range data, address structures, and temporary flags",
+      "side_effects": "Writes parsed reference information to output buffer; may allocate or reallocate internal document arrays for external references; modifies compiler's external reference tables",
+      "errors": "Negative return values indicate parse failure; accesses memory via pointers which may be null or invalid leading to segmentation faults; stack canary check failures cause jumps to error handlers",
+      "pseudocode": "if (parse_range(input_string, document_context, range_output)) < 0 { initialize_single_refs(); set_range_flags(); configure_sheet_references(); update_document_external_refs(); } else { store_simple_reference(); }",
+      "claims": [
+        {
+          "statement": "Function parses spreadsheet cell range references from string input and stores structured results",
+          "evidence_addresses": [
+            "007bd2b9"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "_ZN7ScRange5ParseERKN3rtl8OUStringERK10ScDocumentRKN9ScAddress7DetailsEPNS7_12ExternalInfoEPKN3com3sun4star3uno8SequenceINSF_5sheet16ExternalLinkInfoEEEPS2_",
+          "contract": "Parse textual cell range into structured representation",
+          "evidence_addresses": [
+            "007bd2b9"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Specific format and encoding rules for input OUString",
+        "Exact structure and semantics of third parameter output buffer",
+        "Internal behavior of called functions without their own analyses",
+        "Meaning of individual bit flags set during reference processing",
+        "Memory management policies for dynamic allocations",
+        "Handling of malformed or unsupported reference formats"
+      ],
+      "evidence_requests": []
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "uncertain",
+          "reason": "The function calls 0x0077de00 at 007bd2b9 which is asserted to parse spreadsheet cell range references, but raw evidence does not include the body of that callee. While parameters suggest string input (`param_2`) and the name implies double reference parsing consistent with structured results, there is no direct observable input/output behavior within this function confirming structured storage result handling. The decompiled logic suggests branching on negative returns indicating possible parsing failure, but control flow is fragmented without full callee visibility to confirm successful structure population.",
+          "evidence_addresses": [
+            "007bd2b9"
+          ]
+        }
+      ],
+      "missing_behavior": [],
+      "unresolved": [
+        "_ZN7ScRange5ParseERKN3rtl8OUStringERK10ScDocumentRKN9ScAddress7DetailsEPNS7_12ExternalInfoEPKN3com3sun4star3uno8SequenceINSF_5sheet16ExternalLinkInfoEEEPS2_ at 0077de00",
+        "func_0x00375e70",
+        "_ZN15ScSingleRefData11InitAddressERK9ScAddress",
+        "_ZN15ScSingleRefData13SetTabDeletedEb",
+        "_ZN16ScComplexRefData8SetRangeERK13ScSheetLimitsRK7ScRangeRK9ScAddress",
+        "func_0x0092de90",
+        "_ZNK10ScDocument21GetExternalRefManagerEv",
+        "_ZNK20ScExternalRefManager16getRealTableNameEtRKN3rtl8OUStringE",
+        "func_0x0092df50",
+        "func_0x00377120",
+        "func_0x003770f0",
+        "func_0x00374ed0",
+        "func_0x0037bc80",
+        "func_0x00373dd0",
+        "func_0x00373840"
+      ]
+    }
+  },
+  {
+    "entry": "007bda00",
+    "name": "ScCompiler::HasPossibleNamedRangeConflict(short) const",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "A 64-bit pointer to an ScCompiler instance and a 16-bit signed integer representing a token ID.",
+      "outputs": "Returns 0 or 1 indicating whether a potential named range conflict exists.",
+      "state": "The function accesses conceptual named range registry state maintained within the ScDocument associated with the ScCompiler.",
+      "side_effects": "May trigger internal updates to stale range entries through helper calls prior to flag inspection.",
+      "errors": "No explicit error path is observed in the control flow.",
+      "pseudocode": "base_range = lookup_default_range(compiler_document)\nif base_range is valid:\n  if needs_refresh(base_range):\n    refresh_entry(base_range)\n  if indicates_conflict(base_range):\n    return 1\nindexed_range = lookup_indexed_range(compiler_document, token_id)\nif indexed_range is valid:\n  if needs_refresh(indexed_range):\n    refresh_entry(indexed_range)\n  return indicates_conflict(indexed_range)\nreturn 0",
+      "claims": [
+        {
+          "statement": "Returns 1 when a default named range exists with its conflict flag set after resolving potential staleness",
+          "evidence_addresses": [
+            "007bda28",
+            "007bda32",
+            "007bda73",
+            "007bda36",
+            "007bda39"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Returns 0 when no named range reports a conflict after checking both default and indexed lookups including refreshes",
+          "evidence_addresses": [
+            "007bda4e",
+            "007bda50",
+            "007bda53",
+            "007bda63"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "ScDocument::GetRangeName() const",
+          "contract": "Retrieves the default named range descriptor for the given document",
+          "evidence_addresses": [
+            "007bda17",
+            "007bda1e"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "ScDocument::GetRangeName(short) const",
+          "contract": "Retrieves the named range descriptor corresponding to a specific token ID",
+          "evidence_addresses": [
+            "007bda3b",
+            "007bda42",
+            "007bda46"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "<unidentified refresh routine>",
+          "contract": "Updates internal representation of stale named ranges upon detection",
+          "evidence_addresses": [
+            "007bda70",
+            "007bda73",
+            "007bda80",
+            "007bda83"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Exact behavior when input token ID causes signed extension differences",
+        "Internal encoding of conflict and stale flags beyond usage shown",
+        "Mechanics and triggers of underlying named range registry"
+      ],
+      "evidence_requests": [
+        "Execution traces covering flag combinations and update effects on return values",
+        "Structure definitions for ScDocument-managed range metadata",
+        "Implementation of helper function at 0x0088a680 invoked during staleness handling"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "The function returns 1 when a default named range exists with bit 0 of byte [RAX+0x48] set after checking for staleness via callee 0x0088a680. Path: 007bda28 (MOVZX), 007bda2f (TEST DL,2), 007bda32 (JNZ -> 007bda70), 007bda73 (call refresh), 007bda78 (re-read byte), 007bda34 (fallthrough), 007bda36 (bitmask 1 into EAX), 007bda39 (JNZ -> 007bda63). This matches the claim’s assertion.",
+          "evidence_addresses": [
+            "007bda28",
+            "007bda32",
+            "007bda73",
+            "007bda36",
+            "007bda39"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "supported_static",
+          "reason": "Function explicitly sets EAX=0 at 007bda4e and conditionally jumps over any subsequent modification if either no named range exists or none has conflict flag set. Confirmed control paths returning zero without side-effects on EAX include fallthrough from 007bda53 to 007bda63 and early exit through jump at 007bda5c.",
+          "evidence_addresses": [
+            "007bda4e",
+            "007bda50",
+            "007bda53",
+            "007bda63"
+          ]
+        }
+      ],
+      "missing_behavior": [
+        "No explicit handling of negative or out-of-range short indices; assumes signed extension via MOVSX is sufficient for all valid inputs.",
+        "Assumes bitwise flags at offset +0x48 fully determine state without validating mask constants 0x1 (conflict) and 0x2 (stale)",
+        "Refresh calls (0088a680) imply external mutation affecting struct content, but internal path doesn't verify post-call consistency beyond re-reading byte at +0x48."
+      ],
+      "unresolved": [
+        "Callee 0x005b85d0 (_ZNK10ScDocument12GetRangeNameEv) assumed to return pointer or null, not validated.",
+        "Callee 0x005b85a0 (_ZNK10ScDocument12GetRangeNameEs) behavior on edge case indices unverified.",
+        "Callee 0x0088a680 assumed to clear stale bit while preserving conflict bit, actual operation unknown."
+      ]
+    }
+  },
+  {
+    "entry": "007f1ef0",
+    "name": "ScInterpreter::ScEqual()",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "One implicit parameter referencing an ScInterpreter instance",
+      "outputs": "Pushes a boolean-stored token onto the interpreter stack",
+      "state": "Interpreter stack depth increases by one; stack top holds equality comparison result",
+      "side_effects": "Reads two topmost elements from the interpreter stack",
+      "errors": "No explicit error path, or describe it",
+      "pseudocode": "pop_op1(); pop_op2(); push(op1 == op2)",
+      "claims": [
+        {
+          "statement": "Equality test passes when both operands are number five and returns true",
+          "evidence_addresses": [
+            "007f1f80",
+            "007f1f9d",
+            "007f1fa7",
+            "007f1fab"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "func_0x00847600",
+          "contract": "Consumes stack operands, assigns temporary values for comparison",
+          "evidence_addresses": [
+            "007f1f16",
+            "007f1f27"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x007f1590",
+          "contract": "Copies a stack value to local storage at -0x40",
+          "evidence_addresses": [
+            "007f1f3e"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x00846d20",
+          "contract": "Pushes a precomputed value to interpreter stack",
+          "evidence_addresses": [
+            "007f1f50"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZNK8ScMatrix6DecRefEv",
+          "contract": "Decrements matrix reference counter",
+          "evidence_addresses": [
+            "007f1f5e"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x007f1170",
+          "contract": "Converts and compares floating point operands for equality",
+          "evidence_addresses": [
+            "007f1f85"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Operand types beyond observed case",
+        "Reference counting side-effects on control flow",
+        "Full range of equality comparisons tested",
+        "Ordering of NaN equality checks"
+      ],
+      "evidence_requests": [
+        "List all possible operand combinations that lead to early returns",
+        "Trace execution through 007f1f30 block under various operand types"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "uncertain",
+          "reason": "The claim states that an equality test passes when both operands are number five and returns true. However, the provided instructions do not clearly demonstrate a direct comparison of two operands being equal to five and returning true. The code involves calls to other functions (e.g., 0x00847600) whose behavior is not specified, and there are floating-point comparisons (UCOMISD at 007f1fa7, SETNP at 007f1fab), but no clear evidence shows that both operands are specifically the number five nor that the return value is explicitly set to true (1) under those conditions. While some paths lead to setting ESI to 0 or 1, which may relate to boolean outcomes, the connection to 'both operands are five' is not directly supported by the static evidence.",
+          "evidence_addresses": [
+            "007f1f16",
+            "007f1f27",
+            "007f1fa7",
+            "007f1fab"
+          ]
+        }
+      ],
+      "missing_behavior": [
+        "Function performs type checks on operands before numerical comparison.",
+        "Function handles non-number types through conversion or error paths.",
+        "Return value reflects operand equality via specific integer or boolean result assignment."
+      ],
+      "unresolved": [
+        "_ZNK8ScMatrix6DecRefEv",
+        "func_0x00847600",
+        "func_0x007f1590",
+        "func_0x00846d20",
+        "func_0x007f1170",
+        "func_0x008474e0"
+      ]
+    }
+  },
+  {
+    "entry": "007f21d0",
+    "name": "ScInterpreter::ScGreater()",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "One implicit parameter referencing an ScInterpreter instance",
+      "outputs": "Pushes a boolean-stored token onto the interpreter stack",
+      "state": "Interpreter stack depth decreases by two and increases by one; GreaterThan comparison state between top two elements",
+      "side_effects": "None observed",
+      "errors": "No explicit error path; propagates comparison failure from dependencies",
+      "pseudocode": "ScInterpreter::PopTwoTokensAndPushBoolean(GreaterThan(peek(0), peek(1)))",
+      "claims": [
+        {
+          "statement": "Returns false when first operand is less than second operand",
+          "evidence_addresses": [
+            "007f2285",
+            "007f2289"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "func_0x00847600",
+          "contract": "Pop stack element and classify type returning 5 for matrix",
+          "evidence_addresses": [
+            "007f21f6",
+            "007f2207"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x007f1590",
+          "contract": "Load token from stack at relative index into temporary",
+          "evidence_addresses": [
+            "007f2221"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x00846d20",
+          "contract": "Coerce token to double-typed value",
+          "evidence_addresses": [
+            "007f2233"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x008ca600",
+          "contract": "Decrement matrix reference count",
+          "evidence_addresses": [
+            "007f2241"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x007f1170",
+          "contract": "Pop stack element as double-typed",
+          "evidence_addresses": [
+            "007f2268"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x008474e0",
+          "contract": "Raise invalid matrix reference exception",
+          "evidence_addresses": [
+            "007f22a3"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x00374ed0",
+          "contract": "Raise stack guard check violation",
+          "evidence_addresses": [
+            "007f22aa"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Exact classification rules for type code 5",
+        "Whether both operands are always coerced to double before comparison",
+        "Reference counting semantics beyond decrement call",
+        "Order of floating point comparisons with zero",
+        "Condition for indirect jump at 007f2295",
+        "Full contract of all called functions",
+        "Internal structure of ScInterpreter stack entries"
+      ],
+      "evidence_requests": [
+        "What values produce true vs false outcomes",
+        "How matrices affect operand retrieval",
+        "Classification mapping for token type codes besides 5",
+        "Behavior when operands have different types",
+        "Source-level definitions of called dependency functions"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "contradicted",
+          "reason": "The claim states that the function returns false when the first operand is less than the second operand. However, the relevant comparison occurs at address 007f2285 (`COMISD XMM0,XMM1`) followed by `SETA SIL` at 007f2289. The `SETA` instruction sets the destination operand to 1 if the first operand is greater than the second (unsigned comparison). Thus, the function returns true (1) when the first operand is greater than the second and false (0) otherwise, contradicting the claim which describes the opposite behavior.",
+          "evidence_addresses": [
+            "007f2285",
+            "007f2289"
+          ]
+        }
+      ],
+      "missing_behavior": [],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "007f22c0",
+    "name": "ScInterpreter::ScLessEqual()",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "One implicit parameter: the interpreter context containing at least two operands",
+      "outputs": "Pushes a boolean-like result (1 or 0) onto the interpreter stack",
+      "state": "Interpreter maintains operand stack and error state",
+      "side_effects": "Modifies interpreter stack, may mutate error flags or pending exception state",
+      "errors": "Calls error reporting functions conditionally, exact paths undetermined without callee contracts",
+      "pseudocode": "if interpret_top_as_double_or_matrix(interpreter) <= 0 then push(interpreter, 1) else push(interpreter, 0)",
+      "claims": [
+        {
+          "statement": "If the top interpreter stack value is numeric and less than or equal to zero, the function pushes integer 1 onto the stack",
+          "evidence_addresses": [
+            "007f2375",
+            "007f2379",
+            "007f2385"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "If the top interpreter stack value is numeric and positive, the function pushes integer 0 onto the stack",
+          "evidence_addresses": [
+            "007f2375",
+            "007f2379",
+            "007f2385"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "func_0x00847600",
+          "contract": "Consumes N stack items, returns item type class",
+          "evidence_addresses": [
+            "007f22e6",
+            "007f22f7"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x007f1590",
+          "contract": "Copies stack range into local memory, creates matrix proxy or fails",
+          "evidence_addresses": [
+            "007f2311"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x00846d20",
+          "contract": "Interprets operand as double or converts matrix to scalar",
+          "evidence_addresses": [
+            "007f2323"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x008ca600",
+          "contract": "Decrements object reference count, maybe frees object",
+          "evidence_addresses": [
+            "007f2331"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x007f1170",
+          "contract": "Returns double equivalent of top operand regardless of initial type",
+          "evidence_addresses": [
+            "007f2358"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x008474e0",
+          "contract": "Raises an operand-missing or type-error exception",
+          "evidence_addresses": [
+            "007f2393"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x00374ed0",
+          "contract": "Handles longjmp or propagates error state after failed invariant checks",
+          "evidence_addresses": [
+            "007f239a"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Exact mechanism converting postfix '%' to divide-by-100",
+        "Whether string operands participate in relational eval",
+        "Double representation edge cases (NaN, infinity) treatment",
+        "Internal operand kind encoding used by func_0x00847600",
+        "Signaling behavior on overflow and underflow",
+        "Callee-side floating point flag handling",
+        "All possible paths through error reporting chains",
+        "Full layout of ScInterpreter class including stack",
+        "Reference counting impact on observable behavior",
+        "Type coercion precedence rules applied"
+      ],
+      "evidence_requests": [
+        "What are all reachable operand type pairs?",
+        "How does spreadsheet treat #VALUE!, #DIV/0!, #N/A errors in comparisons?",
+        "Which types have overloaded '<=' operators?",
+        "Is there extended precision during internal computations?"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "contradicted",
+          "reason": "The function does not push integer 1 onto the stack when the top interpreter stack value is numeric and less than or equal to zero. Instead, it performs a floating-point comparison and sets the SIL register based on the result. The final action is a jump to an external function, not a stack push.",
+          "evidence_addresses": [
+            "007f2375",
+            "007f2379",
+            "007f2385"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "contradicted",
+          "reason": "The function does not push integer 0 onto the stack when the top interpreter stack value is numeric and positive. Similar to claim 0, it performs a floating-point comparison and sets the SIL register based on the result. The final action is a jump to an external function, not a stack push.",
+          "evidence_addresses": [
+            "007f2375",
+            "007f2379",
+            "007f2385"
+          ]
+        }
+      ],
+      "missing_behavior": [
+        "The function performs a floating-point comparison between XMM1 and XMM0 and sets the SIL register based on the result (SETNC instruction).",
+        "The function jumps to an external address (0x00846090) after setting the SIL register, rather than pushing any value onto the stack."
+      ],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "0084b4b0",
+    "name": "ScInterpreter::GetString()",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "Implicit this pointer referencing an ScInterpreter instance, and a second pointer to formula metadata containing at least three key slots (0xe0, 0xe2, 0xd8) used for dispatch and error tracking",
+      "outputs": "Returns a pointer to a character sequence metadata block derived from evaluating input formulas",
+      "state": "The function accesses formula state fields and dispatch tables to determine execution path, without mutating core system structures directly",
+      "side_effects": "May update error state indicators stored in metadata slot 0xe0 depending on intermediate validation outcomes observed during computation",
+      "errors": "No unconditional error paths; termination depends on guard word checks and callee responses to inconsistent runtime values",
+      "pseudocode": "selector = [word ptr [input + 0xe2]];\nif selector == 0 then [word ptr [input + 0xe0]] = 0x206; goto common_operand_load;\nif selector > 0x15 then fallthrough;\ntable_base = [qword ptr [input + 0xd8]];\nrow_ptr = [qword ptr [table_base + (selector * 8) - 8]];\ndiscriminator = [byte ptr [row_ptr + 0xa]];\nswitch discriminator using jump table:\n\tdefault -> common_operand_load;\n\tcases 1..21 involve varied transformation routines including reference handling and string conversion;\ncommon_operand_load:\n\tinvoke parser_helper(input);\n\tif [word ptr [input + 0xe0]] == 0 set fallback error code 0x1f6;\n\tplVar = buffer_provider();\n\tcopy_xmm_result_to_output(output_loc, plVar);\n\tif first_copy_dest_nonnull ref_decrement(first_copy_dest);\n\tif second_copy_dest_nonnull ref_decrement(second_copy_dest);\nreturn output_loc;",
+      "claims": [
+        {
+          "statement": "Selector values greater than 21 cause immediate transition to standard expression-loading logic instead of switching",
+          "evidence_addresses": [
+            "0084b4f5",
+            "0084b4f9",
+            "0084b520"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "Unresolved callee 00844090",
+          "contract": "Initiates expression parsing phase producing normalized tokens required by downstream formula processors",
+          "evidence_addresses": [
+            "0084b523"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "Buffer provider 0037c0e0",
+          "contract": "Produces dual-segment output containers encoding text representations suitable for assignment into mutable result buffers",
+          "evidence_addresses": [
+            "0084b53e"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "Reference decref utility 0037cdf0",
+          "contract": "Performs atomic decrement operations against usage counters tied to dynamic data objects ensuring timely finalization after last use",
+          "evidence_addresses": [
+            "0084b560",
+            "0084b56f"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "Failure reporting sink 00374ed0",
+          "contract": "Handles abnormal stack unwinding triggered by consistency failure comparisons indicating corrupted runtime environment",
+          "evidence_addresses": [
+            "0084b94a"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Exact mappings from individual tag bytes (discriminator) to semantic categories driving their respective handler behaviors lack static resolution due to absence of symbolic debug info",
+        "Ordering and interdependency among successive external calls made conditionally under various tagged regimes cannot be precisely inferred solely from jump logic structure",
+        "Purpose and contents of the multi-level indirection chain rooted in offset 0xd8 along with its indexing methodology require additional context beyond shown snippet boundaries",
+        "The available evidence does not establish the caller-visible effects of the omitted implementation mechanics."
+      ],
+      "evidence_requests": [
+        "Heap snapshots mapping parsed formula inputs to initialized descriptor formats containing populated tables and selector fields aligned with addresses 0xe0/0xe2/0xd8",
+        "Call trace logs illustrating execution flow divergence corresponding to actual spreadsheet input variations showing tag-based pathway selections",
+        "Inspect the called functions and execute original cases that expose the returned value and state changes."
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "The comparison at 0084b4f5 checks if the byte at offset 0xa is <= 0x15 (21). If greater, JA at 0084b4f9 jumps to 0084b520, which initiates standard expression-loading logic via CALL 0x00844090. This directly matches the claimed behavior that selector values > 21 cause transition to standard expression-loading logic.",
+          "evidence_addresses": [
+            "0084b4f5",
+            "0084b4f9",
+            "0084b520"
+          ]
+        }
+      ],
+      "missing_behavior": [],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "0085e100",
+    "name": "ScInterpreter::ScSub()",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "Implicit ScInterpreter instance (64-bit reference in RDI)",
+      "outputs": "No return value; updates implicit ScInterpreter's formula evaluation context",
+      "state": "Shared interpreter state accessed through fixed offsets of implicit argument +0xe8 (result storage), +0xec (secondary metadata), +0xf4 (operation type), +0xf6 (data variant); uses stack temporaries for operand proxies and intermediate matrix handles",
+      "side_effects": "Mutates referenced ScInterpreter state at +0xe8 and +0xf4; invokes matrix reference counting protocol to manage lifetime of intermediate computational objects; transfers ownership of new matrix results to implicit stack",
+      "errors": "No manifest fault paths detected; assumed callee-side exception model handles runtime faults",
+      "pseudocode": "MOVSXD RSI,1; JMP 0x0085d6f0",
+      "claims": [
+        {
+          "statement": "Prepares an immediate integer token 1 then passes control to general interpreter dispatch at 8771312.",
+          "evidence_addresses": [
+            "0085e104",
+            "0085e109"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [],
+      "unknowns": [
+        "Whether operand arrangement in multi-operator expressions like '=10-4-2' affects observable evaluation order or grouping",
+        "Purpose and update rules for fields at param_1+0xec and param_1+0xf6 during operand processing steps",
+        "Mechanics behind conditional blocks initiating overflow/underflow checks based on floating point magnitude thresholds"
+      ],
+      "evidence_requests": [
+        "Complete listing of reachable operations within jumped-to subroutine at 0x0085d6f0 particularly regarding use of pre-loaded ESI value",
+        "Runtime traces mapping register ESI usage to semantic roles such as opcode selector or mode modifier at call target",
+        "Symbolic resolution of all unresolved function stubs e.g. _ZN8ScMatrix5SubOpEbdRKS_ to establish their interfaces and contracts accurately"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "The instruction at 0085e104 loads the immediate value 1 into ESI, and the instruction at 0085e109 unconditionally jumps to address 0085d6f0, which matches the claim about preparing an immediate integer token 1 and passing control to general interpreter dispatch.",
+          "evidence_addresses": [
+            "0085e104",
+            "0085e109"
+          ]
+        }
+      ],
+      "missing_behavior": [],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "008936e0",
+    "name": "ScSingleRefData::InitAddress(ScAddress const&)",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "Two pointer parameters referencing an ScSingleRefData instance and an ScAddress instance",
+      "outputs": "No return value; modifies the ScSingleRefData instance in-place",
+      "state": "The internal fields of the ScSingleRefData object being initialized",
+      "side_effects": "Updates multiple fields within the ScSingleRefData object based on data extracted from the ScAddress object",
+      "errors": "No explicit error path",
+      "pseudocode": "function InitAddress(refData*, srcAddress*) {\n  colValue = signExtend16(srcAddress[6])\n  rowValue = srcAddress[0]\n  tabValue = signExtend16(srcAddress[4])\n  refData[5] = 0\n  refData[0] = colValue\n  refData[2] = rowValue\n  refData[4] = tabValue\n}",
+      "claims": [],
+      "dependencies": [],
+      "unknowns": [
+        "The semantic meaning of each numeric field in ScAddress and ScSingleRefData layouts",
+        "Whether execution continues correctly after jumping to address 008936c0",
+        "Purpose and contents of memory written between referenced fields",
+        "The available evidence does not establish the caller-visible effects of the omitted implementation mechanics."
+      ],
+      "evidence_requests": [
+        "Full struct definitions for ScAddress and ScSingleRefData with named fields and documented semantics",
+        "Analysis of target subroutine at 008936c0 that this function unconditionally jumps to",
+        "Inspect the called functions and execute original cases that expose the returned value and state changes."
+      ]
+    },
+    "review": {
+      "reviews": [],
+      "missing_behavior": [
+        "The function writes to fields of param_1 using values extracted from param_2, specifically storing a zero byte at param_1+5, a 16-bit value (uVar2) at param_1, a 32-bit value (uVar3) at param_1+2, and another 16-bit value (uVar1) at param_1+8 (since param_1[4] corresponds to offset 8 for undefined2*). This structured copy behavior is not captured in the draft claims.",
+        "The function performs sign-extension (MOVSX) on word-sized reads from param_2 before use, indicating awareness of signed data representation, though no explicit claim addresses this."
+      ],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "008937d0",
+    "name": "ScSingleRefData::SetTabDeleted(bool)",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "Two parameters: a 64-bit integer (param_1) treated as a pointer to a structure, and an 8-bit unsigned integer (param_2)",
+      "outputs": "No return value; modifies referenced memory",
+      "state": "A structure referenced through param_1 containing at least one byte-sized field at offset 0xa that holds bitwise state information",
+      "side_effects": "None beyond the modification of the input structure's internal state",
+      "errors": "No explicit error path detected in execution flow",
+      "pseudocode": "target_byte = *(object_at_param_1 + 0xa)\nflag_bit = (param_2 & 1)\nnew_byte = (target_byte & 0xDF) | ((flag_bit << 5) & 0x20)\n*(object_at_param_1 + 0xa) = new_byte",
+      "claims": [
+        {
+          "statement": "The operation updates a status flag within a structured data object by setting or clearing bit 5 of a specific byte field according to the least significant bit of the second argument",
+          "evidence_addresses": [
+            "008937d4",
+            "008937da",
+            "008937dd",
+            "008937e0",
+            "008937e3",
+            "008937e5"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [],
+      "unknowns": [
+        "Semantic meaning of bit 5 within the byte at offset 0xa",
+        "Broader class interface or usage context of ScSingleRefData",
+        "Whether param_1 must be non-null or point to valid accessible memory"
+      ],
+      "evidence_requests": [
+        "Confirmation of memory access safety constraints on param_1",
+        "Documentation of ScSingleRefData structure layout and semantics",
+        "Explanation of how the updated bit affects higher-level system behavior"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "The instruction sequence directly supports the claim that a status flag is updated by setting or clearing bit 5 based on the LSB of the second argument. The steps are: load ESI into EAX (008937d4), mask EAX with 1 to isolate LSB (008937da), shift left by 5 to align with bit 5 (008937dd). Concurrently, the byte at [RDI+0xa] is loaded (008937d6), cleared at bit 5 via AND with 0xdf (008937e0), then combined with the shifted bit using OR (008937e3), and stored back (008937e5). All necessary operations for the described behavior are present.",
+          "evidence_addresses": [
+            "008937d4",
+            "008937da",
+            "008937dd",
+            "008937d6",
+            "008937e0",
+            "008937e3",
+            "008937e5"
+          ]
+        }
+      ],
+      "missing_behavior": [],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "00894790",
+    "name": "ScComplexRefData::SetRange(ScSheetLimits const&, ScRange const&, ScAddress const&)",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "Four parameters: a mutable reference to an ScComplexRefData instance, immutable references to ScSheetLimits, ScRange, and ScAddress instances",
+      "outputs": "No return value",
+      "state": "The referenced ScComplexRefData object",
+      "side_effects": "Modifies column, row, and sheet indices within the ScComplexRefData object; conditionally sets deletion flags; updates internal flags based on sheet index thresholds",
+      "errors": "No error paths detected in control flow",
+      "pseudocode": "CALL UnknownFunction1(object, limits, range, address)\nIF ((flags_byte & 1) != 0) THEN column := range_column - adjustment_values[1] ELSE column := range_column\nIF (max_limit_column < range_column OR range_column < 0) THEN SetColumnDeletedFlag(column, 1)\nIF ((flags_byte & 4) != 0) THEN row := range_row - adjustment_values[0] ELSE row := range_row\nIF (max_limit_row < range_row OR range_row < 0) THEN SetRowDeletedFlag(column, 1)\nIF ((flags_byte & 16) != 0) THEN sheet := range_sheet - adjustment_value_at_offset_6 ELSE sheet := range_sheet\nIF (sheet >= 10000) THEN flags_byte := (flags_byte AND 223) OR 32",
+      "claims": [
+        {
+          "statement": "Applies adjustments to the stored column index when the least significant flag bit is set",
+          "evidence_addresses": [
+            "008947a8"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Marks columns as deleted when the assigned column index falls outside specified boundaries relative to maximum or below minimum allowed index",
+          "evidence_addresses": [
+            "008947b8",
+            "008947bb"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Modifies the stored row index according to adjustment values when flag bit 2 is active",
+          "evidence_addresses": [
+            "008947a4"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Flags rows as deleted under boundary violations involving the assigned row index compared to permissible extremes",
+          "evidence_addresses": [
+            "008947b0",
+            "008947b5"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Alters the recorded sheet index using a predefined subtraction when flag bit 4 is present",
+          "evidence_addresses": [
+            "0089479d"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Sets a specific flag bit upon detecting that the sheet index has reached or exceeded the numerical threshold of ten thousand",
+          "evidence_addresses": [
+            "008947c4"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "_ZN15ScSingleRefData10SetAddressERK13ScSheetLimitsRK9ScAddressS5_",
+          "contract": "Performs initial configuration or update of core reference address information before detailed processing",
+          "evidence_addresses": [
+            "008947ab"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN15ScSingleRefData13SetColDeletedEb",
+          "contract": "Activates or confirms column deletion status",
+          "evidence_addresses": [
+            "008947c7"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN15ScSingleRefData13SetRowDeletedEb",
+          "contract": "Enables or verifies row deletion state",
+          "evidence_addresses": [
+            "008947c7"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "The specific responsibilities and full scope of the initially invoked subroutine",
+        "Detailed interpretation of composite flag representations beyond those directly impacting computation logic"
+      ],
+      "evidence_requests": [
+        "Full behavioral documentation for the entry point _ZN15ScSingleRefData10SetAddressERK13ScSheetLimitsRK9ScAddressS5_ referenced at address 008947ab",
+        "Comprehensive semantics for multi-bit flag usage particularly concerning their impact on reference computations not fully explained here"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "Instruction at 008947a8 loads RDI into RBX which is used in subsequent indirect addressing. The decompiled condition 'if ((bVar5 & 1) != 0)' corresponds to testing the least significant flag bit. Adjustments occur via subtraction from param_4[1], aligning with the claim about adjusting column index.",
+          "evidence_addresses": [
+            "008947a8",
+            "008947ab"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "supported_static",
+          "reason": "Instructions at 008947b8 and 008947bb prepare arguments for a call that leads to marking deletion. The comparison logic in decompilation confirms checking if column index falls outside min/max bounds before calling _ZN15ScSingleRefData13SetColDeletedEb, confirming the behavioral claim.",
+          "evidence_addresses": [
+            "008947b8",
+            "008947bb"
+          ]
+        },
+        {
+          "claim_index": 2,
+          "outcome": "supported_static",
+          "reason": "Instruction at 008947a4 loads RDX into R12, which contains param_3 used for row data access. At decompilation line corresponding to flag bit 2 test, an adjustment is made by subtracting *param_4 from iVar4. This matches modifying the stored row index based on flag activation.",
+          "evidence_addresses": [
+            "008947a4",
+            "008947ab"
+          ]
+        },
+        {
+          "claim_index": 3,
+          "outcome": "supported_static",
+          "reason": "The conditional structure tests row extremes against limits (line comparing param_2+0x10 and iVar4). Upon violation, a call to _ZN15ScSingleRefData13SetRowDeletedEb occurs. Addresses point to argument setup prior to such calls, validating the claim.",
+          "evidence_addresses": [
+            "008947b0",
+            "008947b5"
+          ]
+        },
+        {
+          "claim_index": 4,
+          "outcome": "supported_static",
+          "reason": "Flag bit 4 check triggers subtraction of a value derived from param_4 (shift by 6 bytes interpreted as offset into an array of shorts). At address 0089479d, R13 holds RSI (param_2), while R12 receives RDX (param_3), consistent with accessing sheet index adjustments.",
+          "evidence_addresses": [
+            "0089479d",
+            "0089479f"
+          ]
+        },
+        {
+          "claim_index": 5,
+          "outcome": "contradicted",
+          "reason": "At address 008947c4, stack cleanup occurs but does not set any additional flags. In fact, the control flows directly to JMP 0x00893ab0 without altering flags further. Also, according to decompilation, it sets a specific bitmask at offset 0x16 but doesn't correspond to setting a 'specific flag bit' upon sheet reaching/exceeding 10000; rather, it updates part of a multi-bit field (OR 0x20, AND NOT 0xdf).",
+          "evidence_addresses": [
+            "008947c4",
+            "008947c7"
+          ]
+        }
+      ],
+      "missing_behavior": [
+        "No explicit handling observed for postfix percent operator dividing operands by 100 within scope of this function.",
+        "Comparison operations yielding precisely defined 1 or 0 values are not manifest in direct observable outputs here.",
+        "Text concatenation using '&' symbol shows no operational traces in given instruction stream.",
+        "There's no observed handling for error codes tied specifically to arithmetic exceptions like division-by-zero within this context."
+      ],
+      "unresolved": []
+    }
+  }
+]
