@@ -15,7 +15,7 @@ import { generateExpressRouter, generateApiClient, extractParamNames, typeToZod 
 import { FeatureSpec } from "@splice/contracts";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = path.resolve(__dirname, "../../..");
+const REPO_ROOT = path.resolve(__dirname, "../../../..");
 
 // ---------------------------------------------------------------------------
 // Spec loaders
@@ -316,7 +316,7 @@ describe("apiGenerator — deterministic Express router and typed client generat
           }),
         });
         assert.equal(res1.status, 200);
-        const body1 = await res1.json();
+        const body1 = (await res1.json()) as any;
         assert.equal(body1.ok, true);
         assert.equal(body1.result.reps, 1);
         assert.equal(body1.result.interval, 1);
@@ -333,7 +333,7 @@ describe("apiGenerator — deterministic Express router and typed client generat
           }),
         });
         assert.equal(res2.status, 200);
-        const body2 = await res2.json();
+        const body2 = (await res2.json()) as any;
         assert.equal(body2.ok, true);
         assert.equal(body2.result.reps, 2);
         assert.equal(body2.result.interval, 6);
@@ -345,9 +345,9 @@ describe("apiGenerator — deterministic Express router and typed client generat
           body: JSON.stringify({ ease: 2.5, grade: 5 }),
         });
         assert.equal(res3.status, 200);
-        const body3 = await res3.json();
+        const body3 = (await res3.json()) as any;
         assert.equal(body3.ok, true);
-        assert.closeTo(body3.result, 2.6, 0.001);
+        assert.ok(Math.abs(body3.result - 2.6) < 0.001, "updateEase(2.5, 5) should be approximately 2.6");
 
         // Test invalid grade -> 400
         const res4 = await fetch(`${baseUrl}/api/recall.sm2_scheduler/updateEase`, {
@@ -356,7 +356,7 @@ describe("apiGenerator — deterministic Express router and typed client generat
           body: JSON.stringify({ ease: 2.5, grade: 6 }),
         });
         assert.equal(res4.status, 400);
-        const errBody = await res4.json();
+        const errBody = (await res4.json()) as any;
         assert.equal(errBody.error, "Validation failed");
 
         // Test missing field -> 400
@@ -427,7 +427,7 @@ describe("apiGenerator — deterministic Express router and typed client generat
           body: JSON.stringify({ markdown: "Read [[Architecture]] or [[Guide|the guide]]" }),
         });
         assert.equal(res1.status, 200);
-        const body1 = await res1.json();
+        const body1 = (await res1.json()) as any;
         assert.equal(body1.ok, true);
         assert.equal(body1.result.length, 2);
         assert.equal(body1.result[0].target, "Architecture");
@@ -441,7 +441,7 @@ describe("apiGenerator — deterministic Express router and typed client generat
           body: JSON.stringify({ title: "  My   Note  " }),
         });
         assert.equal(res2.status, 200);
-        const body2 = await res2.json();
+        const body2 = (await res2.json()) as any;
         assert.equal(body2.ok, true);
         assert.equal(body2.result, "my note");
 
@@ -457,7 +457,7 @@ describe("apiGenerator — deterministic Express router and typed client generat
           }),
         });
         assert.equal(res3.status, 200);
-        const body3 = await res3.json();
+        const body3 = (await res3.json()) as any;
         assert.equal(body3.ok, true);
         assert.equal(body3.result.nodes.length, 2);
         assert.equal(body3.result.edges.length, 2);
@@ -471,7 +471,7 @@ describe("apiGenerator — deterministic Express router and typed client generat
           body: JSON.stringify({ markdown: "`[[Hidden]]` and ```[[AlsoHidden]]```" }),
         });
         assert.equal(res4.status, 200);
-        const body4 = await res4.json();
+        const body4 = (await res4.json()) as any;
         assert.equal(body4.ok, true);
         assert.equal(body4.result.length, 0);
       } finally {
