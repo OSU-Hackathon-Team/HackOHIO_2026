@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 
 from engine.artifacts import LocalArtifactStore
+from engine.behavior import is_observable_claim
 from engine.dossier import canonical
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -50,15 +51,6 @@ def _write_atomic(path: Path, content: str) -> None:
         temporary.unlink(missing_ok=True)
 
 
-# These describe the analysis or a compiler's representation, not behavior a
-# cleanroom implementer needs to reproduce. Keep them in the audit dossier.
-NON_BEHAVIORAL = re.compile(
-    r"^(?:Spans \d+ static instructions|Invokes .+ as subordinate steps|"
-    r"Serves invocations from |Reaches \d+ branch sites)|"
-    r"\b(?:vtable|vptr|virtual table|RTTI|typeinfo|this pointer|"
-    r"constructor address|destructor address)\b|@[0-9a-f]{8}\b",
-    re.I,
-)
 SOURCE_SHAPED = re.compile(
     r"\b(?:param_\d+|_?DAT_[0-9a-f]+|RDI|RAX|EAX|XMM\d+|MOVAPS|MOVUPS|PXOR)\b|"
     r"\b0x[0-9a-f]{6,}\b|\bat address\s+[0-9a-f]{6,}\b|"
@@ -94,8 +86,7 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
         return link.get("agreement") is True
 
     all_claims = dossier.get("claims", [])
-    structural = [c for c in all_claims if isinstance(c.get("statement"), str)
-                  and NON_BEHAVIORAL.search(c["statement"])]
+    structural = [c for c in all_claims if not is_observable_claim(c.get("statement"))]
     claims = [c for c in all_claims
               if c.get("review_state") == "supported_static" and c.get("evidence")
               and c.get("reviews") and isinstance(c.get("statement"), str)

@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 
 from engine.analysis.ghidra import GhidraAnalysis
+from engine.behavior import is_observable_claim
 from engine.validation.dependencies import (dependency_binding_errors,
                                             uncovered_direct_calls,
                                             validate_dependency_review)
@@ -324,6 +325,10 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
     drafted_subjects = {draft["subject"] for draft in drafts.values()}
     missing = sorted(included - drafted_subjects)
     blockers = []
+    observable_claims = [claim for claim in claims
+                         if is_observable_claim(claim.get("statement"))]
+    if claims and not observable_claims:
+        blockers.append({"kind": "no_observable_behavior_claims", "count": len(claims)})
     if missing:
         blockers.append({"kind": "missing_function_drafts", "subjects": missing})
     tolerated_scope_edges = []
@@ -450,6 +455,7 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
               "coverage": {"included_functions": len(included),
                            "drafted_functions": len(drafted_subjects),
                            "claims": len(claims),
+                           "observable_claims": len(observable_claims),
                            "static_supported_claims": sum(
                                claim["review_state"] == "supported_static" for claim in claims),
                            "independent_review_gaps": len(review_gaps),
