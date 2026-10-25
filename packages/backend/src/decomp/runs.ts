@@ -181,6 +181,13 @@ export class DecompRunService {
           }
         }
         if (exit) break;
+        // A runner that dies before uploading exit.json leaves nothing to wait for once the worker stops.
+        const state = await worker.instanceState();
+        if (!["pending", "running"].includes(state) &&
+            !(await worker.readObject(record.run.run_id, "exit.json"))) {
+          await this.fail(record, `the worker is ${state} but the run never finished; check the runner log on the instance`);
+          return;
+        }
         if (this.now() > deadline) {
           await this.fail(record, "the run exceeded its time limit; the worker stops itself at its own backstop");
           return;
