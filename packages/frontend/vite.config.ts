@@ -13,10 +13,10 @@ export default defineConfig({
     fs: { allow: [path.resolve(__dirname, "../..")] }, // fixtures/ + targets/ live outside the package
     proxy: {
       "/api": {
-        target: "http://localhost:3001",
-        changeOrigin: true
-      }
-    }
+        target: "http://localhost:3003",
+        changeOrigin: true,
+      },
+    },
   },
   build: {
     outDir: "dist",
