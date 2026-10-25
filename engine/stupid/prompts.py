@@ -14,10 +14,10 @@ Reply with exactly one JSON object, no markdown, one of:
 {{"action": "search_strings", "substring": "percent", "limit": 50, "reason": "..."}}
 {{"action": "export_entries", "reason": "..."}}
 {{"action": "resolve_symbol", "substring": "CompileTokenArray", "reason": "..."}}
-{{"action": "decompile", "entries": ["0x..."], "reason": "..."}}
-{{"action": "review", "entries": ["0x..."], "reason": "..."}}
+{{"action": "decompile", "entries": ["0011b900"], "reason": "..."}}
+{{"action": "review", "entries": ["0011b900"], "reason": "..."}}
 {{"action": "probe", "cases": [{{"kind": "describe what to run"}}], "reason": "..."}}
-{{"action": "done", "scope": ["0x..."], "readiness": "ready_for_spec or partial", "notes": "..."}}
+{{"action": "done", "scope": ["0011b900"], "readiness": "ready_for_spec or partial", "notes": "..."}}
 Rules: for large binaries the inventory is paged: state.paging tells you which offsets are
 fetched, the total, and the next_offset to ask for; paging continues automatically even if you
 repeat the page action. Fetch every slice exactly once, then stop paging and analyze. Use search_strings to find domain keywords in
@@ -33,14 +33,18 @@ Entries must come from the inventory. Copy each entry character-for-character ex
 Use call_edges to find connected non-thunk clusters; prefer thunk_target over the thunk wrapper. draft_digest shows what each draft actually found: pivot toward entries whose claims match the goal, and stop re-requesting entries already in drafted (re-requesting drafted entries is a wasted no-op). needs_review lists drafted entries with no review yet: review exactly those, never entries already in reviewed. To repair a contradicted draft, decompile that entry again: this replaces the draft and clears its review for a fresh re-review. After three no-op rounds the loop ends as partial, so do not repeat requests.
 state.last_result tells you what the previous action produced; a result of noop means
 that action changed nothing, so do something different next. Repeating the identical
-action is itself a no-op. Emit done only when every scoped function has a reviewed claim, or when no further tool calls could change readiness (then readiness is partial and notes names the blocker)."""
+action is itself a no-op. Sequencing: once explored holds entries, your next actions must
+be neighbors or decompile using exactly those explored keys - never another discovery
+action for a target you already hold. Within your first 5 actions you must decompile at
+least 3 explored entries; discovery without drafting is stalling. Drafts are the only way
+to learn what code does: draft_digest feeds every later decision. Emit done only when every scoped function has a reviewed claim, or when no further tool calls could change readiness (then readiness is partial and notes names the blocker)."""
 
 DECOMP = """Analyze one stripped native function for a behavioral specification.
 Goal context: {goal}
 Function entry: {entry}
 Evidence (JSON, symbol names redacted, addresses real): {evidence}
 Reply with exactly one JSON object, no markdown:
-{{"claims": [{{"statement": "...", "evidence_addresses": ["0x..."],
+{{"claims": [{{"statement": "...", "evidence_addresses": ["0011b900"],
 "assumptions": [], "alternatives": []}}],
 "dependencies": [{{"target": "0x...", "contract": "...", "evidence_addresses": []}}],
 "unknowns": [], "pseudocode": "..."}}
