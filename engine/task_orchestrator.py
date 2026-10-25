@@ -67,6 +67,8 @@ disposable orchestrator container when useful. Do not change engine source or fa
 original observations. Treat unsupported behavior and failed tools as open work. A static
 candidate link, model claim, or passing example does not establish whole-app equivalence.
 You are already inside `launch.py task`; do not invoke `launch.py task` recursively.
+Lock files and file counts do not prove that work is active or complete. Check live
+processes and recorded progress when that distinction matters.
 
 The Linux GUI implementation is performed by a separate agent. It receives only a ready
 public spec through `launch.py gui-implement`, never binaries, raw analysis, private
@@ -147,7 +149,12 @@ def run_task(task: str, inputs: list[Path], state: Path, opencode: Path, *,
     try:
         reply = invoke(opencode, folder, prompt, model=resolved_model, timeout=timeout,
                        env_file=ROOT / ".env", agent_name="task-orchestrator",
-                       agent_instruction="Orchestrate the task using real tools and evidence. Return JSON.",
+                       agent_instruction=("Orchestrate using real tools and evidence. "
+                                          "Final answer must be only one JSON object with exactly "
+                                          "status, summary, spec_artifacts, artifacts, open_work. "
+                                          "If a ready public spec is unavailable, return partial "
+                                          "or blocked with an empty spec_artifacts list. "
+                                          "Never return an action or wait wrapper."),
                        allow_tools=TOOLS)
         outcome = parse_outcome(reply["text"], LocalArtifactStore(state / "artifacts"))
         result.update(state=outcome["status"], outcome=outcome, usage=reply["usage"],

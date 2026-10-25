@@ -59,6 +59,7 @@ services:
         required: false
     environment:
       STORAGE_DRIVER: vfs
+      DECOMP_DATABASE_URL: postgresql://decomp:decomp@decomp-db:5432/decomp
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
       # Same defaults as models.json; Nova Lite produced unusable decomp claims.
@@ -72,6 +73,26 @@ services:
       - ${OPENCODE_AUTH_FILE:-/home/mitch/.local/share/opencode/auth.json}:/run/opencode-auth.json:ro
     working_dir: /workspace
     command: ["python", "launch.py", "--help"]
+    depends_on:
+      decomp-db:
+        condition: service_healthy
+
+  decomp-db:
+    profiles:
+      - worker
+    image: postgres:16
+    environment:
+      POSTGRES_USER: decomp
+      POSTGRES_PASSWORD: decomp
+      POSTGRES_DB: decomp
+    volumes:
+      - decomp-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U decomp -d decomp"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
 
 volumes:
   podman-storage:
+  decomp-postgres:

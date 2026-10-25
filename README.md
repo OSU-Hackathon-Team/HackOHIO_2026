@@ -15,9 +15,11 @@ adapters under the state directory. The controller checks every reported ready p
 spec against its immutable dossier and writer provenance before dispatching a separate
 implementation agent. Several ready subsystem specs may be handed off together. A partial
 or blocked task stops before implementation.
+The `worker` Compose profile starts a private PostgreSQL queue for the task agent;
+`DECOMP_DATABASE_URL` points at that service inside the Compose network.
 
 ```sh
-docker compose run --rm orchestrator python launch.py task \
+docker compose --profile worker run --rm orchestrator python launch.py task \
   --task "Bring the Windows Calculator application to Linux as a GUI app" \
   --input /workspace/path/to/supplied/CalculatorApp.exe
 ```
