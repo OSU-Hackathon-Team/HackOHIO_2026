@@ -4,7 +4,7 @@ import re
 
 
 NON_BEHAVIORAL = re.compile(
-    r"^(?:Spans \d+ static instructions|Invokes .+ as subordinate steps|"
+    r"^(?:The function treats .+ as .+ value|Spans \d+ static instructions|Invokes .+ as subordinate steps|"
     r"Serves invocations from |Reaches \d+ branch sites)|"
     r"\b(?:vtable|vptr|virtual table|RTTI|typeinfo|this pointer|"
     r"constructor|destructor|operator\.new|allocation|allocated object|"
@@ -26,3 +26,12 @@ def normalize_input_names(statement: str) -> str:
                    statement, flags=re.I)
     return re.sub(r"\b0x[0-9a-f]+\b", lambda match: str(int(match.group(), 16)),
                   named, flags=re.I)
+
+
+def numeric_claim_errors(statement: str) -> list[str]:
+    errors = []
+    for match in re.finditer(r"\bbit\s+(\d+)\s*\((\d+)\)", statement, re.I):
+        bit, mask = int(match.group(1)), int(match.group(2))
+        if mask > 0 and mask & (mask - 1) == 0 and bit != mask.bit_length() - 1:
+            errors.append(f"bit {bit} disagrees with mask {mask} using zero-based bit positions")
+    return errors

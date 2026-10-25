@@ -41,4 +41,6 @@ numeric = answer("Returns 1 for grammar identifier 0x20003.")
 assert normalize_answer_claims(numeric)
 assert numeric["claims"][0]["statement"] == "Returns 1 for grammar identifier 131075."
 assert not validate_answer(numeric, evidence)
+assert any("disagrees" in item for item in validate_answer(
+    answer("Sets bit 25 (16777216) in the result."), evidence))
 print("semantic quality checks passed")

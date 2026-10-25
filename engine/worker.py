@@ -8,13 +8,14 @@ import time
 import uuid
 
 from engine.analysis.ghidra import GhidraAnalysis
-from engine.behavior import is_observable_claim, normalize_input_names
+from engine.behavior import (is_observable_claim, normalize_input_names,
+                             numeric_claim_errors)
 from engine.citations import evidence_addresses, normalize_references
 from engine.model_runtime import invoke_opencode
 from engine.validation.memory_ranges import overlap_claim_errors
 from model_config import get_model
 
-SEMANTIC_PROMPT_VERSION = 5
+SEMANTIC_PROMPT_VERSION = 6
 
 
 def parse_answer(text: str) -> dict:
@@ -46,6 +47,9 @@ def validate_answer(answer: dict, evidence: dict) -> list[str]:
             errors.append(f"claim {i} has no statement")
         elif not is_observable_claim(claim["statement"]):
             errors.append(f"claim {i} describes implementation structure rather than observable behavior")
+        else:
+            errors.extend(f"claim {i} {error}" for error in
+                          numeric_claim_errors(claim["statement"]))
         refs = claim.get("evidence_addresses")
         if not isinstance(refs, list) or not refs:
             errors.append(f"claim {i} has no evidence addresses")
