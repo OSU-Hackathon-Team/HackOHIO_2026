@@ -37,6 +37,47 @@ class StupidTools:
     def analyze(self, binary: Path) -> dict:
         return self.engine.analyze(Path(binary))
 
+    def _index(self, manifest: dict) -> dict:
+        index = self.engine.index(manifest)
+        self._names = {f["entry"]: f["name"] for f in index.get("functions", [])}
+        return index
+
+    def inventory_summary(self, manifest: dict) -> dict:
+        """Counts only. Large binaries never dump the whole function list."""
+        index = self._index(manifest)
+        functions = index.get("functions", [])
+        return {"function_count": len(functions),
+                "thunk_count": sum(1 for f in functions if f.get("thunk")),
+                "external_count": sum(1 for f in functions if f.get("external")),
+                "call_edge_count": len(index.get("calls", [])),
+                "string_count": len(index.get("strings", []))}
+
+    def inventory_page(self, manifest: dict, offset: int = 0,
+                       limit: int = 100) -> dict:
+        """One slice of the function list. The agent decides what to page."""
+        index = self._index(manifest)
+        functions = index.get("functions", [])
+        limit = max(1, min(limit, 200))
+        offset = max(0, offset)
+        return {"offset": offset, "limit": limit,
+                "total": len(functions),
+                "functions": [
+                    {"entry": f["entry"], "thunk": bool(f.get("thunk")),
+                     "external": bool(f.get("external")),
+                     **({"thunk_target": f["thunk_target"]}
+                        if f.get("thunk_target") else {})}
+                    for f in functions[offset:offset + limit]]}
+
+    def neighbors(self, manifest: dict, entry: str) -> dict:
+        """Callers and callees of one entry. Graph walking for agents."""
+        key = self.resolve_entry(manifest, entry)
+        index = self._index(manifest)
+        return {"entry": key,
+                "callers": [c["caller"] for c in index.get("calls", [])
+                            if c["target"] == key],
+                "callees": [c["target"] for c in index.get("calls", [])
+                            if c["caller"] == key]}
+
     def inventory(self, manifest: dict) -> dict:
         """What agents may see: entries, flags, call edges. No names."""
         index = self.engine.index(manifest)

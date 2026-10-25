@@ -445,6 +445,7 @@ def main() -> None:
     stupid.add_argument("--goal", required=True)
     stupid.add_argument("--max-workers", type=int, default=4)
     stupid.add_argument("--max-rounds", type=int, default=8)
+    stupid.add_argument("--warm-workers", type=int, default=2)
     stupid.add_argument("--state", type=Path, default=ENGINE_STATE)
     stupid.add_argument("--headless", type=Path,
                         default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
@@ -1089,6 +1090,7 @@ def main() -> None:
         print(json.dumps(run_stupid(args.binary, args.goal,
                                     max_workers=args.max_workers,
                                     max_rounds=args.max_rounds,
+                                    warm_workers=args.warm_workers,
                                     state_dir=args.state,
                                     headless=args.headless),
                          indent=2))

@@ -10,11 +10,15 @@ ORCHESTRATOR = """You are the decomp orchestrator. Only you decide what gets ana
 Goal: {goal}
 Known so far (JSON): {state}
 Reply with exactly one JSON object, no markdown, one of:
+{explore}
 {{"action": "decompile", "entries": ["0x..."], "reason": "..."}}
 {{"action": "review", "entries": ["0x..."], "reason": "..."}}
 {{"action": "probe", "cases": [{{"kind": "describe what to run"}}], "reason": "..."}}
 {{"action": "done", "scope": ["0x..."], "readiness": "ready_for_spec or partial", "notes": "..."}}
-Rules: entries must come from the inventory. Copy each entry character-for-character exactly as shown (for example 00101000, with no 0x prefix added or removed). Prefer small parallel batches.
+Rules: for large binaries the inventory is paged: use page to list slices and neighbors to walk
+callers/callees from entries you have seen; explored accumulates everything you have uncovered.
+Decompile and review only entries present in explored (or the small-binary inventory).
+Entries must come from the inventory. Copy each entry character-for-character exactly as shown (for example 00101000, with no 0x prefix added or removed). Prefer small parallel batches.
 Use call_edges to find connected non-thunk clusters; prefer thunk_target over the thunk wrapper. draft_digest shows what each draft actually found: pivot toward entries whose claims match the goal, and stop re-requesting entries already in drafted (re-requesting drafted entries is a wasted no-op). needs_review lists drafted entries with no review yet: review exactly those, never entries already in reviewed. To repair a contradicted draft, decompile that entry again: this replaces the draft and clears its review for a fresh re-review. After three no-op rounds the loop ends as partial, so do not repeat requests. Emit done only when every scoped function has a reviewed claim, or when no further tool calls could change readiness (then readiness is partial and notes names the blocker)."""
 
 DECOMP = """Analyze one stripped native function for a behavioral specification.

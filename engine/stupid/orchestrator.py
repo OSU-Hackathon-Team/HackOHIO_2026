@@ -68,7 +68,8 @@ def _safe(fn):
 
 
 def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
-               max_rounds: int = 8, state_dir: Path = STATE,
+               max_rounds: int = 8, warm_workers: int = 2,
+               state_dir: Path = STATE,
                headless: Path = Path("/opt/ghidra/support/analyzeHeadless"),
                model_fn=call_model) -> dict:
     run_id = uuid.uuid4().hex[:12]
@@ -81,12 +82,14 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
         log.append(entry)
         return entry
 
-    tools = StupidTools(state_dir, headless)
+    tools = StupidTools(state_dir, headless, warm_workers=warm_workers)
     try:
         manifest = tools.analyze(Path(binary))
-        inventory = tools.inventory(manifest)
-        record("analyzed", {"campaign": manifest["campaign"],
-                            "functions": inventory["function_count"]})
+        summary = tools.inventory_summary(manifest)
+        large = summary["function_count"] > 150
+        inventory = None if large else tools.inventory(manifest)
+        record("analyzed", {"campaign": manifest["campaign"], **summary,
+                            "paged": large})
         drafts: dict[str, dict] = {}
         reviews: dict[str, dict] = {}
         probes: list[dict] = []
@@ -98,6 +101,9 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                     key = tools.resolve_entry(manifest, e)
                 except ValueError:
                     record("unknown_entry", {"entry": e})
+                    continue
+                if large and key not in explored:
+                    record("unexplored_entry", {"entry": key})
                     continue
                 if key not in have and key not in seen:
                     seen.append(key)
@@ -181,10 +187,22 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                 out[entry_key] = short
             return out
 
+        pages: list[dict] = []
+        explored: dict[str, dict] = {}
+        neighbor_queries: set[str] = set()
+        explore_help = ('{{"action": "page", "offset": 0, "limit": 100, "reason": "..."}}\n'
+                        '{{"action": "neighbors", "entry": "00101000", "reason": "..."}}'
+                        if large else
+                        '(page/neighbors unavailable: the inventory above is already complete. '
+                        'Work directly from it.)')
+
         final: dict | None = None
         noop_streak = 0
         for _ in range(max_rounds):
-            state = {"inventory": inventory,
+            state = {"inventory": inventory or {"paged": True,
+                                                "pages_fetched": len(pages)},
+                     "summary": summary,
+                     "explored": explored,
                      "drafted": sorted(drafts),
                      "needs_review": [e for e in sorted(drafts) if e not in reviews],
                      "draft_digest": digest(drafts, ("claims", "unknowns",
@@ -192,7 +210,8 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                      "reviewed": digest(reviews, ()),
                      "probes": probes}
             action = parse_json(model_fn(prompts.ORCHESTRATOR.format(
-                goal=goal, state=json.dumps(state)[:60000]),
+                goal=goal, state=json.dumps(state)[:60000],
+                explore=explore_help),
                 role="decomp_worker"))
             record("orchestrator", action)
             kind = action.get("action")
@@ -218,6 +237,51 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                 else:
                     record("noop", {"action": action})
                     noop_streak += 1
+            elif kind == "page":
+                if not large or (int(action.get("offset", 0)),
+                                 int(action.get("limit", 100))) in [
+                                     (p["offset"], p.get("limit", 100))
+                                     for p in pages]:
+                    record("noop", {"action": action})
+                    noop_streak += 1
+                    continue
+                page = tools.inventory_page(
+                    manifest, int(action.get("offset", 0)),
+                    int(action.get("limit", 100)))
+                pages.append({"offset": page["offset"], "limit": page["limit"],
+                              "entries": [f["entry"] for f in page["functions"]]})
+                for f in page["functions"]:
+                    explored.setdefault(f["entry"], f)
+                record("page", {"offset": page["offset"],
+                                "returned": len(page["functions"]),
+                                "total": page["total"]})
+                noop_streak = 0
+            elif kind == "neighbors":
+                try:
+                    resolved = tools.resolve_entry(manifest, action.get("entry", ""))
+                except ValueError:
+                    record("unknown_entry", {"entry": action.get("entry", "")})
+                    noop_streak += 1
+                    continue
+                if not large or resolved in neighbor_queries:
+                    record("noop", {"action": action})
+                    noop_streak += 1
+                    continue
+                try:
+                    links = tools.neighbors(manifest, action.get("entry", ""))
+                except ValueError as error:
+                    record("unknown_entry", {"entry": action.get("entry", "")})
+                    links = None
+                if links is None:
+                    noop_streak += 1
+                else:
+                    neighbor_queries.add(action.get("entry", ""))
+                    neighbor_queries.add(links["entry"])
+                    explored[links["entry"]] = {"entry": links["entry"]}
+                    for other in links["callers"] + links["callees"]:
+                        explored.setdefault(other, {"entry": other})
+                    record("neighbors", links)
+                    noop_streak = 0
             elif kind == "probe":
                 probes.append({"asked": action.get("cases", []),
                                "note": "probe execution is harness-driven; "
