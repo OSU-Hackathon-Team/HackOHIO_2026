@@ -291,7 +291,7 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
     blockers = []
     observable_claims = [claim for claim in claims
                          if is_observable_claim(claim.get("statement"))]
-    if claims and not observable_claims:
+    if not observable_claims:
         blockers.append({"kind": "no_observable_behavior_claims", "count": len(claims)})
     if missing:
         blockers.append({"kind": "missing_function_drafts", "subjects": missing})
