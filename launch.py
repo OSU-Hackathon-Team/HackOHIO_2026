@@ -440,6 +440,14 @@ def main() -> None:
     batch.add_argument("--assignments", type=Path, required=True)
     batch.add_argument("--max-workers", type=int, default=2)
     sub.add_parser("list-models", help="print resolved role -> model table from models.json")
+    stupid = sub.add_parser("stupid-run", help="agent-first stupid decomp loop")
+    stupid.add_argument("--binary", type=Path, required=True)
+    stupid.add_argument("--goal", required=True)
+    stupid.add_argument("--max-workers", type=int, default=4)
+    stupid.add_argument("--max-rounds", type=int, default=8)
+    stupid.add_argument("--state", type=Path, default=ENGINE_STATE)
+    stupid.add_argument("--headless", type=Path,
+                        default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
     args = parser.parse_args()
     if args.command == "analyze":
         if not args.binary.is_file():
@@ -1073,6 +1081,17 @@ def main() -> None:
     elif args.command == "list-models":
         print(json.dumps(resolved_table(), indent=2))
         print(f"roles: {', '.join(available_roles())}")
+    elif args.command == "stupid-run":
+        from engine.stupid.orchestrator import run_stupid
+
+        if not 1 <= args.max_workers <= 32:
+            parser.error("stupid-run needs 1..32 workers")
+        print(json.dumps(run_stupid(args.binary, args.goal,
+                                    max_workers=args.max_workers,
+                                    max_rounds=args.max_rounds,
+                                    state_dir=args.state,
+                                    headless=args.headless),
+                         indent=2))
     elif args.command == "batch":
         check_container_guard("batch")
         assignments = json.loads(args.assignments.read_text())
