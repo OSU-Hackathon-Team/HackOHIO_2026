@@ -35,16 +35,222 @@ export interface ConverseClient {
 let client: ClaudeClient | null = null;
 let converseClientInstance: ConverseClient | null = null;
 
+/**
+ * Checks whether the system is configured in mock/replay mode or lacking AWS credentials.
+ */
+export function isMockMode(): boolean {
+  if (process.env.TEST_LIVE_BEDROCK === "1") return false;
+  const llm = (process.env.LLM_MODE ?? "").toLowerCase();
+  const rea = (process.env.REA_MODE ?? "").toLowerCase();
+  return (
+    llm === "mock" ||
+    llm === "replay" ||
+    rea === "mock" ||
+    (!process.env.AWS_ACCESS_KEY_ID && !process.env.AWS_PROFILE && !process.env.AWS_BEARER_TOKEN_BEDROCK)
+  );
+}
+
+function generateMockValue(schema: Record<string, unknown> | undefined, promptText?: string): unknown {
+  if (!schema) return {};
+
+  // Special case: Builder schema with summary and operations
+  if (schema.properties && (schema.properties as any).summary && (schema.properties as any).operations) {
+    if (promptText) {
+      try {
+        const parsed = JSON.parse(promptText);
+        if (parsed.layout && Array.isArray(parsed.layout)) {
+          const instruction = String(parsed.instruction || "").toLowerCase();
+          if (instruction.includes("side by side")) {
+            return {
+              summary: "Arranged sections side by side in mock mode.",
+              operations: parsed.layout.map((b: any) => ({
+                type: "update",
+                blockId: b.id,
+                index: 0,
+                block: { ...b, width: "half" },
+              })),
+            };
+          }
+          if (instruction.includes("intro") || instruction.includes("goals") || instruction.includes("study")) {
+            return {
+              summary: "Added a study goals introduction section.",
+              operations: [
+                {
+                  type: "add",
+                  blockId: "study-goals",
+                  index: 0,
+                  block: {
+                    id: "study-goals",
+                    kind: "text",
+                    title: "Study Goals",
+                    description: "Keep track of learning targets and goals for this session.",
+                    visible: true,
+                    width: "full",
+                  },
+                },
+              ],
+            };
+          }
+        }
+      } catch {
+        // Fallback to generic builder response below
+      }
+    }
+    return {
+      summary: "Processed layout request in mock mode.",
+      operations: [],
+    };
+  }
+
+  const type = schema.type;
+  if (type === "string") return schema.default ?? (schema.enum ? (schema.enum as any)[0] : "mock-string");
+  if (type === "number" || type === "integer") return schema.default ?? 42;
+  if (type === "boolean") return schema.default ?? true;
+  if (type === "array") return [];
+  if (type === "object" || schema.properties) {
+    const props = (schema.properties || {}) as Record<string, any>;
+    const required = Array.isArray(schema.required) ? schema.required : Object.keys(props);
+    const obj: Record<string, unknown> = {};
+    for (const key of required) {
+      if (props[key]) {
+        obj[key] = generateMockValue(props[key], promptText);
+      }
+    }
+    return obj;
+  }
+  if (Array.isArray(schema.anyOf) && schema.anyOf.length > 0) {
+    const nonNull = schema.anyOf.find((s: any) => s.type !== "null") ?? schema.anyOf[0];
+    return generateMockValue(nonNull, promptText);
+  }
+  if (Array.isArray(schema.oneOf) && schema.oneOf.length > 0) {
+    return generateMockValue(schema.oneOf[0], promptText);
+  }
+  return {};
+}
+
+function createMockConverseClient(): ConverseClient {
+  return {
+    async send(command: ConverseStreamCommand, options?: { abortSignal?: AbortSignal }): Promise<ConverseStreamCommandOutput> {
+      options?.abortSignal?.throwIfAborted();
+      const input = (command as any).input || {};
+      const tools = input.toolConfig?.tools || [];
+      const respondTool = tools.find((t: any) => t.toolSpec?.name === RESPOND_TOOL);
+      const schema = respondTool?.toolSpec?.inputSchema?.json;
+
+      let promptText = "";
+      if (Array.isArray(input.messages)) {
+        for (const msg of input.messages) {
+          if (Array.isArray(msg.content)) {
+            for (const c of msg.content) {
+              if (c.text) promptText += c.text + " ";
+            }
+          }
+        }
+      }
+
+      const mockData = generateMockValue(schema, promptText.trim());
+      const payloadString = JSON.stringify(mockData);
+
+      async function* stream() {
+        yield { messageStart: { role: "assistant" } };
+        const chunkSize = 20;
+        for (let i = 0; i < payloadString.length; i += chunkSize) {
+          options?.abortSignal?.throwIfAborted();
+          yield {
+            contentBlockDelta: {
+              contentBlockIndex: 0,
+              delta: { toolUse: { input: payloadString.slice(i, i + chunkSize) } },
+            },
+          };
+        }
+        yield { messageStop: { stopReason: "tool_use" } };
+        yield { metadata: { usage: { inputTokens: 10, outputTokens: 10 } } };
+      }
+
+      return { stream: stream() } as unknown as ConverseStreamCommandOutput;
+    },
+  };
+}
+
+function createMockClaudeClient(): ClaudeClient {
+  return {
+    messages: {
+      stream(params: any, options?: { signal?: AbortSignal }) {
+        options?.signal?.throwIfAborted();
+        const schema = params.output_config?.format?.schema;
+        let promptText = "";
+        if (Array.isArray(params.messages)) {
+          for (const m of params.messages) {
+            if (typeof m.content === "string") promptText += m.content + " ";
+            else if (Array.isArray(m.content)) {
+              for (const c of m.content) {
+                if (c.type === "text" && c.text) promptText += c.text + " ";
+              }
+            }
+          }
+        }
+
+        const mockData = generateMockValue(schema, promptText.trim());
+        const payloadString = JSON.stringify(mockData);
+
+        const handlers: Record<string, ((...args: any[]) => void)[]> = {};
+        const emitter = {
+          on(event: string, handler: any) {
+            (handlers[event] ??= []).push(handler);
+            return emitter;
+          },
+          async finalMessage() {
+            options?.signal?.throwIfAborted();
+            for (const h of handlers["text"] ?? []) {
+              h(payloadString);
+            }
+            return {
+              id: "msg_mock",
+              type: "message",
+              role: "assistant",
+              content: [{ type: "text", text: payloadString, citations: null }],
+              model: params.model || "mock-bedrock",
+              stop_reason: "end_turn",
+              stop_details: null,
+              stop_sequence: null,
+              usage: { input_tokens: 10, output_tokens: 10, cache_read_input_tokens: 0 },
+            };
+          },
+        };
+        return emitter as any;
+      },
+    } as any,
+  };
+}
+
+/** Bedrock Messages-API client. Wrapped in lazy getter with mock-mode guard. */
+export function getClaudeClient(): ClaudeClient {
+  if (client) return client;
+  if (isMockMode()) {
+    return createMockClaudeClient();
+  }
+  client = new AnthropicBedrockMantle({ awsRegion: process.env.AWS_REGION || "us-east-2" });
+  return client;
+}
+
+/** Bedrock Converse client for non-Claude models. Wrapped in lazy getter with mock-mode guard. */
+export function getBedrockClient(): ConverseClient {
+  if (converseClientInstance) return converseClientInstance;
+  if (isMockMode()) {
+    return createMockConverseClient();
+  }
+  converseClientInstance = new BedrockRuntimeClient({ region: process.env.AWS_REGION || "us-east-2" });
+  return converseClientInstance;
+}
+
 /** Bedrock Messages-API client. Credentials: default AWS chain (env / profile / SSO) or AWS_BEARER_TOKEN_BEDROCK. */
 export function claude(): ClaudeClient {
-  client ??= new AnthropicBedrockMantle({ awsRegion: process.env.AWS_REGION || "us-east-2" });
-  return client;
+  return getClaudeClient();
 }
 
 /** Bedrock Converse client for non-Claude models. Credentials: default AWS chain. */
 export function converseClient(): ConverseClient {
-  converseClientInstance ??= new BedrockRuntimeClient({ region: process.env.AWS_REGION || "us-east-2" });
-  return converseClientInstance;
+  return getBedrockClient();
 }
 
 /** Tests only: replace the clients (pass null to restore the real ones on next use). */

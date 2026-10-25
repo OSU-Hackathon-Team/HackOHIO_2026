@@ -4,6 +4,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import {
   LlmRefusalError, LlmSchemaError, LlmTruncatedError, continueWith, setClaudeClientForTests, setConverseClientForTests,
   structuredCall, CONVERSE_MAX_TOKENS, type ClaudeClient, type ConverseClient,
+  getBedrockClient, getClaudeClient, isMockMode,
 } from "./llm.js";
 import type { LlmPort } from "../engine/ports.js";
 import { bedrockModelId, spliceModel } from "../models.js";
@@ -284,3 +285,29 @@ test("tool-assisted calls are refused on the Claude path rather than silently ig
   fakeClaude([]);
   await assert.rejects(structuredCall(opts({ tools: [lookup()] })), /Converse path only/);
 });
+
+test("lazy getters return mock doubles in mock mode without AWS credentials", async () => {
+  const origLlm = process.env.LLM_MODE;
+  const origRea = process.env.REA_MODE;
+  try {
+    process.env.LLM_MODE = "mock";
+    process.env.REA_MODE = "mock";
+    setClaudeClientForTests(null);
+    setConverseClientForTests(null);
+
+    assert.equal(isMockMode(), true);
+    const bedrock = getBedrockClient();
+    assert.ok(bedrock, "Bedrock client double should be created");
+    const claude = getClaudeClient();
+    assert.ok(claude, "Claude client double should be created");
+
+    // structuredCall should resolve cleanly in mock mode without throwing CredentialsProviderError
+    const res = await structuredCall(opts());
+    assert.equal(typeof res.value.answer, "number");
+    assert.ok(res.model);
+  } finally {
+    if (origLlm !== undefined) process.env.LLM_MODE = origLlm; else delete process.env.LLM_MODE;
+    if (origRea !== undefined) process.env.REA_MODE = origRea; else delete process.env.REA_MODE;
+  }
+});
+
