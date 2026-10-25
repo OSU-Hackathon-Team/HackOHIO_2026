@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import ts from "typescript";
 import { transformSync } from "esbuild";
 import { inspectElectronArchive } from "./inspect-archive.mjs";
+import { analyzeElectronArchive } from "./analyze-archive.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../..");
@@ -138,32 +139,38 @@ export function recreateProject(archivePath, outputPath, options = {}) {
   if (options.requireFullParity) throw new Error(`Full parity unavailable: ${manifest.parity.unmatched_ipc_channels.length} original IPC channel(s), storage, and UI are not recreated`);
   const output = path.resolve(outputPath);
   if (fs.existsSync(output)) throw new Error(`Output already exists: ${output}`);
-  fs.mkdirSync(path.join(output, "engine"), { recursive: true });
-  fs.mkdirSync(path.join(output, "test"), { recursive: true });
-  for (const file of ["main.cjs", "preload.cjs", "index.html", "renderer.js", "style.css"]) {
-    fs.copyFileSync(path.join(templateDirectory, file), path.join(output, file));
+  try {
+    fs.mkdirSync(path.join(output, "engine"), { recursive: true });
+    fs.mkdirSync(path.join(output, "test"), { recursive: true });
+    for (const file of ["main.cjs", "preload.cjs", "index.html", "renderer.js", "style.css"]) {
+      fs.copyFileSync(path.join(templateDirectory, file), path.join(output, file));
+    }
+    for (let index = 0; index < selected.length; index++) {
+      const { blueprint } = selected[index];
+      const destination = path.join(output, manifest.features[index].module);
+      const compiled = transformSync(blueprint.implementation.portable_code, { loader: "ts", format: "cjs", target: "node22" });
+      fs.writeFileSync(destination, compiled.code);
+      const engine = require(destination);
+      const examples = examplesFromTests(blueprint.spec.acceptance_tests, manifest.features[index].functions, engine);
+      for (const entry of manifest.features[index].functions) entry.example_args = examples.get(entry.name) || fallbackArgs(entry.signature);
+      const testCode = `const { test } = require("node:test");\nconst assert = require("node:assert/strict");\nconst { ${manifest.features[index].functions.map(entry => entry.name).join(", ")} } = require("../${manifest.features[index].module}");\n${blueprint.spec.acceptance_tests}\n`;
+      fs.writeFileSync(path.join(output, "test", `${index}-${safeId(blueprint.feature_id)}.test.cjs`), testCode);
+    }
+    fs.writeFileSync(path.join(output, "reconstruction.json"), JSON.stringify(manifest, null, 2) + "\n");
+    fs.writeFileSync(path.join(output, "analysis.json"), JSON.stringify(analyzeElectronArchive(archivePath), null, 2) + "\n");
+    fs.writeFileSync(path.join(output, "package.json"), JSON.stringify({
+      name: `${safeId(evidence.package_name || "electron-app").toLowerCase()}-workbench`,
+      version: "1.0.0", private: true, main: "main.cjs",
+      scripts: { start: "electron .", test: "node --test test/*.test.cjs" }, devDependencies: { electron: "45.0.0" },
+    }, null, 2) + "\n");
+    fs.writeFileSync(path.join(output, "README.md"), `# ${evidence.package_name} feature workbench\n\nRun \`npm install && npm start\`. Select a verified function, enter a JSON array of arguments, and invoke it. Run \`npm test\` to check the portable engines against their blueprint acceptance cases.\n\nGenerated from verified portable blueprints for archive ${evidence.archive_sha256}. The original source files are not included.\n\nCoverage: ${manifest.features.map(feature => feature.id).join(", ")}. Original IPC channels (${manifest.parity.original_ipc_channels.join(", ") || "none observed"}), storage, and UI are not recreated. See \`reconstruction.json\` for machine readable coverage.\n`);
+    try { execFileSync(process.execPath, ["--test", ...fs.readdirSync(path.join(output, "test")).map(file => path.join(output, "test", file))], { stdio: "pipe" }); }
+    catch (error) { throw new Error(`Generated blueprint acceptance tests failed:\n${error.stdout?.toString() || ""}${error.stderr?.toString() || ""}`); }
+    return { output, manifest };
+  } catch (error) {
+    fs.rmSync(output, { recursive: true, force: true });
+    throw error;
   }
-  for (let index = 0; index < selected.length; index++) {
-    const { blueprint } = selected[index];
-    const destination = path.join(output, manifest.features[index].module);
-    const compiled = transformSync(blueprint.implementation.portable_code, { loader: "ts", format: "cjs", target: "node22" });
-    fs.writeFileSync(destination, compiled.code);
-    const engine = require(destination);
-    const examples = examplesFromTests(blueprint.spec.acceptance_tests, manifest.features[index].functions, engine);
-    for (const entry of manifest.features[index].functions) entry.example_args = examples.get(entry.name) || fallbackArgs(entry.signature);
-    const testCode = `const { test } = require("node:test");\nconst assert = require("node:assert/strict");\nconst { ${manifest.features[index].functions.map(entry => entry.name).join(", ")} } = require("../${manifest.features[index].module}");\n${blueprint.spec.acceptance_tests}\n`;
-    fs.writeFileSync(path.join(output, "test", `${index}-${safeId(blueprint.feature_id)}.test.cjs`), testCode);
-  }
-  fs.writeFileSync(path.join(output, "reconstruction.json"), JSON.stringify(manifest, null, 2) + "\n");
-  fs.writeFileSync(path.join(output, "package.json"), JSON.stringify({
-    name: `${safeId(evidence.package_name || "electron-app").toLowerCase()}-workbench`,
-    version: "1.0.0", private: true, main: "main.cjs",
-    scripts: { start: "electron .", test: "node --test test/*.test.cjs" }, devDependencies: { electron: "45.0.0" },
-  }, null, 2) + "\n");
-  fs.writeFileSync(path.join(output, "README.md"), `# ${evidence.package_name} feature workbench\n\nRun \`npm install && npm start\`. Select a verified function, enter a JSON array of arguments, and invoke it. Run \`npm test\` to check the portable engines against their blueprint acceptance cases.\n\nGenerated from verified portable blueprints for archive ${evidence.archive_sha256}. The original source files are not included.\n\nCoverage: ${manifest.features.map(feature => feature.id).join(", ")}. Original IPC channels (${manifest.parity.original_ipc_channels.join(", ") || "none observed"}), storage, and UI are not recreated. See \`reconstruction.json\` for machine readable coverage.\n`);
-  try { execFileSync(process.execPath, ["--test", ...fs.readdirSync(path.join(output, "test")).map(file => path.join(output, "test", file))], { stdio: "pipe" }); }
-  catch (error) { throw new Error(`Generated blueprint acceptance tests failed:\n${error.stdout?.toString() || ""}${error.stderr?.toString() || ""}`); }
-  return { output, manifest };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
