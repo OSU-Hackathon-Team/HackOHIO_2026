@@ -171,11 +171,16 @@ def discover(index: dict, request: ScopeRequest, campaign: str, index_artifact: 
         heapq.heappush(frontier, (depth, -priority, sequence, entry, reason))
 
     seeds = request.seeds
-    if request.mode == "project" and not seeds:
+    project_seed_entries = request.mode == "project" and not seeds
+    if project_seed_entries:
         seeds = tuple(item["entry"] for item in index["functions"]
                       if not item["external"] and not item["thunk"])
     for seed in (*seeds, *request.inclusions):
-        matches = resolve_seed(seed, index, campaign)
+        # Project seeds are already exact entries from this index. Resolving each
+        # one by scanning every function makes full-project scope quadratic.
+        matches = ([{"entry": seed, "score": 100, "reason": "address"}]
+                   if project_seed_entries and seed in by_entry else
+                   resolve_seed(seed, index, campaign))
         seed_results.append({"seed": seed, "matches": matches})
         if not matches:
             unresolved.append({"kind": "seed_not_found", "seed": seed})
