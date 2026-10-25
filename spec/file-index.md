@@ -104,7 +104,7 @@ The following index categorizes critical production source files. **Verification
 
 ### Writer (Word Processor) Subsystem
 - `sw/source/core/doc/doc.cxx`: Central controller for the Writer document model (`SwDoc`), owning document content and layout managers. -> [modules/writer.md#2-component-architecture--data-structures](./modules/writer.md)
-- `sw/source/core/docnode/nodes.cxx`: Implements the flat linear array (`SwNodes`) storing document text nodes, section boundaries, and tables. -> [modules/writer.md#2-component-architecture--data-structures](./modules/writer.md)
+- `sw/source/core/docnode/nodes.cxx` & `sw/inc/nodes.hxx`: Implements `SwNodes` (`class SwNodes final : private BigPtrArray`), storing document text nodes, section boundaries, and tables via node/end-marker structures (never `List<SwNode>`). -> [modules/writer.md#2-component-architecture--data-structures](./modules/writer.md)
 - `sw/source/core/txtnode/ndtxt.cxx`: Manages paragraph text strings, inline attribute hint arrays (`SwpHintsArray`), and outline levels. -> [modules/writer.md#32-inline-hint-merging--portion-creation](./modules/writer.md)
 - `sw/source/core/layout/flowfrm.cxx`: Coordinates paragraph flow, page break splits, and widow/orphan constraints across pages. -> [modules/writer.md#31-paragraph-flow-and-page-splitting-algorithm](./modules/writer.md)
 - `sw/source/core/layout/pagefrm.cxx`: Constructs and formats physical page frames, managing headers, footers, columns, and body areas. -> [modules/writer.md#4-state-transitions--layout-tree-synchronization](./modules/writer.md)
@@ -124,7 +124,7 @@ The following index categorizes critical production source files. **Verification
 - `slideshow/source/engine/eventqueue.cxx`: Time-based animation event scheduler driving property interpolation and transition effects. -> [modules/impress-draw.md#32-slide-show-event-queue--time-tick-scheduling](./modules/impress-draw.md)
 
 ### Math & Base Subsystem
-- `starmath/source/parse.cxx`: Parses equation text into a typographical syntax tree (`SmNode`). -> [modules/math-base.md#2-component-architecture--data-structures](./modules/math-base.md)
+- `starmath/source/parse.cxx`: Parser-version factory (lines 25–37, `starmathdatabase::GetVersionSmParser`), NOT the complete equation grammar parser (grammar lives in `SmParser5` / `parse5.cxx`). -> [modules/math-base.md#2-component-architecture--data-structures](./modules/math-base.md)
 - `starmath/source/view.cxx`: Formats fraction bars, radical roots, and matrices, calculating visual bounding boxes and typographical baselines. -> [modules/math-base.md#31-mathematical-layout--baseline-alignment](./modules/math-base.md)
 - `dbaccess/source/core/dataaccess/Model.cxx`: Manages `.odb` container packages, embedded database engine lifecycle, and query definitions. -> [modules/math-base.md#4-state-transitions--embedded-database-lifecycle](./modules/math-base.md)
 - `connectivity/source/manager/vclman.cxx`: SDBC connection manager matching connection URLs to registered database driver components. -> [modules/math-base.md#32-sdbc-connection-resolution--dispatch](./modules/math-base.md)

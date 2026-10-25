@@ -54,6 +54,21 @@ graph TD
 #### Range Optimization (`MergeRangeReference`)
 In `RangeLine` (`0x0011ab20`), when two consecutive `SingleRef` tokens surround `ocRange` (`:`), the compiler invokes `MergeRangeReference`. If the references reside on compatible sheets, they are merged directly into a single `AreaRef` token (e.g., `A1` and `B10` become `A1:B10`), omitting the explicit binary `ocRange` opcode from the bytecode stream to accelerate downstream evaluation.
 
+### Canonical Mathematical and Logical OpCodes (`include/formula/opcode.hxx`)
+
+The engine relies on strictly enumerated opcode constants defined in `include/formula/opcode.hxx`. Implementations must use the canonical symbol names:
+
+| Symbol | OpCode Value | Function / Operation | Canonical Casing Restriction |
+|---|:---:|---|---|
+| `ocIf` | **6** (`0x06`) | Logical conditional branching | **Must be `ocIf`** (never `ocIF`) |
+| `ocAdd` | **51** (`0x33`) | Binary addition | **Must be `ocAdd`** |
+| `ocMul` | **53** (`0x35`) | Binary multiplication | **Must be `ocMul`** (never `ocMultiply`) |
+| `ocSum` | **224** (`0xE0`) | Aggregate summation | **Must be `ocSum`** (never `ocSUM`) |
+| `ocVLookup` | **286** (`0x011E`) | Table vertical lookup | **Must be `ocVLookup`** (never `ocVLOOKUP`) |
+
+> [!CAUTION]
+> OpCode identifier casing in LibreOffice formula engine headers is strictly case-sensitive. Identifiers such as `ocMultiply`, `ocSUM`, `ocVLOOKUP`, or `ocIF` do not exist in `include/formula/opcode.hxx` and represent specification errors if referenced.
+
 ---
 
 ## 3. Formula Grammar & Syntax Mapping (`FormulaGrammar`)
@@ -126,3 +141,17 @@ An independent implementation of this subsystem must adhere to:
    Logical operators (`AND`, `OR`) in Calc do NOT short-circuit during vectorized array calculation; all array cells must be evaluated for matrix shape consistency.
 3. **Floating Point Safety**:
    Calculations must adhere to standard IEEE-754 double precision with relative epsilon tolerance $\varepsilon \le 10^{-14}$.
+4. **Canonical Formula Error Codes (`include/formula/errorcodes.hxx`)**:
+   Error propagation and numerical fault trapping must map strictly to canonical LibreOffice `FormulaError` enumeration constants:
+   - `FormulaError::IllegalArgument = 502`
+   - `FormulaError::IllegalFPOperation = 503` (`#NUM!`)
+   - `FormulaError::CircularReference = 522`
+   - `FormulaError::NoRef = 524` (`#REF!`)
+   - `FormulaError::DivisionByZero = 532` (`#DIV/0!`)
+5. **Coordinate & Grid Limits (`sc/inc/address.hxx`, `sc/inc/types.hxx`)**:
+   - `MAXROWCOUNT = 1024 * 1024` (1,048,576 rows; maximum 0-indexed row = `MAXROWCOUNT - 1` = 1,048,575)
+   - `MAXCOLCOUNT = 16 * 1024` (16,384 columns; maximum 0-indexed column = `MAXCOLCOUNT - 1` = 16,383)
+   - `MAXTABCOUNT = 10000` (10,000 sheets; maximum 0-indexed tab = 9,999)
+   - `MAXROWCOUNT_JUMBO = 16 * 1024 * 1024` (16,777,216 rows; 64-bit jumbo row mode only)
+   - Coordinate types: `SCROW = sal_Int32`, `SCCOL = sal_Int16`, `SCTAB = sal_Int16`
+

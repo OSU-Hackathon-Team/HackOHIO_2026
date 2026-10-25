@@ -132,8 +132,7 @@ classDiagram
 ```
 
 #### Behavioral Principles of UNO
-- **Identity and Interface Navigation (`queryInterface`):** An object's identity is defined by its root `XInterface`. To acquire a specific facet (e.g., `XTextDocument`, `XPropertySet`), clients query the object with a descriptor type. If supported, a reference with an incremented refcount is returned; otherwise, a null reference is returned.
-- **Deterministic Lifetime Management:** UNO objects manage their lifecycles via intrusive atomic reference counting (`acquire()` and `release()`). When the count reaches zero, the underlying memory is reclaimed. Objects holding non-memory resources implement `XComponent::dispose()`, allowing parents to sever cyclic dependencies and broadcast destruction notifications to registered listeners before final memory release.
+- **Deterministic Lifetime Management:** UNO objects manage their lifecycles via intrusive reference counting. In accordance with `com.sun.star.uno.XInterface` IDL (`udkapi/com/sun/star/uno/XInterface.idl`), both `acquire()` and `release()` return `void`. The `release()` method decrements the internal reference count and triggers object destruction when the count transitions from 1 to 0; callers must never assume or expect a concrete integer return value or count. Objects holding non-memory resources implement `XComponent::dispose()`, allowing parents to sever cyclic dependencies and broadcast destruction notifications to registered listeners before final memory release.
 - **Dynamic Type Reflection & Remote Proxying:** UNO type libraries (`.rdb` files) store binary descriptions of all interfaces, structs, enums, and services. The dynamic bridge converts local in-process invocations into serialized binary packets (`binaryurp`) across network sockets or pipes, enabling out-of-process and cross-language communication without recompiling components.
 
 ---
@@ -298,9 +297,12 @@ flowchart TD
 
     EventLoop -.->|Dispatches Independent Jobs| WorkerPool
     WorkerPool -.->|Posts Completion Events| EventLoop
-```### The SolarMutex UI Lock (UNVERIFIED)
+```
+
+### The SolarMutex UI Lock (PARTIALLY VERIFIED against `include/comphelper/solarmutex.hxx`)
 
 The **SolarMutex** is documented in `include/comphelper/solarmutex.hxx:38-40` as “the one big recursive code lock used to protect the **vast majority** of the LibreOffice code-base, in particular anything that is graphical and the cores of the applications” (**PARTIALLY VERIFIED — CORRECTED from absolute “all mutations”**; `vcl/source/app/svapp.cxx` includes `comphelper/solarmutex.hxx`).
+- **Scope Restriction:** It is a large recursive application/GUI synchronization lock protecting graphical subsystems and application cores. Blanket claims that it protects "all mutations" across all subsystems are contradicted by architectural evidence and must not be made.
 - **Rule (scoped):** Code paths that touch VCL/graphical state and app cores run under SolarMutex; do not state as unconditional “any thread … must acquire”. [UNVERIFIED for exact thread list.]
 - **Deadlock Avoidance:** Background threads performing heavy computation must release the SolarMutex during compute and re-acquire only for model/UI updates — **UNVERIFIED** (no source traced in this pass; preserved as UNVERIFIED per policy).
 

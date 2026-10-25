@@ -1,6 +1,6 @@
 # Module Specification: Foundation & System Abstraction Layer
 
-> **Verification Status (2026-10-24, rev.2 — LO core remote, master).** **Verified:** `sal/` exists (trees API); `sal/osl/unx/thread.cxx` exists (pthread impl with `osl_thread_create_Impl`, priorities, TLS handling). `cppu`, `cppuhelper`, `binaryurp`, `configmgr` top-level dirs verified via trees API (`cppu`, `cppuhelper`, `binaryurp`, `configmgr` present). **Still UNVERIFIED in this pass:** `sal/osl/all/mutex.cxx` exact path, `cppu/source/uno/any.cxx`, `configmgr/source/configurationprovider.cxx` contents, `OslMutex`/`WeakComponentImpl` field lists, `QueryInterface`/`ResolveConfigProperty` pseudocode step order, `osl_allocateMemory`/`osl_File_E_INVAL` codes, and lifecycle/error details — headers not yet fetched.
+> **Verification Status (2026-10-24, rev.3 — LO core remote, master).** **Verified:** `sal/` exists (trees API); `sal/osl/unx/thread.cxx` exists (pthread impl with `osl_thread_create_Impl`, priorities, TLS handling). SAL mutex implementation paths `sal/osl/all/mutexshared.cxx` (shared mutex routines) and `sal/osl/unx/mutex.cxx` (POSIX pthread mutex implementation) / `sal/osl/w32/mutex.cxx` are **VERIFIED** (prior `sal/osl/all/mutex.cxx` was non-existent). `cppu`, `cppuhelper`, `binaryurp`, `configmgr` top-level dirs verified via trees API. **Still UNVERIFIED in this pass:** `cppu/source/uno/any.cxx`, `configmgr/source/configurationprovider.cxx` contents, `OslMutex`/`WeakComponentImpl` field lists, `QueryInterface`/`ResolveConfigProperty` pseudocode step order, `osl_allocateMemory`/`osl_File_E_INVAL` codes, and lifecycle/error details — headers not yet fetched.
 
 ## 1. Overview & Purpose (UNVERIFIED)
 
@@ -56,10 +56,11 @@ classDiagram
     ConfigRegistry ..> OslFile : persists data via
 ```
 
-### Conceptual Data Structures (UNVERIFIED — no corresponding headers or sources found)
+### Conceptual Data Structures (PARTIALLY VERIFIED — SAL mutex paths VERIFIED; WeakComponentImpl / ConfigRegistry internals unverified)
 
-#### 1. `OslMutex` & Synchronization Primitives
-- **Type:** Recursive operating system mutex handle.
+#### 1. `OslMutex` & Synchronization Primitives (VERIFIED Paths)
+- **Source Files (VERIFIED):** Implemented in `sal/osl/all/mutexshared.cxx` (shared logic) and `sal/osl/unx/mutex.cxx` (UNIX pthread mutex), with Windows implementation in `sal/osl/w32/mutex.cxx`. (Note: file path `sal/osl/all/mutex.cxx` does not exist).
+- **Type:** Recursive operating system mutex handle (`oslMutex`).
 - **Purpose:** Protects critical execution blocks across threads. Guarantees recursive re-entry by the owning thread without self-deadlock.
 
 #### 2. `OslFileHandle` & Native File Abstraction
@@ -117,7 +118,7 @@ Output: None (void — IDL `acquire()/release()` have NO return values; do not a
 // PRIOR “Output: Remaining reference count / Return count” was INCORRECT vs IDL.
 ```
 
-> **Scope note (SolarMutex):** `include/comphelper/solarmutex.hxx:38-40` documents SolarMutex as “one big recursive code lock … to protect the **vast majority** … in particular anything graphical and the cores” — **CORRECTED: replace any absolute “all mutations must acquire” with this scoped wording.** Deadlock-avoidance release/reacquire rule remains UNVERIFIED.
+> **Scope note (SolarMutex):** `include/comphelper/solarmutex.hxx:38-40` documents SolarMutex as “one big recursive code lock … to protect the **vast majority** … in particular anything graphical and the cores” — **CORRECTED:** SolarMutex is a large recursive application/GUI synchronization lock protecting graphical subsystems and application cores. Do not make blanket claims that it protects "all mutations." Deadlock-avoidance release/reacquire rules remain UNVERIFIED.
 
 ### 3.2 Configuration Resolution Hierarchy
 
