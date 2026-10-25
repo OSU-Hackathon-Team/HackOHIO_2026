@@ -59,7 +59,8 @@ def procedures(payload: object) -> list[dict]:
     """Every {name, address} pair in a search/list result, in order, without duplicates."""
     seen, found = set(), []
     for item in _walk(payload):
-        name = item.get("name") or item.get("symbol") or item.get("label")
+        # Native search_procedures returns {address, value}; evidence repeats raw/normalized rows.
+        name = item.get("name") or item.get("symbol") or item.get("label") or item.get("value")
         address = _address(item)
         if isinstance(name, str) and name and address and (name, address) not in seen:
             seen.add((name, address))

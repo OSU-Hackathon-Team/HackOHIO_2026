@@ -15,11 +15,13 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 import json
+import re
 from pathlib import Path
 import time
 from typing import Callable
 
 from engine.analysis.rea import RuntimeTracer, ReaSession, static_triage
+from engine.analysis.scoped import symbol_inventory, prepared_readers
 from engine.libreoffice import (UnoDriver, observe_cases, probe_report, resolve_targets,
                                 split_cases)
 from engine.models import ScopeRequest
@@ -42,12 +44,14 @@ class LoPipelineConfig:
     max_depth: int = 2
     workers: int = 4
     investigate: bool = False
+    # Explicit until application-wide discovery can supply candidate scopes without known features.
+    scoped_analysis: bool = False
 
 
 @dataclass
 class LoPipelineDeps:
     engine: object
-    rea_factory: Callable[[], ReaSession]
+    rea_factory: Callable[..., ReaSession]
     driver_factory: Callable[[], UnoDriver]
     worker: object
     reviewer: object
@@ -134,15 +138,57 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
     public, held_out = split_cases(config.cases)
     summary["cases"] = {"public": len(public), "held_out": len(held_out)}
 
-    log(f"[analyze] {library['path']}")
-    manifest = timed("analyze", lambda: engine.analyze(Path(library["path"])))
+    runtime_cases: dict[str, dict] = {}
+    early_triage = None
+    discovery_unresolved = []
+    if config.scoped_analysis:
+        inventory = symbol_inventory(Path(library['path']))
+        original_base = int(inventory['elf_image_base'], 16)
+        if config.seed_source == 'runtime':
+            log('[triage] Frida observations before scoped Ghidra preparation')
+            def trace_first():
+                with deps.rea_factory() as session, deps.driver_factory() as driver:
+                    return runtime_triage(session, driver, public, module=config.module,
+                        patterns=config.frida_patterns, image_base=original_base,
+                        tracer_cls=deps.tracer_cls)
+            early_triage = timed('triage', trace_first)
+            runtime_cases = early_triage['cases']
+            metadata_index = {'functions': [{'entry': s['address'], 'name': s['name']}
+                                           for s in inventory['symbols']]}
+            known_extents = {int(s['address'], 16) for s in inventory['symbols']}
+            missing_extents = sorted({hit['entry'] for case in runtime_cases.values()
+                for hit in case['hits'] if int(hit['entry'], 16) not in known_extents})
+            if missing_extents:
+                discovery_unresolved.append({'kind': 'runtime_seed_extent_missing',
+                    'entries': missing_extents, 'address_space': 'original ELF virtual addresses'})
+            root_seeds = [s['entry'] for s in seeds_from_runtime(metadata_index, runtime_cases,
+                                                                max_seeds=config.max_seeds)]
+        elif config.seed_source == 'rea_static':
+            # Resolve only sized symbols before launching REA's expensive native provider.
+            patterns = [re.compile(p) for p in config.static_patterns]
+            candidates = {s['address'] for s in inventory['symbols'] if any(
+                p.search(s['name']) or p.search(s.get('display_name', s['name'])) for p in patterns)}
+            root_seeds = sorted(candidates, key=lambda s: int(s, 16))[:config.max_seeds]
+            if len(candidates) > len(root_seeds):
+                discovery_unresolved.append({'kind': 'seed_candidate_budget_exhausted',
+                    'candidates': len(candidates), 'selected': len(root_seeds)})
+        else:
+            raise ValueError('seed_source must be runtime or rea_static')
+        if not root_seeds:
+            raise RuntimeError('no observed/symbol-bounded seeds; refusing whole-module analysis fallback')
+        summary['seed_discovery'] = {'source': config.seed_source, 'roots': root_seeds,
+                                     'unresolved': discovery_unresolved}
+        manifest = timed('analyze', lambda: engine.analyze_scoped(Path(library['path']), root_seeds,
+                            max_functions=config.max_functions, max_depth=config.max_depth))
+    else:
+        log(f"[analyze] {library['path']}")
+        manifest = timed("analyze", lambda: engine.analyze(Path(library["path"])))
     if manifest["binary_sha256"] != library["sha256"]:
         raise ValueError("analyzed binary differs from the installed library LibreOffice loads")
     index = engine.index(manifest)
     image_base = int(index.get("image_base", "0"), 16)
     summary.update(campaign=manifest["campaign"], function_count=manifest["function_count"])
 
-    runtime_cases: dict[str, dict] = {}
     if config.seed_source == "runtime":
         log(f"[triage] Frida via REA on {config.module}, {len(public)} public cases")
 
@@ -151,7 +197,14 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
                 return runtime_triage(session, driver, public, module=config.module,
                                       patterns=config.frida_patterns, image_base=image_base,
                                       tracer_cls=deps.tracer_cls)
-        triage = timed("triage", trace)
+        if early_triage is not None:
+            triage = early_triage
+            delta = image_base - original_base
+            for observation in triage['cases'].values():
+                for hit in observation['hits']:
+                    hit['entry'] = format(int(hit['entry'], 16) + delta, '08x')
+        else:
+            triage = timed("triage", trace)
         runtime_cases = triage["cases"]
         seeds = seeds_from_runtime(index, runtime_cases, max_seeds=config.max_seeds)
         summary["triage"] = {"hooked": triage["hooked"], "seeds": seeds}
@@ -159,6 +212,14 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
         log(f"[triage] REA static search on {library['path']}")
 
         def search() -> dict:
+            if config.scoped_analysis:
+                import tempfile
+                with tempfile.TemporaryDirectory(dir=engine.root) as scratch:
+                    servers = prepared_readers(manifest, Path(scratch) / 'readers',
+                                               engine.headless.parent.parent)
+                    with deps.rea_factory(env=servers['rea']['environment']) as session:
+                        return static_triage(session, Path(library['path']),
+                                             procedure_patterns=config.static_patterns)
             with deps.rea_factory() as session:
                 return static_triage(session, Path(library["path"]),
                                      procedure_patterns=config.static_patterns)
@@ -180,7 +241,10 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
         "seeds": [seed["entry"] for seed in seeds], "max_functions": config.max_functions,
         "max_depth": config.max_depth, "include_callers": False,
         "include_shared_data": False, "expected_observables": config.expected_observables})
-    scope = timed("scope", lambda: deps.persist_scope(engine, manifest, request))
+    boundary = tuple([*discovery_unresolved, *({'kind': 'scoped_analysis_boundary', **item}
+                     for item in manifest.get('scope', {}).get('frontier', []))])
+    scope = timed("scope", lambda: deps.persist_scope(engine, manifest, request,
+                   **({'additional_unresolved': boundary} if config.scoped_analysis else {})))
     scope_artifact = scope["artifact"]
     summary["scope"] = {"artifact": scope_artifact, "included": len(scope["included"])}
     log(f"[scope] {len(scope['included'])} functions from {len(seeds)} seeds")

@@ -104,11 +104,21 @@ class Investigator:
                   "review_artifact": review_artifact, "questions": questions,
                   "model": resolved_model, "allowed_tools": list(allowed_tools())}
         try:
+            servers = mcp_servers()
+            if manifest.get('analysis_options', {}).get('profile') == 'scoped':
+                from engine.analysis.scoped import prepared_readers
+                servers = prepared_readers(manifest, folder / 'readers',
+                                           self.engine.headless.parent.parent)
+                prompt += (' Global auto-analysis was skipped. REA reads a private copy of the '
+                           'scoped baseline; do not infer behavior of unanalysed dependencies. '
+                           f'For Ghidra open project_location={folder / "readers" / "ghidra"}, '
+                           f'project_name=baseline, program_name={manifest["program_name"]}, '
+                           'read_only=true, update_analysis=false.')
             reply = self.invoke(self.opencode, folder, prompt, model=resolved_model,
                                 timeout=self.timeout, env_file=self.env_file,
                                 agent_name="investigate",
                                 agent_instruction="Investigate with read-only tools; answer as JSON only.",
-                                mcp=mcp_servers(), allow_tools=allowed_tools())
+                                mcp=servers, allow_tools=allowed_tools())
             record.update(state="answered", answer=parse_investigation(reply["text"]),
                           usage=reply["usage"])
         except Exception as error:

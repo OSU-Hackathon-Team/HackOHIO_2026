@@ -207,6 +207,45 @@ class GhidraAnalysis:
     def index(self, manifest: dict) -> dict:
         return json.loads(self.store.get(manifest["index_artifact"]))
 
+    def analyze_scoped(self, binary: Path, seeds: list[str], *, max_functions: int,
+                       max_depth: int) -> dict:
+        from engine.analysis.scoped import prepare_scoped
+        manifest = prepare_scoped(self, binary, seeds, max_functions=max_functions,
+                                  max_depth=max_depth)
+        folder = Path(manifest['project'])
+        key = file_hash(SCRIPT_DIR / 'ExportEvidence.java')
+        pointer = folder / ('scoped-index-' + key + '.json')
+        with (folder / '.index.lock').open('a+b') as lock:
+            _flock_ex(lock)
+            try:
+                if pointer.exists():
+                    saved = json.loads(pointer.read_text())
+                    self.store.get(saved['artifact'])
+                else:
+                    with tempfile.TemporaryDirectory(dir=self.root) as scratch:
+                        export = Path(scratch) / 'index.json'
+                        self._run([str(folder), 'baseline', '-process', manifest['program_name'],
+                                   '-readOnly', '-noanalysis', '-scriptPath', str(SCRIPT_DIR),
+                                   '-postScript', 'ExportEvidence.java', str(export), 'index'],
+                                  manifest['campaign'], 'scoped_index')
+                        index = json.loads(export.read_text())
+                    if index.get('status') != 'ok':
+                        raise RuntimeError('scoped index export did not finish')
+                    selected = {f['entry'] for f in manifest['scope']['functions']}
+                    index['functions'] = [f for f in index['functions'] if f['entry'] in selected]
+                    index['analysis_scope'] = manifest['scope']
+                    saved = {'artifact': self.store.put(json.dumps(index, sort_keys=True).encode()),
+                             'functions': len(index['functions'])}
+                    if saved['functions'] != len(selected):
+                        raise RuntimeError('scoped index is missing prepared functions')
+                    temporary = pointer.with_suffix('.tmp')
+                    temporary.write_text(json.dumps(saved))
+                    os.replace(temporary, pointer)
+            finally:
+                _flock_un(lock)
+        return {**manifest, 'index_artifact': saved['artifact'], 'function_count': saved['functions'],
+                'exporter_sha256': key, 'ghidra_version_sha256': tool_version(self.headless)}
+
     @contextmanager
     def _function_lock(self, cache_dir: Path, key: str):
         with (cache_dir / (key + ".lock")).open("a+b") as lock:
@@ -258,6 +297,9 @@ class GhidraAnalysis:
             evidence = json.loads(data)
             if evidence.get("entry") != address:
                 raise RuntimeError("Ghidra returned evidence for a different function")
+            if manifest.get('analysis_options', {}).get('profile') == 'scoped':
+                evidence = {'analysis_context': manifest['analysis_options'], **evidence}
+                data = json.dumps(evidence, sort_keys=True).encode()
             artifact = self.store.put(data)
             self._publish_function(pointer, artifact)
             self._emit(manifest["campaign"], "function_exported", address=address,
