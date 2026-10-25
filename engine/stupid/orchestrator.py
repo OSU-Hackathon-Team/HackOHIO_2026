@@ -244,6 +244,7 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
             return out
 
         search_log: list[dict] = []
+        exhausted: set[str] = set()
         neighbor_queries: set[str] = set()
         seen_resolves: set[str] = set()
         seen_searches: set[str] = set()
@@ -274,6 +275,7 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                                  0, summary["function_count"], 100)
                               if off not in {p["offset"] for p in pages}),
                              None)} if large else None,
+                     "exhausted": sorted(exhausted),
                      "drafted": sorted(drafts),
                      "needs_review": [e for e in sorted(drafts) if e not in reviews],
                      "draft_digest": digest(drafts, ("claims", "unknowns",
@@ -291,7 +293,7 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                  ).write_text(prompt_text)
             try:
                 response = parse_json(model_fn(prompt_text,
-                                               role="decomp_worker"))
+                                               role="orchestrator"))
             except (ValueError, json.JSONDecodeError) as error:
                 # One malformed reply must not kill the run; say so in state.
                 record("orchestrator_unparseable", {"error": str(error)[:200]})
@@ -382,6 +384,8 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                         noop_streak = 0
                     else:
                         record("noop", {"action": action})
+                        exhausted.update(f"review:{e}" for e in
+                                          action.get("entries", []))
                         noop_streak += 1
                 elif kind == "page":
                     if not large:
@@ -458,6 +462,7 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                 elif kind == "resolve_symbol":
                     if str(action.get("substring", "")) in seen_resolves:
                         record("noop", {"action": action, "repeat": True})
+                        exhausted.add(f"resolve_symbol:{action.get('substring', '')}")
                         noop_streak += 1
                         return
                     seen_resolves.add(str(action.get("substring", "")))
@@ -476,6 +481,7 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                 elif kind == "search_strings":
                     if str(action.get("substring", "")) in seen_searches:
                         record("noop", {"action": action, "repeat": True})
+                        exhausted.add(f"search_strings:{action.get('substring', '')}")
                         noop_streak += 1
                         return
                     seen_searches.add(str(action.get("substring", "")))

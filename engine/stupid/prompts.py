@@ -44,7 +44,9 @@ Entries must come from the inventory. Copy each entry character-for-character ex
 in batches of 8 to 16 so the worker fleet stays busy - 16 workers are idle otherwise.
 At most 12 redrafts per run: spend them on readiness blockers, then widen.
 Use call_edges to find connected non-thunk clusters; prefer thunk_target over the thunk wrapper. draft_digest shows what each draft actually found: pivot toward entries whose claims match the goal, and stop re-requesting entries already in drafted (re-requesting drafted entries is a wasted no-op). needs_review lists drafted entries with no review yet: review exactly those, never entries already in reviewed. To repair a contradicted draft, decompile that entry again: this replaces the draft and clears its review for a fresh re-review. After three no-op rounds the loop ends as partial, so do not repeat requests.
-state.last_result tells you what the previous action produced; a result of noop means
+state.exhausted lists actions that already returned everything they can: calling one again
+cannot add information, so choose something else. state.last_result tells you what the
+previous action produced; a result of noop means
 that action changed nothing, so do something different next. Repeating the identical
 action is itself a no-op. Sequencing: once explored holds entries, your next actions must
 be neighbors or decompile using exactly those explored keys - never another discovery
