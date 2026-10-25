@@ -1,0 +1,384 @@
+{
+  "schema": 1,
+  "subsystem": "LibreOffice Calc formula interpreter (libsclo.so)",
+  "notes": "expected values are analyst hypotheses. 'unverified' ones must be confirmed with scripts/lo_oracle.py --characterize before a run is trusted; a disagreement is a finding, never an edit to observed. Formulas use the UNO API grammar (';' between arguments). held_out cases are never shown to the spec writer or implementer.",
+  "query": "Spreadsheet formula evaluation: arithmetic, comparison, text, percent and error results of the Calc interpreter",
+  "expected_observables": [
+    "Arithmetic operator results and precedence",
+    "Postfix percent divides its operand by 100",
+    "Comparisons yield 1 or 0",
+    "Text concatenation with &",
+    "Error codes for division by zero, invalid arguments and wrong types"
+  ],
+  "cases": [
+    {
+      "id": "arith_precedence",
+      "formula": "=1+2*3",
+      "expected": {
+        "value": 7
+      },
+      "target_hint": "ScMul",
+      "input_description": "Multiplication binds tighter than addition",
+      "confidence": "documented",
+      "held_out": false
+    },
+    {
+      "id": "parens",
+      "formula": "=(1+2)*3",
+      "expected": {
+        "value": 9
+      },
+      "target_hint": "ScMul",
+      "input_description": "Parentheses override precedence",
+      "confidence": "documented",
+      "held_out": true
+    },
+    {
+      "id": "left_assoc_sub",
+      "formula": "=10-4-2",
+      "expected": {
+        "value": 4
+      },
+      "target_hint": "ScSub",
+      "input_description": "Subtraction is left-associative",
+      "confidence": "documented",
+      "held_out": false
+    },
+    {
+      "id": "left_assoc_div",
+      "formula": "=100/5/2",
+      "expected": {
+        "value": 10
+      },
+      "target_hint": "ScDiv",
+      "input_description": "Division is left-associative",
+      "confidence": "documented",
+      "held_out": true
+    },
+    {
+      "id": "int_div",
+      "formula": "=7/2",
+      "expected": {
+        "value": 3.5
+      },
+      "target_hint": "ScDiv",
+      "input_description": "Division of integers yields a fraction",
+      "confidence": "documented",
+      "held_out": true
+    },
+    {
+      "id": "pow_chain",
+      "formula": "=2^3^2",
+      "expected": {
+        "value": 64
+      },
+      "target_hint": "ScPow",
+      "input_description": "Exponentiation chains evaluate left to right",
+      "confidence": "unverified",
+      "held_out": false
+    },
+    {
+      "id": "unary_minus_pow",
+      "formula": "=-2^2",
+      "expected": {
+        "value": 4
+      },
+      "target_hint": "ScPow",
+      "input_description": "Unary minus binds tighter than exponentiation",
+      "confidence": "unverified",
+      "held_out": false
+    },
+    {
+      "id": "neg_parens",
+      "formula": "=-(2^2)",
+      "expected": {
+        "value": -4
+      },
+      "target_hint": "ScNeg",
+      "input_description": "Negating a parenthesized power",
+      "confidence": "documented",
+      "held_out": true
+    },
+    {
+      "id": "pow_negative_exponent",
+      "formula": "=2^-1",
+      "expected": {
+        "value": 0.5
+      },
+      "target_hint": "ScPow",
+      "input_description": "Negative exponent",
+      "confidence": "documented",
+      "held_out": false
+    },
+    {
+      "id": "zero_pow_zero",
+      "formula": "=0^0",
+      "expected": {
+        "value": 1
+      },
+      "target_hint": "ScPow",
+      "input_description": "Zero to the power zero",
+      "confidence": "unverified",
+      "held_out": false
+    },
+    {
+      "id": "percent_basic",
+      "formula": "=50%",
+      "expected": {
+        "value": 0.5
+      },
+      "target_hint": "ScPercentSign",
+      "input_description": "Postfix percent divides by 100",
+      "confidence": "documented",
+      "held_out": false
+    },
+    {
+      "id": "percent_mul",
+      "formula": "=200*15%",
+      "expected": {
+        "value": 30
+      },
+      "target_hint": "ScPercentSign",
+      "input_description": "Percent as a multiplication factor",
+      "confidence": "documented",
+      "held_out": false
+    },
+    {
+      "id": "percent_add",
+      "formula": "=100+10%",
+      "expected": {
+        "value": 100.1
+      },
+      "target_hint": "ScPercentSign",
+      "input_description": "Percent after + is still divided by 100",
+      "confidence": "documented",
+      "held_out": true
+    },
+    {
+      "id": "eq_true",
+      "formula": "=5=5",
+      "expected": {
+        "value": 1
+      },
+      "target_hint": "ScEqual",
+      "input_description": "Equality comparison yields TRUE (1)",
+      "confidence": "documented",
+      "held_out": false
+    },
+    {
+      "id": "neq_true",
+      "formula": "=5<>6",
+      "expected": {
+        "value": 1
+      },
+      "target_hint": "ScNotEqual",
+      "input_description": "Inequality comparison",
+      "confidence": "documented",
+      "held_out": true
+    },
+    {
+      "id": "gt_false",
+      "formula": "=2>10",
+      "expected": {
+        "value": 0
+      },
+      "target_hint": "ScGreater",
+      "input_description": "Greater-than false yields 0",
+      "confidence": "documented",
+      "held_out": false
+    },
+    {
+      "id": "le_equal",
+      "formula": "=4<=4",
+      "expected": {
+        "value": 1
+      },
+      "target_hint": "ScLessEqual",
+      "input_description": "Less-or-equal on equal operands",
+      "confidence": "documented",
+      "held_out": false
+    },
+    {
+      "id": "string_compare",
+      "formula": "=\"abc\"<\"abd\"",
+      "expected": {
+        "value": 1
+      },
+      "target_hint": "ScLess",
+      "input_description": "Text comparison",
+      "confidence": "unverified",
+      "held_out": true
+    },
+    {
+      "id": "concat",
+      "formula": "=\"Hello \"&\"World\"",
+      "expected": {
+        "text": "Hello World"
+      },
+      "target_hint": "ScAmpersand",
+      "input_description": "Text concatenation",
+      "confidence": "documented",
+      "held_out": false
+    },
+    {
+      "id": "concat_number",
+      "formula": "=\"Score: \"&(50+50)",
+      "expected": {
+        "text": "Score: 100"
+      },
+      "target_hint": "ScAmpersand",
+      "input_description": "Concatenating a number converts it to text",
+      "confidence": "documented",
+      "held_out": true
+    },
+    {
+      "id": "div_zero",
+      "formula": "=1/0",
+      "expected": {
+        "error": 532,
+        "text": "#DIV/0!"
+      },
+      "target_hint": "ScDiv",
+      "input_description": "Division by zero is error 532",
+      "confidence": "documented",
+      "held_out": false
+    },
+    {
+      "id": "sqrt_negative",
+      "formula": "=SQRT(-1)",
+      "expected": {
+        "error": 502,
+        "text": "Err:502"
+      },
+      "target_hint": "ScSqrt",
+      "input_description": "Square root of a negative number is an invalid argument",
+      "confidence": "documented",
+      "held_out": false
+    },
+    {
+      "id": "text_plus_number",
+      "formula": "=\"abc\"+1",
+      "expected": {
+        "error": 519,
+        "text": "#VALUE!"
+      },
+      "target_hint": "ScAdd",
+      "input_description": "Non-numeric text in arithmetic is #VALUE!",
+      "confidence": "documented",
+      "held_out": false
+    },
+    {
+      "id": "numeric_text_coercion",
+      "formula": "=1+\"2\"",
+      "expected": {
+        "value": 3
+      },
+      "target_hint": "ScAdd",
+      "input_description": "Unambiguous numeric text converts to a number",
+      "confidence": "unverified",
+      "held_out": false
+    },
+    {
+      "id": "bool_arith",
+      "formula": "=TRUE()+1",
+      "expected": {
+        "value": 2
+      },
+      "target_hint": "ScAdd",
+      "input_description": "TRUE is 1 in arithmetic",
+      "confidence": "documented",
+      "held_out": false
+    },
+    {
+      "id": "mod_negative",
+      "formula": "=MOD(-7;3)",
+      "expected": {
+        "value": 2
+      },
+      "target_hint": "ScMod",
+      "input_description": "MOD takes the sign of the divisor",
+      "confidence": "documented",
+      "held_out": false
+    },
+    {
+      "id": "round_half",
+      "formula": "=ROUND(2.5;0)",
+      "expected": {
+        "value": 3
+      },
+      "target_hint": "ScRound",
+      "input_description": "ROUND rounds half away from zero",
+      "confidence": "documented",
+      "held_out": false
+    },
+    {
+      "id": "round_neg_half",
+      "formula": "=ROUND(-2.5;0)",
+      "expected": {
+        "value": -3
+      },
+      "target_hint": "ScRound",
+      "input_description": "ROUND rounds negative half away from zero",
+      "confidence": "documented",
+      "held_out": true
+    },
+    {
+      "id": "cell_ref",
+      "formula": "=B1*2",
+      "expected": {
+        "value": 42
+      },
+      "target_hint": "ScMul",
+      "input_description": "Cell reference operand",
+      "confidence": "documented",
+      "held_out": false,
+      "cells": {
+        "B1": 21
+      }
+    },
+    {
+      "id": "sum_range",
+      "formula": "=SUM(B1:B3)",
+      "expected": {
+        "value": 6
+      },
+      "target_hint": "ScSum",
+      "input_description": "SUM over a range",
+      "confidence": "documented",
+      "held_out": true,
+      "cells": {
+        "B1": 1,
+        "B2": 2,
+        "B3": 3
+      }
+    },
+    {
+      "id": "average_skips_text",
+      "formula": "=AVERAGE(B1:B3)",
+      "expected": {
+        "value": 3
+      },
+      "target_hint": "ScAverage",
+      "input_description": "AVERAGE ignores text cells in a range",
+      "confidence": "documented",
+      "held_out": false,
+      "cells": {
+        "B1": 2,
+        "B2": "x",
+        "B3": 4
+      }
+    },
+    {
+      "id": "overflow",
+      "formula": "=1E308*10",
+      "expected": {
+        "error": 503,
+        "text": "#NUM!"
+      },
+      "target_hint": "ScMul",
+      "input_description": "Overflow beyond double range",
+      "confidence": "unverified",
+      "held_out": false
+    }
+  ]
+}

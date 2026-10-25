@@ -29,24 +29,39 @@ def add_aws_env(env: dict[str, str], env_file: Path) -> None:
 
 def invoke_opencode(opencode: Path, folder: Path, prompt: str, *, model: str,
                     timeout: int, env_file: Path, agent_name: str,
-                    agent_instruction: str) -> dict:
+                    agent_instruction: str, mcp: dict | None = None,
+                    allow_tools: tuple[str, ...] = ()) -> dict:
     version = subprocess.run([str(opencode), "--version"], capture_output=True,
                              text=True, check=True, timeout=10).stdout.strip()
-    config = {"$schema": "https://opencode.ai/config.json", "model": model,
-              "permission": {"*": "deny"},
+    # Everything is denied unless named in allow_tools (e.g. read-only MCP tools).
+    permission = {"*": "deny", **{name: "allow" for name in allow_tools}}
+    config = {"$schema": "https://opencode.ai/config.json", "model": model, "small_model": model,
+              "permission": permission,
               "agent": {agent_name: {"mode": "primary", "model": model,
                                     "prompt": agent_instruction,
-                                    "permission": {"*": "deny"}}}}
+                                    "permission": permission}}}
+    provider, _, model_id = model.partition("/")
+    if provider == "amazon-bedrock" and model_id.startswith("qwen."):
+        # The configured Bedrock model can be valid even when OpenCode's catalog omits it.
+        # Conservative client budgets keep these evidence-only calls bounded.
+        config["provider"] = {provider: {"models": {model_id: {
+            "name": model_id, "id": model_id, "status": "active",
+            "provider": {"npm": "@ai-sdk/amazon-bedrock"},
+            "limit": {"context": 32768, "output": 4000},
+        }}}}
+    if mcp:
+        config["mcp"] = mcp
     config_path = folder / "opencode.json"
     config_path.write_text(json.dumps(config, indent=2) + "\n")
     events_path = folder / "events.jsonl"
     stderr_path = folder / "stderr.log"
     env = os.environ.copy()
     add_aws_env(env, env_file)
-    env.update(OPENCODE_CONFIG=str(config_path), OPENCODE_DISABLE_AUTOUPDATE="true",
+    env.update(PWD=str(folder.resolve()), OPENCODE_CONFIG=str(config_path), OPENCODE_DISABLE_AUTOUPDATE="true",
                OPENCODE_DISABLE_EXTERNAL_SKILLS="true")
     with events_path.open("w") as events, stderr_path.open("w") as stderr:
-        completed = subprocess.run([str(opencode), "run", "--pure", "--agent",
+        completed = subprocess.run([str(opencode), "run", "--pure", "--print-logs",
+                                    "--title", agent_name, "--agent",
                                     agent_name, "--model", model, "--format", "json",
                                     prompt], cwd=folder, env=env, stdout=events, stderr=stderr,
                                    timeout=timeout, check=False)
