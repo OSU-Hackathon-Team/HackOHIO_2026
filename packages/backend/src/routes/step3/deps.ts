@@ -39,6 +39,8 @@ export interface Step3Deps {
   newRunId(): string;
   createTranscript(kind: Step3TranscriptKind, key: string): TranscriptPort;
   replayTranscript(kind: Step3TranscriptKind, key: string, sse: SseWriterPort, opts: { runId: string }): Promise<boolean>;
+  /** UI skills the synthesis model may choose; omitted in tests that don't exercise selection. */
+  skills?: SkillCatalog;
 }
 
 import { structuredCall, continueWith } from "../../llm/llm.js";
@@ -47,6 +49,7 @@ import { openSse as openSseReal, newRunId as newRunIdReal } from "../../http/sse
 import { createTranscript as createTranscriptReal } from "../../evidence/recorder.js";
 import { replayTranscript as replayTranscriptReal } from "../../evidence/replay.js";
 import { config } from "../../config.js";
+import { loadSkillCatalog, type SkillCatalog } from "../../skills/skills.js";
 
 // Kept for tests that verify 503 behavior when deps is explicitly passed as null
 export const MISSING_UPSTREAM = [
@@ -61,6 +64,7 @@ export const step3Deps: Step3Deps = {
   newRunId: newRunIdReal,
   createTranscript: createTranscriptReal,
   replayTranscript: (kind, key, sse, opts) => replayTranscriptReal(kind, key, sse as any, opts),
+  skills: loadSkillCatalog(),
 };
 
 /** Same value as REPO_ROOT in config.ts: src|dist/routes/step3 → repo root. */

@@ -52,7 +52,7 @@ const deps = step3Deps;
 const recipes = RECIPES.filter((r) => !only || r.name === only);
 let failed = 0;
 for (const r of recipes) {
-  const key = synthesisKey(r.features, r.prompt);
+  const key = synthesisKey(r.features, r.prompt, deps.skills?.version);
   console.log(`\n=== ${r.name}  (${key})`);
   const loaded = await Promise.all(r.features.map(loadBlueprint));
   const missing = r.features.filter((_, i) => !loaded[i]);
