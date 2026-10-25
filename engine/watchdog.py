@@ -15,8 +15,15 @@ from engine.model_runtime import invoke_opencode
 from engine.worker import parse_answer
 from model_config import get_model
 
-STAGES = {"semantic", "review", "gap"}
+STAGES = {"semantic", "review", "gap", "spec", "implementation"}
 MAX_GUIDANCE = 1800
+ALLOWED_ROLES = {
+    "semantic": {"decomp_worker", "decomp_adjudicator", "decomp_watchdog"},
+    "review": {"decomp_reviewer", "decomp_adjudicator", "decomp_watchdog"},
+    "gap": {"decomp_adjudicator", "decomp_reviewer", "decomp_watchdog"},
+    "spec": {"spec_writer", "decomp_watchdog"},
+    "implementation": {"engine_writer", "decomp_watchdog"},
+}
 
 
 def _digest(value: dict) -> str:
@@ -32,15 +39,13 @@ def _validate(answer: dict, stage: str, occupied_models: set[str]) -> dict:
     if not isinstance(guidance, str) or len(guidance) > MAX_GUIDANCE:
         raise ValueError("watchdog guidance is too long")
     role = answer["model_role"]
-    allowed = {"semantic": {"decomp_worker", "decomp_adjudicator", "decomp_watchdog"},
-               "review": {"decomp_reviewer", "decomp_adjudicator", "decomp_watchdog"},
-               "gap": {"decomp_adjudicator", "decomp_reviewer", "decomp_watchdog"}}[stage]
+    allowed = ALLOWED_ROLES[stage]
     if role is not None and (not isinstance(role, str) or role not in allowed):
         raise ValueError("watchdog selected an unsupported model role")
     if role and get_model(role) in occupied_models:
         raise ValueError("watchdog selected a model that saw the draft or review")
-    budget = answer["evidence_bytes"]
-    if budget is not None and (stage != "semantic" or not isinstance(budget, int)
+    budget = answer["evidence_bytes"] if stage == "semantic" else None
+    if budget is not None and (not isinstance(budget, int)
                                or isinstance(budget, bool) or not 16000 <= budget <= 120000):
         raise ValueError("watchdog evidence budget is invalid")
     return {"diagnosis": diagnosis.strip(), "guidance": guidance.strip(),
@@ -71,7 +76,8 @@ class Watchdog:
                 prior["artifact"] = previous_artifact
                 return prior
         default_role = {"semantic": "decomp_worker", "review": "decomp_reviewer",
-                        "gap": "decomp_adjudicator"}[stage]
+                        "gap": "decomp_adjudicator", "spec": "spec_writer",
+                        "implementation": "engine_writer"}[stage]
         fallback = {"diagnosis": "No valid watchdog intervention was available.",
                     "guidance": "", "model_role": None, "evidence_bytes": None}
         folder = self.engine.root / "watchdog" / uuid.uuid4().hex
@@ -82,14 +88,15 @@ class Watchdog:
             "observations. Favor caller-visible behavior; C++ layout and ABI are not required "
             "by a clean-room C implementation. You may tune prompt guidance, route the next "
             "agent to one of the allowed model roles, and for semantic work choose an evidence "
-            "budget from 16000 to 120000 bytes. You cannot change evidence, probe outcomes, "
+            "budget from 16000 to 120000 bytes. For every other stage, evidence_bytes must "
+            "be null. You cannot change evidence, probe outcomes, "
             "claims, citations, or acceptance rules. Keep guidance short and specific. "
             "Respond with exactly one JSON object with keys diagnosis (string), guidance "
             "(string), model_role (allowed role string or null), evidence_bytes (integer or "
             "null). Null model_role keeps the default agent. Null evidence_bytes keeps its "
             "existing budget. Do not copy observed answers into guidance.\n"
             f"Stage: {stage}\nDefault role: {default_role}\n"
-            f"Allowed model roles: {sorted({'semantic': {'decomp_worker', 'decomp_adjudicator', 'decomp_watchdog'}, 'review': {'decomp_reviewer', 'decomp_adjudicator', 'decomp_watchdog'}, 'gap': {'decomp_adjudicator', 'decomp_reviewer', 'decomp_watchdog'}}[stage])}\n"
+            f"Allowed model roles: {sorted(ALLOWED_ROLES[stage])}\n"
             f"Occupied models for independent review: {sorted(occupied)}\n"
             f"Checkpoint: {json.dumps(input_record, sort_keys=True, default=str)[:24000]}"
         )
