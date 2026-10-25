@@ -34,6 +34,7 @@ export interface DecompRunDeps {
   repoRoot: string;
   runnerScript: () => Promise<string>;
   buildPayload: (outFile: string) => Promise<unknown>;
+  publishAnalysis?: (run: DecompRun, result: DecompRunResult, progress: string) => Promise<void>;
   pollMs?: number;
   timeoutMs?: number;
   now?: () => number;
@@ -159,13 +160,15 @@ export class DecompRunService {
     let lastStage: DecompStage | null = record.run.stage;
     let lines = record.events.filter((e) => e.type === "log").length;
     let lastClaims = "";
+    let latestProgress = "";
     try {
       for (;;) {
         const [progress, consoleLog, exit] = await Promise.all([
           worker.readObject(record.run.run_id, "progress.jsonl"),
           worker.readObject(record.run.run_id, "console.log"),
           worker.readObject(record.run.run_id, "exit.json")]);
-        const snapshot = parseProgress(progress?.toString("utf8") ?? "", consoleLog?.toString("utf8") ?? "");
+        latestProgress = progress?.toString("utf8") ?? "";
+        const snapshot = parseProgress(latestProgress, consoleLog?.toString("utf8") ?? "");
         for (const line of snapshot.lines.slice(lines)) await this.emit(record, { type: "log", line });
         lines = Math.max(lines, snapshot.lines.length);
         if (snapshot.stage && snapshot.stage !== lastStage) {
@@ -203,6 +206,7 @@ export class DecompRunService {
       const result: DecompRunResult = await importRunResults(archive, {
         stateDir: this.deps.stateDir, repoRoot: this.deps.repoRoot,
         handoffDir: path.join(this.deps.repoRoot, "docs", "handoffs", target.handoff) });
+      await this.deps.publishAnalysis?.(record.run, result, latestProgress);
       await this.emit(record, { type: "result", result });
       await this.emit(record, { type: "stage", stage: "complete",
         message: result.spec_artifact ? `${result.spec_status} specification ready` : "Evidence imported; no specification" });

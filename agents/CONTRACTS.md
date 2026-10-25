@@ -725,3 +725,36 @@ Disconnects abort the model request. It is independent of the Step 3 dependency 
 The frontend rejects stale revisions and cancelled responses and keeps the previous layout on
 failure. Local project persistence is versioned independently in `builder/project.ts`; only file
 names/sizes are saved, never application bytes or credentials.
+
+## 4c. Saved S3 analysis library and native extraction (additive, team review pending)
+
+Schemas: `packages/contracts/src/nativeLibrary.ts` and `nativeExtraction.ts`.
+`docs/native-library.md` documents storage, endpoints, limitations, and observed checks.
+
+- `NativeLibrary`: enabled state, saved analysis summaries, and passing engine blocks.
+- `SavedAnalysis`: public handoff functions, read-only Ghidra decompilation, static-review
+  verdicts, unknowns, public original observations, and optional native spec. Held-out cases
+  and full result archives never enter this response.
+- `SavedBlock`: content hash and FeatureBlueprint with nonempty, fully passing engine tests.
+- `NativeExtractionRequest`: explicit `confirm_cost:true`, optional bounded intent, optional
+  selected function entries. No client-supplied claims or source payloads are accepted.
+- `NativeExtraction`: content hash, exact saved-analysis snapshot hash, model, timestamp,
+  draft-only NativeSubsystemSpec, stable claim sources, requirement-to-claim links, omissions,
+  and limitations. Public observations remain unlinked context and are not automatically
+  promoted into feature acceptance examples.
+- `NativeExtractionEvent`: stage, progress, extraction, error, and terminal done events over
+  POST-SSE. Model work is disabled under replay mode; incomplete streams are failures.
+
+`GET /api/library`, `GET /api/library/analyses/:id`, and
+`GET /api/library/analyses/:id/extractions` read saved S3 data.
+`POST /api/library/analyses/:id/extract` invokes the existing native spec writer with supported
+behavioral statements, never raw Ghidra code. Draft refusal in nativeAdapter remains intact.
+
+### Saved building-block membership
+
+`AddLibraryFeatureRequest` is a strict reference-only body: `analysis_id` plus `extraction_id`.
+`POST /api/library/features` loads the hash-checked extraction from S3 and saves library membership;
+clients cannot supply a name, description, readiness status or replacement spec.
+`GET /api/library/features` returns `{features: NativeExtraction[]}`. Membership does not promote
+readiness or create an engine. It is idempotent and makes no model calls. Added candidates are
+nested beneath their source analysis in App library and retain the needs-review state.

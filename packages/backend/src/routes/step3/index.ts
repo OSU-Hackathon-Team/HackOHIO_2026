@@ -5,6 +5,7 @@
 // requests are validated (400) before any stream opens, and missing upstream helpers give 503.
 import { Router, type Response } from "express";
 import { builderRouter } from "../../builder/edits.js";
+import { nativeLibraryStore } from "../../decomp/library.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
@@ -28,7 +29,7 @@ const unavailable = (res: Response) =>
 
 export function createStep3Router(
   deps: Step3Deps | null,
-  opts: { blueprintsDir?: string } = {},
+  opts: { blueprintsDir?: string; saveBlock?: (blueprint: FeatureBlueprint) => Promise<void> } = {},
 ): Router {
   const router = Router();
   const BP_DIR = opts.blueprintsDir ?? path.join(REPO_ROOT, "fixtures/blueprints");
@@ -82,6 +83,7 @@ export function createStep3Router(
       }, deps);
       await fs.mkdir(BP_DIR, { recursive: true });
       await fs.writeFile(path.join(BP_DIR, `${feature_id}.latest.json`), JSON.stringify(bp, null, 2));
+      if (bp.verification.status === "passed") await opts.saveBlock?.(bp);
       emit({ type: "blueprint", ...base(), blueprint: bp });
       stage(bp.verification.status === "passed" ? "complete" : "failed",
         `Engine ${bp.implementation.module_name}: ${bp.verification.passed}/${bp.verification.total} acceptance tests passing`);
@@ -171,5 +173,6 @@ export function createStep3Router(
   return router;
 }
 
-export const step3Router = createStep3Router(step3Deps);
+const library = nativeLibraryStore();
+export const step3Router = createStep3Router(step3Deps, { saveBlock: library ? bp => library.saveBlock(bp) : undefined });
 step3Router.use(builderRouter);

@@ -28,19 +28,26 @@ import { IDE_TARGETS, IDE_FEATURES } from "./data/ideFixtures";
 import { useIdeStore } from "./store/useIdeStore";
 import { WorkspaceButton } from "./WorkspaceButton";
 import { AnalyzeNative } from "./AnalyzeNative";
+import { SavedNativeLibrary } from "./SavedNativeLibrary";
+import { SavedBuildingBlocksWorkspace, type SavedLibrarySelection } from "./SavedBuildingBlocksWorkspace";
 import { cn } from "../lib/cn";
 import { api, developmentMode } from "../api/client";
 import { mockApi } from "../api/mock";
-import type { FeatureSpec, FeatureBlueprint, NativeSubsystemSpec } from "@splice/contracts";
+import type { FeatureSpec, FeatureBlueprint, NativeSubsystemSpec, NativeExtraction } from "@splice/contracts";
 import { useEffect } from "react";
 
 export function AppLibrary() {
+  const [savedView, setSavedView] = useState<SavedLibrarySelection | null>(null);
+  const [savedFeatures, setSavedFeatures] = useState<NativeExtraction[]>([]);
+  const [savedRevision, setSavedRevision] = useState(0);
   const selectedId = useIdeStore((s) => s.selectedFeatureId);
   const included = useIdeStore((s) => s.includedFeatureIds);
   const busy = useIdeStore((s) => s.chatBusy);
   const toggle = useIdeStore((s) => s.toggleFeatureInBuild);
-  const select = (id: string) =>
+  const select = (id: string) => {
+    setSavedView(null);
     useIdeStore.setState({ selectedFeatureId: id });
+  };
   // Bundled fixtures plus specs from live decompilation runs (GET /api/native-specs).
   const liveTargets = useIdeStore((s) => s.liveNativeTargets);
   const liveFeatures = useIdeStore((s) => s.liveNativeFeatures);
@@ -169,6 +176,7 @@ export function AppLibrary() {
             </span>
           </div>
           <AnalyzeNative />
+          <SavedNativeLibrary revision={savedRevision} features={savedFeatures} onFeatures={setSavedFeatures} onOpen={setSavedView} />
           <DisclosureGroup
             allowsMultipleExpanded
             className="divide-y divide-stone-800"
@@ -284,7 +292,11 @@ export function AppLibrary() {
           aria-label="Feature details"
           className="col-span-3 overflow-y-auto px-8 py-7"
         >
-          {feature ? (
+          {savedView ? <SavedBuildingBlocksWorkspace key={`${savedView.analysisId}:${savedView.featureId ?? "create"}`}
+            selection={savedView} addedFeatureIds={savedFeatures.map(feature => feature.id)} onAdded={feature => {
+              setSavedFeatures(current => [...current.filter(item => item.id !== feature.id), feature]);
+              setSavedRevision(revision => revision + 1);
+            }} /> : feature ? (
             <div className="mx-auto max-w-2xl">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs text-stone-400">

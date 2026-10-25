@@ -2,7 +2,8 @@ const reportOrCode = /```|<\/?(?:source|code)|\b(?:MOVAPS|MOVUPS|PXOR|JBE|CMP|RD
 const syntax = /[{}`;]|\b(?:function|const|let|return|if)\s*\(|=>|(?:^|\s)[A-Za-z_]\w*(?:\[[^\]]+\])?\s*(?:\+=|-=|==|=)\s*\S|^\s*[A-Za-z_]\w*\s*:\s*(?:u?int\d+|boolean|number|string|bool)\b/i;
 
 export function sourceLikeMatch(value: string): string | null {
-  return reportOrCode.exec(value)?.[0] ?? syntax.exec(value)?.[0] ?? null;
+  return /\b_Z[A-Za-z0-9_]+\b|\b[A-Za-z_]\w*::[A-Za-z_]\w*/.exec(value)?.[0]
+    ?? reportOrCode.exec(value)?.[0] ?? syntax.exec(value)?.[0] ?? null;
 }
 
 export function sourceLikeText(value: string): boolean {
