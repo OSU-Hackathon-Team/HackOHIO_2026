@@ -1,0 +1,181 @@
+name: CI Verification
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+  workflow_dispatch:
+    inputs:
+      sandpack:
+        description: Run the internet-dependent Sandpack boot tests
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-typecheck:
+    name: Build, Typecheck & Regression Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      REA_MODE: replay
+      LLM_MODE: replay
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build all workspaces (contracts, backend, frontend)
+        run: npm run build
+
+      - name: Typecheck all workspaces
+        run: npm run typecheck
+
+      - name: Test Step 1 integration and shared contracts
+        run: npm test
+
+      - name: Test backend and frontend units
+        run: npm run test:unit --workspaces --if-present
+
+  studio-tests:
+    name: Studio Browser Tests
+    needs: build-and-typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      REA_MODE: replay
+      LLM_MODE: replay
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Install dependencies and build contracts
+        run: |
+          npm ci
+          npm run build:contracts
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Test Studio layout, keyboard navigation and API failures
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.sandpack }}
+        run: npm run test:studio -- --grep-invert "Sandpack boots"
+
+      - name: Test full Studio including external Sandpack boots
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.sandpack }}
+        run: npm run test:studio
+
+      - name: Upload browser failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-browser-failures
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  docker-smoke-test:
+    name: Docker Build & Smoke Test
+    needs: [build-and-typecheck, studio-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare environment file
+        run: cp .env.example .env
+
+      - name: Build Docker runner image with GHA caching
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: runner
+          load: true
+          tags: splice-runner:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Boot container and verify endpoints
+        run: |
+          docker run -d --name splice-smoke-test -p 3001:3001 -e NODE_ENV=production --env-file .env splice-runner:test
+          
+          echo "Waiting for server to become ready on http://localhost:3001..."
+          for i in {1..20}; do
+            if curl -s -f http://localhost:3001/api/health > /dev/null; then
+              echo "Server ready after ${i} seconds!"
+              break
+            fi
+            sleep 1
+          done
+
+          echo "--- Testing /api/health ---"
+          curl -i -f http://localhost:3001/api/health
+
+          echo "--- Testing / (SPA root) ---"
+          curl -i -f http://localhost:3001/
+
+          echo "--- Testing /api/nonexistent (API 404 guard) ---"
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/api/nonexistent)
+          if [ "$HTTP_STATUS" != "404" ]; then
+            echo "Expected 404 for /api/nonexistent, got $HTTP_STATUS"
+            exit 1
+          fi
+          echo "Received expected 404 for /api/nonexistent"
+
+          docker exec -i splice-smoke-test node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { HealthResponse, Pantry, FeatureBlueprint } from './packages/contracts/dist/index.js';
+          const base = 'http://127.0.0.1:3001';
+          // Verify the actual image serves the chat/library entry point, not merely any SPA HTML.
+          const page = await fetch(base + '/');
+          assert.equal(page.status, 200);
+          const html = await page.text();
+          const entry = html.match(/<script\b[^>]*\bsrc="(\/assets\/[^" ]+\.js)"/);
+          assert.ok(entry, 'Production HTML must reference the built Vite entry');
+          const asset = await fetch(base + entry[1]);
+          assert.equal(asset.status, 200, 'Built frontend entry must be served');
+          const javascript = await asset.text();
+          for (const label of ['App library', 'Message Splice', 'My app']) {
+            assert.ok(javascript.includes(label), `Production image is missing current workspace: ${label}`);
+          }
+          console.log('Production image serves the current chat/library frontend');
+          const health = HealthResponse.parse(await (await fetch(base + '/api/health')).json());
+          for (const role of ['spec_writer', 'engine_writer', 'ui_synthesizer', 'refusal_fallback']) {
+            assert.ok(health.models[role], `Missing configured model role: ${role}`);
+          }
+          Pantry.parse(await (await fetch(base + '/api/pantry')).json());
+          FeatureBlueprint.array().parse(await (await fetch(base + '/api/blueprints')).json());
+          const invalid = await fetch(base + '/api/implement', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+          });
+          assert.equal(invalid.status, 400, 'Malformed implement request must fail before SSE');
+          console.log('Production health, model routing, pantry, blueprint and request-validation checks passed');
+          NODE
+
+      - name: Container teardown
+        if: always()
+        run: |
+          docker logs splice-smoke-test || true
+          docker stop splice-smoke-test || true
+          docker rm splice-smoke-test || true

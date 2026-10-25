@@ -1,0 +1,101 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "id": "map_api_english_odf",
+      "kind": "shared",
+      "target": "mapAPItoGrammar",
+      "input": {"symbol": "mapAPItoGrammar", "args": [true, true]},
+      "input_description": "English OpenFormula grammar request maps to bitmask 16973825",
+      "expected": {"return": 16973825}
+    },
+    {
+      "id": "map_api_native_odf",
+      "kind": "shared",
+      "target": "mapAPItoGrammar",
+      "input": {"symbol": "mapAPItoGrammar", "args": [false, true]},
+      "input_description": "Native OpenFormula grammar request maps to bitmask 196611",
+      "expected": {"return": 196611}
+    },
+    {
+      "id": "map_api_native_calc",
+      "kind": "shared",
+      "target": "mapAPItoGrammar",
+      "input": {"symbol": "mapAPItoGrammar", "args": [false, false]},
+      "input_description": "Native Calc grammar request maps to bitmask 131075",
+      "expected": {"return": 131075}
+    },
+    {
+      "id": "map_api_english_excel",
+      "kind": "shared",
+      "target": "mapAPItoGrammar",
+      "input": {"symbol": "mapAPItoGrammar", "args": [true, false]},
+      "input_description": "English Excel grammar request maps to bitmask 16908294",
+      "expected": {"return": 16908294}
+    },
+    {
+      "id": "set_english_bit_on",
+      "kind": "shared",
+      "target": "setEnglishBit",
+      "input": {"symbol": "setEnglishBit", "args": [196611, true]},
+      "input_description": "Setting the English bit raises bitmask 196611 to 16973827",
+      "expected": {"return": 16973827}
+    },
+    {
+      "id": "set_english_bit_off",
+      "kind": "shared",
+      "target": "setEnglishBit",
+      "input": {"symbol": "setEnglishBit", "args": [16973827, false]},
+      "input_description": "Clearing the English bit lowers bitmask 16973827 to 196611",
+      "expected": {"return": 196611}
+    },
+    {
+      "id": "supported_odff",
+      "kind": "shared",
+      "target": "isSupported",
+      "input": {"symbol": "isSupported", "args": [16973825]},
+      "input_description": "English OpenFormula bitmask reports supported",
+      "expected": {"return": 1}
+    },
+    {
+      "id": "supported_excel",
+      "kind": "shared",
+      "target": "isSupported",
+      "input": {"symbol": "isSupported", "args": [16908294]},
+      "input_description": "English Excel bitmask reports supported",
+      "expected": {"return": 1}
+    },
+    {
+      "id": "supported_native_odf",
+      "kind": "shared",
+      "target": "isSupported",
+      "input": {"symbol": "isSupported", "args": [196611]},
+      "input_description": "Native OpenFormula bitmask reports supported",
+      "expected": {"return": 1}
+    },
+    {
+      "id": "supported_native_calc",
+      "kind": "shared",
+      "target": "isSupported",
+      "input": {"symbol": "isSupported", "args": [131075]},
+      "input_description": "Native Calc bitmask reports supported",
+      "expected": {"return": 1}
+    },
+    {
+      "id": "supported_zero",
+      "kind": "shared",
+      "target": "isSupported",
+      "input": {"symbol": "isSupported", "args": [0]},
+      "input_description": "Zero bitmask reports unsupported",
+      "expected": {"return": 0}
+    },
+    {
+      "id": "supported_all_bits",
+      "kind": "shared",
+      "target": "isSupported",
+      "input": {"symbol": "isSupported", "args": [4294967295]},
+      "input_description": "All-bits-set bitmask reports unsupported",
+      "expected": {"return": 0}
+    }
+  ]
+}

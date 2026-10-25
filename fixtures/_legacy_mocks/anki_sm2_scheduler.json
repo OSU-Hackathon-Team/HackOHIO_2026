@@ -1,0 +1,29 @@
+{
+  "feature_id": "anki_sm2_repetition",
+  "source_app": "Anki",
+  "source_icon": "Clock",
+  "consumer_title": "SuperMemo-2 (SM-2) Spaced Repetition Engine",
+  "consumer_description": "Calculates optimal review intervals, easiness factor (EF), and repetition decay based on user recall grade (0-5).",
+  "category": "scheduling",
+  "rea_evidence": {
+    "artifact_type": "native_pe_dll",
+    "target_file": "anki_core.dll",
+    "entry_symbols": ["SchedV2::answerCard", "calculateNextInterval", "0x140023B80"],
+    "decompiled_snippet": "double calculate_factor(double factor, int grade) { double next = factor + (0.1 - (5 - grade) * (0.08 + (5 - grade) * 0.02)); return next < 1.3 ? 1.3 : next; }",
+    "ipc_or_network_routes": [],
+    "confidence_score": 0.99,
+    "limitations": ["Evaluates standard SM-2 algorithm without FSRS fuzzy adjustments"]
+  },
+  "clean_room_implementation": {
+    "language": "typescript",
+    "module_name": "sm2Scheduler",
+    "inputs": [
+      { "name": "cardState", "type": "{ repetitions: number; intervalDays: number; easeFactor: number }" },
+      { "name": "grade", "type": "0 | 1 | 2 | 3 | 4 | 5 (0: blackout, 5: perfect)" }
+    ],
+    "outputs": [
+      { "name": "nextState", "type": "{ repetitions: number; intervalDays: number; easeFactor: number; nextDueDate: string }" }
+    ],
+    "portable_code": "export interface CardScheduleState {\n  repetitions: number;\n  intervalDays: number;\n  easeFactor: number;\n}\n\nexport interface ScheduleResult extends CardScheduleState {\n  nextDueDate: string;\n}\n\nexport function computeNextReview(state: CardScheduleState, grade: number): ScheduleResult {\n  let { repetitions, intervalDays, easeFactor } = state;\n  if (grade >= 3) {\n    if (repetitions === 0) {\n      intervalDays = 1;\n    } else if (repetitions === 1) {\n      intervalDays = 6;\n    } else {\n      intervalDays = Math.round(intervalDays * easeFactor);\n    }\n    repetitions += 1;\n  } else {\n    repetitions = 0;\n    intervalDays = 1;\n  }\n  easeFactor = easeFactor + (0.1 - (5 - grade) * (0.08 + (5 - grade) * 0.02));\n  if (easeFactor < 1.3) easeFactor = 1.3;\n\n  const dueDate = new Date();\n  dueDate.setDate(dueDate.getDate() + intervalDays);\n  return {\n    repetitions,\n    intervalDays,\n    easeFactor: Number(easeFactor.toFixed(2)),\n    nextDueDate: dueDate.toISOString().split('T')[0]\n  };\n}"
+  }
+}

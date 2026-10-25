@@ -1,0 +1,45 @@
+{
+  "app_id": "inkwell",
+  "feature_id": "inkwell.wikilink_graph",
+  "target": {
+    "path": "targets/build/inkwell/app.asar",
+    "artifact_type": "electron_asar",
+    "sha256": "37979c1c709c822434e0e72767e0d1edb0fcd7032e8cf4fa08a32bd65f383942"
+  },
+  "rea_package_version": "6.7.0",
+  "mode": "replay",
+  "tool_calls": [],
+  "snippets": [
+    {
+      "location": "app.asar:src/graph/backlinks.js",
+      "symbol": "buildLinkGraph",
+      "language": "javascript",
+      "code": "\"use strict\";\nconst { parseWikiLinks, normalizeTitle } = require(\"./wikilinks\");\n\n/**\n * notes: Array<{ id, title, body }>\n * Returns nodes with degree, de-duplicated directed edges, backlinks per note,\n * and unresolved link targets per note. Self-links are ignored.\n */\nfunction buildLinkGraph(notes) {\n  const byTitle = new Map();\n  for (const n of notes) byTitle.set(normalizeTitle(n.title), n.id);\n\n  const edges = [];\n  const seen = new Set();\n  const backlinks = {};\n  const unresolved = {};\n  for (const n of notes) backlinks[n.id] = [];\n\n  for (const note of notes) {\n    for (const link of parseWikiLinks(note.body)) {\n      const targetId = byTitle.get(normalizeTitle(link.target));\n      if (!targetId) {\n        (unresolved[note.id] = unresolved[note.id] || []).push(link.target);\n        continue;\n      }\n      if (targetId === note.id) continue;\n      const key = note.id + \"->\" + targetId;\n      if (seen.has(key)) continue;\n      seen.add(key);\n      edges.push({ from: note.id, to: targetId });\n      backlinks[targetId].push(note.id);\n    }\n  }\n\n  const degree = {};\n  for (const e of edges) {\n    degree[e.from] = (degree[e.from] || 0) + 1;\n    degree[e.to] = (degree[e.to] || 0) + 1;\n  }\n  const nodes = notes.map((n) => ({ id: n.id, title: n.title, degree: degree[n.id] || 0 }));\n  return { nodes, edges, backlinks, unresolved };\n}\n\nmodule.exports = { buildLinkGraph };\n",
+      "full_module": true
+    },
+    {
+      "location": "app.asar:src/graph/wikilinks.js",
+      "symbol": "parseWikiLinks",
+      "language": "javascript",
+      "code": "\"use strict\";\nconst FENCE = /^```/;\nconst LINK = /\\[\\[([^\\]|#]+)(?:#([^\\]|]+))?(?:\\|([^\\]]+))?\\]\\]/g;\n\n/**\n * Extracts [[Target]], [[Target|alias]] and [[Target#Heading|alias]] links.\n * Links inside fenced code blocks and inline `code` are ignored.\n */\nfunction parseWikiLinks(markdown) {\n  const links = [];\n  let inFence = false;\n  for (const rawLine of markdown.split(/\\r?\\n/)) {\n    if (FENCE.test(rawLine.trim())) {\n      inFence = !inFence;\n      continue;\n    }\n    if (inFence) continue;\n    const line = rawLine.replace(/`[^`]*`/g, \"\");\n    LINK.lastIndex = 0;\n    let m;\n    while ((m = LINK.exec(line)) !== null) {\n      links.push({\n        target: m[1].trim(),\n        heading: m[2] ? m[2].trim() : null,\n        alias: m[3] ? m[3].trim() : null,\n      });\n    }\n  }\n  return links;\n}\n\nfunction normalizeTitle(title) {\n  return title.trim().toLowerCase().replace(/\\s+/g, \" \");\n}\n\nmodule.exports = { parseWikiLinks, normalizeTitle };",
+      "full_module": true
+    },
+    {
+      "location": "app.asar:src/main.js",
+      "symbol": "buildLinkGraph",
+      "language": "javascript",
+      "code": "\"use strict\";\nconst { app, BrowserWindow, ipcMain } = require(\"electron\");\nconst path = require(\"path\");\nconst { loadVault } = require(\"./storage/vault\");\nconst { buildLinkGraph } = require(\"./graph/backlinks\");\nconst { rankNotes } = require(\"./search/fuzzy\");\n\nlet vault = [];\n\napp.whenReady().then(async () => {\n  vault = await loadVault(path.join(app.getPath(\"documents\"), \"Inkwell\"));\n  ipcMain.handle(\"graph:get\", () => buildLinkGraph(vault));\n  ipcMain.handle(\"search:query\", (_e, q) => rankNotes(q, vault, 20));\n  const win = new BrowserWindow({\n    width: 1100,\n    height: 720,\n    webPreferences: { preload: path.join(__dirname, \"preload.js\") },\n  });\n  win.loadURL(\"data:text/html,<h1>Inkwell</h1>\");\n});\n",
+      "full_module": true
+    }
+  ],
+  "related_paths": [
+    "src/graph/backlinks.js",
+    "src/graph/wikilinks.js",
+    "src/main.js"
+  ],
+  "limitations": [
+    "Seed evidence assembled from source, not from REA"
+  ],
+  "unknowns": [],
+  "collected_at": "2026-10-24T19:09:50.346Z"
+}

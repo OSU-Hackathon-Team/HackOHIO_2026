@@ -1,0 +1,240 @@
+{
+  "schema_version": 1,
+  "feature_id": "recall.sm2_scheduler",
+  "app_id": "recall",
+  "source_app": "Recall Flashcards",
+  "source_icon": "Clock",
+  "artifact_type": "electron_asar",
+  "consumer_title": "SM-2 Spaced Repetition Engine",
+  "consumer_description": "Calculates intervals, easiness factor, and review schedule based on recall score (0-5).",
+  "category": "scheduling",
+  "requirements": [
+    {
+      "id": "REQ-1",
+      "kind": "error",
+      "statement": "Throws RangeError if grade is not an integer between 0 and 5 inclusive",
+      "source_refs": [
+        "src/scheduler/sm2.js:L4-L8"
+      ]
+    },
+    {
+      "id": "REQ-2",
+      "kind": "behavior",
+      "statement": "Grade >= 3 increments repetitions and expands interval (interval=1 on rep 0, interval=6 on rep 1, interval=round(interval*ease) subsequently)",
+      "source_refs": [
+        "src/scheduler/sm2.js:L21-L24"
+      ]
+    },
+    {
+      "id": "REQ-3",
+      "kind": "behavior",
+      "statement": "Grade < 3 resets repetitions to 0, sets interval to 1 day, and increments lapse count",
+      "source_refs": [
+        "src/scheduler/sm2.js:L25-L28"
+      ]
+    },
+    {
+      "id": "REQ-4",
+      "kind": "invariant",
+      "statement": "Ease factor cannot drop below MIN_EASE (1.30)",
+      "source_refs": [
+        "src/scheduler/sm2.js:L2-L2",
+        "src/scheduler/sm2.js:L9-L12"
+      ]
+    },
+    {
+      "id": "REQ-5",
+      "kind": "behavior",
+      "statement": "Cards with lapses >= 8 are flagged as leeches",
+      "source_refs": [
+        "src/scheduler/sm2.js:L3-L3",
+        "src/scheduler/sm2.js:L31-L31"
+      ]
+    }
+  ],
+  "interface": {
+    "module_name": "sm2Scheduler",
+    "exports": [
+      {
+        "name": "scheduleReview",
+        "kind": "function",
+        "signature": "(card: CardState, grade: number, now: number) => CardState",
+        "description": "Computes updated card state with next due date and ease"
+      },
+      {
+        "name": "updateEase",
+        "kind": "function",
+        "signature": "(ease: number, grade: number) => number",
+        "description": "Calculates new ease factor bounded below by 1.30"
+      }
+    ],
+    "types_code": "export interface CardState {\n  reps: number;\n  interval: number;\n  ease: number;\n  lapses?: number;\n  due?: number;\n  leech?: boolean;\n}\n\nexport declare function scheduleReview(card: CardState, grade: number, now: number): CardState;\nexport declare function updateEase(ease: number, grade: number): number;\n"
+  },
+  "inputs": [
+    {
+      "name": "card",
+      "type": "CardState",
+      "description": "Current card schedule parameters"
+    },
+    {
+      "name": "grade",
+      "type": "number",
+      "description": "Recall quality grade 0-5"
+    },
+    {
+      "name": "now",
+      "type": "number",
+      "description": "Current epoch timestamp in ms"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "nextCard",
+      "type": "CardState",
+      "description": "Updated card review state"
+    }
+  ],
+  "acceptance_tests": "test(\"REQ-1: invalid grade throws RangeError\", () => {\n  assert.throws(() => scheduleReview({ reps: 0, interval: 1, ease: 2.5 }, 6, 1000000), RangeError);\n  assert.throws(() => scheduleReview({ reps: 0, interval: 1, ease: 2.5 }, -1, 1000000), RangeError);\n});\n\ntest(\"REQ-2: grade 4 advances repetitions and expands interval\", () => {\n  const c1 = scheduleReview({ reps: 0, interval: 1, ease: 2.5 }, 4, 1000000);\n  assert.equal(c1.reps, 1);\n  assert.equal(c1.interval, 1);\n  const c2 = scheduleReview(c1, 4, 1000000);\n  assert.equal(c2.reps, 2);\n  assert.equal(c2.interval, 6);\n});\n\ntest(\"REQ-3 REQ-4: lapse resets reps and bounds ease at 1.30\", () => {\n  const c = scheduleReview({ reps: 3, interval: 12, ease: 1.35, lapses: 0 }, 1, 1000000);\n  assert.equal(c.reps, 0);\n  assert.equal(c.interval, 1);\n  assert.equal(c.lapses, 1);\n  assert.ok(c.ease >= 1.3);\n});\n\ntest(\"REQ-5: lapses >= 8 flags card as leech\", () => {\n  const c = scheduleReview({ reps: 1, interval: 1, ease: 2.5, lapses: 7 }, 2, 1000000);\n  assert.equal(c.leech, true);\n});\n",
+  "coverage": [
+    {
+      "requirement_id": "REQ-1",
+      "test_names": [
+        "REQ-1: invalid grade throws RangeError"
+      ]
+    },
+    {
+      "requirement_id": "REQ-2",
+      "test_names": [
+        "REQ-2: grade 4 advances repetitions and expands interval"
+      ]
+    },
+    {
+      "requirement_id": "REQ-3",
+      "test_names": [
+        "REQ-3 REQ-4: lapse resets reps and bounds ease at 1.30"
+      ]
+    },
+    {
+      "requirement_id": "REQ-4",
+      "test_names": [
+        "REQ-3 REQ-4: lapse resets reps and bounds ease at 1.30"
+      ]
+    },
+    {
+      "requirement_id": "REQ-5",
+      "test_names": [
+        "REQ-5: lapses >= 8 flags card as leech"
+      ]
+    }
+  ],
+  "allowed_deviations": [
+    "Timestamp injected via `now` argument rather than Date.now()"
+  ],
+  "stripped_glue": [
+    "ipcMain.handle('card:answer')",
+    "fs deck storage"
+  ],
+  "oracle": {
+    "status": "passed",
+    "adapter_code": "const sm2 = require('./src/scheduler/sm2.js'); module.exports = { scheduleReview: sm2.scheduleReview, updateEase: sm2.updateEase };",
+    "tests": [
+      {
+        "name": "REQ-1: invalid grade throws RangeError",
+        "kind": "oracle",
+        "passed": true,
+        "error": null,
+        "duration_ms": 2
+      },
+      {
+        "name": "REQ-2: grade 4 advances repetitions and expands interval",
+        "kind": "oracle",
+        "passed": true,
+        "error": null,
+        "duration_ms": 1
+      },
+      {
+        "name": "REQ-3 REQ-4: lapse resets reps and bounds ease at 1.30",
+        "kind": "oracle",
+        "passed": true,
+        "error": null,
+        "duration_ms": 1
+      },
+      {
+        "name": "REQ-5: lapses >= 8 flags card as leech",
+        "kind": "oracle",
+        "passed": true,
+        "error": null,
+        "duration_ms": 1
+      }
+    ],
+    "passed": 4,
+    "total": 4
+  },
+  "status": "verified",
+  "open_issues": [],
+  "repair_attempts": 0,
+  "provenance": {
+    "mode": "replay",
+    "target": {
+      "path": "targets/build/recall/app.asar",
+      "artifact_type": "electron_asar",
+      "sha256": "76af753af301c7596196594ca58dc6b15b42f3019fb227c7e87411322d484f55"
+    },
+    "rea_package_version": "6.7.0",
+    "tool_calls": [
+      {
+        "seq": 1,
+        "tool": "binary_session",
+        "args": {},
+        "ok": true,
+        "duration_ms": 15,
+        "evidence_id": null,
+        "summary": "Initialized REA session and retrieved tool capabilities",
+        "limitations": []
+      },
+      {
+        "seq": 2,
+        "tool": "analyze_javascript_application",
+        "args": {
+          "input_path": "targets/build/recall/app.asar",
+          "detail": "summary"
+        },
+        "ok": true,
+        "duration_ms": 230,
+        "evidence_id": "ev_1122334455667788112233445566778811223344556677881122334455667788",
+        "summary": "Discovered 4 JS modules across recall application archive",
+        "limitations": []
+      },
+      {
+        "seq": 3,
+        "tool": "trace_application_feature",
+        "args": {
+          "evidence_id": "ev_1122334455667788112233445566778811223344556677881122334455667788",
+          "seed": {
+            "kind": "module",
+            "value": "src/scheduler/sm2.js"
+          }
+        },
+        "ok": true,
+        "duration_ms": 165,
+        "evidence_id": "ev_8877665544332211887766554433221188776655443322118877665544332211",
+        "summary": "Extracted module src/scheduler/sm2.js with symbols scheduleReview and updateEase",
+        "limitations": []
+      }
+    ],
+    "snippets": [
+      {
+        "location": "app.asar:src/scheduler/sm2.js",
+        "symbol": "scheduleReview",
+        "language": "javascript",
+        "code": "\"use strict\";\nconst MIN_EASE = 1.3;\nconst LEECH_THRESHOLD = 8;\nfunction checkGrade(q) {\n  if (!Number.isInteger(q) || q < 0 || q > 5) {\n    throw new RangeError(\"grade must be an integer 0-5\");\n  }\n}\nfunction updateEase(ease, q) {\n  const next = ease + (0.1 - (5 - q) * (0.08 + (5 - q) * 0.02));\n  return Math.max(MIN_EASE, Math.round(next * 100) / 100);\n}\nconst DAY_MS = 24 * 60 * 60 * 1000;\nfunction scheduleReview(card, q, now) {\n  checkGrade(q);\n  const next = Object.assign({}, card);\n  if (q >= 3) {\n    next.interval = card.reps === 0 ? 1 : card.reps === 1 ? 6 : Math.round(card.interval * card.ease);\n    next.reps = card.reps + 1;\n  } else {\n    next.reps = 0;\n    next.interval = 1;\n    next.lapses = (card.lapses || 0) + 1;\n  }\n  next.ease = updateEase(card.ease, q);\n  next.due = now + next.interval * DAY_MS;\n  next.leech = (next.lapses || 0) >= LEECH_THRESHOLD;\n  return next;\n}\nmodule.exports = { scheduleReview, updateEase, DAY_MS };",
+        "full_module": true
+      }
+    ],
+    "limitations": [],
+    "unknowns": [],
+    "collected_at": "2026-10-24T12:00:00.000Z",
+    "specified_at": "2026-10-24T12:02:00.000Z",
+    "model": "amazon-bedrock/anthropic.claude-opus-5-5"
+  }
+}

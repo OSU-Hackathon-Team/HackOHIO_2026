@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "id": "reset_state",
+      "kind": "shared",
+      "target": "telemetry_reset",
+      "input": {"operation": "telemetry_sequence", "frames": []},
+      "expected": {"returns": [], "state": {"seen": 0, "accepted": 0, "rejected": 0, "sum": 0, "low": 4294967295, "high": 0, "last": 0, "buckets": [0, 0, 0, 0]}}
+    },
+    {
+      "id": "apply_null_packet",
+      "kind": "shared",
+      "target": "telemetry_apply",
+      "input": {"operation": "telemetry_sequence", "frames": [{"data": null, "length": 0}]},
+      "expected": {"returns": [-1], "state": {"seen": 0, "accepted": 0, "rejected": 0, "sum": 0, "low": 4294967295, "high": 0, "last": 0, "buckets": [0, 0, 0, 0]}}
+    },
+    {
+      "id": "apply_bad_marker",
+      "kind": "shared",
+      "target": "telemetry_apply",
+      "input": {"operation": "telemetry_sequence", "frames": [{"data": [0, 2, 42, 0, 114, 0]}]},
+      "expected": {"returns": [-1], "state": {"seen": 0, "accepted": 0, "rejected": 0, "sum": 0, "low": 4294967295, "high": 0, "last": 0, "buckets": [0, 0, 0, 0]}}
+    },
+    {
+      "id": "apply_bad_check",
+      "kind": "shared",
+      "target": "telemetry_apply",
+      "input": {"operation": "telemetry_sequence", "frames": [{"data": [165, 2, 42, 0, 115, 0]}]},
+      "expected": {"returns": [-1], "state": {"seen": 0, "accepted": 0, "rejected": 0, "sum": 0, "low": 4294967295, "high": 0, "last": 0, "buckets": [0, 0, 0, 0]}}
+    },
+    {
+      "id": "apply_policy_reject",
+      "kind": "shared",
+      "target": "telemetry_apply",
+      "input": {"operation": "telemetry_sequence", "frames": [{"data": [165, 0, 5, 0, 95, 0]}]},
+      "expected": {"returns": [-2], "state": {"seen": 1, "accepted": 0, "rejected": 1, "sum": 0, "low": 4294967295, "high": 0, "last": 0, "buckets": [0, 0, 0, 0]}}
+    },
+    {
+      "id": "apply_accepted",
+      "kind": "shared",
+      "target": "telemetry_apply",
+      "input": {"operation": "telemetry_sequence", "frames": [{"data": [165, 2, 42, 0, 114, 0]}]},
+      "expected": {"returns": [84], "state": {"seen": 1, "accepted": 1, "rejected": 0, "sum": 84, "low": 84, "high": 84, "last": 84, "buckets": [1, 0, 0, 0]}}
+    },
+    {
+      "id": "apply_state_sequence",
+      "kind": "shared",
+      "target": "telemetry_apply",
+      "input": {"operation": "telemetry_sequence", "frames": [{"data": [165, 2, 42, 0, 114, 0]}, {"data": [165, 0, 5, 0, 95, 0]}, {"data": [165, 2, 232, 3, 179, 0]}]},
+      "expected": {"returns": [84, -2, 2000], "state": {"seen": 3, "accepted": 2, "rejected": 1, "sum": 2084, "low": 84, "high": 2000, "last": 2000, "buckets": [1, 0, 1, 0]}}
+    }
+  ]
+}

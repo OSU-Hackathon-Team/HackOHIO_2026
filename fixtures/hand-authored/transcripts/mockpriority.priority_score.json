@@ -1,0 +1,129 @@
+[
+  {
+    "type": "stage",
+    "run_id": "run_mock_001",
+    "feature_id": "mockpriority.priority_score",
+    "ts": 1792864800000,
+    "stage": "queued",
+    "message": "Harvesting Task priority scoring from Mock Task Board"
+  },
+  {
+    "type": "stage",
+    "run_id": "run_mock_001",
+    "feature_id": "mockpriority.priority_score",
+    "ts": 1792864800050,
+    "stage": "connecting",
+    "message": "Connecting to decompilation bridge"
+  },
+  {
+    "type": "stage",
+    "run_id": "run_mock_001",
+    "feature_id": "mockpriority.priority_score",
+    "ts": 1792864800100,
+    "stage": "analyzing",
+    "message": "Analyzing native ELF binary fixtures/test-run/mock_task_priority.elf"
+  },
+  {
+    "type": "tool_call",
+    "run_id": "run_mock_001",
+    "feature_id": "mockpriority.priority_score",
+    "ts": 1792864800150,
+    "seq": 1,
+    "tool": "decompile_symbol",
+    "args_preview": "{\"symbol\": \"score_task_priority\"}"
+  },
+  {
+    "type": "tool_result",
+    "run_id": "run_mock_001",
+    "feature_id": "mockpriority.priority_score",
+    "ts": 1792864800200,
+    "seq": 1,
+    "tool": "decompile_symbol",
+    "ok": true,
+    "duration_ms": 10,
+    "summary": "Decompiled score_task_priority at 0x4012A0",
+    "evidence_id": null
+  },
+  {
+    "type": "stage",
+    "run_id": "run_mock_001",
+    "feature_id": "mockpriority.priority_score",
+    "ts": 1792864800250,
+    "stage": "specifying",
+    "message": "Synthesizing clean-room FeatureSpec from recovered pseudocode"
+  },
+  {
+    "type": "stage",
+    "run_id": "run_mock_001",
+    "feature_id": "mockpriority.priority_score",
+    "ts": 1792864800300,
+    "stage": "checking_oracle",
+    "message": "Validating behavioral conformance against native probe cases"
+  },
+  {
+    "type": "test_result",
+    "run_id": "run_mock_001",
+    "feature_id": "mockpriority.priority_score",
+    "ts": 1792864800350,
+    "name": "REQ-1: Completed tasks score 0 regardless of due date or importance.",
+    "kind": "oracle",
+    "passed": true,
+    "error": null
+  },
+  {
+    "type": "test_result",
+    "run_id": "run_mock_001",
+    "feature_id": "mockpriority.priority_score",
+    "ts": 1792864800400,
+    "name": "REQ-2: Overdue tasks gain 40 points per complete day late, capped at 120.",
+    "kind": "oracle",
+    "passed": true,
+    "error": null
+  },
+  {
+    "type": "test_result",
+    "run_id": "run_mock_001",
+    "feature_id": "mockpriority.priority_score",
+    "ts": 1792864800450,
+    "name": "REQ-3: Tasks due within 24 hours receive 80 urgency points; tasks due within 7 days receive 35 urgency points.",
+    "kind": "oracle",
+    "passed": true,
+    "error": null
+  },
+  {
+    "type": "test_result",
+    "run_id": "run_mock_001",
+    "feature_id": "mockpriority.priority_score",
+    "ts": 1792864800500,
+    "name": "REQ-4: Importance is clamped between 0 and 5, adding 30 points per level.",
+    "kind": "oracle",
+    "passed": true,
+    "error": null
+  },
+  {
+    "type": "test_result",
+    "run_id": "run_mock_001",
+    "feature_id": "mockpriority.priority_score",
+    "ts": 1792864800550,
+    "name": "REQ-5: Total score is non-negative and capped at 200.",
+    "kind": "oracle",
+    "passed": true,
+    "error": null
+  },
+  {
+    "type": "stage",
+    "run_id": "run_mock_001",
+    "feature_id": "mockpriority.priority_score",
+    "ts": 1792864800600,
+    "stage": "complete",
+    "message": "5 requirements · 5/5 tests pass · verified"
+  },
+  {
+    "type": "done",
+    "run_id": "run_mock_001",
+    "feature_id": "mockpriority.priority_score",
+    "ts": 1792864800650,
+    "ok": true,
+    "replayed": true
+  }
+]

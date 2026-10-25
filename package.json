@@ -1,0 +1,40 @@
+{
+  "name": "splice",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build:contracts": "npm run build --workspace=@splice/contracts",
+    "build:backend": "npm run build --workspace=@splice/backend",
+    "build:frontend": "npm run build --workspace=@splice/frontend",
+    "build": "npm run build:contracts && npm run build:backend && npm run build:frontend",
+    "dev:backend": "npm run dev --workspace=@splice/backend",
+    "dev:frontend": "npm run dev --workspace=@splice/frontend",
+    "dev": "npm run build:contracts && concurrently -n contracts,backend,frontend -c yellow,green,cyan \"npm run dev --workspace=@splice/contracts\" \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:python": "python3 -m unittest discover -s tests -p \"test_*.py\"",
+    "test:replay": "npm run test:replay --workspace=@splice/backend",
+    "test:electron-recreation": "node scripts/electron/verify-recall.mjs",
+    "test:electron-runtime": "node scripts/electron/smoke-recall.mjs",
+    "test:all": "npm run test && npm run test:python",
+    "start": "npm run start --workspace=@splice/backend",
+    "build:targets": "node scripts/build-targets.mjs",
+    "test:studio": "playwright test"
+  },
+  "devDependencies": {
+    "tsx": "^4",
+
+    "@electron/asar": "3.2.17",
+    "@playwright/test": "1.56.1",
+    "concurrently": "^9.1.2",
+    "ts-prune": "^0.10.3",
+    "typescript": "^5.7.3"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "app_id": "recall",
+  "feature_id": "recall.review_streaks",
+  "target": {
+    "path": "targets/build/recall/app.asar",
+    "artifact_type": "electron_asar",
+    "sha256": "76af753af301c7596196594ca58dc6b15b42f3019fb227c7e87411322d484f55"
+  },
+  "rea_package_version": "6.7.0",
+  "mode": "replay",
+  "tool_calls": [],
+  "snippets": [
+    {
+      "location": "app.asar:src/stats/streaks.js",
+      "symbol": "computeStreak",
+      "language": "javascript",
+      "code": "\"use strict\";\nconst DAY = 86400000;\n\nfunction toDay(iso) {\n  return Math.floor(Date.parse(iso + \"T00:00:00Z\") / DAY);\n}\n\n/**\n * reviewDates: array of \"YYYY-MM-DD\" (duplicates allowed, any order)\n * today: \"YYYY-MM-DD\"\n * A streak stays \"current\" if the last review was today or yesterday.\n */\nfunction computeStreak(reviewDates, today) {\n  const days = Array.from(new Set(reviewDates.map(toDay))).sort((a, b) => a - b);\n  if (days.length === 0) return { current: 0, longest: 0, lastReview: null };\n\n  let longest = 1;\n  let run = 1;\n  for (let i = 1; i < days.length; i++) {\n    run = days[i] === days[i - 1] + 1 ? run + 1 : 1;\n    if (run > longest) longest = run;\n  }\n\n  const t = toDay(today);\n  const last = days[days.length - 1];\n  let current = 0;\n  if (t - last <= 1) {\n    current = 1;\n    for (let i = days.length - 1; i > 0 && days[i] === days[i - 1] + 1; i--) current++;\n  }\n  return { current, longest, lastReview: new Date(last * DAY).toISOString().slice(0, 10) };\n}\n\nmodule.exports = { computeStreak };\n",
+      "full_module": true
+    },
+    {
+      "location": "app.asar:src/main.js",
+      "symbol": "computeStreak",
+      "language": "javascript",
+      "code": "\"use strict\";\nconst { app, BrowserWindow, ipcMain } = require(\"electron\");\nconst path = require(\"path\");\nconst { loadDeck, saveDeck } = require(\"./db/deckStore\");\nconst { scheduleReview } = require(\"./scheduler/sm2\");\nconst { computeStreak } = require(\"./stats/streaks\");\n\nconst DATA_DIR = () => path.join(app.getPath(\"userData\"), \"decks\");\n\napp.whenReady().then(() => {\n  ipcMain.handle(\"card:answer\", async (_e, deckName, cardId, grade) => {\n    const deck = await loadDeck(DATA_DIR(), deckName);\n    const card = deck.cards.find((c) => c.id === cardId);\n    Object.assign(card, scheduleReview(card, grade, Date.now()));\n    deck.history.push(new Date().toISOString().slice(0, 10));\n    await saveDeck(DATA_DIR(), deckName, deck);\n    return card;\n  });\n  ipcMain.handle(\"stats:streak\", async (_e, deckName) => {\n    const deck = await loadDeck(DATA_DIR(), deckName);\n    return computeStreak(deck.history, new Date().toISOString().slice(0, 10));\n  });\n  new BrowserWindow({ width: 900, height: 640 }).loadURL(\"data:text/html,<h1>Recall</h1>\");\n});\n",
+      "full_module": true
+    }
+  ],
+  "related_paths": [
+    "src/stats/streaks.js",
+    "src/main.js"
+  ],
+  "limitations": [
+    "Seed evidence assembled from source, not from REA"
+  ],
+  "unknowns": [],
+  "collected_at": "2026-10-24T19:09:50.349Z"
+}

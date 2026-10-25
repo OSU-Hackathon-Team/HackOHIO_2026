@@ -1,0 +1,77 @@
+services:
+  # Splice Unified Production & Demo Service (Default)
+  splice:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    container_name: splice-app
+    ports:
+      - "3001:3001"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - REA_MODE=${REA_MODE:-mock}
+    restart: unless-stopped
+
+  # Hot reload: docker compose --profile dev up --build splice-dev (open http://localhost:5173).
+  # Stop splice first; both services publish API port 3001.
+  splice-dev:
+    profiles:
+      - dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+    container_name: splice-dev
+    ports:
+      - "3001:3001"
+      - "5173:5173"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - REA_MODE=${REA_MODE:-mock}
+    volumes:
+      - ./packages:/app/packages
+      - ./fixtures:/app/fixtures
+      - ./targets:/app/targets
+      - /app/node_modules
+    restart: unless-stopped
+
+  # Ghidra / OpenCode Agent Worker (docker compose --profile worker up)
+  orchestrator:
+    profiles:
+      - worker
+    build:
+      context: .
+      dockerfile: worker.Dockerfile
+    privileged: true
+    security_opt:
+      - label=disable
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      STORAGE_DRIVER: vfs
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      # Same defaults as models.json; Nova Lite produced unusable decomp claims.
+      MODEL_DECOMP_WORKER: ${MODEL_DECOMP_WORKER:-amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0}
+      MODEL_SPEC_WRITER: ${MODEL_SPEC_WRITER:-amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0}
+      MODEL_LEGAL_VERIFICATION: ${MODEL_LEGAL_VERIFICATION:-amazon-bedrock/anthropic.claude-opus-4-6-v1}
+    volumes:
+      - .:/workspace
+      - podman-storage:/var/lib/containers
+      - ${OPENCODE_BIN:-/home/mitch/.opencode/bin/opencode}:/run/opencode-bin:ro
+      - ${OPENCODE_AUTH_FILE:-/home/mitch/.local/share/opencode/auth.json}:/run/opencode-auth.json:ro
+    working_dir: /workspace
+    command: ["python", "launch.py", "--help"]
+
+volumes:
+  podman-storage:

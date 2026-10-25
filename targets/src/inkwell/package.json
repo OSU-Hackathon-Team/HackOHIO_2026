@@ -1,0 +1,8 @@
+{
+  "name": "inkwell-notes",
+  "version": "2.1.0",
+  "description": "Markdown notes with wiki links",
+  "main": "src/main.js",
+  "author": "Splice demo target",
+  "license": "MIT"
+}

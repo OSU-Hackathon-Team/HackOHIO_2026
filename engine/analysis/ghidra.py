@@ -1,0 +1,507 @@
+"""Cache Ghidra imports and export immutable evidence from an isolated project."""
+
+from __future__ import annotations
+
+import atexit
+from contextlib import contextmanager
+try:
+    import fcntl
+    def _flock_ex(file_obj):
+        fcntl.flock(file_obj, fcntl.LOCK_EX)
+    def _flock_un(file_obj):
+        fcntl.flock(file_obj, fcntl.LOCK_UN)
+except ImportError:
+    try:
+        import msvcrt
+        def _flock_ex(file_obj):
+            file_obj.seek(0)
+            msvcrt.locking(file_obj.fileno(), msvcrt.LK_LOCK, 1)
+        def _flock_un(file_obj):
+            file_obj.seek(0)
+            msvcrt.locking(file_obj.fileno(), msvcrt.LK_UNLCK, 1)
+    except ImportError:
+        def _flock_ex(file_obj): pass
+        def _flock_un(file_obj): pass
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import time
+
+from engine.artifacts import LocalArtifactStore
+from engine.analysis.warm import WarmGhidraPool
+
+ROOT = Path(__file__).resolve().parents[2]
+SCRIPT_DIR = ROOT / "engine" / "analysis" / "scripts"
+SCHEMA = 1
+# Profile -> pre-analysis script. "light" skips analyzers that dominate import time on huge
+# libraries; see scripts/LightAnalysisOptions.java.
+ANALYSIS_PROFILES = {"full": None, "light": "LightAnalysisOptions.java"}
+
+
+def file_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def tool_version(headless: Path) -> str:
+    # The installation's application.properties is part of the cache identity.
+    properties = headless.resolve().parents[1] / "Ghidra" / "application.properties"
+    return file_hash(properties) if properties.exists() else file_hash(headless)
+
+
+class GhidraAnalysis:
+    def __init__(self, root: Path, headless: Path, *, timeout: int = 900,
+                 warm_workers: int | None = None, analysis_profile: str = "full"):
+        if analysis_profile not in ANALYSIS_PROFILES:
+            raise ValueError(f"analysis_profile must be one of {sorted(ANALYSIS_PROFILES)}")
+        self.analysis_profile = analysis_profile
+        self.root = Path(root).resolve()
+        self.headless = Path(headless).resolve()
+        self.timeout = timeout
+        cache_bucket = os.environ.get("DECOMP_CACHE_BUCKET")
+        if cache_bucket:
+            import boto3
+            from engine.s3_cache import S3ArtifactStore, S3StageCache
+            self.store = S3ArtifactStore(self.root / "artifacts", cache_bucket,
+                                         boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION")
+                                                      or os.environ.get("AWS_REGION", "us-east-2")))
+            self.cache = S3StageCache(self.store)
+            self.store._remote(self.store.put(b"splice-private-decomp-cache-v1"))
+            self.cache.get("preflight", {"nonce": os.urandom(16).hex()})
+        else:
+            self.store = LocalArtifactStore(self.root / "artifacts")
+            self.cache = None
+        self.root.mkdir(parents=True, exist_ok=True)
+        if warm_workers is None:
+            warm_workers = int(os.environ.get("DECOMP_ANALYSIS_WORKERS", "2"))
+        if not 0 <= warm_workers <= 16:
+            raise ValueError("warm_workers must be between 0 and 16")
+        self.warm = (WarmGhidraPool(self.root, self.headless, SCRIPT_DIR,
+                                    size=warm_workers, timeout=timeout,
+                                    environment=self._environment, emit=self._emit)
+                     if warm_workers else None)
+        if self.warm is not None:
+            atexit.register(self.close)
+
+    def close(self) -> None:
+        if self.warm is not None:
+            self.warm.close()
+
+    def _emit(self, campaign: str, stage: str, **details: object) -> None:
+        record = {"schema": SCHEMA, "time": time.time(), "campaign": campaign,
+                  "stage": stage, **details}
+        with (self.root / "progress.jsonl").open("a") as stream:
+            stream.write(json.dumps(record, sort_keys=True) + "\n")
+
+    def _run(self, args: list[str], campaign: str, stage: str) -> None:
+        self._emit(campaign, stage + "_started")
+        started = time.monotonic()
+        log = self.root / "logs" / campaign
+        log.mkdir(parents=True, exist_ok=True)
+        with (log / (stage + ".log")).open("w") as output:
+            try:
+                result = subprocess.run([str(self.headless), *args], stdout=output,
+                                        stderr=subprocess.STDOUT, timeout=self.timeout,
+                                        check=False, env=self._environment())
+            except subprocess.TimeoutExpired:
+                self._emit(campaign, stage + "_failed", error="timeout",
+                           elapsed_seconds=round(time.monotonic() - started, 3))
+                raise RuntimeError(f"Ghidra {stage} timed out; see {output.name}") from None
+        if result.returncode:
+            self._emit(campaign, stage + "_failed", exit_code=result.returncode)
+            raise RuntimeError(f"Ghidra {stage} exited {result.returncode}; see {log / (stage + '.log')}")
+        self._emit(campaign, stage + "_finished",
+                   elapsed_seconds=round(time.monotonic() - started, 3))
+
+    def _environment(self) -> dict[str, str]:
+        env = os.environ.copy()
+        env.setdefault("JAVA_HOME", str(Path("/usr/lib/jvm/java-21-openjdk")))
+        # Sandboxed hosts may have an unwritable user config directory.
+        user_dir = self.root / "ghidra-user"
+        user_dir.mkdir(exist_ok=True)
+        env["GHIDRA_USER_DIR"] = str(user_dir)
+        env["JAVA_TOOL_OPTIONS"] = (env.get("JAVA_TOOL_OPTIONS", "") +
+                                    f" -Duser.home={user_dir}").strip()
+        return env
+
+    def _analysis_options(self) -> dict:
+        # "full" keeps the original empty options so existing campaigns stay cached.
+        script = ANALYSIS_PROFILES[self.analysis_profile]
+        if script is None:
+            return {}
+        return {"profile": self.analysis_profile, "prescript_sha256": file_hash(SCRIPT_DIR / script)}
+
+    def analyze(self, binary: Path, *, force: bool = False) -> dict:
+        binary = Path(binary).resolve(strict=True)
+        binary_sha = file_hash(binary)
+        script_sha = file_hash(SCRIPT_DIR / "ExportEvidence.java")
+        identity = {"schema": SCHEMA, "binary_sha256": binary_sha,
+                    "ghidra_version_sha256": tool_version(self.headless),
+                    "exporter_sha256": script_sha, "analysis_options": self._analysis_options()}
+        campaign = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+        project_root = self.root / "projects" / campaign
+        project_root.mkdir(parents=True, exist_ok=True)
+        with (project_root / ".analysis.lock").open("a+b") as lock:
+            _flock_ex(lock)
+            try:
+                return self._analyze_locked(binary, identity, campaign, project_root, force)
+            finally:
+                _flock_un(lock)
+
+    def _analyze_locked(self, binary: Path, identity: dict, campaign: str,
+                        project_root: Path, force: bool) -> dict:
+        manifest_path = project_root / "manifest.json"
+        if manifest_path.exists() and not force:
+            manifest = json.loads(manifest_path.read_text())
+            self.store.get(manifest["index_artifact"])
+            if not ((project_root / "baseline.gpr").exists() and
+                    (project_root / "baseline.rep").is_dir()):
+                raise RuntimeError("cached Ghidra baseline is missing; evidence remains immutable")
+            self._emit(campaign, "cache_hit", binary=str(binary))
+            return manifest
+        if force and manifest_path.exists():
+            raise ValueError("force rebuild requires a new analysis revision; existing baseline is immutable")
+        project_name = "baseline"
+        program_name = binary.name
+        project = project_root / (project_name + ".gpr")
+        repository = project_root / (project_name + ".rep")
+        imported = project_root / "import.done"
+        if force or not imported.exists() or not project.exists() or not repository.is_dir():
+            if project.exists() or repository.exists() or imported.exists():
+                self._emit(campaign, "import_recovery", forced=force)
+            project.unlink(missing_ok=True)
+            if repository.exists():
+                shutil.rmtree(repository)
+            imported.unlink(missing_ok=True)
+            prescript = ANALYSIS_PROFILES[self.analysis_profile]
+            options = (["-scriptPath", str(SCRIPT_DIR), "-preScript", prescript]
+                       if prescript else [])
+            self._run([str(project_root), project_name, "-import", str(binary),
+                       "-overwrite", "-analysisTimeoutPerFile", str(self.timeout), *options],
+                      campaign, "import")
+            if not project.exists() or not repository.is_dir():
+                self._emit(campaign, "import_failed", error="incomplete project")
+                raise RuntimeError("Ghidra import produced no complete project")
+            temporary = imported.with_suffix(".tmp")
+            temporary.write_text(json.dumps({"binary_sha256": identity["binary_sha256"]}) + "\n")
+            os.replace(temporary, imported)
+        with tempfile.TemporaryDirectory(dir=self.root) as scratch:
+            export = Path(scratch) / "index.json"
+            self._run([str(project_root), project_name, "-process", program_name,
+                       "-readOnly", "-noanalysis", "-scriptPath", str(SCRIPT_DIR),
+                       "-postScript", "ExportEvidence.java", str(export), "index"],
+                      campaign, "index")
+            if not export.exists():
+                self._emit(campaign, "index_failed", error="no output")
+                raise RuntimeError("Ghidra index script produced no output; see index.log")
+            index = json.loads(export.read_text())
+            if index.get("status") != "ok":
+                self._emit(campaign, "index_failed", error="incomplete export")
+                raise RuntimeError("Ghidra index exporter did not finish")
+            index_sha = self.store.put(export.read_bytes())
+        manifest = {**identity, "campaign": campaign, "binary": str(binary),
+                    "project": str(project_root), "program_name": program_name,
+                    "index_artifact": index_sha, "function_count": len(index["functions"])}
+        temporary = manifest_path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+        os.replace(temporary, manifest_path)
+        self._emit(campaign, "indexed", functions=len(index["functions"]),
+                   static_inventory=index["static_inventory"], artifact=index_sha)
+        return manifest
+
+    def index(self, manifest: dict) -> dict:
+        return json.loads(self.store.get(manifest["index_artifact"]))
+
+    def analyze_scoped(self, binary: Path, seeds: list[str], *, max_functions: int,
+                       max_depth: int) -> dict:
+        from engine.analysis.scoped import prepare_scoped
+        manifest = prepare_scoped(self, binary, seeds, max_functions=max_functions,
+                                  max_depth=max_depth)
+        folder = Path(manifest['project'])
+        key = file_hash(SCRIPT_DIR / 'ExportEvidence.java')
+        pointer = folder / ('scoped-index-' + key + '.json')
+        cache_identity = {'campaign': manifest['campaign'],
+                          'scope_sha256': manifest['scope_sha256'],
+                          'exporter_sha256': key}
+        cache = getattr(self, 'cache', None)
+        with (folder / '.index.lock').open('a+b') as lock:
+            _flock_ex(lock)
+            try:
+                if pointer.exists():
+                    saved = json.loads(pointer.read_text())
+                    self.store.get(saved['artifact'])
+                else:
+                    cached = cache.get('scoped_index', cache_identity) if cache else None
+                    if cached is not None:
+                        index = json.loads(self.store.get(cached['artifact']))
+                        selected = {f['entry'] for f in manifest['scope']['functions']}
+                        if (index.get('status') != 'ok' or
+                                {f['entry'] for f in index['functions']} != selected or
+                                index.get('analysis_scope') != manifest['scope']):
+                            raise RuntimeError('S3 scoped index does not match prepared baseline')
+                        saved = {'artifact': cached['artifact'], 'functions': len(index['functions'])}
+                        self._emit(manifest['campaign'], 'scoped_index_cache_hit',
+                                   artifact=saved['artifact'])
+                    else:
+                        if cache:
+                            self._emit(manifest['campaign'], 'scoped_index_cache_miss')
+                        saved = GhidraAnalysis._export_scoped_index(self, manifest, folder)
+                        if cache:
+                            cache.put('scoped_index', cache_identity, saved)
+                    temporary = pointer.with_suffix('.tmp')
+                    temporary.write_text(json.dumps(saved))
+                    os.replace(temporary, pointer)
+            finally:
+                _flock_un(lock)
+        return {**manifest, 'index_artifact': saved['artifact'], 'function_count': saved['functions'],
+                'exporter_sha256': key, 'ghidra_version_sha256': tool_version(self.headless)}
+
+    def _export_scoped_index(self, manifest: dict, folder: Path) -> dict:
+        with tempfile.TemporaryDirectory(dir=self.root) as scratch:
+            export = Path(scratch) / 'index.json'
+            self._run([str(folder), 'baseline', '-process', manifest['program_name'],
+                       '-readOnly', '-noanalysis', '-scriptPath', str(SCRIPT_DIR),
+                       '-postScript', 'ExportEvidence.java', str(export), 'index'],
+                      manifest['campaign'], 'scoped_index')
+            index = json.loads(export.read_text())
+        if index.get('status') != 'ok':
+            raise RuntimeError('scoped index export did not finish')
+        selected = {f['entry'] for f in manifest['scope']['functions']}
+        index['functions'] = [f for f in index['functions'] if f['entry'] in selected]
+        index['analysis_scope'] = manifest['scope']
+        saved = {'artifact': self.store.put(json.dumps(index, sort_keys=True).encode()),
+                 'functions': len(index['functions'])}
+        if saved['functions'] != len(selected):
+            raise RuntimeError('scoped index is missing prepared functions')
+        return saved
+
+    @contextmanager
+    def _function_lock(self, cache_dir: Path, key: str):
+        with (cache_dir / (key + ".lock")).open("a+b") as lock:
+            _flock_ex(lock)
+            try:
+                yield
+            finally:
+                _flock_un(lock)
+
+    def _publish_function(self, pointer: Path, artifact: str) -> None:
+        with tempfile.NamedTemporaryFile(mode="w", dir=pointer.parent, suffix=".tmp",
+                                         delete=False) as output:
+            output.write(json.dumps({"artifact": artifact}) + "\n")
+            temporary = Path(output.name)
+        try:
+            os.replace(temporary, pointer)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def function(self, manifest: dict, address: str) -> dict:
+        index = self.index(manifest)
+        matches = [item for item in index["functions"] if item["entry"] == address]
+        if len(matches) != 1:
+            raise ValueError(f"function entry {address} not in index")
+        cache_dir = Path(manifest["project"]) / "functions"
+        cache_dir.mkdir(exist_ok=True)
+        key = address.replace(":", "_")
+        pointer = cache_dir / (key + ".json")
+        cache_identity = {"campaign": manifest["campaign"],
+                          "index_artifact": manifest["index_artifact"], "address": address,
+                          "exporter_sha256": file_hash(SCRIPT_DIR / "ExportEvidence.java")}
+        with self._function_lock(cache_dir, key):
+            if pointer.exists():
+                artifact = json.loads(pointer.read_text())["artifact"]
+                evidence = json.loads(self.store.get(artifact))
+                self._emit(manifest["campaign"], "function_cache_hit", address=address,
+                           artifact=artifact)
+                return evidence
+            cached = self.cache.get("function", cache_identity) if self.cache else None
+            if cached is not None:
+                artifact = cached.get("artifact")
+                evidence = json.loads(self.store.get(artifact))
+                if evidence.get("entry") != address or evidence.get("status") != "ok":
+                    raise RuntimeError("S3 function cache identity or status mismatch")
+                self._publish_function(pointer, artifact)
+                self._emit(manifest["campaign"], "function_cache_hit", address=address,
+                           artifact=artifact, source="s3")
+                return evidence
+            if self.cache:
+                self._emit(manifest["campaign"], "function_cache_miss", address=address)
+            if self.warm is not None:
+                data = self.warm.export(manifest, address)
+            else:
+                with tempfile.TemporaryDirectory(dir=self.root) as scratch:
+                    export = Path(scratch) / "function.json"
+                    self._run([manifest["project"], "baseline", "-process",
+                               manifest["program_name"], "-readOnly", "-noanalysis", "-scriptPath",
+                               str(SCRIPT_DIR), "-postScript", "ExportEvidence.java",
+                               str(export), "function", address], manifest["campaign"],
+                              "function_" + key)
+                    if not export.exists():
+                        raise RuntimeError("Ghidra function script produced no output; see function log")
+                    data = export.read_bytes()
+            evidence = json.loads(data)
+            if evidence.get("entry") != address:
+                raise RuntimeError("Ghidra returned evidence for a different function")
+            if manifest.get('analysis_options', {}).get('profile') == 'scoped':
+                evidence = {'analysis_context': manifest['analysis_options'], **evidence}
+                data = json.dumps(evidence, sort_keys=True).encode()
+            artifact = self.store.put(data)
+            if self.cache and evidence.get("status") == "ok":
+                self.cache.put("function", cache_identity, {"artifact": artifact})
+            self._publish_function(pointer, artifact)
+            self._emit(manifest["campaign"], "function_exported", address=address,
+                       artifact=artifact, status=evidence["status"])
+            return evidence
+
+    def executable_range(self, manifest: dict, start: str, end: str) -> dict:
+        """Export bounded raw evidence from executable memory without changing the baseline."""
+        if (manifest.get("exporter_sha256") != file_hash(SCRIPT_DIR / "ExportEvidence.java") or
+                manifest.get("ghidra_version_sha256") != tool_version(self.headless)):
+            raise ValueError("executable range export needs a current analysis revision")
+        key = hashlib.sha256(json.dumps({"campaign": manifest["campaign"],
+                                         "index_artifact": manifest["index_artifact"],
+                                         "start": start, "end": end},
+                                        sort_keys=True).encode()).hexdigest()
+        cache_dir = Path(manifest["project"]) / "gaps"
+        cache_dir.mkdir(exist_ok=True)
+        pointer = cache_dir / (key + ".json")
+        with self._function_lock(cache_dir, key):
+            if pointer.exists():
+                artifact = json.loads(pointer.read_text())["artifact"]
+                return {**json.loads(self.store.get(artifact)), "artifact": artifact}
+            with tempfile.TemporaryDirectory(dir=self.root) as scratch:
+                export = Path(scratch) / "range.json"
+                self._run([manifest["project"], "baseline", "-process",
+                           manifest["program_name"], "-readOnly", "-noanalysis",
+                           "-scriptPath", str(SCRIPT_DIR), "-postScript", "ExportEvidence.java",
+                           str(export), "gap", start, end], manifest["campaign"],
+                          "gap_" + key[:16])
+                if not export.exists():
+                    raise RuntimeError("Ghidra executable range export produced no output")
+                evidence = json.loads(export.read_text())
+            if evidence.get("status") != "ok" or evidence.get("kind") != (
+                    "executable_range_evidence"):
+                raise RuntimeError("Ghidra returned incomplete executable range evidence")
+            content = {**evidence, "campaign": manifest["campaign"],
+                       "binary_sha256": manifest["binary_sha256"],
+                       "index_artifact": manifest["index_artifact"]}
+            artifact = self.store.put(json.dumps(content, sort_keys=True).encode())
+            self._publish_function(pointer, artifact)
+            self._emit(manifest["campaign"], "gap_exported", start=content["start"],
+                       end=content["end"], artifact=artifact,
+                       classifications=content["classifications"])
+            return {**content, "artifact": artifact}
+
+    def export_all(self, manifest: dict) -> dict:
+        index = self.index(manifest)
+        functions = index["functions"]
+        cache_dir = Path(manifest["project"]) / "functions"
+        cache_dir.mkdir(exist_ok=True)
+        uncached = [item for item in functions if not
+                    (cache_dir / (item["entry"].replace(":", "_") + ".json")).exists()]
+        expected_entries = {item["entry"] for item in functions}
+        bulk_error = None
+        if uncached:
+            with tempfile.TemporaryDirectory(dir=self.root) as scratch:
+                output_dir = Path(scratch) / "bulk"
+                output_dir.mkdir()
+                stage = "bulk_export"
+                campaign = manifest["campaign"]
+                self._emit(campaign, stage + "_started", count=len(functions))
+                command = [str(self.headless), manifest["project"], "baseline",
+                           "-process", manifest["program_name"], "-readOnly",
+                           "-noanalysis", "-scriptPath", str(SCRIPT_DIR),
+                           "-postScript", "ExportEvidence.java", str(output_dir), "all"]
+                log_dir = self.root / "logs" / campaign
+                log_dir.mkdir(parents=True, exist_ok=True)
+                started = time.monotonic()
+                seen: set[Path] = set()
+                with (log_dir / "bulk_export.log").open("w") as output:
+                    process = subprocess.Popen(command, stdout=output,
+                                               stderr=subprocess.STDOUT,
+                                               env=self._environment())
+                    try:
+                        while True:
+                            for path in sorted(output_dir.glob("[0-9]*.json")):
+                                if path in seen:
+                                    continue
+                                seen.add(path)
+                                try:
+                                    evidence = json.loads(path.read_text())
+                                    address = evidence["entry"]
+                                    if address not in expected_entries:
+                                        raise ValueError(f"unexpected function address {address}")
+                                    artifact = self.store.put(path.read_bytes())
+                                    pointer = cache_dir / (address.replace(":", "_") + ".json")
+                                    with self._function_lock(cache_dir, address.replace(":", "_")):
+                                        if not pointer.exists():
+                                            self._publish_function(pointer, artifact)
+                                            self._emit(campaign, "function_exported", address=address,
+                                                       artifact=artifact, status=evidence["status"])
+                                except Exception as error:
+                                    self._emit(campaign, "function_failed", error=str(error),
+                                               output=str(path))
+                            if process.poll() is not None:
+                                break
+                            if time.monotonic() - started > max(self.timeout, len(functions) * 130):
+                                process.terminate()
+                                try:
+                                    process.wait(timeout=5)
+                                except subprocess.TimeoutExpired:
+                                    process.kill()
+                                    process.wait()
+                                bulk_error = "bulk export timed out"
+                                break
+                            time.sleep(0.2)
+                    finally:
+                        if process.poll() is None:
+                            process.terminate()
+                            process.wait()
+                if process.returncode and bulk_error is None:
+                    bulk_error = f"Ghidra exited {process.returncode}; see {log_dir / 'bulk_export.log'}"
+                if not (output_dir / "all_done.json").exists() and bulk_error is None:
+                    bulk_error = "Ghidra bulk exporter did not finish; see bulk_export.log"
+                self._emit(campaign, stage + ("_failed" if bulk_error else "_finished"),
+                           elapsed_seconds=round(time.monotonic() - started, 3),
+                           error=bulk_error)
+        results = []
+        for item in functions:
+            address = item["entry"]
+            try:
+                pointer = cache_dir / (address.replace(":", "_") + ".json")
+                artifact = json.loads(pointer.read_text())["artifact"]
+                evidence = json.loads(self.store.get(artifact))
+                results.append({"entry": address, "name": item["name"],
+                                "status": evidence["status"],
+                                "artifact": artifact})
+            except Exception as error:
+                results.append({"entry": address, "name": item["name"],
+                                "status": "error", "error": bulk_error or str(error)})
+                self._emit(manifest["campaign"], "function_failed", address=address,
+                           error=str(error))
+        counts = {status: sum(r["status"] == status for r in results)
+                  for status in sorted({r["status"] for r in results})}
+        inventory = {"schema": SCHEMA, "campaign": manifest["campaign"],
+                     "index_artifact": manifest["index_artifact"],
+                     "static_inventory": index.get("static_inventory"),
+                     "unassigned_instruction_regions":
+                         index.get("unassigned_instruction_regions", []),
+                     "unclassified_executable_regions":
+                         index.get("unclassified_executable_regions", []),
+                     "unclassified_executable_regions_truncated":
+                         index.get("unclassified_executable_regions_truncated", False),
+                     "functions": results, "counts": counts,
+                     "complete": bulk_error is None and len(results) == len(functions) and
+                     all(item["status"] in {"ok", "external"} for item in results)}
+        if bulk_error:
+            inventory["bulk_error"] = bulk_error
+        artifact = self.store.put(json.dumps(inventory, sort_keys=True).encode())
+        self._emit(manifest["campaign"], "export_finished", artifact=artifact,
+                   counts=counts, complete=inventory["complete"])
+        return {**inventory, "artifact": artifact}

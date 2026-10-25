@@ -1,0 +1,12 @@
+# Demo target sources must be byte-identical on every OS (requirement line refs + .asar sha256)
+targets/src/** text eol=lf
+
+# Built archives: never line-ending converted (their sha256 goes into provenance)
+targets/build/**/*.asar binary
+targets/build/**/*.sha256 text eol=lf
+
+# EC2 user-data runs under Bash.
+scripts/ec2_lo_trial_bootstrap.sh text eol=lf
+
+# Worker scripts are sent to Linux and run under Bash.
+infra/**/*.sh text eol=lf
