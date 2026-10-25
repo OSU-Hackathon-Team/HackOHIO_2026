@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Checkbox, Disclosure, DisclosurePanel, Heading } from "react-aria-components";
-import type { DiscoveredCapability, NativeDiscoveryReport, NativeExtraction, SavedAnalysis, UnassignedClaim } from "@splice/contracts";
+import type { DiscoveredCapability, FeatureBlueprint, FeatureSpec, NativeDiscoveryReport, NativeExtraction, SavedAnalysis, UnassignedClaim } from "@splice/contracts";
 import { api } from "../api/client";
 import { WorkspaceButton } from "./WorkspaceButton";
+import { useIdeStore } from "./store/useIdeStore";
 
 // Five capabilities × three writer attempts, plus two discovery attempts (backend limits).
 const MAX_MODEL_ATTEMPTS = 17;
@@ -35,8 +36,9 @@ function outcomeText(report: NativeDiscoveryReport): string {
   }
 }
 
-export function NativeExtractionPanel({ analysis, initialSelection, addedFeatureIds, onAdded }: {
+export function NativeExtractionPanel({ analysis, initialSelection, addedFeatureIds, onAdded, onBlockSaved }: {
   analysis: SavedAnalysis; initialSelection?: string; addedFeatureIds: string[]; onAdded: (feature: NativeExtraction) => void;
+  onBlockSaved?: () => void;
 }) {
   const [history, setHistory] = useState<NativeExtraction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -157,7 +159,9 @@ export function NativeExtractionPanel({ analysis, initialSelection, addedFeature
     {historyError && <p role="alert" className="text-xs text-red-300">Saved drafts unavailable: {historyError}</p>}
     {!loading && !historyError && !history.length && <p className="text-pretty text-sm text-stone-500">No building blocks yet. Discover building blocks to create the first candidates.</p>}
     <div className="mt-4 grid grid-cols-2 gap-3">{history.map(record => <article key={record.id} aria-label={`Candidate: ${record.spec.title}`} className="flex flex-col rounded-lg border border-stone-700 p-4">
-      <span className="mb-3 text-xs text-amber-200">{addedFeatureIds.includes(record.id) ? "In App library · needs review" : "Candidate · needs review"}</span>
+      {record.spec.status === "ready_for_review"
+        ? <span className="mb-3 text-xs text-emerald-300 tabular-nums">{addedFeatureIds.includes(record.id) ? "In App library · " : ""}Ready to build · {record.spec.examples.length} original case{record.spec.examples.length === 1 ? "" : "s"}</span>
+        : <span className="mb-3 text-xs text-amber-200">{addedFeatureIds.includes(record.id) ? "In App library · needs review" : "Candidate · needs review"}</span>}
       <h5 className="text-balance text-sm font-semibold">{record.spec.title}</h5>
       <p className="mt-2 text-pretty text-sm leading-6 text-stone-400">{record.spec.purpose}</p>
       <p className="mb-3 mt-3 text-xs text-stone-500 tabular-nums">{record.spec.requirements.length} behavior rules · {record.claim_sources.length} supporting facts</p>
@@ -169,14 +173,17 @@ export function NativeExtractionPanel({ analysis, initialSelection, addedFeature
       </div>
       {saveError?.id === record.id && <p role="alert" className="mt-2 text-pretty text-xs text-red-300">{saveError.message}</p>}
     </article>)}</div>
-    {inspected && <CandidateDetails record={inspected} />}
+    {inspected && <CandidateDetails key={inspected.id} record={inspected} onBlockSaved={onBlockSaved} />}
   </section>;
 }
 
-function CandidateDetails({ record }: { record: NativeExtraction }) {
+function CandidateDetails({ record, onBlockSaved }: { record: NativeExtraction; onBlockSaved?: () => void }) {
   const interfaceSections: [string, string[]][] = [["Inputs", record.spec.interface.inputs], ["Outputs", record.spec.interface.outputs], ["State", record.spec.interface.state]];
+  const ready = record.spec.status === "ready_for_review";
   return <article aria-label="Building block details" className="mt-6 border-t border-stone-700 pt-5">
-      <h5 className="text-balance font-medium">{record.spec.title} <span className="text-xs text-amber-200">Draft · implementation blocked</span></h5>
+      <h5 className="text-balance font-medium">{record.spec.title} {ready
+        ? <span className="text-xs text-emerald-300">Ready for review · tested against original cases</span>
+        : <span className="text-xs text-amber-200">Draft · implementation blocked</span>}</h5>
       <p className="mt-2 text-pretty text-sm text-stone-300">{record.spec.purpose}</p>
       <p className="mt-2 text-xs text-stone-500">{new Date(record.created_at).toLocaleString()} · {record.model}</p>
       <dl className="mt-5 grid grid-cols-2 gap-4 text-sm">{interfaceSections.map(([label, values]) => <div key={label}>
@@ -194,6 +201,7 @@ function CandidateDetails({ record }: { record: NativeExtraction }) {
               <p className="text-xs text-stone-500">{fact.id} · function {fact.function_entry}</p>
               <p className="mt-1 text-sm text-stone-300">{fact.statement}</p>
               <p className="mt-1 text-pretty text-xs leading-5 text-stone-400">Static review: {fact.review_reason}</p>
+              {fact.case_ids && <p className="mt-1 text-xs text-emerald-300">Agreed with original cases: {fact.case_ids.join(", ")}</p>}
             </div>)}</DisclosurePanel>
           </Disclosure>
         </li>;
@@ -202,8 +210,76 @@ function CandidateDetails({ record }: { record: NativeExtraction }) {
       <p className="mt-2 text-xs text-stone-400 tabular-nums">{record.claim_sources.length} supported facts used · {record.omitted_claims.length} claims excluded</p>
       <h6 className="mt-4 text-sm font-medium">Checks still needed</h6>
       <ul className="mt-2 list-disc space-y-1 pl-4 text-pretty text-sm leading-6 text-stone-400">{record.spec.acceptance_criteria.map((criterion, i) => <li key={i}>{criterion}</li>)}</ul>
-      <p className="mt-4 text-pretty text-xs leading-5 text-stone-500">Saving this candidate to the library preserves its draft status. App reuse requires an implementation-ready specification and a passing engine.</p>
+      {ready && <>
+        <h6 className="mt-5 text-sm font-medium">Original cases</h6>
+        <p className="mt-1 text-pretty text-xs leading-5 text-stone-400">Results the original program produced. A built engine must reproduce every one.</p>
+        <ul className="mt-2 space-y-1">{record.spec.examples.map(example => <li key={example.name} className="font-mono text-xs text-stone-300">
+          {example.name} · {JSON.stringify(example.input)} → {JSON.stringify(example.expected_output)}
+        </li>)}</ul>
+        <BuildEngine record={record} onBlockSaved={onBlockSaved} />
+      </>}
+      {!ready && <p className="mt-4 text-pretty text-xs leading-5 text-stone-500">Saving this candidate to the library preserves its draft status. App reuse requires an implementation-ready specification and a passing engine.</p>}
     </article>;
+}
+
+/** Adapts a ready candidate into a FeatureSpec and implements it; a passing engine is saved as a reusable block. */
+function BuildEngine({ record, onBlockSaved }: { record: NativeExtraction; onBlockSaved?: () => void }) {
+  const [confirmed, setConfirmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [stage, setStage] = useState("");
+  const [tests, setTests] = useState<{ passed: number; total: number } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [built, setBuilt] = useState<{ spec: FeatureSpec; blueprint: FeatureBlueprint } | null>(null);
+  const controller = useRef<AbortController | null>(null);
+  useEffect(() => () => controller.current?.abort(), []);
+
+  async function build() {
+    if (!api.adaptNativeSpec || controller.current || !confirmed) return;
+    const request = new AbortController(); controller.current = request;
+    setBusy(true); setConfirmed(false); setError(null); setTests(null); setBuilt(null); setStage("Adapting the specification…");
+    try {
+      const spec = await api.adaptNativeSpec({ spec: record.spec, feature_id: `native.${record.id.slice(0, 12)}` }, request.signal);
+      let blueprint: FeatureBlueprint | undefined, done = false, ok = false, fatal: string | undefined, passed = 0, total = 0;
+      setStage("Writing the engine…");
+      await api.implement(spec, event => {
+        if (request.signal.aborted) return;
+        if (event.type === "stage") setStage(event.message);
+        if (event.type === "test_result") { total++; if (event.passed) passed++; setTests({ passed, total }); }
+        if (event.type === "blueprint") blueprint = event.blueprint;
+        if (event.type === "error" && event.fatal) fatal = event.message;
+        if (event.type === "done") { done = true; ok = event.ok; }
+      }, request.signal);
+      request.signal.throwIfAborted();
+      if (fatal || !done || !blueprint) throw new Error(fatal ?? "The engine build did not finish");
+      const v = blueprint.verification;
+      if (!ok || v.status !== "passed" || !v.total || v.passed !== v.total) {
+        throw new Error(`The engine passed ${v.passed} of ${v.total} tests, so it was not saved as a building block`);
+      }
+      setBuilt({ spec, blueprint });
+      setStage(`Engine passed all ${v.total} tests, including every original case, and was saved to Reusable building blocks.`);
+      onBlockSaved?.();
+    } catch (e) {
+      if (!request.signal.aborted) { setError(e instanceof Error ? e.message : String(e)); setStage(""); }
+    } finally { if (controller.current === request) controller.current = null; setBusy(false); }
+  }
+
+  if (!api.adaptNativeSpec) return null;
+  return <div aria-label="Build engine" role="region" className="mt-5 rounded-lg border border-stone-700 p-4">
+    <h6 className="text-sm font-medium">Build engine</h6>
+    <p className="mt-1 text-pretty text-xs leading-5 text-stone-400">A clean-room engine is written from this specification only, then tested against the original cases. Only a fully passing engine is saved as a reusable building block.</p>
+    <Checkbox isSelected={confirmed} onChange={setConfirmed} isDisabled={busy} className="group mt-3 flex cursor-pointer items-start gap-2 text-sm leading-6 text-stone-300">
+      <span aria-hidden="true" className="mt-1 size-4 shrink-0 rounded border border-stone-500 group-data-[selected]:border-amber-400 group-data-[selected]:bg-amber-400 group-data-[focus-visible]:ring-2 group-data-[focus-visible]:ring-amber-400" />
+      I approve paid model calls to build this engine.
+    </Checkbox>
+    <div className="mt-3 flex items-center gap-3">
+      <WorkspaceButton primary isDisabled={busy || !confirmed} onPress={() => void build()}>Build engine</WorkspaceButton>
+      {busy && <WorkspaceButton onPress={() => { controller.current?.abort(); setStage("Build cancelled."); }}>Cancel build</WorkspaceButton>}
+      {built && <WorkspaceButton onPress={() => { const state = useIdeStore.getState(); state.setNativeHandoff(built.spec, built.blueprint); state.setWorkspacePage("pipeline"); }}>Use in app builder</WorkspaceButton>}
+    </div>
+    {stage && <p role="status" className="mt-2 text-pretty text-sm text-stone-400">{stage}</p>}
+    {tests && <p className="mt-1 text-xs text-stone-400 tabular-nums">{tests.passed} of {tests.total} tests passing</p>}
+    {error && <p role="alert" className="mt-2 text-pretty text-sm text-red-300">{error}</p>}
+  </div>;
 }
 
 const STATE_LABEL: Record<CandidateState["state"], string> = {

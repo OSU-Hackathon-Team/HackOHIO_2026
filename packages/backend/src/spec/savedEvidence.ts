@@ -8,24 +8,35 @@ const mechanics = /::|\b_Z[A-Za-z0-9_]+\b|\b(?:constructor|destructor|callee|reg
 
 export class SavedEvidenceError extends Error {}
 
+const READY_LIMITATIONS = [
+  "Every fact was statically reviewed, and its blind prediction matched the original program on the listed public cases.",
+  "Behavior beyond those cases, dependency contracts and scope coverage have not been established by this extraction.",
+];
+
 export function adaptSavedEvidence(raw: unknown, request: NativeExtractionRequest) {
   const analysis = SavedAnalysis.parse(raw);
   const selected = new Set(request.function_entries);
   for (const entry of selected) {
     if (!analysis.functions.some(fn => fn.entry === entry)) throw new SavedEvidenceError(`Function ${entry} is not in this saved analysis`);
   }
-  const claim_sources: Array<{ id: string; function_entry: string; claim_index: number; statement: string; review_reason: string }> = [];
+  const claim_sources: Array<{ id: string; function_entry: string; claim_index: number; statement: string; review_reason: string; case_ids?: string[] }> = [];
   const omitted_claims: Array<{ function_entry: string; claim_index: number; reason: string }> = [];
+  const publicCases = new Set(analysis.observed_cases.map(c => c.id));
   analysis.functions.forEach((fn, functionIndex) => {
     if (selected.size && !selected.has(fn.entry)) return;
     fn.claims.forEach((claim, claimIndex) => {
+      const links = claim.case_links ?? [];
       const reason = fn.review_state !== "reviewed" || claim.review?.outcome !== "supported_static"
         ? "Not independently supported by static review"
         : !claim.statement.trim() || sourceLikeText(claim.statement) || mechanics.test(claim.statement)
-          ? "Contains implementation mechanics or source-like text" : null;
+          ? "Contains implementation mechanics or source-like text"
+          : links.some(link => !link.agreement) ? "Contradicted by an original case: its predicted result did not match" : null;
+      // Only agreeing links to cases this analysis publishes can become acceptance examples.
+      const case_ids = [...new Set(links.filter(link => link.agreement && publicCases.has(link.case_id)).map(link => link.case_id))];
       if (reason) omitted_claims.push({ function_entry: fn.entry, claim_index: claimIndex, reason });
       else claim_sources.push({ id: `C${functionIndex + 1}_${claimIndex + 1}`, function_entry: fn.entry,
-        claim_index: claimIndex, statement: claim.statement, review_reason: claim.review!.reason });
+        claim_index: claimIndex, statement: claim.statement, review_reason: claim.review!.reason,
+        ...(case_ids.length ? { case_ids } : {}) });
     });
   });
   if (!claim_sources.length) throw new SavedEvidenceError("No reviewed behavioral claims are available in this selection. Inspect the evidence or expand the analysis first.");
@@ -54,14 +65,24 @@ export function assembleSavedExtraction(prepared: ReturnType<typeof adaptSavedEv
   const draft = NativeDraft.parse(answer.draft);
   const problems = nativeDraftProblems(draft, prepared.claim_sources.map(c => c.id), prepared.input);
   if (problems.length) throw new Error(`Extracted specification failed validation: ${problems.join("; ")}`);
-  const spec = NativeSubsystemSpec.parse({ ...draft, schema: 2, kind: "native_subsystem_spec", status: "draft", boundary: "subsystem",
-    requirements: draft.requirements.map(({ id, statement }) => ({ id, statement })),
-    // Application-level observations cannot become feature acceptance examples without validated links.
-    examples: [] });
+  // Ready for review only when every fact's blind prediction matched an original case; those cases
+  // become the acceptance examples of the requirements citing them. Otherwise observations stay context.
+  const ready = prepared.claim_sources.length > 0 && prepared.claim_sources.every(c => c.case_ids?.length);
+  const sources = new Map(prepared.claim_sources.map(c => [c.id, c]));
+  const cases = new Map(prepared.analysis.observed_cases.map(c => [c.id, c]));
+  const examples = !ready ? [] : draft.requirements.flatMap(r =>
+    [...new Set(r.claim_ids.flatMap(id => sources.get(id)?.case_ids ?? []))].map(caseId => {
+      const observed = cases.get(caseId)!;
+      return { name: `${r.id} ${caseId}`, input: { formula: observed.formula, cells: observed.cells ?? {} },
+        expected_output: observed.observed };
+    }));
+  const spec = NativeSubsystemSpec.parse({ ...draft, schema: 2, kind: "native_subsystem_spec",
+    status: ready ? "ready_for_review" : "draft", boundary: "subsystem",
+    requirements: draft.requirements.map(({ id, statement }) => ({ id, statement })), examples });
   if (publicSpecContainsSource(spec)) throw new Error("Extracted specification contains source-like text");
   return NativeExtractionPayload.parse({ schema: 1, analysis_id: prepared.analysis.id,
     analysis_sha256: prepared.analysis_sha256, created_at: createdAt, model: answer.model, intent: request.intent,
     spec, claim_sources: prepared.claim_sources, omitted_claims: prepared.omitted_claims,
     requirement_sources: draft.requirements.map(r => ({ requirement_id: r.id, claim_ids: r.claim_ids })),
-    limitations: prepared.limitations });
+    limitations: ready ? READY_LIMITATIONS : prepared.limitations });
 }

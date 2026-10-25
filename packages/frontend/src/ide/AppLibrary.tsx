@@ -296,7 +296,7 @@ export function AppLibrary() {
             selection={savedView} addedFeatureIds={savedFeatures.map(feature => feature.id)} onAdded={feature => {
               setSavedFeatures(current => [...current.filter(item => item.id !== feature.id), feature]);
               setSavedRevision(revision => revision + 1);
-            }} /> : feature ? (
+            }} onBlockSaved={() => setSavedRevision(revision => revision + 1)} /> : feature ? (
             <div className="mx-auto max-w-2xl">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs text-stone-400">

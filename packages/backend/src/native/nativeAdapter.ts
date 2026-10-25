@@ -170,12 +170,19 @@ export function adaptNativeSpecToFeatureSpec(
 
     if (Array.isArray(spec.examples) && spec.examples.length > 0) {
       spec.examples.forEach((ex, idx) => {
-        const reqId = requirements[idx % requirements.length]?.id ?? `REQ-${idx + 1}`;
-        const testName = `${reqId}: ${ex.name.replace(/["\n]/g, " ")}`;
+        // Examples named "REQ-n <case>" belong to that requirement (saved-evidence extractions).
+        const named = /^(REQ-\d+)\s+(.+)$/.exec(ex.name);
+        const reqId = named && requirements.some((r) => r.id === named[1])
+          ? named[1] : requirements[idx % requirements.length]?.id ?? `REQ-${idx + 1}`;
+        const testName = `${reqId}: ${(named ? named[2] : ex.name).replace(/["\n]/g, " ")}`;
+        // An observed original result is a real assertion on the single engine export.
+        const assertion = ex.expected_output !== undefined && exportsList.length === 1
+          ? `  assert.deepEqual(${exportsList[0].name}(${JSON.stringify(ex.input ?? null)}), ${JSON.stringify(ex.expected_output)});`
+          : `  assert.ok(true, "Native example behavior verified");`;
         testLines.push(
           `test("${testName}", () => {`,
-          `  // Verified example: ${ex.name}`,
-          `  assert.ok(true, "Native example behavior verified");`,
+          `  // Original example: ${ex.name.replace(/\n/g, " ")}`,
+          assertion,
           `});`
         );
       });

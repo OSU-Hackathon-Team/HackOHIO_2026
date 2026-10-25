@@ -5,6 +5,7 @@ Each stage reuses the engine's existing, validated path:
   claims     engine.worker.SemanticWorker        (OpenCode, evidence-only, cites addresses)
   review     engine.validation.review.IndependentReviewer
   probes     engine.libreoffice.probe_report     (observed = the running LibreOffice)
+  links      engine.validation.case_links         (blind claim predictions vs those observations)
   readiness  engine.dossier.persist_dossier      (never set here)
   spec       engine.specification.persist_spec   (only when the dossier says ready_for_spec)
 Dependencies are injected so the whole flow is unit-testable without Ghidra, REA or Bedrock.
@@ -24,11 +25,14 @@ from typing import Callable
 
 from engine.analysis.rea import RuntimeTracer, ReaSession, static_triage
 from engine.analysis.scoped import symbol_inventory, prepared_readers
-from engine.libreoffice import (UnoDriver, observe_cases, probe_report, resolve_targets,
+from engine.libreoffice import (UnoDriver, matches, observe_cases, probe_report, resolve_targets,
                                 split_cases)
 from engine.models import ScopeRequest
 
 DEFAULT_FRIDA_PATTERNS = ["*ScInterpreter*", "*ScCompiler*", "*FormulaCompiler*"]
+OBSERVATION_FORMAT = ("a JSON object with value (a number) for numeric results, text (a string) for "
+                      "text results, or both error (the numeric LibreOffice error code) and text "
+                      "(its display string such as #DIV/0!) for errors.")
 
 
 @dataclass
@@ -47,6 +51,7 @@ class LoPipelineConfig:
     workers: int = 4
     investigate: bool = False
     review_model_role: str = "legal_verification"   # models.json role for the independent review
+    link_model_role: str = "decomp_worker"           # models.json role for blind claim-to-case links
     # Explicit until application-wide discovery can supply candidate scopes without known features.
     scoped_analysis: bool = False
 
@@ -62,6 +67,7 @@ class LoPipelineDeps:
     persist_dossier: Callable
     persist_spec: Callable
     investigator: object | None = None
+    linker: object | None = None          # engine.validation.case_links.CaseLinker; None skips links
     tracer_cls: type = RuntimeTracer
     log: Callable[[str], None] = print
 
@@ -337,13 +343,24 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
                          "disagreements": [r["case_id"] for r in public_report["results"] +
                                            held_report["results"] if r["outcome"] != "agreement"]}
 
+    link_artifacts, case_links = [], {}
+    if deps.linker is not None:
+        linked = timed("links", lambda: link_claims_to_cases(
+            deps.linker, analysed, public, per_entry, observations,
+            report_artifact=public_report["artifact"], model_role=config.link_model_role,
+            workers=config.workers, log=log))
+        link_artifacts, case_links = linked["link_artifacts"], linked["case_links"]
+        summary["case_links"] = linked["summary"]
+
     dossier = timed("dossier", lambda: deps.persist_dossier(
-        engine, manifest, scope_artifact, drafts, reviews, [public_report["artifact"]]))
+        engine, manifest, scope_artifact, drafts, reviews, [public_report["artifact"]],
+        link_artifacts))
     summary["dossier"] = {"artifact": dossier["artifact"], "readiness": dossier["readiness"],
                           "blockers": dossier.get("blockers", []),
                           "coverage": dossier.get("coverage")}
     log(f"[dossier] readiness {dossier['readiness']}")
-    summary["handoff"] = build_handoff(engine.store, analysed, scope, public, observations)
+    summary["handoff"] = build_handoff(engine.store, analysed, scope, public, observations,
+                                       case_links=case_links)
     summary["spec"], error = timed("spec", lambda: spec_for_dossier(
         deps.persist_spec, engine.store, engine.root, dossier))
     if error:
@@ -351,6 +368,63 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
     log(f"[spec] {summary['spec']['status']} specification {summary['spec']['artifact']}"
         if summary["spec"] else f"[spec] not generated: {error or 'dossier not specifiable'}")
     return summary
+
+
+def link_claims_to_cases(linker, analysed: list[dict], public: list[dict],
+                         per_entry: dict[int, list[dict]], observations: dict[str, dict], *,
+                         report_artifact: str, model_role: str, workers: int,
+                         log: Callable[[str], None]) -> dict:
+    """Blind-link each reviewed function's claims to the public cases that ran it.
+
+    A linker failure leaves that function's claims unlinked; it never fails the run.
+    """
+    by_id = {case["id"]: case for case in public}
+    jobs = []
+    for item in analysed:
+        if item["draft"]["state"] != "unreviewed" or not item["review"] or \
+                item["review"]["state"] != "reviewed":
+            continue
+        ran = {hit["case"] for hit in per_entry.get(int(item["entry"], 16), [])}
+        cases = [{"id": cid, "input": {"formula": by_id[cid]["formula"],
+                                       "cells": by_id[cid].get("cells", {})},
+                  "description": by_id[cid].get("input_description")}
+                 for cid in sorted(ran) if cid in by_id]
+        if cases:
+            jobs.append((item, cases))
+    log(f"[links] {len(jobs)} functions with runtime-observed public cases")
+
+    def run(job):
+        item, cases = job
+        try:
+            return linker.run(item["draft"]["artifact"], item["review"]["artifact"], cases,
+                              observations, report_artifact=report_artifact, matches=matches,
+                              observation_format=OBSERVATION_FORMAT, model_role=model_role)
+        except Exception as error:
+            return {"state": "failed", "subject": item["entry"], "error": f"{type(error).__name__}: {error}",
+                    "links": []}
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        results = list(pool.map(run, jobs))
+    links = [link for result in results for link in result["links"]]
+    case_links: dict[tuple[str, int], list[dict]] = {}
+    for link in links:
+        case_links.setdefault((link["draft_artifact"], link["claim_index"]), []).append(
+            {"case_id": link["case_id"], "agreement": link["agreement"]})
+    store = linker.engine.store
+    result_artifacts = [store.put(json.dumps(result, sort_keys=True).encode()) for result in results]
+    link_artifacts = []
+    if links:
+        link_artifacts.append(store.put(json.dumps({"schema": 1, "links": links,
+            "linker_results": result_artifacts}, sort_keys=True).encode()))
+    claims = list(case_links.values())
+    summary = {"functions": len(jobs), "states": _count(r["state"] for r in results),
+               "links": len(links), "agreements": sum(l["agreement"] for l in links),
+               "claims_with_agreement": sum(any(c["agreement"] for c in v) and
+                                            all(c["agreement"] for c in v) for v in claims),
+               "claims_with_disagreement": sum(any(not c["agreement"] for c in v) for v in claims),
+               "artifacts": link_artifacts}
+    log(f"[links] {summary['links']} links, {summary['agreements']} agree; "
+        f"{summary['claims_with_agreement']} claims linked without disagreement")
+    return {"link_artifacts": link_artifacts, "case_links": case_links, "summary": summary}
 
 
 def spec_for_dossier(persist_spec: Callable, store, root: Path, dossier: dict) -> tuple[dict | None, str | None]:
@@ -373,7 +447,8 @@ def spec_for_dossier(persist_spec: Callable, store, root: Path, dossier: dict) -
 
 
 def build_handoff(store, analysed: list[dict], scope: dict, public: list[dict],
-                  observations: dict[str, dict]) -> dict:
+                  observations: dict[str, dict],
+                  case_links: dict[tuple[str, int], list[dict]] | None = None) -> dict:
     """Evidence a spec author can turn into a FeatureSpec, even when the dossier is not ready.
 
     Claims carry the independent review verdict; observed cases are real LibreOffice results.
@@ -402,7 +477,10 @@ def build_handoff(store, analysed: list[dict], scope: dict, public: list[dict],
                          "evidence_addresses": claim.get("evidence_addresses", []),
                          "assumptions": claim.get("assumptions", []),
                          "review": ({"outcome": verdicts[i]["outcome"], "reason": verdicts[i]["reason"]}
-                                    if i in verdicts else None)}
+                                    if i in verdicts else None),
+                         # Public cases whose blind prediction from this claim was compared with
+                         # the real result; held-out cases are never linked.
+                         "case_links": (case_links or {}).get((draft["artifact"], i), [])}
                         for i, claim in enumerate(answer.get("claims", []))],
                 dependencies=answer.get("dependencies", []), unknowns=answer.get("unknowns", []),
                 missing_behavior=missing)

@@ -33,6 +33,7 @@ from engine.lo_pipeline import (DEFAULT_FRIDA_PATTERNS, LoPipelineConfig, LoPipe
                                 run_pipeline, save_summary, write_handoff)
 from engine.scope import persist_scope  # noqa: E402
 from engine.specification import persist_spec  # noqa: E402
+from engine.validation.case_links import CaseLinker  # noqa: E402
 from engine.validation.review import IndependentReviewer  # noqa: E402
 from engine.worker import SemanticWorker  # noqa: E402
 
@@ -56,6 +57,10 @@ def main() -> int:
                         help="let an OpenCode agent with read-only REA/Ghidra tools answer review gaps")
     parser.add_argument("--review-model-role", default="decomp_reviewer",
                         help="models.json role for the independent review (decomp_reviewer = Qwen3 32B)")
+    parser.add_argument("--link-model-role", default="decomp_worker",
+                        help="models.json role that blind-predicts case results from claims")
+    parser.add_argument("--no-case-links", action="store_true",
+                        help="skip linking claims to the public cases that ran their functions")
     parser.add_argument("--uno-python", default=os.environ.get("LO_PYTHON", "/usr/bin/python3"))
     parser.add_argument("--opencode", type=Path,
                         default=Path(os.environ.get("OPENCODE_BIN", "/run/opencode-bin")))
@@ -80,13 +85,14 @@ def main() -> int:
         seed_source=args.seed_source, static_patterns=args.static_pattern,
         max_functions=args.max_functions, max_depth=args.max_depth, workers=args.workers,
         investigate=args.investigate, scoped_analysis=args.analysis_profile == 'scoped',
-        review_model_role=args.review_model_role)
+        review_model_role=args.review_model_role, link_model_role=args.link_model_role)
     deps = LoPipelineDeps(
         engine=engine, rea_factory=ReaSession.launch,
         driver_factory=lambda: UnoDriver(install["soffice"], python=args.uno_python),
         worker=SemanticWorker(engine, args.opencode),
         reviewer=IndependentReviewer(engine, args.opencode),
         investigator=Investigator(engine, args.opencode) if args.investigate else None,
+        linker=None if args.no_case_links else CaseLinker(engine, args.opencode),
         persist_scope=persist_scope, persist_dossier=persist_dossier, persist_spec=persist_spec)
     try:
         summary = run_pipeline(config, install, deps)

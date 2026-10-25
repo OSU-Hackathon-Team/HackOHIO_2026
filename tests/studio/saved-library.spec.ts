@@ -1,4 +1,6 @@
 import { test, expect } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 test.beforeEach(async ({ page }) => {
   await page.route("**/api/library/features", route => route.fulfill({ json: { features: [] } }));
@@ -259,4 +261,52 @@ test("S3 errors stay visible and Refresh can recover", async ({ page }) => {
   failed = false;
   await saved.getByRole("button", { name: "Refresh", exact: true }).click();
   await expect(saved).toContainText("No saved results yet");
+});
+
+test("a case-backed candidate builds a tested engine that becomes a reusable building block", async ({ page }) => {
+  const read = (file: string) => JSON.parse(readFileSync(path.resolve(process.cwd(), file), "utf8"));
+  const featureSpec = read("fixtures/specs/_seed/mockpriority.priority_score.json");
+  const passing = read("fixtures/blueprints/_seed/mockpriority.priority_score.json");
+  const failing = { ...passing, verification: { ...passing.verification, status: "failed", passed: 0 } };
+  const ready = { ...extracted, id: "c".repeat(64), spec: { ...extracted.spec, status: "ready_for_review", title: "Constant result",
+    examples: [{ name: "REQ-1 public", input: { formula: "=1", cells: {} }, expected_output: { value: 1 } }] },
+    claim_sources: [{ ...extracted.claim_sources[0], case_ids: ["public"] }] };
+  let libraryLoads = 0, blueprint = failing, adapted: unknown;
+  await page.route("**/api/library", route => { libraryLoads++; return route.fulfill({ json: { enabled: true, analyses: [summary], blocks: [] } }); });
+  await page.route("**/api/library/analyses/*", route => route.fulfill({ json: analysis }));
+  await page.route("**/api/library/analyses/*/extractions", route => route.fulfill({ json: { extractions: [ready, extracted] } }));
+  await page.route("**/api/native-specs/adapt", route => { adapted = route.request().postDataJSON().spec; return route.fulfill({ json: { spec: featureSpec } }); });
+  await page.route("**/api/implement", route => route.fulfill({ contentType: "text/event-stream", body: sse([
+    { type: "test_result", run_id: "r", feature_id: passing.feature_id, ts: 1, name: "REQ-1: public", passed: blueprint === passing, kind: "acceptance", error: null, duration_ms: 1 },
+    { type: "blueprint", run_id: "r", feature_id: passing.feature_id, ts: 2, blueprint },
+    { type: "done", run_id: "r", feature_id: passing.feature_id, ts: 3, ok: blueprint === passing, replayed: false }]) }));
+  const panel = await openSavedAnalysis(page);
+  const card = panel.getByRole("article", { name: "Candidate: Constant result" });
+  await expect(card).toContainText("Ready to build · 1 original case");
+  await expect(panel.getByRole("article", { name: "Candidate: Numeric result behavior" })).toContainText("Candidate · needs review");
+  await card.getByRole("button", { name: "View details" }).click();
+  const details = panel.getByRole("article", { name: "Building block details" });
+  await expect(details).toContainText("Ready for review · tested against original cases");
+  await expect(details).toContainText('REQ-1 public · {"formula":"=1","cells":{}} → {"value":1}');
+  await details.getByRole("button", { name: "Inspect supporting facts for REQ-1" }).click();
+  await expect(details).toContainText("Agreed with original cases: public");
+  const build = details.getByRole("region", { name: "Build engine" });
+  await expect(build.getByRole("button", { name: "Build engine" })).toBeDisabled();
+  await build.getByText("I approve paid model calls to build this engine.", { exact: true }).click();
+  await build.getByRole("button", { name: "Build engine" }).click();
+  await expect(build.getByRole("alert")).toContainText("so it was not saved as a building block");
+  await expect(build.getByRole("button", { name: "Use in app builder" })).toHaveCount(0);
+  expect((adapted as { status: string }).status).toBe("ready_for_review");
+  blueprint = passing;
+  const loadsBefore = libraryLoads;
+  await build.getByText("I approve paid model calls to build this engine.", { exact: true }).click();
+  await build.getByRole("button", { name: "Build engine" }).click();
+  await expect(build.getByRole("status")).toContainText("was saved to Reusable building blocks");
+  await expect(build.getByRole("alert")).toHaveCount(0);
+  await expect(build.getByRole("button", { name: "Use in app builder" })).toBeVisible();
+  await expect.poll(() => libraryLoads).toBeGreaterThan(loadsBefore);
+  await page.screenshot({ path: "test-results/build-engine-desktop.png" });
+  // Draft candidates never offer an engine build.
+  await panel.getByRole("article", { name: "Candidate: Numeric result behavior" }).getByRole("button", { name: "View details" }).click();
+  await expect(panel.getByRole("region", { name: "Build engine" })).toHaveCount(0);
 });

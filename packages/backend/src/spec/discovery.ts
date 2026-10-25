@@ -45,6 +45,9 @@ capability, and a fact may support more than one capability when that is genuine
 For each capability give id CAP-1 onward without gaps, a short product-style name (at most 80 characters),
 a one or two sentence purpose (at most 400 characters) and the claim_ids that support it.
 Do not propose two capabilities with the same set of facts or the same name.
+Facts marked case_backed agreed with the original program's results on real test cases. A capability
+can be built and tested only when every one of its facts is case_backed, so prefer capabilities made
+entirely of case_backed facts and do not dilute them with unbacked facts.
 Account for every supplied fact exactly once: either cite it in at least one capability, or list it in
 unassigned with disposition supporting_only (context that only helps other facts), insufficient (too
 weak or isolated for a feature) or deferred (useful but outside the chosen capabilities), and a short reason.
@@ -71,12 +74,12 @@ export function prepareDiscovery(raw: unknown) {
     throw new SavedEvidenceError(`This analysis has ${prepared.claim_sources.length} supported facts; discovery accepts at most ${MAX_DISCOVERY_CLAIMS}. Nothing was sent to a model.`);
   }
   // Opaque groups keep function names, addresses and review prose out of the discovery input.
-  const groups: { group: string; claims: { id: string; statement: string }[] }[] = [];
+  const groups: { group: string; claims: { id: string; statement: string; case_backed?: true }[] }[] = [];
   const byEntry = new Map<string, (typeof groups)[number]>();
   for (const claim of prepared.claim_sources) {
     let group = byEntry.get(claim.function_entry);
     if (!group) { group = { group: `G${groups.length + 1}`, claims: [] }; groups.push(group); byEntry.set(claim.function_entry, group); }
-    group.claims.push({ id: claim.id, statement: claim.statement });
+    group.claims.push({ id: claim.id, statement: claim.statement, ...(claim.case_ids?.length ? { case_backed: true as const } : {}) });
   }
   const input = { groups, limit: MAX_DISCOVERED_CAPABILITIES };
   const size = JSON.stringify(input).length;

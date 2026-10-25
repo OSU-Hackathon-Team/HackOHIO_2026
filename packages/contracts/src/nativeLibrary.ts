@@ -11,7 +11,9 @@ export const SavedAnalysisSummary = z.object({
 export const SavedFunction = z.object({
   entry: z.string(), name: z.string().nullable(), draft_state: z.string(), review_state: z.string().nullable(),
   decompilation: z.string().nullable(),
-  claims: z.array(z.object({ statement: z.string(), review: z.object({ outcome: z.string(), reason: z.string() }).nullable() })),
+  claims: z.array(z.object({ statement: z.string(), review: z.object({ outcome: z.string(), reason: z.string() }).nullable(),
+    // Blind predictions from this claim compared with public original cases (absent before linking existed).
+    case_links: z.array(z.object({ case_id: z.string(), agreement: z.boolean() })).optional() })),
   unknowns: z.array(z.string()),
 });
 export const SavedAnalysis = SavedAnalysisSummary.extend({
