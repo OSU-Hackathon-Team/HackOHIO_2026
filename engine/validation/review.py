@@ -15,7 +15,7 @@ from engine.validation.scalar_cases import scalar_counterexamples
 from engine.worker import parse_answer
 from model_config import get_model
 
-REVIEW_PROMPT_VERSION = 7
+REVIEW_PROMPT_VERSION = 8
 
 
 def validate_review(answer: dict, evidence: dict, claim_count: int) -> list[str]:
@@ -181,55 +181,81 @@ class IndependentReviewer:
         self.engine._emit(draft["campaign"], "review_started", review_id=review_id,
                           subject=draft["subject"], draft_artifact=draft_artifact)
         started = time.monotonic()
+        attempts = []
         try:
-            reply = invoke_opencode(self.opencode, folder, prompt, model=resolved_model,
-                                    timeout=self.timeout, env_file=self.env_file,
-                                    agent_name="review",
-                                    agent_instruction="Challenge semantic claims against raw evidence. Return JSON only.")
-            answer = parse_answer(reply["text"])
-            corrections = []
-            candidate_reviews = answer.get("reviews")
-            for index, item in enumerate(candidate_reviews if isinstance(candidate_reviews, list)
-                                         else []):
-                if not isinstance(item, dict):
-                    continue
-                refs, changes = normalize_references(
-                    item.get("evidence_addresses"), evidence_addresses(evidence))
-                item["evidence_addresses"] = refs
-                corrections.extend({"review_index": index, **change} for change in changes)
-            oracle_corrections = []
-            for index, claim in enumerate(draft["answer"]["claims"]):
-                conflicts = scalar_counterexamples(claim["statement"], original_cases)
-                if conflicts and isinstance(candidate_reviews, list):
-                    item = next((row for row in candidate_reviews if isinstance(row, dict)
-                                 and row.get("claim_index") == index), None)
-                    if item is not None:
-                        item["outcome"] = "contradicted"
-                        item["reason"] = (item.get("reason", "") +
-                                          " Original case counterexample: " +
-                                          ", ".join(conflicts)).strip()
-                        if not item.get("evidence_addresses"):
-                            item["evidence_addresses"] = claim["evidence_addresses"]
-                        oracle_corrections.append({"claim_index": index,
-                                                   "case_ids": conflicts})
-            errors = validate_review(answer, evidence, len(draft["answer"]["claims"]))
-            outcomes = [item["outcome"] for item in answer.get("reviews", [])
+            current_prompt = prompt
+            for revision in range(3):
+                revision_folder = folder / f"revision-{revision + 1}"
+                revision_folder.mkdir()
+                (revision_folder / "prompt.txt").write_text(current_prompt)
+                reply = invoke_opencode(self.opencode, revision_folder, current_prompt,
+                                        model=resolved_model, timeout=self.timeout,
+                                        env_file=self.env_file, agent_name="review",
+                                        agent_instruction="Challenge semantic claims against raw evidence. Return JSON only.")
+                corrections = []
+                oracle_corrections = []
+                try:
+                    answer = parse_answer(reply["text"])
+                    candidate_reviews = answer.get("reviews")
+                    for index, item in enumerate(candidate_reviews if isinstance(candidate_reviews, list)
+                                                 else []):
+                        if not isinstance(item, dict):
+                            continue
+                        refs, changes = normalize_references(
+                            item.get("evidence_addresses"), evidence_addresses(evidence))
+                        item["evidence_addresses"] = refs
+                        corrections.extend({"review_index": index, **change} for change in changes)
+                    for index, claim in enumerate(draft["answer"]["claims"]):
+                        conflicts = scalar_counterexamples(claim["statement"], original_cases)
+                        if conflicts and isinstance(candidate_reviews, list):
+                            item = next((row for row in candidate_reviews if isinstance(row, dict)
+                                         and row.get("claim_index") == index), None)
+                            if item is not None:
+                                item["outcome"] = "contradicted"
+                                item["reason"] = (item.get("reason", "") +
+                                                  " Original case counterexample: " +
+                                                  ", ".join(conflicts)).strip()
+                                if not item.get("evidence_addresses"):
+                                    item["evidence_addresses"] = claim["evidence_addresses"]
+                                oracle_corrections.append({"claim_index": index,
+                                                           "case_ids": conflicts})
+                    errors = validate_review(answer, evidence, len(draft["answer"]["claims"]))
+                except (ValueError, json.JSONDecodeError) as parse_error:
+                    answer = None
+                    errors = [f"invalid JSON answer: {parse_error}"]
+                attempts.append({"revision": revision + 1, "errors": errors,
+                                 "prompt_artifact": self.engine.store.put(current_prompt.encode()),
+                                 "response_artifact": self.engine.store.put(reply["text"].encode()),
+                                 "transcript_artifact": self.engine.store.put(
+                                     (revision_folder / "events.jsonl").read_bytes()),
+                                 "usage": reply["usage"]})
+                if not errors:
+                    break
+                current_prompt = (prompt + "\nYour previous review failed validation. "
+                                  "Return a complete corrected JSON object and cite exact "
+                                  "raw evidence addresses in every supported or contradicted "
+                                  "review. Validation errors: " + json.dumps(errors) +
+                                  "\nPrevious answer: " + reply["text"][:20000])
+            outcomes = [item["outcome"] for item in (answer or {}).get("reviews", [])
                         if isinstance(item, dict) and item.get("outcome") in
                         {"supported_static", "contradicted", "uncertain"}]
             result = {**checkpoint, "state": "rejected" if errors else "reviewed",
                       "answer": answer, "structural_errors": errors,
                       "citation_normalizations": corrections,
                       "oracle_corrections": oracle_corrections,
+                      "revisions": attempts,
                       "outcomes": {value: outcomes.count(value) for value in sorted(set(outcomes))},
-                      "usage": reply["usage"], "opencode_version": reply["runtime_version"],
+                      "usage": {key: sum(item["usage"][key] for item in attempts)
+                                for key in ("input", "output", "reasoning", "cost")},
+                      "opencode_version": reply["runtime_version"],
                       "elapsed_seconds": round(time.monotonic() - started, 3)}
         except Exception as error:
             result = {**checkpoint, "state": "failed", "error": str(error),
+                      "revisions": attempts,
                       "elapsed_seconds": round(time.monotonic() - started, 3)}
         result["prompt_artifact"] = self.engine.store.put(prompt.encode())
-        events_path = folder / "events.jsonl"
-        if events_path.exists():
-            result["transcript_artifact"] = self.engine.store.put(events_path.read_bytes())
+        if attempts:
+            result["transcript_artifact"] = attempts[-1]["transcript_artifact"]
         artifact = self.engine.store.put(json.dumps(result, sort_keys=True).encode())
         result["artifact"] = artifact
         (folder / "result.json").write_text(json.dumps(result, indent=2) + "\n")
