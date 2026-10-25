@@ -204,6 +204,9 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
         explored: dict[str, dict] = {}
         search_log: list[dict] = []
         neighbor_queries: set[str] = set()
+        seen_resolves: set[str] = set()
+        seen_searches: set[str] = set()
+        exports_listed = False
         explore_help = ('{{"action": "page", "offset": 0, "limit": 100, "reason": "..."}}\n'
                         '{{"action": "neighbors", "entry": "00101000", "reason": "..."}}'
                         if large else
@@ -361,6 +364,11 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                         record("neighbors", links)
                         noop_streak = 0
                 elif kind == "export_entries":
+                    if exports_listed:
+                        record("noop", {"action": action, "repeat": True})
+                        noop_streak += 1
+                        return
+                    exports_listed = True
                     try:
                         table = tools.export_entries(manifest)
                     except RuntimeError as error:
@@ -372,6 +380,11 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                     record("export_entries", {"count": table["count"]})
                     noop_streak = 0
                 elif kind == "resolve_symbol":
+                    if str(action.get("substring", "")) in seen_resolves:
+                        record("noop", {"action": action, "repeat": True})
+                        noop_streak += 1
+                        return
+                    seen_resolves.add(str(action.get("substring", "")))
                     try:
                         hit = tools.resolve_symbol(
                             manifest, str(action.get("substring", "")))
@@ -385,6 +398,11 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                                               "entries": hit["entries"]})
                     noop_streak = 0
                 elif kind == "search_strings":
+                    if str(action.get("substring", "")) in seen_searches:
+                        record("noop", {"action": action, "repeat": True})
+                        noop_streak += 1
+                        return
+                    seen_searches.add(str(action.get("substring", "")))
                     hits = tools.search_strings(
                         manifest, str(action.get("substring", "")),
                         int(action.get("limit", 50)))
