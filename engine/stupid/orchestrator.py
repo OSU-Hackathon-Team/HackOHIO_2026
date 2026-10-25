@@ -357,7 +357,17 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                 nonlocal noop_streak, halt, final, exports_listed, total_redrafts
                 kind = action.get("action")
                 if kind == "decompile":
-                    work = effective(action.get("entries", []), {}, errors)
+                    wanted = action.get("entries", [])
+                    if wanted == "*" or wanted == ["*"]:
+                        # The agent asked for "the whole cluster": expand to
+                        # explored entries it has not drafted, capped by its
+                        # own limit. Which cluster that is remains its call.
+                        cap = max(1, int(action.get("limit", 16)))
+                        wanted = [e for e in sorted(explored)
+                                  if e not in drafts][:cap]
+                        record("expanded", {"entries": len(wanted),
+                                            "limit": cap})
+                    work = effective(wanted, {}, errors)
                     fresh = []
                     for e in work:
                         if e in drafts:

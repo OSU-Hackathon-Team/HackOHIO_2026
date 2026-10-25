@@ -23,6 +23,8 @@ Single actions without a plan wrapper are also accepted. Available step kinds:
 {{"action": "export_entries", "reason": "..."}}
 {{"action": "resolve_symbol", "substring": "<symbol substring>", "reason": "..."}}
 {{"action": "decompile", "entries": ["<entry>", "<entry>"], "reason": "..."}}
+{{"action": "decompile", "entries": "*", "limit": 16, "reason": "..."}}  (drafts every entry
+in explored that has no draft yet, up to limit; use it to draft a whole cluster in one step)
 {{"action": "review", "entries": ["<drafted entry>"], "reason": "..."}}
 {{"action": "probe", "cases": [{{"kind": "describe what to run"}}], "reason": "..."}}
 {{"action": "done", "scope": ["<entry>"], "readiness": "ready_for_spec or partial", "notes": "..."}}
@@ -42,6 +44,8 @@ repeats are no-ops and three in a row end the run as partial.
 Decompile and review only entries present in explored (or the small-binary inventory).
 Entries must come from the inventory. Copy each entry character-for-character exactly as shown (for example 00101000, with no 0x prefix added or removed). Prefer small parallel batches on small binaries; on large binaries decompile and review
 in batches of 8 to 16 so the worker fleet stays busy - 16 workers are idle otherwise.
+On a large binary the cheapest way to keep the fleet busy is a single
+{"action": "decompile", "entries": "*", "limit": 16} step, then review in a batch.
 At most 12 redrafts per run: spend them on readiness blockers, then widen.
 Use call_edges to find connected non-thunk clusters; prefer thunk_target over the thunk wrapper. draft_digest shows what each draft actually found: pivot toward entries whose claims match the goal, and stop re-requesting entries already in drafted (re-requesting drafted entries is a wasted no-op). needs_review lists drafted entries with no review yet: review exactly those, never entries already in reviewed. To repair a contradicted draft, decompile that entry again: this replaces the draft and clears its review for a fresh re-review. After three no-op rounds the loop ends as partial, so do not repeat requests.
 state.exhausted lists actions that already returned everything they can: calling one again
