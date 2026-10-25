@@ -160,11 +160,19 @@ FRIDA_HOOK_TEMPLATE = r"""
 const MODULE = __MODULE__;
 const PATTERNS = __PATTERNS__;
 const LIMIT = __LIMIT__;
+const OFFSETS = __OFFSETS__;
 const mod = Process.getModuleByName(MODULE);
 const end = mod.base.add(mod.size);
 const inModule = (a) => a.compare(mod.base) >= 0 && a.compare(end) < 0;
 const targets = new Map();
-for (const pattern of PATTERNS) {
+// Offsets resolved by the caller from the ELF and its build-id debug file; Frida's own symbol
+// lookup does not read separate debug files, so internal (non-exported) functions need these.
+for (const offset of Object.keys(OFFSETS)) {
+  if (targets.size >= LIMIT) break;
+  const address = mod.base.add(ptr(offset));
+  if (inModule(address)) targets.set(address.toString(), address);
+}
+for (const pattern of (targets.size ? [] : PATTERNS)) {
   let found = [];
   try { found = DebugSymbol.findFunctionsMatching(pattern); } catch (e) { found = []; }
   for (const address of found) {
@@ -184,7 +192,7 @@ let seq = 0;
 const names = {};
 for (const address of targets.values()) {
   const offset = "0x" + address.sub(mod.base).toString(16);
-  names[offset] = DebugSymbol.fromAddress(address).name || offset;
+  names[offset] = OFFSETS[offset] || DebugSymbol.fromAddress(address).name || offset;
   try {
     Interceptor.attach(address, { onEnter() { counts[offset] = (counts[offset] || 0) + 1; } });
   } catch (e) { delete names[offset]; }
@@ -200,9 +208,10 @@ send({ type: "ready", hooked: Object.keys(names).length, names: names });
 
 
 def frida_hook_source(module: str, patterns: list[str], *, limit: int = 400,
-                      flush_ms: int = 200) -> str:
+                      flush_ms: int = 200, offsets: dict[str, str] | None = None) -> str:
     return (FRIDA_HOOK_TEMPLATE.replace("__MODULE__", json.dumps(module))
             .replace("__PATTERNS__", json.dumps(list(patterns)))
+            .replace("__OFFSETS__", json.dumps(offsets or {}))
             .replace("__LIMIT__", str(int(limit)))
             .replace("__FLUSH_MS__", str(int(flush_ms))))
 
@@ -230,11 +239,15 @@ class RuntimeTracer:
 
     def __init__(self, session: ReaSession, *, pid: int, module: str, patterns: list[str],
                  image_base: int, limit: int = 400, flush_seconds: float = 0.2,
-                 sleep: Callable[[float], None] = time.sleep):
+                 sleep: Callable[[float], None] = time.sleep,
+                 offsets: dict[str, str] | None = None):
         self.session = session
         self.pid = pid
         self.module = module
         self.patterns = patterns
+        self.offsets = offsets or {}
+        if self.offsets:
+            limit = max(limit, len(self.offsets))
         self.image_base = image_base
         self.limit = limit
         self.flush_seconds = flush_seconds
@@ -252,7 +265,8 @@ class RuntimeTracer:
         loaded = self.session.call("load_frida_script", {
             "session_id": session_id, "source_kind": "inline",
             "source": frida_hook_source(self.module, self.patterns, limit=self.limit,
-                                        flush_ms=int(self.flush_seconds * 1000))})
+                                        flush_ms=int(self.flush_seconds * 1000),
+                                        offsets=self.offsets)})
         ready = [m for m in script_messages(loaded) if m["type"] == "ready"]
         if not ready:
             self.sleep(self.flush_seconds * 2)

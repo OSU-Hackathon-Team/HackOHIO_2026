@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+import fnmatch
 import json
 import re
 from pathlib import Path
@@ -63,14 +64,39 @@ class LoPipelineDeps:
     log: Callable[[str], None] = print
 
 
+def hook_offsets(inventory: dict, patterns: list[str], *, limit: int = 1500) -> dict[str, str]:
+    """Module-relative offsets of sized functions matching the Frida globs, earlier patterns first.
+
+    Built from our ELF + build-id debug-file inventory because Frida only sees exports there.
+    Compiler-split fragments (.cold / [clone]) are not function entries and are skipped.
+    """
+    base = int(inventory['elf_image_base'], 16)
+    offsets: dict[str, str] = {}
+    for pattern in patterns:
+        for symbol in inventory['symbols']:
+            display = symbol.get('display_name', symbol['name'])
+            if '.cold' in symbol['name'] or '[clone' in display:
+                continue
+            if fnmatch.fnmatchcase(symbol['name'], pattern) or fnmatch.fnmatchcase(display, pattern):
+                offsets.setdefault(hex(int(symbol['address'], 16) - base), symbol['name'])
+                if len(offsets) >= limit:
+                    return offsets
+    return offsets
+
+
 def runtime_triage(session: ReaSession, driver: UnoDriver, cases: list[dict], *, module: str,
-                   patterns: list[str], image_base: int, tracer_cls: type = RuntimeTracer) -> dict:
+                   patterns: list[str], image_base: int, tracer_cls: type = RuntimeTracer,
+                   offsets: dict[str, str] | None = None) -> dict:
     """Per case: which functions of `module` ran while LibreOffice evaluated its formula."""
     tracer = tracer_cls(session, pid=driver.pid, module=module, patterns=patterns,
-                        image_base=image_base)
+                        image_base=image_base, **({'offsets': offsets} if offsets else {}))
     started = tracer.start()
     observed = {}
     try:
+        # LibreOffice initialises lazily on the first formula (op-code maps, add-ins); without a
+        # discarded warm-up that one-time code looks specific to whichever case runs first.
+        if cases:
+            tracer.observe("__warmup__", lambda: driver.evaluate(cases[0]))
         for case in cases:
             observed[case["id"]] = tracer.observe(case["id"], lambda case=case: driver.evaluate(case))
     finally:
@@ -150,7 +176,8 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
                 with deps.rea_factory() as session, deps.driver_factory() as driver:
                     return runtime_triage(session, driver, public, module=config.module,
                         patterns=config.frida_patterns, image_base=original_base,
-                        tracer_cls=deps.tracer_cls)
+                        tracer_cls=deps.tracer_cls,
+                        offsets=hook_offsets(inventory, config.frida_patterns))
             early_triage = timed('triage', trace_first)
             runtime_cases = early_triage['cases']
             metadata_index = {'functions': [{'entry': s['address'], 'name': s['name']}
@@ -196,7 +223,9 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
             with deps.rea_factory() as session, deps.driver_factory() as driver:
                 return runtime_triage(session, driver, public, module=config.module,
                                       patterns=config.frida_patterns, image_base=image_base,
-                                      tracer_cls=deps.tracer_cls)
+                                      tracer_cls=deps.tracer_cls,
+                                      offsets=hook_offsets(symbol_inventory(Path(library['path'])),
+                                                           config.frida_patterns))
         if early_triage is not None:
             triage = early_triage
             delta = image_base - original_base

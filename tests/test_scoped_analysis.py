@@ -219,6 +219,46 @@ class ScopedPipelineOrderingTests(unittest.TestCase):
         self.assertEqual(events, ['runtime'])
 
 
+class RuntimeHookTargetTests(unittest.TestCase):
+    def test_debug_symbols_become_module_offsets_skipping_fragments(self):
+        from engine.lo_pipeline import hook_offsets
+        inventory = {'elf_image_base': '0x1000', 'symbols': [
+            {'address': '0x2000', 'size': 9, 'name': '_ZN13ScCompiler9NextTokenEv'},
+            {'address': '0x3000', 'size': 9, 'name': '_ZN13ScInterpreter5ScAddEv',
+             'display_name': 'ScInterpreter::ScAdd()'},
+            {'address': '0x3100', 'size': 4, 'name': '_ZN13ScInterpreter5ScAddEv.cold',
+             'display_name': 'ScInterpreter::ScAdd() [clone .cold]'}]}
+        offsets = hook_offsets(inventory, ['*ScInterpreter*', '*ScCompiler*'])
+        self.assertEqual(list(offsets.items()), [('0x2000', '_ZN13ScInterpreter5ScAddEv'),
+                                                 ('0x1000', '_ZN13ScCompiler9NextTokenEv')])
+        self.assertEqual(list(hook_offsets(inventory, ['*ScInterpreter*', '*ScCompiler*'], limit=1)),
+                         ['0x2000'])
+
+    def test_warmup_run_is_discarded_before_cases_are_observed(self):
+        from engine.lo_pipeline import runtime_triage
+        from types import SimpleNamespace
+        labels = []
+        class Tracer:
+            def __init__(self, *args, **kwargs): self.kwargs = kwargs
+            def start(self): return {'hooked': 1}
+            def observe(self, label, drive):
+                labels.append(label)
+                drive()
+                return {'label': label, 'hits': [{'entry': 'init' if label == '__warmup__' else 'op'}]}
+            def close(self): pass
+        driver = SimpleNamespace(pid=1, evaluate=lambda case: case['id'])
+        result = runtime_triage(None, driver, [{'id': 'a'}, {'id': 'b'}], module='m', patterns=[],
+                                image_base=0, tracer_cls=Tracer)
+        self.assertEqual(labels, ['__warmup__', 'a', 'b'])
+        self.assertEqual(list(result['cases']), ['a', 'b'])
+
+    def test_hook_script_prefers_supplied_offsets(self):
+        from engine.analysis.rea import frida_hook_source
+        source = frida_hook_source('libsclo.so', ['*ScInterpreter*'], offsets={'0x2000': 'ScAdd'})
+        self.assertIn('const OFFSETS = {"0x2000": "ScAdd"};', source)
+        self.assertIn('const OFFSETS = {};', frida_hook_source('libsclo.so', ['*X*']))
+
+
 class ScopedProvenanceTests(unittest.TestCase):
     def test_upstream_result_is_preserved_with_distinct_effective_context(self):
         from engine.analysis.scoped_mcp import annotate, serve
