@@ -7,22 +7,16 @@ import os from "node:os";
 import path from "node:path";
 import {
   DecompRun, DecompRunEvent, DecompRunRequest, type DecompRunResult, type DecompStage, type DecompTarget,
+  type DecompTargetSpec,
 } from "@splice/contracts";
+import { REPO_ROOT } from "../config.js";
 import type { DecompWorker } from "./ec2.js";
 import { importRunResults } from "./importRun.js";
 import { parseProgress } from "./progress.js";
+import { loadTargetRegistry, publicTarget } from "./targets.js";
 
-export const DECOMP_TARGETS: readonly (DecompTarget & { depth_by_budget: Record<string, number>; handoff: string })[] = [{
-  id: "libreoffice-calc",
-  name: "LibreOffice Calc",
-  description: "Formula evaluation in libsclo.so: runtime-seeded scope, reviewed claims, real LibreOffice oracle.",
-  library: "calc",
-  function_budgets: [20, 40],
-  // Measured: 20 functions with reviews used ~0.7M input tokens on Qwen3 Coder (about $0.45).
-  estimated_cost_usd: { "20": 0.5, "40": 1.2 },
-  depth_by_budget: { "20": 2, "40": 3 },
-  handoff: "libreoffice-formula",
-}];
+// Registered targets: fixtures/decomp/targets/<id>.json (Phase 1 registry).
+export const TARGET_REGISTRY = path.join(REPO_ROOT, "fixtures", "decomp", "targets");
 
 export class HttpError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
@@ -34,7 +28,8 @@ export interface DecompRunDeps {
   repoRoot: string;
   runnerScript: () => Promise<string>;
   buildPayload: (outFile: string) => Promise<unknown>;
-  publishAnalysis?: (run: DecompRun, result: DecompRunResult, progress: string) => Promise<void>;
+  publishAnalysis?: (run: DecompRun, result: DecompRunResult, progress: string, target: DecompTargetSpec) => Promise<void>;
+  targets?: DecompTargetSpec[];          // defaults to the repository registry
   pollMs?: number;
   timeoutMs?: number;
   now?: () => number;
@@ -48,10 +43,14 @@ export class DecompRunService {
   private readonly listeners = new Map<string, Set<Listener>>();
   private active: string | null = null;
 
-  constructor(private readonly deps: DecompRunDeps) {}
+  private readonly registry: DecompTargetSpec[];
+
+  constructor(private readonly deps: DecompRunDeps) {
+    this.registry = deps.targets ?? loadTargetRegistry(TARGET_REGISTRY);
+  }
 
   get enabled(): boolean { return this.deps.worker !== null; }
-  targets(): DecompTarget[] { return DECOMP_TARGETS.map(({ depth_by_budget: _d, handoff: _h, ...t }) => t); }
+  targets(): DecompTarget[] { return this.registry.map(publicTarget); }
   private now(): number { return (this.deps.now ?? Date.now)(); }
   private file(id: string): string { return path.join(this.deps.stateDir, "runs", `${id}.json`); }
 
@@ -87,7 +86,7 @@ export class DecompRunService {
     if (!request.success) throw new HttpError(400, request.error.issues.map((i) => i.message).join("; "));
     const worker = this.deps.worker;
     if (!worker) throw new HttpError(403, "decomp runs are disabled; set DECOMP_EC2_ENABLED=1 with the worker config");
-    const target = DECOMP_TARGETS.find((t) => t.id === request.data.target_id);
+    const target = this.registry.find((t) => t.id === request.data.target_id);
     if (!target) throw new HttpError(400, `unknown target ${request.data.target_id}`);
     if (!target.function_budgets.includes(request.data.max_functions)) {
       throw new HttpError(400, `max_functions must be one of ${target.function_budgets.join(", ")}`);
@@ -132,7 +131,7 @@ export class DecompRunService {
     await this.emit(record, { type: "done", ok: false });
   }
 
-  private async drive(record: Record_, target: (typeof DECOMP_TARGETS)[number]): Promise<void> {
+  private async drive(record: Record_, target: DecompTargetSpec): Promise<void> {
     const worker = this.deps.worker!;
     const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "decomp-run-"));
     try {
@@ -142,7 +141,7 @@ export class DecompRunService {
       await worker.uploadPayload(payload);
       await this.emit(record, { type: "stage", stage: "instance_starting", message: "Starting the analysis worker" });
       const depth = target.depth_by_budget[String(record.run.max_functions)] ?? 2;
-      await worker.start(record.run.run_id, { maxFunctions: record.run.max_functions, maxDepth: depth },
+      await worker.start(record.run.run_id, { maxFunctions: record.run.max_functions, maxDepth: depth, targetId: target.id },
                          await this.deps.runnerScript());
     } catch (error) {
       await this.fail(record, `could not start the run: ${(error as Error).message}`);
@@ -155,7 +154,11 @@ export class DecompRunService {
 
   private async poll(record: Record_): Promise<void> {
     const worker = this.deps.worker!;
-    const target = DECOMP_TARGETS.find((t) => t.id === record.run.target_id)!;
+    const target = this.registry.find((t) => t.id === record.run.target_id);
+    if (!target) {
+      await this.fail(record, `target ${record.run.target_id} is no longer registered`);
+      return;
+    }
     const deadline = record.run.started_at + (this.deps.timeoutMs ?? 75 * 60_000);
     let lastStage: DecompStage | null = record.run.stage;
     let lines = record.events.filter((e) => e.type === "log").length;
@@ -206,7 +209,7 @@ export class DecompRunService {
       const result: DecompRunResult = await importRunResults(archive, {
         stateDir: this.deps.stateDir, repoRoot: this.deps.repoRoot,
         handoffDir: path.join(this.deps.repoRoot, "docs", "handoffs", target.handoff) });
-      await this.deps.publishAnalysis?.(record.run, result, latestProgress);
+      await this.deps.publishAnalysis?.(record.run, result, latestProgress, target);
       await this.emit(record, { type: "result", result });
       await this.emit(record, { type: "stage", stage: "complete",
         message: result.spec_artifact ? `${result.spec_status} specification ready` : "Evidence imported; no specification" });

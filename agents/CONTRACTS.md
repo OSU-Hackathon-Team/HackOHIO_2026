@@ -781,3 +781,22 @@ most, a ten-minute overall deadline and three minutes per draft. Each draft is s
 Discovery never adds features to App library. It shares the per-analysis lock with `/extract` (409),
 returns 422 before model work for missing or oversized evidence, and 503 in replay mode.
 `GET /api/library/analyses/:id/discoveries` lists saved, hash-checked reports. No model runs.
+### Claim-to-case links and native targets (additive, team review pending)
+
+Schemas: `nativeLibrary.ts`, `nativeExtraction.ts`, `decompTarget.ts`, `decompRun.ts`.
+
+- `SavedFunction.claims[].case_links?`: `{case_id, agreement}` per public original case whose result
+  a model predicted *blind* from the claim (engine/validation/case_links.py) and that was then compared
+  with the real result. Absent on analyses saved before linking existed. Held-out cases are never linked.
+- `SavedAnalysis.observed_cases[].input?`: exactly what the oracle ran (`{formula, cells}` or
+  `{args}`); `formula` stays as the readable invocation.
+- `NativeExtraction.claim_sources[].case_ids?`: agreeing public cases for that fact. An extraction may
+  be `ready_for_review` only when every fact has case IDs and every example (named `REQ-n <case_id>`)
+  is one of those cases; otherwise it must stay `draft`. Extractions saved earlier are unchanged.
+- `DecompTargetSpec`: registry entry `fixtures/decomp/targets/<id>.json` with driver `uno` or `cli`,
+  install recipe (cli: apt package and `/usr/{bin,sbin,lib}` binary), case suite path, trace patterns,
+  budgets with cost and depth per budget, handoff folder. Strict; a malformed entry fails startup.
+- `DecompTarget.driver?`: public view of the registry entry for the Studio selector.
+
+The native adapter (Engineer 2) now turns each example into a `deepEqual` assertion on the single
+engine export instead of `assert.ok(true)`. Draft refusal is unchanged.

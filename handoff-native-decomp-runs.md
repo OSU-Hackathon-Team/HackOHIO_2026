@@ -52,6 +52,35 @@ reference counting) is mechanics, not a feature. Details and limits are in
 `docs/native-library.md`. Richer runs (more functions, followed tail jumps) give discovery better
 material; the discovery stage itself stays app-agnostic.
 
+## Claim-to-case links, Build engine, and the target registry (2026-10-25, later)
+
+Merged after the discovery work. Details are in `docs/native-library.md`.
+
+- **Case links.** The pipeline blind-predicts each public case from the claims of the functions it
+  ran (`engine/validation/case_links.py`). An all-agreeing feature becomes `ready_for_review`, with
+  real examples. Studio's **Build engine** then implements it, and a fully passing engine is saved
+  as a reusable building block. The native adapter (Engineer 2's file) now emits real `deepEqual`
+  assertions from examples instead of `assert.ok(true)`; flag this to Engineer 2.
+- **Phase 1 (done).** Registry `fixtures/decomp/targets/<id>.json`, contract `DecompTargetSpec`,
+  Studio **Application** selector, and the generic worker entry point
+  `scripts/native_pipeline.py --target <id>`.
+- **Phase 2 (done; not yet run on the worker).** `cli` driver in `engine/cli_target.py`: apt
+  install plus debuginfod symbols, argument cases, the real program as oracle, and Frida spawn
+  tracing per case. Preset: `gnu-units`.
+
+**Blocked at handoff:** the temporary AWS credentials in `packages/backend/.env` expired at about
+08:10 UTC (`The provided token has expired`). S3 library reads, EC2 starts and Bedrock calls all
+fail until they're refreshed. Then:
+
+1. **Restart the backend.**
+2. **Run `libreoffice-calc` at 40 functions**, about $1.50. This gives real case links, so
+   discovery should produce buildable features.
+3. **Run `gnu-units` at 20 functions**, about $0.60. This is the first worker test of apt install,
+   debuginfod and spawn tracing.
+4. **Discover building blocks** on both results, then **Build engine** on a ready candidate.
+
+The user approved up to $10 for this. Nothing was spent after the credentials expired.
+
 ## What exists (all on dev)
 
 | Piece | Where |

@@ -180,7 +180,7 @@ export function nativeLibraryStore(): NativeLibraryStore | null {
 
 /** Publishes only the handoff's public cases and explicitly referenced function evidence. */
 export async function publishImportedAnalysis(store: NativeLibraryStore, run: DecompRun, result: DecompRunResult,
-  stateDir: string, handoffDir: string, progress: string): Promise<void> {
+  stateDir: string, handoffDir: string, progress: string, title = "LibreOffice Calc"): Promise<void> {
   const handoff = JSON.parse(await fs.readFile(path.join(handoffDir, "evidence.json"), "utf8"));
   if (handoff.functions?.length !== result.functions.included) throw new Error("handoff function count does not match the completed run");
   const decompiled = new Map<string, string>();
@@ -202,7 +202,7 @@ export async function publishImportedAnalysis(store: NativeLibraryStore, run: De
     if (createHash("sha256").update(bytes).digest("hex") !== digest) throw new Error("spec hash mismatch");
     spec = JSON.parse(bytes.toString("utf8"));
   }
-  await store.saveAnalysis({ schema: 1, id: run.run_id, title: "LibreOffice Calc", target_id: run.target_id,
+  await store.saveAnalysis({ schema: 1, id: run.run_id, title, target_id: run.target_id,
     created_at: run.started_at, binary_sha256: handoff.source.binary_sha256, result, spec,
     functions: handoff.functions.map((f: Record<string, unknown>) => ({ ...f, decompilation: decompiled.get(String(f.entry)) ?? null })),
     observed_cases: handoff.observed_cases });

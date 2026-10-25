@@ -1,13 +1,15 @@
 #!/bin/bash
 # Runs one scoped LibreOffice decomp pipeline on the EC2 worker, started by the backend
 # (packages/backend/src/decomp/ec2.ts) through SSM. Calls Bedrock (drafts, reviews, spec writer).
-#   run-scoped-pipeline.sh <run_id> <max_functions> <max_depth>
+#   run-scoped-pipeline.sh <run_id> <max_functions> <max_depth> [target_id]
+# The target is a fixtures/decomp/targets/<id>.json registry entry (default libreoffice-calc).
 # Environment: TRIAL_BUCKET, AWS_DEFAULT_REGION. Uses the instance role; no static credentials.
 # Progress goes to s3://$TRIAL_BUCKET/results/<run_id>/ every 10 s; results.tgz at the end.
 set -Eeuo pipefail
-RUN_ID=$1 MAX_FUNCTIONS=${2:-20} MAX_DEPTH=${3:-2}
+RUN_ID=$1 MAX_FUNCTIONS=${2:-20} MAX_DEPTH=${3:-2} TARGET=${4:-libreoffice-calc}
 [[ $RUN_ID =~ ^[a-z0-9-]{8,64}$ ]] || { echo "invalid run id" >&2; exit 2; }
 [[ $MAX_FUNCTIONS =~ ^[0-9]+$ && $MAX_DEPTH =~ ^[0-9]$ ]] || { echo "invalid limits" >&2; exit 2; }
+[[ $TARGET =~ ^[a-z0-9][a-z0-9-]{2,39}$ ]] || { echo "invalid target" >&2; exit 2; }
 : "${TRIAL_BUCKET:?}" "${AWS_DEFAULT_REGION:?}"
 ROOT=/var/lib/splice-trial; RUN=$ROOT/runs/$RUN_ID; DBG=$ROOT/debug; SRC=/opt/splice
 IMAGE=splice-worker:lo-agent
@@ -60,7 +62,7 @@ timeout --kill-after=15 2700 docker run --rm --name splice-pipeline \
  "$IMAGE" sh -c '
    # Older images lack boto3 (engine/model_runtime.py direct Bedrock path); worker.Dockerfile now has it.
    python -c "import boto3" 2>/dev/null || python -m pip install -q --disable-pip-version-check boto3
-   exec python scripts/lo_pipeline.py --analysis-profile scoped --seed-source runtime --library calc \
+   exec python scripts/native_pipeline.py --target "$2" \
      --max-functions "$0" --max-depth "$1" --workers 2 --review-model-role decomp_worker \
-     --state /run-out/state --opencode /usr/local/bin/opencode' "$MAX_FUNCTIONS" "$MAX_DEPTH" \
+     --state /run-out/state --opencode /usr/local/bin/opencode' "$MAX_FUNCTIONS" "$MAX_DEPTH" "$TARGET" \
  >> "$RUN/console.log" 2>&1

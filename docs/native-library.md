@@ -237,3 +237,60 @@ that shared filter with its owner; don't special-case it in discovery.
 - Known failures, identical without this change:
   - `nativeSpecs` (needs Python on Windows);
   - two compiled replay regressions.
+
+## Claim-to-case links and building engines
+
+Runs now link claims to the public cases that exercised them (`engine/validation/case_links.py`):
+
+1. **Candidate cases.** For each reviewed function, the candidates are the public cases whose runtime
+   trace entered that function.
+2. **Blind prediction.** A model (`decomp_worker` role) reads each supported claim and the case
+   *inputs*, never the observed results, and predicts the result the claim implies. It links a
+   case only when the claim alone determines that result.
+3. **Comparison.** The prediction is compared deterministically with the real result. A match is
+   `agreement`, and a mismatch flags the claim as contradicted by an original case.
+4. **Where links go.** Links feed the dossier's existing probe-link path, `evidence.json`
+   (`claims[].case_links`) and the saved S3 analysis. Held-out cases are never linked.
+
+**From links to a buildable feature:**
+- If every fact in a discovered or extracted feature has an agreeing case, the extraction becomes
+  `ready_for_review`. The linked cases become its examples, named `REQ-n <case_id>`.
+- Otherwise it stays `draft`. Discovery marks case-backed facts and prefers grouping them.
+- A ready candidate shows **Build engine**. This adapts the spec, and the native adapter now turns
+  each example into a real `deepEqual` assertion. It then implements the engine through Step 3.
+- A fully passing engine is saved by the existing implement route as a reusable building block.
+  A partially passing engine is not.
+
+**Limit:** a model makes the prediction. Agreement is execution evidence that the claim is
+consistent with the original program on that case, not a proof of the claim for all inputs. Static
+review still gates every fact.
+
+## Native targets (Phase 1 registry, Phase 2 command-line driver)
+
+**Registry:**
+- Targets live in `fixtures/decomp/targets/<id>.json` (contract `DecompTargetSpec`).
+- `GET /api/decomp/targets` reads the registry.
+- Studio's **Analyze a native application** card has an **Application** selector.
+- The worker runs `scripts/native_pipeline.py --target <id>`. The registry, case suites and the
+  script are in the payload whitelist.
+
+**Drivers:**
+- **`uno`:** LibreOffice Calc, unchanged.
+- **`cli`:** a packaged command-line program (`engine/cli_target.py`).
+  - The worker installs the apt package if it's missing, then fetches the binary's debug file from
+    `debuginfod.ubuntu.com` by build-id.
+  - Each case is an argument list.
+  - The oracle is the real program's stdout, stderr and exit code. Suites may not contain expected
+    values.
+  - Tracing spawns the program under Frida once per case, through REA's `instrument_with_frida`
+    spawn mode. The hook script flushes its counts when the process exits.
+
+**Preset:** GNU `units` (`gnu-units`, cases in `fixtures/decomp/cli/gnu_units_cases.json`). A local
+run of the real `units` 2.23 binary produced the expected conversions, conformability errors and
+unknown-unit messages for all 17 cases.
+
+**Adding a target:** add a registry entry, plus a case suite in `fixtures/decomp/cli/` for a
+command-line program. The registry rejects malformed entries at backend startup.
+
+**Not yet verified on the worker:** spawn tracing through REA, apt installation inside the worker
+container, and the first `gnu-units` run. These need refreshed AWS credentials and a paid run.

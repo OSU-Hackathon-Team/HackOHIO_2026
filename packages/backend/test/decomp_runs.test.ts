@@ -214,7 +214,7 @@ describe("decomp runs: API", () => {
       assert.ok(events.some((e) => e.type === "progress" && e.label === "drafted" && e.done === 1 && e.total === 40));
       const result = events.find((e) => e.type === "result");
       assert.equal(result?.type === "result" && result.result.spec_status, "draft");
-      assert.deepEqual(started, [{ id: run.run_id, args: { maxFunctions: 40, maxDepth: 3 } }]);
+      assert.deepEqual(started, [{ id: run.run_id, args: { maxFunctions: 40, maxDepth: 3, targetId: "libreoffice-calc" } }]);
 
       // A finished run replays from disk for a fresh service (e.g. after a backend restart).
       const reloaded = new DecompRunService({ worker: null, stateDir: path.join(dir, "on"), repoRoot: dir,

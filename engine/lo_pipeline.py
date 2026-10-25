@@ -23,10 +23,10 @@ from pathlib import Path
 import time
 from typing import Callable
 
-from engine.analysis.rea import RuntimeTracer, ReaSession, static_triage
+from engine.analysis.rea import RuntimeTracer, ReaSession, spawn_triage, static_triage
 from engine.analysis.scoped import symbol_inventory, prepared_readers
-from engine.libreoffice import (UnoDriver, matches, observe_cases, probe_report, resolve_targets,
-                                split_cases)
+from engine.libreoffice import (UNO_DRIVER, UnoDriver, formula_input, matches, observe_cases,
+                                probe_report, resolve_targets, split_cases)
 from engine.models import ScopeRequest
 
 DEFAULT_FRIDA_PATTERNS = ["*ScInterpreter*", "*ScCompiler*", "*FormulaCompiler*"]
@@ -54,6 +54,17 @@ class LoPipelineConfig:
     link_model_role: str = "decomp_worker"           # models.json role for blind claim-to-case links
     # Explicit until application-wide discovery can supply candidate scopes without known features.
     scoped_analysis: bool = False
+    # Target plug points (fixtures/decomp/targets). Defaults are LibreOffice driven over UNO.
+    case_input: Callable[[dict], dict] = formula_input
+    case_display: Callable[[dict], str] = lambda case: case["formula"]
+    matches: Callable[[dict, dict], bool] = matches
+    observation_format: str = OBSERVATION_FORMAT
+    probe_kind: str = "uno_formula"
+    probe_adapter: Path | None = None       # hashed into probe records; None = the UNO driver
+    driver_name: str = "uno"
+    tracing: str = "attach"                 # "spawn": one Frida spawn per case (short-lived programs)
+    program: str | None = None              # the spawned program when tracing == "spawn"
+    target_name: str = "LibreOffice Calc"
 
 
 @dataclass
@@ -112,6 +123,21 @@ def runtime_triage(session: ReaSession, driver: UnoDriver, cases: list[dict], *,
     return {"hooked": started["hooked"], "cases": observed}
 
 
+def _trace_cases(config: "LoPipelineConfig", deps: "LoPipelineDeps", cases: list[dict], *,
+                 image_base: int, offsets: dict[str, str]) -> dict:
+    """Runtime hits per case: attach once to a long-running program, or spawn one per case."""
+    if config.tracing == "spawn":
+        with deps.rea_factory() as session:
+            return spawn_triage(session, cases, program=config.program,
+                                argv_for=lambda case: case["args"], module=config.module,
+                                patterns=config.frida_patterns, image_base=image_base,
+                                offsets=offsets)
+    with deps.rea_factory() as session, deps.driver_factory() as driver:
+        return runtime_triage(session, driver, cases, module=config.module,
+                              patterns=config.frida_patterns, image_base=image_base,
+                              tracer_cls=deps.tracer_cls, offsets=offsets)
+
+
 def seeds_from_runtime(index: dict, runtime_cases: dict[str, dict], *, max_seeds: int) -> list[dict]:
     """Rank functions the cases actually entered.
 
@@ -142,7 +168,7 @@ def seeds_from_runtime(index: dict, runtime_cases: dict[str, dict], *, max_seeds
 
 
 def observations_by_entry(runtime_cases: dict[str, dict], cases: list[dict]) -> dict[int, list[dict]]:
-    formulas = {case["id"]: case["formula"] for case in cases}
+    formulas = {case["id"]: case.get("formula") or " ".join(case.get("args", [])) for case in cases}
     found: dict[int, list[dict]] = {}
     for case_id, observation in runtime_cases.items():
         for hit in observation["hits"]:
@@ -155,7 +181,7 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
     engine, log = deps.engine, deps.log
     stages: dict[str, float] = {}
     summary: dict = {"schema": 1, "library": config.library, "lo_version": install.get("version"),
-                     "stages": stages}
+                     "target_name": config.target_name, "stages": stages}
 
     def timed(name: str, fn: Callable):
         started = time.monotonic()
@@ -180,13 +206,9 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
         original_base = int(inventory['elf_image_base'], 16)
         if config.seed_source == 'runtime':
             log('[triage] Frida observations before scoped Ghidra preparation')
-            def trace_first():
-                with deps.rea_factory() as session, deps.driver_factory() as driver:
-                    return runtime_triage(session, driver, public, module=config.module,
-                        patterns=config.frida_patterns, image_base=original_base,
-                        tracer_cls=deps.tracer_cls,
-                        offsets=hook_offsets(inventory, config.frida_patterns))
-            early_triage = timed('triage', trace_first)
+            early_triage = timed('triage', lambda: _trace_cases(
+                config, deps, public, image_base=original_base,
+                offsets=hook_offsets(inventory, config.frida_patterns)))
             runtime_cases = early_triage['cases']
             metadata_index = {'functions': [{'entry': s['address'], 'name': s['name']}
                                            for s in inventory['symbols']]}
@@ -229,12 +251,9 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
         log(f"[triage] Frida via REA on {config.module}, {len(public)} public cases")
 
         def trace() -> dict:
-            with deps.rea_factory() as session, deps.driver_factory() as driver:
-                return runtime_triage(session, driver, public, module=config.module,
-                                      patterns=config.frida_patterns, image_base=image_base,
-                                      tracer_cls=deps.tracer_cls,
-                                      offsets=hook_offsets(symbol_inventory(Path(library['path'])),
-                                                           config.frida_patterns))
+            return _trace_cases(config, deps, public, image_base=image_base,
+                                offsets=hook_offsets(symbol_inventory(Path(library['path'])),
+                                                     config.frida_patterns))
         if early_triage is not None:
             triage = early_triage
             delta = image_base - original_base
@@ -324,18 +343,18 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
 
     targets = resolve_targets(config.cases, scope,
                               {cid: obs["hits"] for cid, obs in runtime_cases.items()})
-    log(f"[oracle] evaluating {len(config.cases)} formulas in LibreOffice {install.get('version')}")
+    log(f"[oracle] evaluating {len(config.cases)} cases in {config.target_name} {install.get('version')}")
 
     def oracle() -> dict[str, dict]:
         with deps.driver_factory() as driver:
             return observe_cases(driver, config.cases)
     observations = timed("oracle", oracle)
-    public_report = probe_report(engine.store, public, observations,
-                                 binary_sha256=manifest["binary_sha256"],
-                                 lo_version=install.get("version"), targets=targets)
-    held_report = probe_report(engine.store, held_out, observations,
-                               binary_sha256=manifest["binary_sha256"],
-                               lo_version=install.get("version"), targets=targets)
+    probe_options = {"binary_sha256": manifest["binary_sha256"], "lo_version": install.get("version"),
+                     "targets": targets, "kind": config.probe_kind, "case_input": config.case_input,
+                     "adapter": config.probe_adapter or UNO_DRIVER, "match": config.matches,
+                     "driver": config.driver_name}
+    public_report = probe_report(engine.store, public, observations, **probe_options)
+    held_report = probe_report(engine.store, held_out, observations, **probe_options)
     summary["probes"] = {"public": public_report["counts"], "held_out": held_report["counts"],
                          "public_report_artifact": public_report["artifact"],
                          "held_out_report_artifact": held_report["artifact"],
@@ -348,7 +367,8 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
         linked = timed("links", lambda: link_claims_to_cases(
             deps.linker, analysed, public, per_entry, observations,
             report_artifact=public_report["artifact"], model_role=config.link_model_role,
-            workers=config.workers, log=log))
+            workers=config.workers, log=log, case_input=config.case_input,
+            matches=config.matches, observation_format=config.observation_format))
         link_artifacts, case_links = linked["link_artifacts"], linked["case_links"]
         summary["case_links"] = linked["summary"]
 
@@ -360,7 +380,8 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
                           "coverage": dossier.get("coverage")}
     log(f"[dossier] readiness {dossier['readiness']}")
     summary["handoff"] = build_handoff(engine.store, analysed, scope, public, observations,
-                                       case_links=case_links)
+                                       case_links=case_links, case_input=config.case_input,
+                                       case_display=config.case_display)
     summary["spec"], error = timed("spec", lambda: spec_for_dossier(
         deps.persist_spec, engine.store, engine.root, dossier))
     if error:
@@ -373,7 +394,10 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
 def link_claims_to_cases(linker, analysed: list[dict], public: list[dict],
                          per_entry: dict[int, list[dict]], observations: dict[str, dict], *,
                          report_artifact: str, model_role: str, workers: int,
-                         log: Callable[[str], None]) -> dict:
+                         log: Callable[[str], None],
+                         case_input: Callable[[dict], dict] = formula_input,
+                         matches: Callable[[dict, dict], bool] = matches,
+                         observation_format: str = OBSERVATION_FORMAT) -> dict:
     """Blind-link each reviewed function's claims to the public cases that ran it.
 
     A linker failure leaves that function's claims unlinked; it never fails the run.
@@ -385,8 +409,7 @@ def link_claims_to_cases(linker, analysed: list[dict], public: list[dict],
                 item["review"]["state"] != "reviewed":
             continue
         ran = {hit["case"] for hit in per_entry.get(int(item["entry"], 16), [])}
-        cases = [{"id": cid, "input": {"formula": by_id[cid]["formula"],
-                                       "cells": by_id[cid].get("cells", {})},
+        cases = [{"id": cid, "input": case_input(by_id[cid]),
                   "description": by_id[cid].get("input_description")}
                  for cid in sorted(ran) if cid in by_id]
         if cases:
@@ -398,7 +421,7 @@ def link_claims_to_cases(linker, analysed: list[dict], public: list[dict],
         try:
             return linker.run(item["draft"]["artifact"], item["review"]["artifact"], cases,
                               observations, report_artifact=report_artifact, matches=matches,
-                              observation_format=OBSERVATION_FORMAT, model_role=model_role)
+                              observation_format=observation_format, model_role=model_role)
         except Exception as error:
             return {"state": "failed", "subject": item["entry"], "error": f"{type(error).__name__}: {error}",
                     "links": []}
@@ -448,7 +471,9 @@ def spec_for_dossier(persist_spec: Callable, store, root: Path, dossier: dict) -
 
 def build_handoff(store, analysed: list[dict], scope: dict, public: list[dict],
                   observations: dict[str, dict],
-                  case_links: dict[tuple[str, int], list[dict]] | None = None) -> dict:
+                  case_links: dict[tuple[str, int], list[dict]] | None = None,
+                  case_input: Callable[[dict], dict] = formula_input,
+                  case_display: Callable[[dict], str] = lambda case: case["formula"]) -> dict:
     """Evidence a spec author can turn into a FeatureSpec, even when the dossier is not ready.
 
     Claims carry the independent review verdict; observed cases are real LibreOffice results.
@@ -485,8 +510,9 @@ def build_handoff(store, analysed: list[dict], scope: dict, public: list[dict],
                 dependencies=answer.get("dependencies", []), unknowns=answer.get("unknowns", []),
                 missing_behavior=missing)
         functions.append(record)
-    cases = [{"id": case["id"], "formula": case["formula"], "cells": case.get("cells", {}),
-              "description": case.get("input_description"),
+    # `formula` is the human-readable invocation; `input` is exactly what the oracle ran.
+    cases = [{"id": case["id"], "formula": case_display(case), "cells": case.get("cells", {}),
+              "input": case_input(case), "description": case.get("input_description"),
               "observed": (observations.get(case["id"]) or {}).get("observed")}
              for case in public]
     return {"functions": functions, "observed_cases": cases}
@@ -514,15 +540,16 @@ def write_handoff(folder: Path, summary: dict, handoff: dict | None, store) -> P
         (folder / "native_spec.json").write_bytes(store.get(spec["artifact"]))
     drafted = sum(f["draft_state"] == "unreviewed" for f in handoff["functions"])
     reviewed = sum(f["review_state"] == "reviewed" for f in handoff["functions"])
+    target = summary.get("target_name") or "LibreOffice Calc"
     lines = [
-        "# LibreOffice Calc formula evaluation: decomp handoff", "",
+        f"# {target}: decomp handoff", "",
         f"Dossier readiness: **{dossier.get('readiness')}**. "
         f"Functions drafted {drafted}/{len(handoff['functions'])}, independently reviewed {reviewed}.",
         "Claim verdicts: " + (", ".join(f"{k} {v}" for k, v in sorted(outcomes.items())) or "none") + ".", "",
         "## Using this for a FeatureSpec", "",
         "- `supported_static` claims are candidate requirements. `uncertain` claims need runtime "
         "confirmation. Drop `contradicted` claims. `unreviewed` claims are unverified.",
-        "- `observed_cases` are real results from LibreOffice "
+        f"- `observed_cases` are real results from {target} "
         f"{summary.get('lo_version')}; use them as acceptance-test examples.",
         f"- {evidence['held_out_cases_withheld']} held-out cases are deliberately withheld for "
         "independent checking. Do not ask for them.",

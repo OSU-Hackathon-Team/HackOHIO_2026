@@ -53,7 +53,7 @@ export function adaptSavedEvidence(raw: unknown, request: NativeExtractionReques
       // Function names, review prose and decompilation stay in the analyst record, outside the writer input.
       claims: claim_sources.map(({ id, statement }) => ({ id, statement })),
       original_examples: analysis.observed_cases.map(c => ({ name: c.id,
-        input: { formula: c.formula, ...(c.cells ? { cells: c.cells } : { setup_unavailable: true }) }, expected_output: c.observed })),
+        input: c.input ?? { formula: c.formula, ...(c.cells ? { cells: c.cells } : { setup_unavailable: true }) }, expected_output: c.observed })),
       observation_limit: "Application observations are not linked to these facts. Do not infer new requirements from them.",
       excluded_behavior: [], deviations: [],
     },
@@ -73,7 +73,7 @@ export function assembleSavedExtraction(prepared: ReturnType<typeof adaptSavedEv
   const examples = !ready ? [] : draft.requirements.flatMap(r =>
     [...new Set(r.claim_ids.flatMap(id => sources.get(id)?.case_ids ?? []))].map(caseId => {
       const observed = cases.get(caseId)!;
-      return { name: `${r.id} ${caseId}`, input: { formula: observed.formula, cells: observed.cells ?? {} },
+      return { name: `${r.id} ${caseId}`, input: observed.input ?? { formula: observed.formula, cells: observed.cells ?? {} },
         expected_output: observed.observed };
     }));
   const spec = NativeSubsystemSpec.parse({ ...draft, schema: 2, kind: "native_subsystem_spec",

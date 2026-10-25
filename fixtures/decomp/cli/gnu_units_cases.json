@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "kind": "cli",
+  "subsystem": "GNU units conversion",
+  "notes": "Each case runs `units -t <have> <want>` in the C locale. Results come from the real program; this suite has no expected values. Held-out cases are never shown to spec writers or implementers.",
+  "query": "unit conversion: parsing quantities, looking up units, checking dimensions and computing conversion factors",
+  "expected_observables": [
+    "converted value printed for a conformable pair",
+    "error output and exit status for non-conformable or unknown units",
+    "nonlinear temperature conversions",
+    "compound units and arithmetic in quantities"
+  ],
+  "cases": [
+    { "id": "mile_km", "args": ["-t", "1 mile", "km"], "input_description": "Miles to kilometres", "held_out": false },
+    { "id": "inch_cm", "args": ["-t", "1 inch", "cm"], "input_description": "Inches to centimetres", "held_out": false },
+    { "id": "feet_m", "args": ["-t", "10 ft", "m"], "input_description": "A multiple of a unit", "held_out": false },
+    { "id": "pound_kg", "args": ["-t", "1 lb", "kg"], "input_description": "Pounds to kilograms", "held_out": false },
+    { "id": "gallon_l", "args": ["-t", "1 gallon", "liter"], "input_description": "Volume conversion", "held_out": false },
+    { "id": "acre_m2", "args": ["-t", "1 acre", "m^2"], "input_description": "Area with an exponent", "held_out": false },
+    { "id": "kmh_ms", "args": ["-t", "100 km/hr", "m/s"], "input_description": "Compound speed units", "held_out": false },
+    { "id": "kwh_j", "args": ["-t", "1 kWh", "J"], "input_description": "Prefixed compound energy unit", "held_out": false },
+    { "id": "sum_lengths", "args": ["-t", "2 m + 30 cm", "cm"], "input_description": "Arithmetic on quantities", "held_out": false },
+    { "id": "temp_f_c", "args": ["-t", "tempF(212)", "tempC"], "input_description": "Nonlinear temperature conversion", "held_out": false },
+    { "id": "not_conformable", "args": ["-t", "1 meter", "kg"], "input_description": "Dimensions that do not match", "held_out": false },
+    { "id": "unknown_unit", "args": ["-t", "1 blargh", "m"], "input_description": "An unknown unit name", "held_out": false },
+    { "id": "mph_kmh", "args": ["-t", "60 mph", "km/hr"], "input_description": "Speed conversion", "held_out": true },
+    { "id": "yard_m", "args": ["-t", "1 yard", "m"], "input_description": "Yards to metres", "held_out": true },
+    { "id": "temp_c_f", "args": ["-t", "tempC(100)", "tempF"], "input_description": "Nonlinear temperature conversion back", "held_out": true },
+    { "id": "sqrt_area", "args": ["-t", "sqrt(4 m^2)", "m"], "input_description": "A function of a quantity", "held_out": true },
+    { "id": "volume_mismatch", "args": ["-t", "1 liter", "m"], "input_description": "Volume to length is not conformable", "held_out": true }
+  ]
+}
