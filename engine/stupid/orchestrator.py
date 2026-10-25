@@ -212,12 +212,15 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
 
         final: dict | None = None
         noop_streak = 0
+        last_result: dict = {"note": "no actions taken yet"}
+        last_signature: str | None = None
         for _ in range(max_rounds):
             state = {"inventory": inventory or {"paged": True,
                                                 "pages_fetched": len(pages)},
                      "summary": summary,
                      "explored": explored,
                      "searches": search_log[-6:],
+                     "last_result": last_result,
                      "paging": {"fetched_offsets": sorted(
                          {p["offset"] for p in pages}),
                          "total": summary["function_count"],
@@ -237,7 +240,30 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                 explore=explore_help),
                 role="decomp_worker"))
             record("orchestrator", action)
+            mark = len(log)
             kind = action.get("action")
+            signature = json.dumps({"action": kind,
+                                    "entries": sorted(action.get("entries", []) or []),
+                                    "substring": action.get("substring", ""),
+                                    "offset": action.get("offset", 0),
+                                    "limit": action.get("limit", 100)},
+                                   sort_keys=True)
+            if signature == last_signature:
+                # Fixation guard: repeating the identical action teaches nothing.
+                # The result is a no-op so the budget trips unless the agent varies.
+                record("noop", {"action": action, "repeat": True})
+                last_result = {"noop": True,
+                               "reason": "identical to the previous action; "
+                                         "its result is already in the state above"}
+                noop_streak += 1
+                if noop_streak >= 3:
+                    final = {"action": "done", "scope": sorted(drafts),
+                             "readiness": "partial",
+                             "notes": "orchestrator repeated no-op actions; "
+                                      "round budget exhausted"}
+                    break
+                continue
+            last_signature = signature
             if kind == "decompile":
                 work = effective(action.get("entries", []), {})
                 if work:
@@ -363,6 +389,12 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
             else:
                 record("invalid_action", {"action": action})
                 noop_streak += 1
+            produced = [e["kind"] for e in log[mark:]
+                        if e["kind"] != "orchestrator"]
+            last_result = {"produced": produced or ["nothing"]}
+            if produced == ["noop"] or not produced:
+                last_result["warning"] = ("that action changed nothing; "
+                                          "varying the action is the only way forward")
             if noop_streak >= 3:
                 final = {"action": "done", "scope": sorted(drafts),
                          "readiness": "partial",
