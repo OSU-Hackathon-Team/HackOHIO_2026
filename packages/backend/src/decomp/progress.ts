@@ -36,8 +36,8 @@ export function parseProgress(progressJsonl: string, consoleLog: string): Progre
     if (!raw.trim()) continue;
     let event: { stage?: string; subject?: string };
     try { event = JSON.parse(raw); } catch { continue; }
-    if (event.stage === "semantic_finished" && event.subject) drafted.add(event.subject);
-    if (event.stage === "review_finished" && event.subject) reviewed.add(event.subject);
+    if ((event.stage === "semantic_finished" || event.stage === "semantic_cache_hit") && event.subject) drafted.add(event.subject);
+    if ((event.stage === "review_finished" || event.stage === "review_cache_hit") && event.subject) reviewed.add(event.subject);
     if (event.stage === "scoped_prepare_started") preparing = true;
   }
   if (preparing && (stage === null || stage === "triage")) {

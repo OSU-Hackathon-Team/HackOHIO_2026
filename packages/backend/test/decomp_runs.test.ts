@@ -45,11 +45,11 @@ async function fakeResults(dir: string, tamper = false): Promise<{ tgz: Buffer; 
 describe("decomp runs: payload", () => {
   it("ships tracked engine and writer files but never .env, tests or the frontend source", () => {
     const picked = selectPayloadFiles([
-      "engine/behavior.py", "engine/analysis/scoped.py", "scripts/lo_pipeline.py", "scripts/other.py",
+      "engine/behavior.py", "engine/analysis/scoped.py", "engine/s3_cache.py", "scripts/lo_pipeline.py", "scripts/other.py",
       "packages/backend/src/llm/llm.ts", "packages/backend/src/x.test.ts", "packages/backend/.env",
       "packages/frontend/package.json", "packages/frontend/src/App.tsx", "docs/notes.md",
       "infra/decomp-ec2/run-scoped-pipeline.sh", "package-lock.json"]);
-    assert.deepEqual(picked, ["engine/analysis/scoped.py", "engine/behavior.py",
+    assert.deepEqual(picked, ["engine/analysis/scoped.py", "engine/behavior.py", "engine/s3_cache.py",
       "infra/decomp-ec2/run-scoped-pipeline.sh", "package-lock.json", "packages/backend/src/llm/llm.ts",
       "packages/frontend/package.json", "scripts/lo_pipeline.py"]);
   });
@@ -84,6 +84,16 @@ describe("decomp runs: progress", () => {
   it("reports scoped preparation as the analyze stage", () => {
     const snapshot = parseProgress(JSON.stringify({ stage: "scoped_prepare_started" }), "[triage] Frida\n");
     assert.equal(snapshot.stage, "analyze");
+  });
+
+  it("counts reused semantic and review records as completed progress", () => {
+    const progress = [
+      { stage: "semantic_cache_hit", subject: "a" },
+      { stage: "review_cache_hit", subject: "a" },
+      { stage: "semantic_finished", subject: "b" },
+    ].map(event => JSON.stringify(event)).join("\n");
+    assert.deepEqual(parseProgress(progress, "[claims] 2 functions, 2 workers\n").claims,
+      { total: 2, drafted: 2, reviewed: 1 });
   });
 });
 

@@ -65,7 +65,19 @@ class GhidraAnalysis:
         self.root = Path(root).resolve()
         self.headless = Path(headless).resolve()
         self.timeout = timeout
-        self.store = LocalArtifactStore(self.root / "artifacts")
+        cache_bucket = os.environ.get("DECOMP_CACHE_BUCKET")
+        if cache_bucket:
+            import boto3
+            from engine.s3_cache import S3ArtifactStore, S3StageCache
+            self.store = S3ArtifactStore(self.root / "artifacts", cache_bucket,
+                                         boto3.client("s3", region_name=os.environ.get("AWS_DEFAULT_REGION")
+                                                      or os.environ.get("AWS_REGION", "us-east-2")))
+            self.cache = S3StageCache(self.store)
+            self.store._remote(self.store.put(b"splice-private-decomp-cache-v1"))
+            self.cache.get("preflight", {"nonce": os.urandom(16).hex()})
+        else:
+            self.store = LocalArtifactStore(self.root / "artifacts")
+            self.cache = None
         self.root.mkdir(parents=True, exist_ok=True)
         if warm_workers is None:
             warm_workers = int(os.environ.get("DECOMP_ANALYSIS_WORKERS", "2"))
@@ -215,6 +227,10 @@ class GhidraAnalysis:
         folder = Path(manifest['project'])
         key = file_hash(SCRIPT_DIR / 'ExportEvidence.java')
         pointer = folder / ('scoped-index-' + key + '.json')
+        cache_identity = {'campaign': manifest['campaign'],
+                          'scope_sha256': manifest['scope_sha256'],
+                          'exporter_sha256': key}
+        cache = getattr(self, 'cache', None)
         with (folder / '.index.lock').open('a+b') as lock:
             _flock_ex(lock)
             try:
@@ -222,22 +238,23 @@ class GhidraAnalysis:
                     saved = json.loads(pointer.read_text())
                     self.store.get(saved['artifact'])
                 else:
-                    with tempfile.TemporaryDirectory(dir=self.root) as scratch:
-                        export = Path(scratch) / 'index.json'
-                        self._run([str(folder), 'baseline', '-process', manifest['program_name'],
-                                   '-readOnly', '-noanalysis', '-scriptPath', str(SCRIPT_DIR),
-                                   '-postScript', 'ExportEvidence.java', str(export), 'index'],
-                                  manifest['campaign'], 'scoped_index')
-                        index = json.loads(export.read_text())
-                    if index.get('status') != 'ok':
-                        raise RuntimeError('scoped index export did not finish')
-                    selected = {f['entry'] for f in manifest['scope']['functions']}
-                    index['functions'] = [f for f in index['functions'] if f['entry'] in selected]
-                    index['analysis_scope'] = manifest['scope']
-                    saved = {'artifact': self.store.put(json.dumps(index, sort_keys=True).encode()),
-                             'functions': len(index['functions'])}
-                    if saved['functions'] != len(selected):
-                        raise RuntimeError('scoped index is missing prepared functions')
+                    cached = cache.get('scoped_index', cache_identity) if cache else None
+                    if cached is not None:
+                        index = json.loads(self.store.get(cached['artifact']))
+                        selected = {f['entry'] for f in manifest['scope']['functions']}
+                        if (index.get('status') != 'ok' or
+                                {f['entry'] for f in index['functions']} != selected or
+                                index.get('analysis_scope') != manifest['scope']):
+                            raise RuntimeError('S3 scoped index does not match prepared baseline')
+                        saved = {'artifact': cached['artifact'], 'functions': len(index['functions'])}
+                        self._emit(manifest['campaign'], 'scoped_index_cache_hit',
+                                   artifact=saved['artifact'])
+                    else:
+                        if cache:
+                            self._emit(manifest['campaign'], 'scoped_index_cache_miss')
+                        saved = GhidraAnalysis._export_scoped_index(self, manifest, folder)
+                        if cache:
+                            cache.put('scoped_index', cache_identity, saved)
                     temporary = pointer.with_suffix('.tmp')
                     temporary.write_text(json.dumps(saved))
                     os.replace(temporary, pointer)
@@ -245,6 +262,25 @@ class GhidraAnalysis:
                 _flock_un(lock)
         return {**manifest, 'index_artifact': saved['artifact'], 'function_count': saved['functions'],
                 'exporter_sha256': key, 'ghidra_version_sha256': tool_version(self.headless)}
+
+    def _export_scoped_index(self, manifest: dict, folder: Path) -> dict:
+        with tempfile.TemporaryDirectory(dir=self.root) as scratch:
+            export = Path(scratch) / 'index.json'
+            self._run([str(folder), 'baseline', '-process', manifest['program_name'],
+                       '-readOnly', '-noanalysis', '-scriptPath', str(SCRIPT_DIR),
+                       '-postScript', 'ExportEvidence.java', str(export), 'index'],
+                      manifest['campaign'], 'scoped_index')
+            index = json.loads(export.read_text())
+        if index.get('status') != 'ok':
+            raise RuntimeError('scoped index export did not finish')
+        selected = {f['entry'] for f in manifest['scope']['functions']}
+        index['functions'] = [f for f in index['functions'] if f['entry'] in selected]
+        index['analysis_scope'] = manifest['scope']
+        saved = {'artifact': self.store.put(json.dumps(index, sort_keys=True).encode()),
+                 'functions': len(index['functions'])}
+        if saved['functions'] != len(selected):
+            raise RuntimeError('scoped index is missing prepared functions')
+        return saved
 
     @contextmanager
     def _function_lock(self, cache_dir: Path, key: str):
@@ -274,6 +310,9 @@ class GhidraAnalysis:
         cache_dir.mkdir(exist_ok=True)
         key = address.replace(":", "_")
         pointer = cache_dir / (key + ".json")
+        cache_identity = {"campaign": manifest["campaign"],
+                          "index_artifact": manifest["index_artifact"], "address": address,
+                          "exporter_sha256": file_hash(SCRIPT_DIR / "ExportEvidence.java")}
         with self._function_lock(cache_dir, key):
             if pointer.exists():
                 artifact = json.loads(pointer.read_text())["artifact"]
@@ -281,6 +320,18 @@ class GhidraAnalysis:
                 self._emit(manifest["campaign"], "function_cache_hit", address=address,
                            artifact=artifact)
                 return evidence
+            cached = self.cache.get("function", cache_identity) if self.cache else None
+            if cached is not None:
+                artifact = cached.get("artifact")
+                evidence = json.loads(self.store.get(artifact))
+                if evidence.get("entry") != address or evidence.get("status") != "ok":
+                    raise RuntimeError("S3 function cache identity or status mismatch")
+                self._publish_function(pointer, artifact)
+                self._emit(manifest["campaign"], "function_cache_hit", address=address,
+                           artifact=artifact, source="s3")
+                return evidence
+            if self.cache:
+                self._emit(manifest["campaign"], "function_cache_miss", address=address)
             if self.warm is not None:
                 data = self.warm.export(manifest, address)
             else:
@@ -301,6 +352,8 @@ class GhidraAnalysis:
                 evidence = {'analysis_context': manifest['analysis_options'], **evidence}
                 data = json.dumps(evidence, sort_keys=True).encode()
             artifact = self.store.put(data)
+            if self.cache and evidence.get("status") == "ok":
+                self.cache.put("function", cache_identity, {"artifact": artifact})
             self._publish_function(pointer, artifact)
             self._emit(manifest["campaign"], "function_exported", address=address,
                        artifact=artifact, status=evidence["status"])

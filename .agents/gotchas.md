@@ -1,5 +1,17 @@
 # Gotchas (read before writing code in these areas)
 
+## Native decompilation S3 cache
+- `results/<run-id>/results.tgz` is a private run archive and `library/analyses/<run-id>/` is
+  the Studio catalog. Neither is a reusable engine cache key. See `docs/decomp-s3-cache.md`.
+- A scoped Ghidra campaign depends on the binary, Ghidra version, exporter and preparation
+  scripts, symbols, seeds, and bounds. Reuse only when that identity matches; never treat a
+  copied project path or a partial archive as a validated baseline.
+- Semantic and review outputs require their exact evidence, prompt/schema revision, model,
+  runtime observations and optional guidance/probe context. A model answer remains a claim,
+  never a verified behavior or oracle observation because it came from cache.
+- The private archive can contain held-out observations and raw code. Do not publish it through
+  the public library API or copy it into a cleanroom implementer workspace.
+
 ## REA (`rea-agents`)
 - The MCP server is the **`mcp` subcommand**: `rea-agents mcp`. **Not `--mcp`.** On Windows,
   launch through `cmd.exe /d /c …` or run `node <rea-agents>/scripts/rea.mjs mcp`.

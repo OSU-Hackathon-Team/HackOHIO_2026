@@ -32,6 +32,9 @@ worker.Dockerfile, implementer.Dockerfile, docker-compose.yml, compose.yaml
                             analysis worker image + public-only implementation sandbox
 docs/archive/               historical reviews; context only, not policy
 engine/                     native analysis, queue, dossier, broker, workbench, and specification generator
+docs/decomp-s3-cache.md     S3 cache keys, trust boundaries, bootstrap and recovery rules
+infra/decomp-ec2/           worker runner and S3 upload/download path for Studio native runs
+packages/backend/src/decomp/ Studio run import, S3 catalog publication and worker control
 ```
 
 ## Backend (`packages/backend/src/`) by owner

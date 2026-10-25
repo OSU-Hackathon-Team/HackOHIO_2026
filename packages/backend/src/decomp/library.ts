@@ -187,7 +187,8 @@ export async function publishImportedAnalysis(store: NativeLibraryStore, run: De
   for (const line of progress.split("\n")) {
     let event;
     try { event = JSON.parse(line); } catch { continue; }
-    if (event.stage !== "function_exported" || !/^[a-f0-9]{64}$/.test(event.artifact)) continue;
+    if (!["function_exported", "function_cache_hit"].includes(event.stage) ||
+        !/^[a-f0-9]{64}$/.test(event.artifact)) continue;
     const bytes = await fs.readFile(path.join(stateDir, "artifacts", event.artifact.slice(0, 2), event.artifact));
     if (createHash("sha256").update(bytes).digest("hex") !== event.artifact) throw new Error("function evidence hash mismatch");
     const evidence = JSON.parse(bytes.toString("utf8"));

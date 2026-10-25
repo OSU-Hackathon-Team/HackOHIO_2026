@@ -20,7 +20,8 @@ export function defaultDecompRunService(): DecompRunService {
     console.warn("[decomp] DECOMP_EC2_ENABLED=1 but DECOMP_EC2_INSTANCE_ID / DECOMP_EC2_BUCKET are missing; runs disabled");
   }
   return new DecompRunService({
-    worker: enabled && instanceId && bucket ? ec2Worker({ region: config.awsRegion, instanceId, bucket }) : null,
+    worker: enabled && instanceId && bucket ? ec2Worker({ region: config.awsRegion, instanceId, bucket,
+      cacheEnabled: process.env.DECOMP_CACHE_ENABLED === "1" }) : null,
     stateDir,
     repoRoot: REPO_ROOT,
     // Bash on the worker rejects CRLF; a Windows checkout may still have it.
