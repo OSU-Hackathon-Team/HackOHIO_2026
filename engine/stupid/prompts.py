@@ -46,7 +46,12 @@ action is itself a no-op. Sequencing: once explored holds entries, your next act
 be neighbors or decompile using exactly those explored keys - never another discovery
 action for a target you already hold. Within your first 5 actions you must decompile at
 least 3 explored entries; discovery without drafting is stalling. Drafts are the only way
-to learn what code does: draft_digest feeds every later decision. Emit done only when every scoped function has a reviewed claim, or when no further tool calls could change readiness (then readiness is partial and notes names the blocker)."""
+to learn what code does: draft_digest feeds every later decision. Widen before
+perfecting: draft every cluster entry once before any redraft; redraft a single
+entry at most twice per run, then record the dispute and move on. A scope with
+reviewed-but-contested claims and explicit unknowns beats endless repair of a few
+functions. Prefer plans that mix discovery with decompile and review steps rather
+than many rounds of one kind. Emit done only when every scoped function has a reviewed claim, or when no further tool calls could change readiness (then readiness is partial and notes names the blocker)."""
 
 DECOMP = """Analyze one stripped native function for a behavioral specification.
 Goal context: {goal}
@@ -63,6 +68,12 @@ and return values; never registers, addresses, or decompiler identifiers. For ex
 write "increments the 4-byte counter for accepted frames" and never "increments the
 dword at 0x00104044"; write "returns -1" and never "returns 0xffffffff from FUN_...".
 Memory locations belong in evidence_addresses, not in statement prose.
+Skip the frame setup entirely: never claim stack allocation, stack canaries, register
+spills, or prologue/epilogue behavior. Start claims at the first functional check on
+inputs or state. State WHAT the function computes and returns for its caller, not HOW
+it arranges its frame; this-object field writes matter only when they are the
+observable effect (counters, flags, output buffers). Prefer the decompiled rendering
+for behavior; consult instructions only to verify widths, branches, and constants.
 List what you cannot determine in unknowns. Request nothing else."""
 
 REVIEW = """Challenge this behavior draft against its raw evidence. Be adversarial.
