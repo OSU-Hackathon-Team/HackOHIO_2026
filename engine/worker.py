@@ -16,7 +16,7 @@ from engine.validation.probes import select_original_cases
 from engine.validation.memory_ranges import overlap_claim_errors
 from model_config import get_model
 
-SEMANTIC_PROMPT_VERSION = 8
+SEMANTIC_PROMPT_VERSION = 9
 
 
 def parse_answer(text: str) -> dict:
@@ -183,7 +183,10 @@ def prompt_for(task: dict, scope: dict, evidence: dict, *, max_evidence_bytes: i
         "layout, offsets, pointer traversal, reference counts, vtable stores, RTTI, "
         "constructor mechanics, and the C++ ABI are not functional requirements. "
         "Name conceptual subsystem state and describe how public operations change "
-        "and query it. Put unsupported interpretation in unknowns. The behavior may be "
+        "and query it. Do not turn helper calls, loops, count fields, or resource "
+        "cleanup into claims. For a query, say what inputs or conceptual state make "
+        "its result true or false. For a mutation, say what caller-visible state "
+        "changes. Put unsupported interpretation in unknowns. The behavior may be "
         "reimplemented in C or any other language. "
         "A valid citation is not proof of correct interpretation. Scope expected "
         "observables are questions to investigate, not claims about this function. Describe "
@@ -348,10 +351,12 @@ class SemanticWorker:
                 if not errors:
                     break
                 current_prompt = (prompt + "\nYour previous answer failed validation. "
-                                  "Return a complete corrected JSON object. If evidence only "
-                                  "shows construction or other mechanics, leave claims empty "
-                                  "and explain the missing observable semantics in unknowns "
-                                  "and evidence_requests. Validation errors: " +
+                                  "Return a complete corrected JSON object. Explain the "
+                                  "general functional rules visible in original observations "
+                                  "when they are provided, with static citations. If no "
+                                  "observable behavior is evidenced, leave claims empty and "
+                                  "explain that in unknowns and evidence_requests. "
+                                  "Validation errors: " +
                                   json.dumps(errors) + "\nPrevious answer: " +
                                   model_reply["text"][:20000])
             suppressed_claims = []

@@ -9,9 +9,12 @@ NON_BEHAVIORAL = re.compile(
     r"\b(?:vtable|vptr|virtual table|RTTI|typeinfo|this pointer|"
     r"constructor|destructor|operator\.new|allocation|allocated object|"
     r"call instruction|static instructions?|callee|register|stack slot|"
-    r"decompiler|assembly|branch sites?|reference counting|"
+    r"decompiler|assembly|branch sites?|reference counting|quadword|"
+    r"memory pointers|bit pattern|"
     r"pointer array|array slot|dereferenc(?:e|ed|ing))\b|"
     r"\b(?:object\s+)?offset\s+\d+\b|\bfield\s+at\s+offset\b|"
+    r"\blocation\s+\d+\b|\biterates?\s+through\b|"
+    r"\bcalls?\s+[A-Za-z_][A-Za-z_0-9]*\s+for\s+each\b|"
     r"@[0-9a-f]{8}\b|"
     r"\b(?:RAX|RDI|EAX|XMM\d+|param_\d+|_?DAT_[0-9a-f]+|address)\b|"
     r"\b0x[0-9a-f]+\b",

@@ -30,6 +30,8 @@ for statement in (
     "The vtable pointer is copied from the source.",
     "Returns 1 when the field at object offset 8 is nonzero.",
     "Traverses a pointer array with reference counting.",
+    "The quadword at location 24 receives a bit pattern.",
+    "Iterates through each token in an array.",
 ):
     assert validate_answer(answer(statement), evidence)
 assert not validate_answer(answer("A copied value preserves its visible text."), evidence)
