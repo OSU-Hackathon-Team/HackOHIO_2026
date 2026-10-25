@@ -256,6 +256,7 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
 
         final: dict | None = None
         noop_streak = 0
+        NOOP_STREAK_LIMIT = 5
         last_result: dict = {"note": "no actions taken yet"}
         last_signature: str | None = None
         for _ in range(max_rounds):
@@ -279,11 +280,18 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                                                      "dependencies")),
                      "reviewed": digest(reviews, ()),
                      "probes": probes}
+            state_json = json.dumps(state)
+            state_json = state_json[:60000]
+            prompt_text = prompts.ORCHESTRATOR.format(
+                goal=goal, state=state_json, explore=explore_help)
+            if os.environ.get("STUPID_DUMP_PROMPTS"):
+                dump = run_dir / "prompts"
+                dump.mkdir(exist_ok=True)
+                (dump / f"round{len([e for e in log if e['kind'] == 'orchestrator'])}.txt"
+                 ).write_text(prompt_text)
             try:
-                response = parse_json(model_fn(prompts.ORCHESTRATOR.format(
-                    goal=goal, state=json.dumps(state)[:60000],
-                    explore=explore_help),
-                    role="decomp_worker"))
+                response = parse_json(model_fn(prompt_text,
+                                               role="decomp_worker"))
             except (ValueError, json.JSONDecodeError) as error:
                 # One malformed reply must not kill the run; say so in state.
                 record("orchestrator_unparseable", {"error": str(error)[:200]})
@@ -291,7 +299,7 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                                "warning": "reply was not a JSON object; "
                                           "send exactly one JSON object"}
                 noop_streak += 1
-                if noop_streak >= 3:
+                if noop_streak >= NOOP_STREAK_LIMIT:
                     final = {"action": "done", "scope": sorted(drafts),
                              "readiness": "partial",
                              "notes": "orchestrator repeated no-op actions; "
@@ -309,7 +317,7 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                 last_result = {"produced": ["invalid_action"],
                                "warning": "emit a plan: a list of up to 5 "
                                           "action objects"}
-                if noop_streak >= 3:
+                if noop_streak >= NOOP_STREAK_LIMIT:
                     final = {"action": "done", "scope": sorted(drafts),
                              "readiness": "partial",
                              "notes": "orchestrator repeated no-op actions; "
@@ -328,7 +336,7 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
                                "reason": "identical to the previous plan; "
                                          "its results are already in the state above"}
                 noop_streak += 1
-                if noop_streak >= 3:
+                if noop_streak >= NOOP_STREAK_LIMIT:
                     final = {"action": "done", "scope": sorted(drafts),
                              "readiness": "partial",
                              "notes": "orchestrator repeated no-op actions; "
@@ -509,7 +517,15 @@ def run_stupid(binary: Path, goal: str, *, max_workers: int = 4,
             if produced == ["noop"] or not produced:
                 last_result["warning"] = ("that action changed nothing; "
                                           "varying the action is the only way forward")
-            if noop_streak >= 3:
+            if noop_streak:
+                # Facts the agent can act on, not advice from the harness.
+                undrafted = [e for e in sorted(explored) if e not in drafts]
+                last_result["noop_streak"] = noop_streak
+                last_result["undrafted_count"] = len(undrafted)
+                last_result["undrafted_sample"] = undrafted[:40]
+                last_result["needs_review"] = [e for e in sorted(drafts)
+                                               if e not in reviews][:40]
+            if noop_streak >= NOOP_STREAK_LIMIT:
                 final = {"action": "done", "scope": sorted(drafts),
                          "readiness": "partial",
                          "notes": "orchestrator repeated no-op actions; "
