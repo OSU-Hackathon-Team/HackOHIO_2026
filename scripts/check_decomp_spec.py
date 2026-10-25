@@ -148,6 +148,16 @@ def main() -> None:
         partial_pointer = persist_spec(state, partial_source, writer=writer)
         assert partial_pointer["status"] == "draft"
         assert persist_spec(state, partial_source, writer=lambda _: 1 / 0) == partial_pointer
+        fallback_state = Path(temporary) / "fallback"
+        fallback_store = LocalArtifactStore(fallback_state / "artifacts")
+        ready_source = fallback_store.put(canonical(dossier))
+        fallback_pointer = persist_spec(fallback_state, ready_source,
+                                        writer=lambda handoff: {
+                                            **writer(handoff),
+                                            "model": "cleanroom-spec-synthesizer"})
+        assert fallback_pointer["status"] == "draft"
+        recovered_pointer = persist_spec(fallback_state, ready_source, writer=writer)
+        assert recovered_pointer["status"] == "ready_for_review"
     print(json.dumps({"status": spec["status"], "requirements": 1}))
 
 
