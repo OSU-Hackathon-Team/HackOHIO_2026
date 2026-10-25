@@ -84,10 +84,19 @@ ran and observed.
 
 
 def parse_outcome(reply: str, store: LocalArtifactStore) -> dict:
+    fenced = reply.rfind("```json")
+    if fenced >= 0:
+        reply = reply[fenced + len("```json"):]
+        reply = reply[:reply.find("```")] if "```" in reply else reply
     start, end = reply.find("{"), reply.rfind("}")
     if start < 0 or end < start:
         raise ValueError("orchestrator returned no JSON object")
     value = json.loads(reply[start:end + 1])
+    if isinstance(value, dict) and value.get("status") in {"partial", "blocked"} and \
+            set(value) == {"status", "reason", "completed_steps", "next_steps"}:
+        value = {"status": value["status"], "summary": value["reason"],
+                 "spec_artifacts": [], "artifacts": value["completed_steps"],
+                 "open_work": value["next_steps"]}
     if not isinstance(value, dict) or set(value) != {
             "status", "summary", "spec_artifacts", "artifacts", "open_work"}:
         raise ValueError("orchestrator outcome has wrong fields")

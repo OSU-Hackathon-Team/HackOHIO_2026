@@ -68,6 +68,17 @@ class TaskOrchestrationTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 parse_outcome(json.dumps(outcome), store)
 
+    def test_partial_report_accepts_equivalent_agent_fields(self) -> None:
+        with TemporaryDirectory() as folder:
+            store = LocalArtifactStore(Path(folder) / "artifacts")
+            reply = "Report:\n```json\n" + json.dumps({
+                "status": "partial", "reason": "scope incomplete",
+                "completed_steps": ["indexed four binaries"],
+                "next_steps": ["review scope"]}) + "\n```"
+            result = parse_outcome(reply, store)
+            self.assertEqual(result["status"], "partial")
+            self.assertEqual(result["artifacts"], ["indexed four binaries"])
+
     def test_task_agent_dispatches_only_a_valid_ready_outcome(self) -> None:
         with TemporaryDirectory() as folder:
             state = Path(folder)
