@@ -7,6 +7,52 @@ import os
 from pathlib import Path
 import subprocess
 
+
+def _invoke_bedrock(folder: Path, prompt: str, *, model: str, timeout: int,
+                    env_file: Path, agent_instruction: str) -> dict:
+    import boto3
+    from botocore.config import Config
+
+    env = os.environ.copy()
+    if env.get("AWS_PROFILE"):
+        for key in AWS_KEYS - {"AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION"}:
+            env.pop(key, None)
+        session = boto3.Session(profile_name=env["AWS_PROFILE"])
+    else:
+        add_aws_env(env, env_file)
+        keys = {key: env.get(key) for key in
+                ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN")}
+        session = (boto3.Session(aws_access_key_id=keys["AWS_ACCESS_KEY_ID"],
+                                aws_secret_access_key=keys["AWS_SECRET_ACCESS_KEY"],
+                                aws_session_token=keys["AWS_SESSION_TOKEN"])
+                   if keys["AWS_ACCESS_KEY_ID"] and keys["AWS_SECRET_ACCESS_KEY"]
+                   else boto3.Session())
+    client = session.client(
+        "bedrock-runtime", region_name=env.get("AWS_REGION") or
+        env.get("AWS_DEFAULT_REGION") or "us-east-2",
+        config=Config(connect_timeout=10, read_timeout=timeout,
+                      retries={"mode": "standard", "max_attempts": 3}))
+    response = client.converse(
+        modelId=model.removeprefix("amazon-bedrock/"),
+        messages=[{"role": "user", "content": [{"text": agent_instruction + "\n" + prompt}]}],
+        inferenceConfig={"maxTokens": 4096})
+    pieces = [part["text"] for part in response["output"]["message"]["content"]
+              if "text" in part]
+    if not pieces:
+        raise ValueError("Bedrock returned no text")
+    answer = "\n".join(pieces)
+    usage = response.get("usage", {})
+    normalized = {"input": usage.get("inputTokens", 0),
+                  "output": usage.get("outputTokens", 0),
+                  "reasoning": usage.get("cacheReadInputTokens", 0), "cost": 0.0}
+    (folder / "events.jsonl").write_text(json.dumps({
+        "type": "text", "part": {"text": answer},
+        "provider": "bedrock_converse", "model": model,
+        "stop_reason": response.get("stopReason"), "usage": normalized},
+        sort_keys=True) + "\n")
+    return {"text": answer, "usage": normalized,
+            "runtime_version": "boto3-" + boto3.__version__}
+
 AWS_KEYS = {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
             "AWS_REGION", "AWS_DEFAULT_REGION", "AWS_PROFILE"}
 
@@ -30,6 +76,9 @@ def add_aws_env(env: dict[str, str], env_file: Path) -> None:
 def invoke_opencode(opencode: Path, folder: Path, prompt: str, *, model: str,
                     timeout: int, env_file: Path, agent_name: str,
                     agent_instruction: str) -> dict:
+    if model.startswith("amazon-bedrock/"):
+        return _invoke_bedrock(folder, prompt, model=model, timeout=timeout,
+                               env_file=env_file, agent_instruction=agent_instruction)
     version = subprocess.run([str(opencode), "--version"], capture_output=True,
                              text=True, check=True, timeout=10).stdout.strip()
     ambient = model == "opencode/ambient"
@@ -49,7 +98,8 @@ def invoke_opencode(opencode: Path, folder: Path, prompt: str, *, model: str,
         env.pop("OPENCODE_CONFIG_CONTENT", None)
         for key in AWS_KEYS:
             env.pop(key, None)
-        prompt = agent_instruction + "\n" + prompt
+        prompt = (agent_instruction + "\nDo not use any tools, files, shell commands, "
+                  "or network searches. Answer from the supplied prompt only.\n" + prompt)
     else:
         config = {"$schema": "https://opencode.ai/config.json", "model": model,
                   "permission": {"*": "deny"},
