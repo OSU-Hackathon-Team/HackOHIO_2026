@@ -41,6 +41,9 @@ Write what an implementation must do, including data representation, ordering, s
 error behavior, boundary values, widths and overflow when the facts establish them.
 Include relevant boundary and dependency contracts. State any deliberate exclusion and
 interface adaptation explicitly; do not silently omit observable behavior.
+The implementation may use any language, including C for a C++ original. Describe
+observable operations and state, never class layout, inheritance, virtual tables,
+constructor mechanics, or C++ ABI details unless an observable result depends on them.
 Do not write source code, disassembly, language syntax, type declarations, executable tests,
 or close translations of source control flow. behavior_steps are short, high-level prose.
 Do not mention decompilation, reviews, evidence scores, addresses, claims, unknowns, or gaps.
@@ -55,7 +58,7 @@ not a programming-language signature. Write each interface item as a sentence, w
 field:type shorthand. Acceptance criteria are observable checks in prose.
 Describe labeled output by naming each field in words; do not write key=value
 examples or mathematical assignment in prose. Describe bit narrowing in words.
-If the facts do not define an essential behavior, the input should have been rejected upstream.
+For a draft, specify only the supported facts supplied here. Do not fill missing behavior.
 Return only schema-shaped JSON.`;
 
 function fields(d: NativeDraft): [string, string][] {

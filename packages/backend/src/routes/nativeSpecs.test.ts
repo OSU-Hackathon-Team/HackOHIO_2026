@@ -38,7 +38,7 @@ after(async () => {
   await fs.rm(state, { recursive: true, force: true });
 });
 
-test("native API rejects a partial dossier and reads only public schema 2 specs", async () => {
+test("native API persists a partial draft and reads only public schema 2 specs", async () => {
   const scopeId = "a".repeat(64);
   const dossier = {
     schema: 1, campaign: "c".repeat(64), binary_sha256: "b".repeat(64),
@@ -57,7 +57,15 @@ test("native API rejects a partial dossier and reads only public schema 2 specs"
   const response = await fetch(`${base}/api/native-specs`, { method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ dossier_artifact: dossierArtifact }) });
-  assert.equal(response.status, 409);
+  assert.equal(response.status, 200);
+  const draftResult = await response.json();
+  assert.equal(draftResult.spec.status, "draft");
+  assert.deepEqual(draftResult.spec.requirements, []);
+  assert.deepEqual(draftResult.spec.examples, []);
+  const adaptDraft = await fetch(`${base}/api/native-specs/adapt`, { method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ artifact: draftResult.artifact }) });
+  assert.equal(adaptDraft.status, 400);
   const publicSpec = { schema: 2, kind: "native_subsystem_spec", status: "ready_for_review",
     title: "Counter behavior", purpose: "Count events.", boundary: "subsystem",
     interface: { inputs: ["An event."], outputs: ["The count."], state: ["A count."] },
@@ -222,4 +230,3 @@ test("POST /api/native-specs/adapt converts valid native spec to valid FeatureSp
   });
   assert.equal(invalidRes.status, 400);
 });
-

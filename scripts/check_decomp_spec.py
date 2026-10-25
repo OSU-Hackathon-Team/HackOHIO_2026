@@ -74,15 +74,29 @@ def rejected(action) -> None:
 
 def main() -> None:
     dossier = fixture()
-    rejected(lambda: generate_spec({**dossier, "readiness": "partial",
-                                    "blockers": [{"kind": "missing_case"}]},
-                                   "0" * 64, writer=writer))
-    rejected(lambda: generate_spec({**dossier, "claims": [{
-        **dossier["claims"][0], "execution_state": "unmapped"}]},
-        "0" * 64, writer=writer))
-    rejected(lambda: generate_spec({**dossier, "claims": [{
-        **dossier["claims"][0], "statement": "MOVAPS updates RDI at 0x00104040"}]},
-        "0" * 64, writer=writer))
+    partial = {**dossier, "readiness": "partial",
+               "blockers": [{"kind": "claims_not_linked_to_original_probes", "count": 1}],
+               "claims": [{**dossier["claims"][0], "execution_state": "unmapped",
+                           "probe_links": []}], "probes": []}
+    draft, draft_audit = generate_spec(partial, "0" * 64, writer=writer)
+    assert draft["status"] == "draft" and draft["examples"] == []
+    assert draft_audit["blockers"] == partial["blockers"]
+    structural = {**partial, "claims": [{**partial["claims"][0],
+                  "statement": "Spans 17 static instructions with 3 recorded references."}]}
+    empty, empty_audit = generate_spec(structural, "0" * 64, writer=writer)
+    assert empty["status"] == "draft" and empty["requirements"] == []
+    assert len(empty_audit["omitted_claims"]) == 1
+    source_shaped = {**partial, "claims": [{**partial["claims"][0],
+                     "statement": "MOVAPS updates RDI at 0x00104040"}]}
+    sanitized, sanitized_audit = generate_spec(source_shaped, "0" * 64, writer=writer)
+    assert sanitized["requirements"] == [] and len(sanitized_audit["omitted_claims"]) == 1
+    compiler_only_gap = {**dossier, "readiness": "partial",
+                         "blockers": [{"kind": "claims_not_linked_to_original_probes", "count": 1}],
+                         "claims": [dossier["claims"][0], structural["claims"][0]]}
+    functional, functional_audit = generate_spec(compiler_only_gap, "0" * 64, writer=writer)
+    assert functional["status"] == "ready_for_review"
+    assert len(functional["requirements"]) == 1
+    assert len(functional_audit["omitted_claims"]) == 1
     spec, audit = generate_spec(dossier, "0" * 64, writer=writer)
     assert spec["schema"] == 2 and spec["status"] == "ready_for_review"
     assert "pseudocode" not in json.dumps(spec)
@@ -109,6 +123,10 @@ def main() -> None:
         markdown = Path(first["markdown_path"]).read_text()
         assert "REQ-1" in markdown and "MOVAPS" not in markdown
         assert "pseudocode" not in markdown and "00100000" not in markdown
+        partial_source = store.put(canonical(partial))
+        partial_pointer = persist_spec(state, partial_source, writer=writer)
+        assert partial_pointer["status"] == "draft"
+        assert persist_spec(state, partial_source, writer=lambda _: 1 / 0) == partial_pointer
     print(json.dumps({"status": spec["status"], "requirements": 1}))
 
 

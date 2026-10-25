@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import fcntl
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 
 from engine.artifacts import LocalArtifactStore
 from engine.dossier import canonical
@@ -36,11 +38,39 @@ def _require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
+def _write_atomic(path: Path, content: str) -> None:
+    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, delete=False) as output:
+        output.write(content)
+        output.flush()
+        os.fsync(output.fileno())
+        temporary = Path(output.name)
+    try:
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+# These describe the analysis or a compiler's representation, not behavior a
+# cleanroom implementer needs to reproduce. Keep them in the audit dossier.
+NON_BEHAVIORAL = re.compile(
+    r"^(?:Spans \d+ static instructions|Invokes .+ as subordinate steps|"
+    r"Serves invocations from |Reaches \d+ branch sites)|"
+    r"\b(?:vtable|vptr|virtual table|RTTI|typeinfo|this pointer|"
+    r"constructor address|destructor address)\b|@[0-9a-f]{8}\b",
+    re.I,
+)
+SOURCE_SHAPED = re.compile(
+    r"\b(?:param_\d+|_?DAT_[0-9a-f]+|RDI|RAX|EAX|XMM\d+|MOVAPS|MOVUPS|PXOR)\b|"
+    r"\b0x[0-9a-f]{6,}\b|\bat address\s+[0-9a-f]{6,}\b|"
+    r"\b(?:reads a value from memory|specific memory location|calculated value based on|"
+    r"result of the comparison|several bytes and a constant|predefined global variables)\b",
+    re.I,
+)
+
+
 def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
     """Pass supported behavior to the writer and retain source references for audit."""
     _require(dossier.get("schema") == 1, "unsupported dossier schema")
-    _require(dossier.get("readiness") == "ready_for_spec" and not dossier.get("blockers"),
-             "dossier is not ready for a cleanroom specification; resolve blockers first")
     scope = dossier.get("scope", {})
     _require(scope.get("campaign") == dossier.get("campaign") and
              scope.get("scope_id") == dossier.get("scope_id") and
@@ -50,8 +80,6 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
                       if e.get("kind") != "indirect_call"]
     tolerated_edges = [e for e in scope.get("unresolved", [])
                        if e.get("kind") == "indirect_call"]
-    _require(not blocking_edges,
-             "scope edges other than virtual dispatch remain unresolved")
     specified_ids = {c.get("case_id") for c in dossier.get("specified_examples", [])
                      if isinstance(c, dict)}
 
@@ -65,44 +93,47 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
                     and bool(link["rationale"].strip()))
         return link.get("agreement") is True
 
-    claims = dossier.get("claims", [])
-    _require(bool(claims) and all(c.get("review_state") == "supported_static" and
-                                     c.get("execution_state") in ("case_agreement", "specified") and
-                                     c.get("evidence") and c.get("reviews") and
-                                     c.get("probe_links") and
-                                     all(_link_ok(link) for link in c["probe_links"])
-                                     for c in claims),
-             "all claims need static support and executed or explicitly specified cases")
-    source_shaped = [c for c in claims if re.search(
-        r"\b(?:param_\d+|_?DAT_[0-9a-f]+|RDI|RAX|EAX|XMM\d+|MOVAPS|MOVUPS|PXOR)\b|"
-        r"\b0x[0-9a-f]{6,}\b|\bat address\s+[0-9a-f]{6,}\b|"
-        r"\b(?:reads a value from memory|specific memory location|calculated value based on|"
-        r"result of the comparison|several bytes and a constant|predefined global variables)\b",
-        c.get("statement", ""), re.I)]
-    _require(not source_shaped,
-             f"{len(source_shaped)} claims are source-shaped or underspecified; revise them as observable behavior")
+    all_claims = dossier.get("claims", [])
+    structural = [c for c in all_claims if isinstance(c.get("statement"), str)
+                  and NON_BEHAVIORAL.search(c["statement"])]
+    claims = [c for c in all_claims
+              if c.get("review_state") == "supported_static" and c.get("evidence")
+              and c.get("reviews") and isinstance(c.get("statement"), str)
+              and c not in structural
+              and not SOURCE_SHAPED.search(c["statement"])
+              and c.get("execution_state") != "case_disagreement"
+              and all(_link_ok(link) for link in c.get("probe_links", []))]
+    selected_ids = {id(c) for c in claims}
+    structural_ids = {id(c) for c in structural}
+    omitted = [c for c in all_claims if id(c) not in selected_ids]
+    blockers = dossier.get("blockers", [])
+    missing_case_only = all(b.get("kind") == "claims_not_linked_to_original_probes"
+                            for b in blockers)
+    verified = (dossier.get("readiness") in ("ready_for_spec", "partial")
+                and missing_case_only and
+                all(id(c) in structural_ids for c in omitted)
+                and bool(claims) and not blocking_edges
+                and not dossier.get("uncovered_direct_calls")
+                and all(isinstance(item.get("contract"), str) and item["contract"].strip()
+                        for item in scope.get("boundaries", []))
+                and not any(g.get("decision") != "nonblocking"
+                            for g in dossier.get("independent_review_gaps", []))
+                and all(d.get("review_state") == "supported_static" and
+                        d.get("current_at_snapshot") is True
+                        for d in dossier.get("dependency_contracts", []))
+                and all(c.get("execution_state") in ("case_agreement", "specified")
+                        and c.get("probe_links") for c in claims))
     functions = dossier.get("functions", [])
     included = scope.get("included", [])
-    _require({f.get("subject") for f in functions} == {f.get("entry") for f in included} and
-             len(functions) == len(included),
-             "included functions lack unique behavioral descriptions")
-    _require(not blocking_edges and not dossier.get("uncovered_direct_calls"),
-             "scope or direct-call behavior remains unresolved")
-    _require(all(isinstance(item.get("contract"), str) and item["contract"].strip()
-                 for item in scope.get("boundaries", [])),
-             "boundary contract is missing")
-    _require(all(d.get("review_state") == "supported_static" and
-                 d.get("current_at_snapshot") is True
-                 for d in dossier.get("dependency_contracts", [])),
-             "dependency contracts are not current and reviewed")
-    _require(not any(g.get("decision") != "nonblocking"
-                     for g in dossier.get("independent_review_gaps", [])),
-             "independent review gaps remain unresolved")
+    if ({f.get("subject") for f in functions} != {f.get("entry") for f in included}
+            or len(functions) != len(included)):
+        verified = False
     names = {f["entry"]: f["name"] for f in included}
     claim_ids = {id(c): f"C{i}" for i, c in enumerate(claims, 1)}
     cases = {}
     for case in dossier.get("probes", []):
-        _require(case.get("outcome") == "agreement", "original case disagreement")
+        if case.get("outcome") != "agreement":
+            continue
         key = json.dumps([case.get("input"), case.get("observed")], sort_keys=True)
         cases.setdefault(key, {"name": case["case_id"], "input": case["input"],
                                "input_description": case.get("input_description"),
@@ -116,7 +147,8 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
         cases.setdefault(key, {"name": case["case_id"], "input": case.get("input"),
                                "input_description": case.get("input_description"),
                                "expected_output": case.get("expected")})
-    _require(bool(cases), "no original behavior examples")
+    verified = verified and bool(cases) and all(
+        case.get("outcome") == "agreement" for case in dossier.get("probes", []))
     handoff = {
         "feature": scope["request"]["query"],
         "boundary": scope["request"]["mode"],
@@ -124,14 +156,19 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
         "functions": [{"name": names[f["subject"]], "inputs": f["inputs"],
                        "outputs": f["outputs"], "state": f["state"],
                        "side_effects": f["side_effects"], "errors": f["errors"]}
-                      for f in functions],
+                      for f in functions if f["subject"] in names],
         "claims": [{"id": claim_ids[id(c)], "statement": c["statement"],
                     "function": names[c["subject"]]} for c in claims],
-        "dependency_contracts": [d["contract"] for d in dossier["dependency_contracts"]],
-        "boundary_contracts": [item["contract"] for item in scope.get("boundaries", [])],
+        "dependency_contracts": [d["contract"] for d in dossier.get("dependency_contracts", [])
+                                 if d.get("review_state") == "supported_static"
+                                 and d.get("current_at_snapshot") is True
+                                 and isinstance(d.get("contract"), str)],
+        "boundary_contracts": [item["contract"] for item in scope.get("boundaries", [])
+                               if isinstance(item.get("contract"), str)],
         "original_examples": list(cases.values()),
         "excluded_behavior": [{"name": e.get("name"), "reason": e.get("reason")}
                               for e in scope.get("exclusions", [])],
+        "verified": verified,
     }
     audit = {
         "dossier_artifact": dossier_artifact, "dossier_revision": dossier["revision"],
@@ -142,6 +179,10 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
             "claim_index": c["claim_index"], "evidence": c["evidence"],
             "reviews": c["reviews"], "probe_links": c.get("probe_links", [])}
             for c in claims},
+        "omitted_claims": [{"subject": c.get("subject"), "claim_index": c.get("claim_index"),
+                            "statement": c.get("statement"), "review_state": c.get("review_state")}
+                           for c in omitted],
+        "blockers": blockers,
         "tolerated_unresolved": tolerated_edges,
         "specified_examples": dossier.get("specified_examples", []),
         "analysis_provenance": dossier.get("analysis_provenance"),
@@ -165,16 +206,10 @@ def _synthesize_cleanroom_draft(handoff: dict) -> dict:
     # query, expected observables, dependency contracts, and claim statements.
     # No subsystem-specific text lives here by design.
     feature = (handoff.get("feature") or "the analyzed subsystem").strip()
-    observables = [o for o in handoff.get("observables", []) if isinstance(o, str) and o.strip()]
     dep_contracts = [d for d in handoff.get("dependency_contracts", [])
                      if isinstance(d, str) and d.strip()]
     title = f"Cleanroom behavioral specification for {feature}"
-    purpose = ("Standalone cleanroom behavioral specification derived from reviewed "
-               f"behavioral facts about {feature}.")
-    if observables:
-        purpose += " " + " ".join(
-            f"Observed behavior reports that {o.rstrip('.')}."
-            for o in observables)
+    purpose = f"Behavioral implementation guidance for {feature}."
     interface = {
         "inputs": [
             "The subsystem inputs identified across the specified requirements."
@@ -186,13 +221,10 @@ def _synthesize_cleanroom_draft(handoff: dict) -> dict:
             "The subsystem state identified across the specified requirements."
         ]
     }
-    behavior_steps = [f"Exhibit the observed behavior in which {o.rstrip('.')}."
-                      for o in observables]
-    behavior_steps.append("Satisfy every specified requirement in order.")
-    acceptance_criteria = [f"Observed checks confirm that {o.rstrip('.')}."
-                           for o in observables]
-    if not acceptance_criteria:
-        acceptance_criteria = ["Observed checks confirm every specified requirement."]
+    behavior_steps = (["Implement the supported observable requirements in the listed order."]
+                      if claims else ["Wait for supported observable behavior before implementation."])
+    acceptance_criteria = (["Check the supported requirements against the original behavior."]
+                           if claims else ["No functional acceptance case is established in this draft."])
     if dep_contracts:
         behavior_steps.append("Honor every specified dependency contract between subsystem parts.")
     exclusions = []
@@ -215,14 +247,14 @@ def _synthesize_cleanroom_draft(handoff: dict) -> dict:
 
 def _write_with_regular_engine(handoff: dict) -> dict:
     if WRITER.exists() and SCRIPT.exists():
-        result = subprocess.run([str(WRITER), str(SCRIPT)], cwd=ROOT,
-                                input=json.dumps(handoff), text=True, capture_output=True,
-                                timeout=180, check=False)
-        if result.returncode == 0:
-            try:
+        try:
+            result = subprocess.run([str(WRITER), str(SCRIPT)], cwd=ROOT,
+                                    input=json.dumps(handoff), text=True, capture_output=True,
+                                    timeout=180, check=False)
+            if result.returncode == 0:
                 return json.loads(result.stdout)
-            except Exception:
-                pass
+        except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
+            pass
     return _synthesize_cleanroom_draft(handoff)
 
 
@@ -230,7 +262,8 @@ def validate_draft(draft: dict, handoff: dict) -> None:
     _require(isinstance(draft, dict), "spec writer returned no draft")
     expected = {c["id"] for c in handoff["claims"]}
     requirements = draft.get("requirements", [])
-    _require(isinstance(requirements, list) and requirements, "spec lacks requirements")
+    _require(isinstance(requirements, list) and
+             (bool(requirements) or not handoff["verified"]), "spec lacks requirements")
     covered = set()
     for index, requirement in enumerate(requirements, 1):
         _require(requirement.get("id") == f"REQ-{index}" and
@@ -257,7 +290,7 @@ def validate_draft(draft: dict, handoff: dict) -> None:
         _require(isinstance(value, str) and bool(value.strip()), "empty spec text")
         _require(not re.search(
             r"```|</?(?:source|code)|\b(?:MOVAPS|MOVUPS|PXOR|JBE|CMP|RDI|XMM\d+|param_\d+)\b|"
-            r"\b0x[0-9a-f]{6,}\b|\b[0-9a-f]{64}\b|\b(?:decompil|disassembl|review_state|unmapped|artifact|unknown|TODO|dossier|claim|probe|source)\w*\b|\bsrc/|"
+            r"\b0x[0-9a-f]{6,}\b|\b[0-9a-f]{64}\b|\b(?:decompil|disassembl|review_state|unmapped|artifact|unknown|TODO|dossier|claim|probe|source|vtable|vptr|RTTI|typeinfo)\w*\b|\bsrc/|"
             r"\b(?:function|const|let|return|if)\s*\(|=>|[{};`]|"
             r"(?:^|\s)[A-Za-z_]\w*(?:\[[^\]]+\])?\s*(?:\+=|-=|==|=)\s*\S|"
             r"^\s*[A-Za-z_]\w*\s*:\s*(?:u?int\d+|boolean|number|string|bool)\b|\n",
@@ -290,11 +323,13 @@ def _validate_examples(examples: list[dict]) -> None:
 
 def generate_spec(dossier: dict, dossier_artifact: str, *, writer=None) -> tuple[dict, dict]:
     handoff, audit = prepare_handoff(dossier, dossier_artifact)
-    result = (writer or _write_with_regular_engine)(handoff)
+    result = ((writer or _write_with_regular_engine)(handoff) if handoff["claims"]
+              else _synthesize_cleanroom_draft(handoff))
     draft = result["draft"]
     validate_draft(draft, handoff)
     spec = {
-        "schema": 2, "kind": "native_subsystem_spec", "status": "ready_for_review",
+        "schema": 2, "kind": "native_subsystem_spec",
+        "status": "ready_for_review" if handoff["verified"] else "draft",
         "title": draft["title"], "purpose": draft["purpose"],
         "boundary": handoff["boundary"], "interface": draft["interface"],
         "requirements": [{"id": r["id"], "statement": r["statement"]}
@@ -357,19 +392,19 @@ def persist_spec(state: Path, dossier_artifact: str, *, writer=None) -> dict:
         pointer = {"artifact": artifact, "audit_artifact": audit_artifact,
                    "dossier_artifact": dossier_artifact, "status": spec["status"],
                    "dossier_revision": dossier["revision"]}
-        pointer_path.write_text(json.dumps(pointer, sort_keys=True) + "\n")
+        _write_atomic(pointer_path, json.dumps(pointer, sort_keys=True) + "\n")
     spec = json.loads(store.get(pointer["artifact"]))
     markdown = render_markdown(spec)
     markdown_path = folder / f"spec-{pointer['artifact']}.md"
     if not markdown_path.exists():
-        markdown_path.write_text(markdown)
+        _write_atomic(markdown_path, markdown)
     latest = folder / "latest.json"
-    previous = json.loads(latest.read_text()) if latest.exists() else None
-    if previous is None or previous["dossier_revision"] <= dossier["revision"]:
-        temporary = folder / "latest.tmp"
-        temporary.write_text(json.dumps(pointer, sort_keys=True) + "\n")
-        os.replace(temporary, latest)
-        (folder / "latest.md").write_text(markdown)
+    with (folder / "latest.lock").open("a+") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        previous = json.loads(latest.read_text()) if latest.exists() else None
+        if previous is None or previous["dossier_revision"] <= dossier["revision"]:
+            _write_atomic(latest, json.dumps(pointer, sort_keys=True) + "\n")
+            _write_atomic(folder / "latest.md", markdown)
     return {**pointer, "json_path": str(pointer_path),
             "markdown_path": str(markdown_path),
             "requirements": len(spec["requirements"])}

@@ -74,6 +74,9 @@ export function adaptNativeSpecToFeatureSpec(
   spec: NativeSubsystemSpec,
   options: NativeAdaptOptions = {}
 ): FeatureSpec {
+  if (spec.status !== "ready_for_review" || spec.requirements.length === 0) {
+    throw new Error("Native behavioral specification is still a draft");
+  }
   const appId = options.appId ?? options.app_id ?? "native";
   const rawTitle = spec.title.trim() || "Native Subsystem";
   const featureId = options.featureId ?? options.feature_id ?? `${appId}.${toCamelCase(rawTitle).toLowerCase()}`;
@@ -89,16 +92,6 @@ export function adaptNativeSpecToFeatureSpec(
       ? r.evidence.map((e: any) => `${r.subject ?? r.id}@${e.address}`)
       : [r.subject ?? r.id],
   }));
-
-  // Ensure at least one requirement exists (schema requirement)
-  if (!requirements.length) {
-    requirements.push({
-      id: "REQ-1",
-      kind: "behavior",
-      statement: `Implements verified behavioral specification for ${rawTitle}.`,
-      source_refs: [`${(specAny.scope_id ?? "00000000").slice(0, 8)}@00000000`],
-    });
-  }
 
   // 2. Synthesize TypeScript interface and ambient declarations
   let exportsList: ExportSig[] = options.exports ?? [];

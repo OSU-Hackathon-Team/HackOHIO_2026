@@ -16,6 +16,7 @@ test("native spec draft gate requires all facts and excludes code and report tex
   assert.match(nativeDraftProblems(draft, ["C1", "C2"]).join(), /C2/);
   assert.match(nativeDraftProblems({ ...draft, requirements: [{ ...draft.requirements[0], claim_ids: [] }] }, ["C1"]).join(), /no supporting claim/);
   assert.match(nativeDraftProblems({ ...draft, behavior_steps: ["MOVAPS XMM0, 0x00100000"] }, ["C1"]).join(), /source-like/);
+  assert.match(nativeDraftProblems({ ...draft, behavior_steps: ["Copy the vtable pointer into the object."] }, ["C1"]).join(), /source-like/);
   assert.match(nativeDraftProblems({ ...draft, behavior_steps: ["MOVAPS XMM0, 0x00100000"] }, ["C1"]).join(), /behavior_steps\[0\]/);
   assert.match(nativeDraftProblems({ ...draft, behavior_steps: ["counter += 1"] }, ["C1"]).join(), /source-like/);
   assert.match(nativeDraftProblems({ ...draft, behavior_steps: ["counter += 1"] }, ["C1"]).join(), /counter \+=/);
