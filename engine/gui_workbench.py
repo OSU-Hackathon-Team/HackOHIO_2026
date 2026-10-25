@@ -134,6 +134,8 @@ def run_gui_implementation(state: Path, spec_artifacts: list[str], task: str, *,
                "--workdir", "/work", "--env", "OPENCODE_CONFIG=/work/opencode.json",
                "--env", "OPENCODE_DISABLE_AUTOUPDATE=true",
                "--env", "OPENCODE_DISABLE_EXTERNAL_SKILLS=true"]
+    if runtime == "podman":
+        command.append("--cgroups=disabled")
     if auth_file and auth_file.is_file():
         command += ["--volume", f"{auth_file.resolve()}:/root/.local/share/opencode/auth.json:ro"]
     aws_profile = Path.home() / ".aws"

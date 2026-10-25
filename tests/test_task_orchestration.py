@@ -131,6 +131,7 @@ class TaskOrchestrationTest(unittest.TestCase):
                 result = run_gui_implementation(state, [artifact], "Linux calculator",
                                                 opencode=opencode, auth_file=None)
             self.assertEqual(result["state"], "candidate_unverified")
+            self.assertIn("--cgroups=disabled", captured[0])
             volumes = [captured[0][i + 1] for i, arg in enumerate(captured[0][:-1])
                        if arg == "--volume"]
             self.assertEqual(len(volumes), 2)
