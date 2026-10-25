@@ -8,6 +8,7 @@ import time
 import uuid
 
 from engine.analysis.ghidra import GhidraAnalysis
+from engine.behavior import is_observable_claim
 from engine.citations import evidence_addresses, normalize_references
 from engine.model_runtime import invoke_opencode
 from engine.validation.memory_ranges import overlap_claim_errors
@@ -16,9 +17,9 @@ from model_config import get_model
 
 def parse_answer(text: str) -> dict:
     answer = text.strip()
-    if answer.startswith("```json") and answer.endswith("```"):
-        answer = answer[7:-3].strip()
-    value = json.loads(answer)
+    if answer.startswith("```"):
+        answer = answer.split("\n", 1)[-1]
+    value, _ = json.JSONDecoder().raw_decode(answer.lstrip())
     if not isinstance(value, dict):
         raise ValueError("model output must be a JSON object")
     return value
@@ -41,6 +42,8 @@ def validate_answer(answer: dict, evidence: dict) -> list[str]:
             continue
         if not isinstance(claim.get("statement"), str) or not claim["statement"].strip():
             errors.append(f"claim {i} has no statement")
+        elif not is_observable_claim(claim["statement"]):
+            errors.append(f"claim {i} describes implementation structure rather than observable behavior")
         refs = claim.get("evidence_addresses")
         if not isinstance(refs, list) or not refs:
             errors.append(f"claim {i} has no evidence addresses")
@@ -268,32 +271,82 @@ class SemanticWorker:
         self.engine._emit(manifest["campaign"], "semantic_started", attempt_id=attempt_id,
                           subject=subject, task_key=task["deduplication_key"])
         started = time.monotonic()
-        events_path = folder / "events.jsonl"
+        attempts = []
         try:
-            model_reply = invoke_opencode(
-                self.opencode, folder, prompt, model=resolved_model,
-                timeout=self.timeout, env_file=self.env_file,
-                agent_name="decomp",
-                agent_instruction="Return bounded evidence-backed analysis as JSON only.")
-            checkpoint["opencode_version"] = model_reply["runtime_version"]
-            checkpoint_path.write_text(json.dumps(checkpoint, indent=2) + "\n")
-            answer = parse_answer(model_reply["text"])
-            citation_normalizations = normalize_answer_citations(answer, evidence)
-            text_item_normalizations = normalize_answer_text_items(answer)
-            errors = validate_answer(answer, evidence)
+            current_prompt = prompt
+            for revision in range(3):
+                revision_folder = folder / f"revision-{revision + 1}"
+                revision_folder.mkdir()
+                (revision_folder / "prompt.txt").write_text(current_prompt)
+                model_reply = invoke_opencode(
+                    self.opencode, revision_folder, current_prompt, model=resolved_model,
+                    timeout=self.timeout, env_file=self.env_file,
+                    agent_name="decomp",
+                    agent_instruction="Return bounded evidence-backed analysis as JSON only.")
+                checkpoint["opencode_version"] = model_reply["runtime_version"]
+                checkpoint_path.write_text(json.dumps(checkpoint, indent=2) + "\n")
+                errors = []
+                try:
+                    answer = parse_answer(model_reply["text"])
+                    citation_normalizations = normalize_answer_citations(answer, evidence)
+                    text_item_normalizations = normalize_answer_text_items(answer)
+                    errors = validate_answer(answer, evidence)
+                except (ValueError, json.JSONDecodeError) as parse_error:
+                    answer = None
+                    citation_normalizations = []
+                    text_item_normalizations = []
+                    errors = [f"invalid JSON answer: {parse_error}"]
+                attempts.append({
+                    "revision": revision + 1, "errors": errors,
+                    "prompt_artifact": self.engine.store.put(current_prompt.encode()),
+                    "response_artifact": self.engine.store.put(model_reply["text"].encode()),
+                    "transcript_artifact": self.engine.store.put(
+                        (revision_folder / "events.jsonl").read_bytes()),
+                    "usage": model_reply["usage"],
+                })
+                if not errors:
+                    break
+                current_prompt = (prompt + "\nYour previous answer failed validation. "
+                                  "Return a complete corrected JSON object. If evidence only "
+                                  "shows construction or other mechanics, leave claims empty "
+                                  "and explain the missing observable semantics in unknowns "
+                                  "and evidence_requests. Validation errors: " +
+                                  json.dumps(errors) + "\nPrevious answer: " +
+                                  model_reply["text"][:20000])
+            suppressed_claims = []
+            if (errors and isinstance(answer, dict) and
+                    all("describes implementation structure" in error for error in errors)):
+                # Preserve every model response in revisions, then publish only
+                # claims that can become functional requirements. A structural
+                # only function remains visibly incomplete in the dossier.
+                suppressed_claims = [claim for claim in answer["claims"]
+                                     if not is_observable_claim(claim["statement"])]
+                answer["claims"] = [claim for claim in answer["claims"]
+                                    if is_observable_claim(claim["statement"])]
+                answer["unknowns"].append(
+                    "The available evidence does not establish the caller-visible effects "
+                    "of the omitted implementation mechanics.")
+                answer["evidence_requests"].append(
+                    "Inspect the called functions and execute original cases that expose "
+                    "the returned value and state changes.")
+                errors = validate_answer(answer, evidence)
             result = {**checkpoint, "state": "rejected" if errors else
                       ("partial" if truncated else "unreviewed"),
                       "answer": answer, "structural_errors": errors,
                       "citation_normalizations": citation_normalizations,
                       "text_item_normalizations": text_item_normalizations,
-                      "usage": model_reply["usage"],
+                      "suppressed_structural_claims": suppressed_claims,
+                      "revisions": attempts,
+                      "usage": {key: sum(item["usage"][key] for item in attempts)
+                                for key in ("input", "output", "reasoning", "cost")},
                       "elapsed_seconds": round(time.monotonic() - started, 3)}
         except Exception as error:
             result = {**checkpoint, "state": "failed", "error": str(error),
+                      "revisions": attempts,
                       "elapsed_seconds": round(time.monotonic() - started, 3)}
         result["prompt_artifact"] = self.engine.store.put(prompt.encode())
-        if events_path.exists():
-            result["transcript_artifact"] = self.engine.store.put(events_path.read_bytes())
+        if attempts:
+            result["transcript_artifact"] = attempts[-1]["transcript_artifact"]
         artifact = self.engine.store.put(json.dumps(result, sort_keys=True).encode())
         result["artifact"] = artifact
         (folder / "result.json").write_text(json.dumps(result, indent=2) + "\n")

@@ -32,23 +32,41 @@ def invoke_opencode(opencode: Path, folder: Path, prompt: str, *, model: str,
                     agent_instruction: str) -> dict:
     version = subprocess.run([str(opencode), "--version"], capture_output=True,
                              text=True, check=True, timeout=10).stdout.strip()
-    config = {"$schema": "https://opencode.ai/config.json", "model": model,
-              "permission": {"*": "deny"},
-              "agent": {agent_name: {"mode": "primary", "model": model,
-                                    "prompt": agent_instruction,
-                                    "permission": {"*": "deny"}}}}
-    config_path = folder / "opencode.json"
-    config_path.write_text(json.dumps(config, indent=2) + "\n")
+    ambient = model == "opencode/ambient"
     events_path = folder / "events.jsonl"
     stderr_path = folder / "stderr.log"
     env = os.environ.copy()
-    add_aws_env(env, env_file)
-    env.update(OPENCODE_CONFIG=str(config_path), OPENCODE_DISABLE_AUTOUPDATE="true",
+    if env.get("AWS_PROFILE"):
+        # A selected profile must not be shadowed by stale ambient session keys.
+        for key in AWS_KEYS - {"AWS_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION"}:
+            env.pop(key, None)
+    command = [str(opencode), "run", "--pure"]
+    if ambient:
+        # OpenCode's local default can be available without a provider key.
+        # It rejects an explicit model or permission override. Keep the run in
+        # its private attempt directory and reject any tool-use event below.
+        env.pop("OPENCODE_CONFIG", None)
+        env.pop("OPENCODE_CONFIG_CONTENT", None)
+        for key in AWS_KEYS:
+            env.pop(key, None)
+        prompt = agent_instruction + "\n" + prompt
+    else:
+        config = {"$schema": "https://opencode.ai/config.json", "model": model,
+                  "permission": {"*": "deny"},
+                  "agent": {agent_name: {"mode": "primary", "model": model,
+                                        "prompt": agent_instruction,
+                                        "permission": {"*": "deny"}}}}
+        config_path = folder / "opencode.json"
+        config_path.write_text(json.dumps(config, indent=2) + "\n")
+        if not env.get("AWS_PROFILE"):
+            add_aws_env(env, env_file)
+        env["OPENCODE_CONFIG"] = str(config_path)
+        command.extend(["--agent", agent_name, "--model", model])
+    env.update(OPENCODE_DISABLE_AUTOUPDATE="true",
                OPENCODE_DISABLE_EXTERNAL_SKILLS="true")
+    command.extend(["--format", "json", prompt])
     with events_path.open("w") as events, stderr_path.open("w") as stderr:
-        completed = subprocess.run([str(opencode), "run", "--pure", "--agent",
-                                    agent_name, "--model", model, "--format", "json",
-                                    prompt], cwd=folder, env=env, stdout=events, stderr=stderr,
+        completed = subprocess.run(command, cwd=folder, env=env, stdout=events, stderr=stderr,
                                    timeout=timeout, check=False)
     rows = [json.loads(line) for line in events_path.read_text().splitlines()
             if line.startswith("{")]
@@ -56,6 +74,9 @@ def invoke_opencode(opencode: Path, folder: Path, prompt: str, *, model: str,
         failures = [row.get("error", {}) for row in rows if row.get("type") == "error"]
         message = failures[-1].get("data", {}).get("message", "") if failures else ""
         raise RuntimeError(f"OpenCode exited {completed.returncode}: {message}; see {stderr_path}")
+    if ambient and any(row.get("type") == "tool_use" or
+                       row.get("part", {}).get("type") == "tool" for row in rows):
+        raise RuntimeError("ambient model attempted a tool call; output rejected")
     texts = [row.get("part", {}).get("text", "") for row in rows
              if row.get("type") == "text"]
     if not texts:

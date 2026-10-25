@@ -43,7 +43,7 @@ class NativeProbeRunner:
                     "adapter_sha256": file_hash(self.adapter) if case["kind"] == "shared" else None,
                     "input": case.get("input", case.get("args")),
                     "input_description": case.get("input_description"),
-                    "expected": case["expected"], "timeout_seconds": self.timeout,
+                    "expected": case.get("expected"), "timeout_seconds": self.timeout,
                     "environment": {"LANG": "C", "LC_ALL": "C",
                                     "cpu_seconds": 5, "address_space_bytes": 512 * 1024 * 1024}}
         probe_key = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
@@ -66,7 +66,8 @@ class NativeProbeRunner:
             else:
                 observed = {"stdout": completed.stdout.strip(),
                             "exit_code": completed.returncode}
-            outcome = "agreement" if observed == case["expected"] else "disagreement"
+            outcome = ("observed" if "expected" not in case else
+                       "agreement" if observed == case["expected"] else "disagreement")
             error = None
         except (subprocess.TimeoutExpired, OSError, ValueError, RuntimeError) as exc:
             observed = None
