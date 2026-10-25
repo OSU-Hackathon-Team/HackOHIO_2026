@@ -121,3 +121,35 @@ hashes make retries safe (re-running same input hash returns same artifact).
 4. **Live-model gate.** AWS session creds in this environment are expired, so no
    implementation runs until the user refreshes creds. Skeleton code lands only after a
    live-model smoke check passes on this branch.
+
+## 9. Small-fixture proof (2026-10-24, live Qwen via Bedrock)
+
+Command: `python3 launch.py stupid-run --binary decomp-state/fixtures/native_lab_O0_shared.so
+--goal "Describe the frame-parsing subsystem..." --max-workers 4 --max-rounds 12`.
+Five live runs total; final run `cb7df4154477`:
+
+- Agent-chosen scope (no seed scores in code): 12 entries covering all 8 real
+  subsystem functions (frame decoder, callback helper, state reset, 3 state
+  readers, recursive helper, entry point) plus init/fini boilerplate.
+- 19 drafts (incl. 7 agent-triggered redrafts), 15 reviews, verdicts
+  3 supported / 1 uncertain / 8 contradicted. All 4 boilerplate drafts were
+  contradicted (correct); all 3 state readers supported; the frame decoder
+  stays contested on endianness explicitness (reviewer demands the omitted
+  detail be stated; honest partial, not a false pass).
+- Prose spec ~5 kB, concrete values and examples; one `param_1` leaked inside
+  a C prototype in run 5 -> SPEC prompt now forbids code blocks entirely
+  (prompt-data fix, validates on the next run).
+- Readiness `partial` via the 3-consecutive-no-op mechanical budget, with
+  reasons in the log. No `ready_for_spec` was claimed without reviews.
+- Stripped-only held: agents saw `FUN_<entry>` placeholders; dynamic symbol
+  names are exact-match redacted from inventory strings; real names never
+  left `tools.py`.
+- Cost note: `engine/stupid/` is 457 lines (over the 400 target; provenance
+  persistence and the noop budget account for the drift).
+
+Open tuning (prompts, not code): reviewer calibration on "incomplete vs
+false", orchestrator `done` decisiveness. LibreOffice scale-up is next (section 4,
+step 2): 50-function scope from `CompileTokenArray`, 32 probes, 16 workers.
+Known risks: 606-function inventory exceeds the 60 kB orchestrator prompt
+window (needs paging or agent-driven inventory queries); Ghidra export time
+for 50 functions; model nondeterminism across the wider scope.
