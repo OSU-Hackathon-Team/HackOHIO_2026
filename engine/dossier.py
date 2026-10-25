@@ -162,6 +162,7 @@ def assemble(engine: GhidraAnalysis, manifest: dict, scope_artifact: str,
                 probe_by_key[key] = result
                 probes.append({"report_artifact": artifact, "case_id": result["case_id"],
                                "kind": result["kind"], "target": result.get("target"),
+                               **({"targets": result["targets"]} if "targets" in result else {}),
                                "input": result["input"],
                                "input_description": result.get("input_description"),
                                "expected": result["expected"],

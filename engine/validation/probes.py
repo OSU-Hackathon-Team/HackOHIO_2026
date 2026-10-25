@@ -41,6 +41,7 @@ class NativeProbeRunner:
             raise ValueError(f"unknown probe kind {case['kind']}")
         identity = {"schema": 1, "case_id": case["id"], "kind": case["kind"],
                     "target": case.get("target"),
+                    **({"targets": case["targets"]} if "targets" in case else {}),
                     "binary_sha256": file_hash(binary),
                     "runner_sha256": file_hash(Path(__file__)),
                     "adapter_sha256": file_hash(self.adapter) if case["kind"] == "shared" else None,
@@ -141,7 +142,8 @@ def select_original_cases(store, report: dict, binary_sha256: str,
         return []
     selected = []
     for item in report["results"]:
-        if (item.get("target") != target or
+        if ((item.get("target") != target and
+             target not in item.get("targets", [])) or
                 item.get("binary_sha256") != binary_sha256 or
                 item.get("execution_mode") != "original"):
             continue
@@ -152,7 +154,7 @@ def select_original_cases(store, report: dict, binary_sha256: str,
         except (ValueError, KeyError, TypeError, FileNotFoundError):
             return []
         if any(original.get(key) != item.get(key) for key in
-               ("case_id", "target", "binary_sha256", "input", "observed",
+               ("case_id", "target", "targets", "binary_sha256", "input", "observed",
                 "outcome", "execution_mode", "runner_sha256", "adapter_sha256")):
             return []
         selected.append({"case_id": item["case_id"], "input": item["input"],
