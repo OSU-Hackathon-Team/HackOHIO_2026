@@ -29,6 +29,22 @@ def extract_c(text: str) -> str:
     return source
 
 
+def ready_dossier(state: Path, store: LocalArtifactStore, spec_artifact: str) -> dict:
+    for path in (state / "specifications").glob("*/dossier-*-writer-*.json"):
+        pointer = json.loads(path.read_text())
+        if pointer.get("artifact") != spec_artifact:
+            continue
+        audit = json.loads(store.get(pointer["audit_artifact"]))
+        dossier = json.loads(store.get(pointer["dossier_artifact"]))
+        if (audit.get("spec_artifact") != spec_artifact or
+                audit.get("dossier_artifact") != pointer["dossier_artifact"] or
+                dossier.get("readiness") != "ready_for_spec" or
+                dossier.get("revision") != pointer.get("dossier_revision")):
+            raise ValueError("spec provenance is inconsistent or dossier is not ready")
+        return dossier
+    raise ValueError("spec has no persisted dossier and writer provenance")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state", type=Path, default=Path("decomp-state"))
@@ -44,6 +60,7 @@ def main() -> None:
     spec = json.loads(store.get(args.spec_artifact))
     if spec.get("schema") != 2 or spec.get("status") != "ready_for_review":
         raise ValueError("C generation requires a ready native spec")
+    dossier = ready_dossier(args.state, store, args.spec_artifact)
     report = json.loads(store.get(args.probe_report_artifact))
     if report.get("schema") != 1 or not isinstance(report.get("results"), list):
         raise ValueError("invalid original probe report")
@@ -51,6 +68,8 @@ def main() -> None:
                        for item in spec.get("examples", [])}
     held_out = [item for item in report["results"]
                 if item.get("outcome") in {"observed", "agreement"} and
+                item.get("execution_mode") == "original" and
+                item.get("binary_sha256") == dossier["binary_sha256"] and
                 json.dumps(item.get("input"), sort_keys=True) not in public_examples]
     if not held_out:
         raise ValueError("no held-out original cases outside public spec examples")
