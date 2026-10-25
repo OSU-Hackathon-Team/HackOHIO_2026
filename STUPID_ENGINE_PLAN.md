@@ -153,3 +153,57 @@ step 2): 50-function scope from `CompileTokenArray`, 32 probes, 16 workers.
 Known risks: 606-function inventory exceeds the 60 kB orchestrator prompt
 window (needs paging or agent-driven inventory queries); Ghidra export time
 for 50 functions; model nondeterminism across the wider scope.
+
+## 10. LibreOffice scale-up (2026-10-24/25, live Qwen via Bedrock, 16 workers)
+
+Target: `decomp-state/fixtures/calc/libforlo.so`, sha256 `5fb252ad…cd03c`, the same binary
+`spec/modules/calc_formula_engine.md` verifies against. Inventory: 606 functions, 121 thunks,
+2018 call edges, 1055 strings, **268 exported addresses**, campaign `53c336ec…9b659`.
+Goal: "token array compilation, opcode dispatch, and interpreter value handling".
+
+The first runs stalled at 2-6 drafts. Each failure had a mechanical cause, and each fix was
+routing/state work in `engine/stupid/`, not judgment added to code:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `explored` stayed empty, agent asked for `export_entries` once and got a no-op | export list was never seeded, so every `decompile` key was "unexplored" | large binaries preseed `explored` from the export table (268 keys) at analyze time |
+| run ended at round 7 of 40 with 6 drafts | three repeated plans tripped a 3-no-op guard | guard at 5, and a no-op now reports the streak, how many explored entries are still undrafted, a 40-key sample, and which drafts still need review |
+| 33 of 60 actions replayed the *prompt's own example* (`resolve_symbol CompileTokenArray`, `neighbors 0011b900`) | few-shot anchoring on a concrete key | prompt examples are placeholders; `state.exhausted` lists actions that already returned everything they can |
+| 20 invented addresses (`00104795`) decompiled twice | `last_result` only said "unknown_entry", never which key or why | rejected/unexplored keys are echoed with the reason |
+| `probe` requests looked like progress but executed nothing | no probe adapter attached to this harness | recorded as `probe_requested` with `executed: false`, counts as no-change |
+| 6 drafts was the ceiling with 16 idle workers | every decompile step named 1-3 entries | a decompile step may say `entries: "*"` with its own `limit`; the harness expands it to explored-but-undrafted keys, capped by the agent's limit |
+| 127-fact run produced a 2 kB spec | facts JSON was cut mid-array at 60 kB | facts project to claim statements + verdicts, whole entries added until the budget ends (`spec_facts` log: `scoped`/`sent`) |
+
+Scale results, final three runs (`decomp-state/stupid/<id>/result.json`):
+
+- `07d42de2cc07`: **127 drafts, 80 reviews**, verdicts 25 supported / 19 uncertain /
+  36 contradicted, scope 127, spec 2.0 kB, no address leaks, readiness `partial`,
+  13 orchestrator rounds of 24.
+- `0bb7b9ae8bb1` (40 rounds): **130 drafts, 59 reviews**, 23 / 12 / 24, scope 130,
+  spec 3.4 kB with no `FUN_`/`param_` leaks, `spec_facts` sent 69 of 130 entries
+  (59.4 kB budget), readiness `partial`, 12 orchestrator rounds.
+- Small fixture re-run after all of the above (`native_lab_O2_shared.so`, 4 workers,
+  6 rounds): 18 drafts, 14 reviews, 3 supported / 11 contradicted, spec 3.0 kB, no leaks,
+  readiness `partial` — no regression from the scale work.
+
+What this proves: Ghidra analysis, 268-key export preseed, 16-worker fan-out, review and
+spec writing all hold at 606-function scale, and coverage is now bounded by the planner's
+rounds rather than by the harness. Readiness never claimed `ready_for_spec`.
+
+Known limits, in the order they hurt:
+
+1. **Planner breadth is the binding constraint.** Qwen3-Coder still spends ~24 actions per
+   run on repeated or rejected keys, and a run ends on the 5-no-op guard at round 12-13 of
+   40. Claude as planner is not available on this account: `anthropic.claude-opus-4-6-v1`
+   needs an inference profile, `us.anthropic.claude-opus-4-5-20251101-v1:0` answers a smoke
+   test but the run is refused with `AccessDeniedException` (Marketplace subscribe). The
+   `orchestrator` role is in place, so `MODEL_ORCHESTRATOR` swaps a planner as soon as one
+   is enabled.
+2. **Redrafts still eat the budget.** 12 per run, then `redraft_exhausted`; on libforlo the
+   planner spends them on the first contested entry instead of widening.
+3. **The spec is the thin end.** 130 functions became ~420 words with generic filler at the
+   tail ("ISO standards", "legacy documents") that no draft supports, and only 69 of 130
+   facts fit the budget. The spec writer needs chunked synthesis (per-cluster drafts, then a
+   merge pass) before a wide scope can produce a trustworthy document.
+4. **No probe execution** in this harness, so grammar-probe evidence (section 4, step 2) is
+   still unexercised; `scripts/calc_grammar_probe_adapter.py` is the intended seam.
