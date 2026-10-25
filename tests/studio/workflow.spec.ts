@@ -11,6 +11,11 @@ const sse = (...events: Array<{ type: string; [key: string]: unknown }>) =>
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 960 });
+  // The workbench mounts its hidden pipeline bench immediately, before any navigation.
+  await page.route("**/api/health", route => route.fulfill({ json: {
+    ok: true, rea: { connected: false, version: null, tool_count: 0 },
+    rea_mode: "replay", llm_mode: "replay", model: "test", models: {},
+  } }));
   await page.goto("/");
 });
 async function navigate(page: Page, name: string) {
@@ -217,14 +222,6 @@ test("native target uses backend adapter and implementation results in the pipel
   const errors: string[] = [];
   const requests: Array<{ path: string; body: any }> = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.route("**/api/health", route => route.fulfill({ json: {
-    ok: true,
-    rea: { connected: false, version: null, tool_count: 0 },
-    rea_mode: "replay",
-    llm_mode: "replay",
-    model: "test",
-    models: {},
-  } }));
   await page.route("**/api/native-specs/adapt", async route => {
     const body = route.request().postDataJSON();
     requests.push({ path: "/api/native-specs/adapt", body });
