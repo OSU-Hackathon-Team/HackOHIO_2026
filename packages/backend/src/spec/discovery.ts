@@ -51,8 +51,17 @@ weak or isolated for a feature) or deferred (useful but outside the chosen capab
 Do not infer execution order, dependencies or combined behavior that the facts do not state.
 Return zero capabilities when the facts cannot support a useful feature, and then say why in explanation.
 Otherwise explanation is one sentence summarizing the selection.
-Write plain prose. Never write source code, symbols, addresses, key=value text or newlines.
+Write plain prose. Never write source code, symbols, addresses, key=value text or newlines, and do
+not use semicolons, braces, backticks or equals signs.
 Return only schema-shaped JSON.`;
+
+/** Prose semicolons carry no source; joining clauses with commas keeps the remaining safety checks meaningful. */
+export function tidyAnswer(answer: DiscoveryAnswer): DiscoveryAnswer {
+  const prose = (value: string) => value.replace(/\s*;\s*/g, ", ").trim();
+  return { explanation: prose(answer.explanation),
+    capabilities: answer.capabilities.map(c => ({ ...c, name: prose(c.name), purpose: prose(c.purpose) })),
+    unassigned: answer.unassigned.map(u => ({ ...u, reason: prose(u.reason) })) };
+}
 
 export type PreparedDiscovery = ReturnType<typeof prepareDiscovery>;
 
@@ -128,7 +137,7 @@ export async function discoverCapabilities(input: PreparedDiscovery["discovery_i
     let result;
     try {
       result = await writeDraft({ system: SYSTEM, messages, schema: DISCOVERY_SCHEMA,
-        parse: (value) => DiscoveryAnswer.parse(value), maxTokens: 8_192, signal: hooks.signal, onProgress: hooks.onProgress });
+        parse: (value) => tidyAnswer(DiscoveryAnswer.parse(value)), maxTokens: 8_192, signal: hooks.signal, onProgress: hooks.onProgress });
     } catch (error) {
       if (!(error instanceof LlmSchemaError) || attempt === DISCOVERY_ATTEMPTS - 1) throw error;
       messages = [{ role: "user", content: `${JSON.stringify(input)}\n\nThe previous answer failed schema validation: ${error.message}. Return every required field with valid types.` }];

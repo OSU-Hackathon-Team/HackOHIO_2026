@@ -6,7 +6,7 @@ import { SavedAnalysis, NativeDiscoveryEvent, NativeExtractionRequest } from "@s
 import { NativeLibraryStore } from "../decomp/library.js";
 import { nativeLibraryRouter } from "../routes/nativeLibrary.js";
 import { adaptSavedEvidence, assembleSavedExtraction } from "./savedEvidence.js";
-import { discoveryProblems, prepareDiscovery, runDiscovery, MAX_DISCOVERY_CLAIMS, type DiscoveryAnswer, type DiscoveryDeps } from "./discovery.js";
+import { discoveryProblems, prepareDiscovery, runDiscovery, tidyAnswer, MAX_DISCOVERY_CLAIMS, type DiscoveryAnswer, type DiscoveryDeps } from "./discovery.js";
 import type { NativeDraft, writeNativeDraft } from "./nativeDraft.js";
 
 const supported = (statement: string) => ({ statement, review: { outcome: "supported_static", reason: "SENTINEL_REVIEW" } });
@@ -89,6 +89,12 @@ test("validation enforces IDs, accounting, distinct candidates and source safety
   assert.match(change(a => { a.unassigned = []; }), /C3_1 is not accounted for/);
   assert.match(change(a => { a.unassigned.push({ claim_id: "C1_1", disposition: "deferred", reason: "Again." }); }), /both assigned and unassigned/);
   assert.match(change(a => { a.capabilities[0].purpose = "Calls ScMatrix::SubOp to add"; }), /source-like content/);
+  // Live Qwen output joined prose clauses with semicolons; tidying keeps every other safety check.
+  const prose = structuredClone(goodAnswer); prose.unassigned[0].reason = "Rounding is useful; it is outside these capabilities.";
+  assert.deepEqual(discoveryProblems(tidyAnswer(prose), eligible), []);
+  assert.equal(tidyAnswer(prose).unassigned[0].reason, "Rounding is useful, it is outside these capabilities.");
+  const code = structuredClone(goodAnswer); code.unassigned[0].reason = "x = y; return z";
+  assert.match(discoveryProblems(tidyAnswer(code), eligible).join(), /source-like content/);
   assert.match(change(a => { a.capabilities.push(...[3, 4, 5, 6].map(i => ({ id: `CAP-${i}`, name: `Cap ${i}`, purpose: "More.", claim_ids: [`C3_1`] }))); }), /at most 5/);
   const empty: DiscoveryAnswer = { explanation: "", capabilities: [],
     unassigned: eligible.map(claim_id => ({ claim_id, disposition: "insufficient" as const, reason: "Isolated fact." })) };

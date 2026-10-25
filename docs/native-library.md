@@ -205,3 +205,35 @@ Open a saved application, choose **Create building blocks**, approve model usage
   before model work.
 - **Cancelled:** drafts saved before cancelling remain available.
 - **Failed:** backend, model or storage failures. An incomplete stream counts as a failure.
+
+### Observed discovery results, 2026-10-25
+
+These are from the live run on `run-258f6ec3-91b4-4976`: 73 supported facts from 33 functions,
+with 19 claims omitted by the adapter.
+
+- **First attempt failed with no drafts saved.** The model joined prose clauses with a
+  semicolon, which source safety treats as code syntax, and the repair attempt repeated it.
+  Discovery now turns prose semicolons into commas before validation (every other check still
+  runs), and the prompt forbids code punctuation.
+- **Retry was `complete`.** It found five capabilities, all saved as drafts:
+  - Matrix Comparison Operations (9 facts)
+  - Sheet Index Range Validation (2)
+  - Range Conflict Detection (3)
+  - ScMatrix Reference Count Management (2)
+  - Positional Character Search in Strings (5)
+- **Unassigned facts:** 52, each with a reason (28 supporting-only, 21 insufficient,
+  3 deferred).
+- **Reload:** every draft reloaded from S3 with all its facts linked to requirements. The
+  earlier prompt-driven extraction and its App library entry still load next to them.
+- **Cost:** 6 Qwen3 Coder calls, about 13,000 input and 4,600 output tokens, or about 2 cents.
+
+**Quality limit:** the reference-count capability is implementation mechanics, not a reusable
+feature. Bare class names and "reference count" pass the adapter's mechanics filter. Tighten
+that shared filter with its owner; don't special-case it in discovery.
+
+**Checks:**
+- 10 discovery tests, 11/11 desktop browser journeys, 45 frontend units, workspace typecheck and
+  production build.
+- Known failures, identical without this change:
+  - `nativeSpecs` (needs Python on Windows);
+  - two compiled replay regressions.
