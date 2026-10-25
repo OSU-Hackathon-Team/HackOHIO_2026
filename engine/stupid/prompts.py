@@ -12,6 +12,8 @@ Known so far (JSON): {state}
 Reply with exactly one JSON object, no markdown, one of:
 {explore}
 {{"action": "search_strings", "substring": "percent", "limit": 50, "reason": "..."}}
+{{"action": "export_entries", "reason": "..."}}
+{{"action": "resolve_symbol", "substring": "CompileTokenArray", "reason": "..."}}
 {{"action": "decompile", "entries": ["0x..."], "reason": "..."}}
 {{"action": "review", "entries": ["0x..."], "reason": "..."}}
 {{"action": "probe", "cases": [{{"kind": "describe what to run"}}], "reason": "..."}}
@@ -20,9 +22,10 @@ Rules: for large binaries the inventory is paged: state.paging tells you which o
 fetched, the total, and the next_offset to ask for; paging continues automatically even if you
 repeat the page action. Fetch every slice exactly once, then stop paging and analyze. Use search_strings to find domain keywords in
 read-only strings, then neighbors to walk callers/callees from interesting entries; explored
-accumulates everything uncovered. Discovery strategy on stripped binaries: page through the
-list, sample-draft a few non-thunk entries per address region, read draft_digest, then grow
-the relevant cluster via neighbors and batch-decompile it. Do not decompile the first entries
+accumulates everything uncovered. Discovery strategy on stripped binaries: start with
+export_entries for the binary's own exported function addresses, and resolve_symbol with
+goal keywords (for example CompileTokenArray) for seed entries; then grow the relevant
+cluster via neighbors and batch-decompile it, paging only to survey address regions. Do not decompile the first entries
 of page 0 blindly; init/fini boilerplate lives at the edges. Do not repeat an identical action:
 repeats are no-ops and three in a row end the run as partial.
 Decompile and review only entries present in explored (or the small-binary inventory).
