@@ -75,6 +75,13 @@ inputs or state. State WHAT the function computes and returns for its caller, no
 it arranges its frame; this-object field writes matter only when they are the
 observable effect (counters, flags, output buffers). Prefer the decompiled rendering
 for behavior; consult instructions only to verify widths, branches, and constants.
+Keep at most 10 claims per function: each claim must be caller-visible behavior the
+function's user would depend on (return conditions and values, state transitions,
+which subroutines it calls and why, error paths). Never claim individual field
+initializations, zeroing loops, or vtable dispatches unless the field's conceptual
+meaning is established from evidence; fold unknown initialization sequences into a
+single unknown ("initializes N bytes of compiler state whose layout is unresolved")
+instead of one claim per offset.
 List what you cannot determine in unknowns. Request nothing else."""
 
 REVIEW = """Challenge this behavior draft against its raw evidence. Be adversarial.
@@ -92,7 +99,12 @@ A valid citation location is not proof of correct interpretation.
 Verdict for the whole draft: supported only if every claim checks out; uncertain if any
 claim is vague or incomplete but none is false; contradicted only if at least one claim
 is affirmatively false. If you cannot point to an address showing a different constant,
-width, or outcome, you must not contradict: use uncertain and name the omission."""
+width, or outcome, you must not contradict: use uncertain and name the omission.
+Focus challenges on caller-visible behavior (returns, state, calls, errors); a claim
+about an implementation detail that is approximately right but imprecise is at most
+uncertain, and uncheckable trivia ("initializes field at offset 0xNN") that changes
+no observable outcome should be flagged as trivia in reasons without contradicting
+the draft over it."""
 
 SPEC = """Write a prose implementer specification from reviewed behavior facts.
 Goal: {goal}
