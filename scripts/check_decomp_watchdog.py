@@ -73,4 +73,27 @@ with tempfile.TemporaryDirectory() as directory:
         assert review["state"] == "ready"
         assert review["intervention"]["model_role"] == "decomp_reviewer"
 
+    def implementation_reply(*args, **kwargs):
+        return {"text": json.dumps({"diagnosis": "Public transitions disagree.",
+                                     "guidance": "Infer predicate categories from observed transitions.",
+                                     "model_role": "decomp_watchdog", "evidence_bytes": 48000})}
+
+    with patch("engine.watchdog.invoke_opencode", side_effect=implementation_reply):
+        implementation = watchdog.inspect(**{**inputs, "stage": "implementation"})
+        assert implementation["state"] == "ready"
+        assert implementation["intervention"]["model_role"] == "decomp_watchdog"
+        assert implementation["intervention"]["evidence_bytes"] is None
+
+    def line_broken_reply(*args, **kwargs):
+        return {"text": ("{\"diagnosis\": \"Public transitions disagree\n"
+                         "for copy.\", \"guidance\": \"Derive copy from the "
+                         "observed rows.\", \"model_role\": null, "
+                         "\"evidence_bytes\": null}")}
+
+    with patch("engine.watchdog.invoke_opencode", side_effect=line_broken_reply):
+        recovered = watchdog.inspect(**{**inputs, "stage": "implementation"})
+        assert recovered["state"] == "ready"
+        assert recovered["intervention"]["guidance"] == \
+            "Derive copy from the observed rows."
+
 print("watchdog checks passed")

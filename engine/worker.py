@@ -19,11 +19,35 @@ from model_config import get_model
 SEMANTIC_PROMPT_VERSION = 10
 
 
+def _escape_controls(text: str) -> str:
+    """Escape raw control characters that model output leaves inside strings."""
+    escaped, in_string, out = False, False, []
+    for char in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            elif ord(char) < 0x20:
+                char = {10: "\\n", 13: "\\r", 9: "\\t"}.get(ord(char),
+                                                           "\\u%04x" % ord(char))
+        elif char == '"':
+            in_string = True
+        out.append(char)
+    return "".join(out)
+
+
 def parse_answer(text: str) -> dict:
     answer = text.strip()
     if answer.startswith("```"):
         answer = answer.split("\n", 1)[-1]
-    value, _ = json.JSONDecoder().raw_decode(answer.lstrip())
+    try:
+        value, _ = json.JSONDecoder().raw_decode(answer.lstrip())
+    except json.JSONDecodeError:
+        # A reply with an unescaped newline inside a string is still usable.
+        value, _ = json.JSONDecoder().raw_decode(_escape_controls(answer.lstrip()))
     if not isinstance(value, dict):
         raise ValueError("model output must be a JSON object")
     return value
