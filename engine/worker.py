@@ -15,7 +15,7 @@ from engine.model_runtime import invoke_opencode
 from engine.validation.memory_ranges import overlap_claim_errors
 from model_config import get_model
 
-SEMANTIC_PROMPT_VERSION = 6
+SEMANTIC_PROMPT_VERSION = 7
 
 
 def parse_answer(text: str) -> dict:
@@ -179,8 +179,10 @@ def prompt_for(task: dict, scope: dict, evidence: dict, *, max_evidence_bytes: i
         "strings must be nonempty. Request specific missing evidence in evidence_requests. "
         "Put observable behavior only in claims. Every claim must cite actual addresses from "
         "the evidence. For C++ binaries, describe the operation a caller observes; class "
-        "layout, vtable stores, RTTI, constructor mechanics, and the C++ ABI are not "
-        "requirements unless they change an observable result. The behavior may be "
+        "layout, offsets, pointer traversal, reference counts, vtable stores, RTTI, "
+        "constructor mechanics, and the C++ ABI are not functional requirements. "
+        "Name conceptual subsystem state and describe how public operations change "
+        "and query it. Put unsupported interpretation in unknowns. The behavior may be "
         "reimplemented in C or any other language. "
         "A valid citation is not proof of correct interpretation. Scope expected "
         "observables are questions to investigate, not claims about this function. Describe "

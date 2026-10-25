@@ -28,6 +28,8 @@ for statement in (
     "The function requests allocation of exactly 0x28 bytes.",
     "The allocated object is passed to the constructor.",
     "The vtable pointer is copied from the source.",
+    "Returns 1 when the field at object offset 8 is nonzero.",
+    "Traverses a pointer array with reference counting.",
 ):
     assert validate_answer(answer(statement), evidence)
 assert not validate_answer(answer("A copied value preserves its visible text."), evidence)
