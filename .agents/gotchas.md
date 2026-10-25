@@ -79,6 +79,17 @@
 - Never hand-write transcripts or "live" evidence. Only `_seed/` inputs may be hand-built, and
   they carry `mode: "replay"`.
 
+## Cleanroom implementation
+- Never use `worker.Dockerfile` as the implementer image. It contains Ghidra and LibreOffice;
+  use `implementer.Dockerfile`, which has only a shell, C toolchain, and Python. The workbench
+  mounts only the public workspace, broker socket, OpenCode binary, and optional auth file.
+- Broker audit and agent event logs live outside the workspace. Keep them there; the sandbox
+  may read anything you mount.
+- The broker's deterministic filter is the disclosure guarantee, not the model prompt. Keep
+  raw decompilation out of the public workspace and pass it only as private broker context.
+- Full bash needs network for model calls. Network egress can still fetch public upstream
+  source; use a provider proxy or `--workbench-network none` when that is in scope.
+
 ## Sandbox
 - Engine/adapter code and tests run in **one** `vm` context inside a worker thread. Cross-realm
   objects break `deepEqual`, so don't split contexts.

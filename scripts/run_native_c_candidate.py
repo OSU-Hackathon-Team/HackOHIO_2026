@@ -4,18 +4,24 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 from engine.analysis.ghidra import GhidraAnalysis
 from engine.artifacts import LocalArtifactStore
-from engine.model_runtime import invoke_opencode
+from engine.broker import Broker, model_responder
+from engine.model_runtime import add_aws_env, invoke_opencode
 from engine.validation.probes import NativeProbeRunner
+from engine.workbench import (build_image, build_prompt, materialize_workspace,
+                              run_workbench, validate_candidate_source)
 from model_config import get_model
 
 
@@ -26,7 +32,7 @@ def extract_c(text: str) -> str:
         raise ValueError("model did not return a C translation unit")
     if re.search(r"\b(?:dlopen|dlsym|system|popen|execve|fork)\s*\(", source):
         raise ValueError("candidate tries to invoke an external implementation")
-    return source
+    return validate_candidate_source(source)
 
 
 def ready_dossier(state: Path, store: LocalArtifactStore, spec_artifact: str) -> dict:
@@ -53,6 +59,17 @@ def main() -> None:
     parser.add_argument("--model")
     parser.add_argument("--interface", choices=("scalar", "token-array"), default="scalar")
     parser.add_argument("--max-revisions", type=int, default=3)
+    parser.add_argument("--workbench", action="store_true",
+                        help="run the implementer in a public-only container with bash and self-tests")
+    parser.add_argument("--workbench-image", default="splice-cleanroom-implementer:local")
+    parser.add_argument("--workbench-runtime", default="podman")
+    parser.add_argument("--workbench-timeout", type=int, default=900)
+    parser.add_argument("--workbench-network", default=None)
+    parser.add_argument("--build-workbench-image", action="store_true")
+    parser.add_argument("--broker-model")
+    parser.add_argument("--broker-quota", type=int, default=48)
+    parser.add_argument("--auth-file", type=Path,
+                        default=Path.home() / ".local/share/opencode/auth.json")
     parser.add_argument("--opencode", type=Path,
                         default=Path.home() / ".opencode/bin/opencode")
     parser.add_argument("--headless", type=Path,
@@ -111,6 +128,45 @@ def main() -> None:
     resolved_model = get_model("engine_writer", explicit=args.model)
     if args.max_revisions < 0 or args.max_revisions > 8:
         raise ValueError("max revisions must be between zero and eight")
+    if args.workbench_timeout < 1 or args.broker_quota < 0:
+        raise ValueError("workbench timeout must be positive and broker quota nonnegative")
+    if args.workbench and not args.opencode.is_file():
+        raise FileNotFoundError(f"OpenCode executable not found: {args.opencode}")
+    shared_examples = [example for example in spec.get("examples", [])
+                       if example.get("observation_kind") == "shared"]
+    public_cases = [{"case_id": example["name"], "input": example["input"],
+                     "observed": example["expected_output"]}
+                    for example in shared_examples]
+    if args.workbench and not public_cases:
+        raise ValueError("workbench needs public shared-library examples")
+    broker = None
+    workbench_env = {key: os.environ[key] for key in
+                     ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+                      "AWS_REGION", "AWS_DEFAULT_REGION") if key in os.environ}
+    if args.workbench and not workbench_env.get("AWS_ACCESS_KEY_ID"):
+        add_aws_env(workbench_env, ROOT / ".env")
+    workbench_env.pop("AWS_PROFILE", None)
+    if args.workbench:
+        if args.build_workbench_image:
+            build_image(runtime=args.workbench_runtime, image=args.workbench_image,
+                        dockerfile=ROOT / "implementer.Dockerfile", context=ROOT)
+        broker_folder = args.state / "cleanroom" / args.spec_artifact[:16] / "broker"
+        broker_folder.mkdir(parents=True, exist_ok=True)
+        private = {"claims": dossier.get("claims", []),
+                   "dependency_contracts": dossier.get("dependency_contracts", []),
+                   "pseudocode": dossier.get("pseudocode")}
+        responder = model_responder(
+            opencode=args.opencode, env_file=ROOT / ".env",
+            model=get_model("cleanroom_broker", explicit=args.broker_model),
+            folder=broker_folder, timeout=args.workbench_timeout)
+        broker = Broker(
+            responder,
+            public_context=json.dumps({"spec": spec, "examples": shared_examples},
+                                      sort_keys=True),
+            private_context=json.dumps(private, sort_keys=True)[:120000],
+            protected_texts=[str(dossier.get("pseudocode") or "")],
+            quota=args.broker_quota, store=store, session_id=args.spec_artifact[:12],
+            allowed_calls={*symbols, "token_array_run"})
     with TemporaryDirectory(prefix="splice-c-candidate-") as temporary:
         folder = Path(temporary)
         source_path = folder / "candidate.c"
@@ -121,51 +177,106 @@ def main() -> None:
                 "c_scalar_candidate_adapter.py" if args.interface == "scalar" else
                 "c_token_array_candidate_adapter.py"))
         attempts = []
+        previous_source = None
         for revision in range(args.max_revisions + 1):
-            reply = invoke_opencode(
-                args.opencode, folder, prompt, model=resolved_model, timeout=180,
-                env_file=Path(__file__).resolve().parents[1] / ".env",
-                agent_name="native-c-implementer",
-                agent_instruction="Return C code from the public spec only. Use no tools.")
-            source = extract_c(reply["text"])
-            source_artifact = store.put(source.encode())
-            prompt_artifact = store.put(prompt.encode())
-            source_path.write_text(source)
-            built = subprocess.run(["cc", "-std=c11", "-O2", "-fPIC", "-shared",
-                                    "-Wall", "-Wextra", "-o", str(library_path),
-                                    str(source_path)], capture_output=True, text=True,
-                                   timeout=30, check=False)
-            failures = []
-            if built.returncode:
-                failures = [{"compiler_error": built.stderr[-2000:]}]
+            prompt_text = prompt
+            workbench_record = None
+            if args.workbench:
+                workspace = (args.state / "cleanroom" / args.spec_artifact[:16] /
+                             f"attempt-{revision + 1}")
+                try:
+                    shutil.rmtree(workspace, ignore_errors=True)
+                    materialized = materialize_workspace(
+                        workspace, spec=spec, cases=public_cases,
+                        contract=interface_contract,
+                        adapter=Path(__file__).with_name(
+                            "c_scalar_candidate_adapter.py" if args.interface == "scalar"
+                            else "c_token_array_candidate_adapter.py"),
+                        broker_client=ROOT / "scripts" / "cleanroom_broker_client.py",
+                        candidate=previous_source)
+                    prompt_text = prompt + "\n\n" + build_prompt(
+                        contract=interface_contract, case_count=len(public_cases))
+                    (workspace / "prompt.txt").write_text(prompt_text)
+                    run = run_workbench(
+                        workspace=workspace, broker=broker,
+                        image=args.workbench_image, opencode=args.opencode,
+                        model=resolved_model, auth_file=args.auth_file,
+                        timeout=args.workbench_timeout,
+                        runtime=args.workbench_runtime, env=workbench_env,
+                        network=args.workbench_network,
+                        private_markers=[dossier.get("binary_sha256"), args.spec_artifact,
+                                         args.probe_report_artifact,
+                                         str(args.state.resolve())],
+                        immutable=materialized["files"],
+                        audit_path=workspace.parent / "broker-audit.jsonl",
+                        container_name=f"splice-native-{args.spec_artifact[:8]}-{revision + 1}")
+                    source = run["candidate_source"]
+                    failures = ([] if source is None else None)
+                    if not run["immutable"]["ok"]:
+                        source = None
+                        failures = [{"tampering": run["immutable"]}]
+                    elif source is None:
+                        failures = [{"generation_error":
+                                    f"workbench {run['status']}: " +
+                                    (run.get("candidate_error") or "no candidate.c")}]
+                    workbench_record = {key: run[key] for key in
+                                        ("status", "exit_code", "timed_out",
+                                         "immutable", "broker", "elapsed_seconds")}
+                except Exception as exc:
+                    source = None
+                    failures = [{"generation_error": str(exc)}]
+                    workbench_record = {"status": "error", "error": str(exc)}
             else:
-                for example in spec.get("examples", []):
-                    if example.get("observation_kind") != "shared":
-                        continue
-                    check = runner.run_case(library_path, {
-                        "id": example["name"], "kind": "shared",
-                        "input": example["input"],
-                        "expected": example["expected_output"]},
-                        execution_mode="candidate")
-                    if check["outcome"] != "agreement":
-                        failures.append({"input": example["input"],
-                                         "expected": example["expected_output"],
-                                         "observed": check["observed"],
-                                         "error": check["error"]})
+                try:
+                    reply = invoke_opencode(
+                        args.opencode, folder, prompt, model=resolved_model, timeout=180,
+                        env_file=ROOT / ".env",
+                        agent_name="native-c-implementer",
+                        agent_instruction="Return C code from the public spec only. Use no tools.")
+                    source = extract_c(reply["text"])
+                    failures = None
+                except Exception as exc:
+                    source = None
+                    failures = [{"generation_error": str(exc)}]
+            source_artifact = store.put(source.encode()) if source else None
+            prompt_artifact = store.put(prompt_text.encode())
+            if source is not None:
+                source_path.write_text(source)
+                built = subprocess.run(["cc", "-std=c11", "-O2", "-fPIC", "-shared",
+                                        "-Wall", "-Wextra", "-o", str(library_path),
+                                        str(source_path)], capture_output=True, text=True,
+                                       timeout=30, check=False)
+                failures = []
+                if built.returncode:
+                    failures = [{"compiler_error": built.stderr[-2000:]}]
+                else:
+                    for example in shared_examples:
+                        check = runner.run_case(library_path, {
+                            "id": example["name"], "kind": "shared",
+                            "input": example["input"],
+                            "expected": example["expected_output"]},
+                            execution_mode="candidate")
+                        if check["outcome"] != "agreement":
+                            failures.append({"input": example["input"],
+                                             "expected": example["expected_output"],
+                                             "observed": check["observed"],
+                                             "error": check["error"]})
+                previous_source = source
             attempts.append({"prompt_artifact": prompt_artifact,
                              "source_artifact": source_artifact,
-                             "public_failures": len(failures)})
+                             "public_failures": len(failures or []),
+                             "workbench": workbench_record})
             if not failures:
                 break
             if revision == args.max_revisions:
                 raise RuntimeError("candidate did not satisfy public examples: " +
                                    json.dumps({"attempts": attempts,
-                                               "failures": failures[:5]}))
+                                               "failures": (failures or [])[:5]}))
             prompt = ("Revise this C11 implementation using only the public spec and "
                       "its public examples. Return the complete corrected C translation "
                       "unit.\nPublic spec: " + json.dumps(spec, sort_keys=True) +
-                      "\nPrevious C source:\n" + source +
-                      "\nFailed public checks:\n" + json.dumps(failures[:20]))
+                      "\nPrevious C source:\n" + (previous_source or "") +
+                      "\nFailed public checks:\n" + json.dumps((failures or [])[:20]))
         results = []
         for item in held_out:
             original = {**json.loads(store.get(item["artifact"])),

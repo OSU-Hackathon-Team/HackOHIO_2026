@@ -118,6 +118,19 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   exposed it. Numeric claims now need explicit operand-width and boundary checks in
   the prompts, and probe-link rationales still require analyst review. See the root
   `README.md` for commands.
+- **Cleanroom implementation workbench (opt-in, `decomp-dev`):** `engine/broker.py`,
+  `engine/workbench.py`, `scripts/cleanroom_broker_client.py`, and `implementer.Dockerfile` implement
+  a public-only implementation container with full bash and a public self-test harness. The
+  implementer can ask the broker behavior questions; the broker refuses source/decompilation/
+  disassembly/address requests and deterministic disclosure filtering blocks code-shaped or
+  verbatim private lines. Every exchange is audited outside the workspace. The driver rechecks
+  public cases, rejects a modified harness, and runs held-out cases only after the container
+  exits. The container mounts only the public workspace, broker socket, OpenCode binary, and
+  optional auth file. Use `scripts/run_functional_c_e2e.py --workbench`; the existing no-tools
+  prompt loop remains the fallback. `tests/test_cleanroom.py` covers disclosure, segregation,
+  self-testing, and mount isolation; `scripts/check_cleanroom.py --container` runs the same
+  checks plus a scripted real-container session. Live model-driven workbench acceptance remains
+  open.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
   `trace_application_feature` and `binary_session` (live probe; catalog and samples in `fixtures/rea/`),

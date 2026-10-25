@@ -14,23 +14,28 @@ import json
 import os
 import re
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 from engine.analysis.ghidra import GhidraAnalysis
 from engine.artifacts import LocalArtifactStore
 from engine.behavior import is_observable_claim
+from engine.broker import Broker, model_responder
 from engine.expansion import select_evidence
-from engine.model_runtime import invoke_opencode
+from engine.model_runtime import add_aws_env, invoke_opencode
 from engine.observations import (derive_effects, derive_invariants, describe,
                                  describe_argument_effects, describe_effects,
                                  derive_argument_effects)
 from engine.worker import parse_answer
 from engine.watchdog import Watchdog
 from engine.validation.probes import NativeProbeRunner
+from engine.workbench import (build_image, build_prompt, materialize_workspace,
+                             run_workbench, triage_failures)
 from model_config import get_model
 from scripts.run_native_c_candidate import extract_c
 
@@ -220,6 +225,21 @@ def main() -> None:
                         help="cases shown to the models; every context is covered first")
     parser.add_argument("--restart", action="store_true",
                         help="retry this exact run instead of replaying its checkpoint")
+    parser.add_argument("--workbench", action="store_true",
+                        help="run the implementer in a public-only container with bash and self-tests")
+    parser.add_argument("--workbench-image", default="splice-cleanroom-implementer:local")
+    parser.add_argument("--workbench-runtime", default="podman",
+                        help="container runtime for the cleanroom workbench")
+    parser.add_argument("--workbench-timeout", type=int, default=900)
+    parser.add_argument("--workbench-network", default=None,
+                        help="optional container network mode; model access needs one")
+    parser.add_argument("--build-workbench-image", action="store_true",
+                        help="build the implementer image before starting")
+    parser.add_argument("--broker-model",
+                        help="override the cleanroom_broker role model")
+    parser.add_argument("--broker-quota", type=int, default=48)
+    parser.add_argument("--auth-file", type=Path,
+                        default=Path.home() / ".local/share/opencode/auth.json")
     parser.add_argument("--opencode", type=Path,
                         default=Path.home() / ".opencode/bin/opencode")
     parser.add_argument("--headless", type=Path,
@@ -230,6 +250,12 @@ def main() -> None:
     if args.plateau_attempts < 1 or not 0 <= args.max_spec_revisions <= 4:
         parser.error("--plateau-attempts must be positive and --max-spec-revisions "
                      "between zero and four")
+    if args.workbench_timeout < 1:
+        parser.error("--workbench-timeout must be positive")
+    if args.broker_quota < 0:
+        parser.error("--broker-quota must not be negative")
+    if args.workbench and not args.opencode.is_file():
+        parser.error(f"OpenCode executable not found: {args.opencode}")
     store = LocalArtifactStore(args.state / "artifacts")
     public = _cases(store, args.public_report_artifact)
     full = _cases(store, args.full_report_artifact)
@@ -310,6 +336,13 @@ def main() -> None:
     watchdog = Watchdog(engine, args.opencode)
     spec_model = get_model("spec_writer", explicit=args.spec_model)
     implementation_model = get_model("engine_writer", explicit=args.implementation_model)
+    broker = None
+    workbench_env = {key: os.environ[key] for key in
+                     ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+                      "AWS_REGION", "AWS_DEFAULT_REGION") if key in os.environ}
+    if args.workbench and not workbench_env.get("AWS_ACCESS_KEY_ID"):
+        add_aws_env(workbench_env, ROOT / ".env")
+    workbench_env.pop("AWS_PROFILE", None)
     with TemporaryDirectory(prefix="splice-functional-c-") as temporary:
         folder = Path(temporary)
         def spec_prompt(note: str = "") -> str:
@@ -440,6 +473,38 @@ def main() -> None:
         progress["spec_artifact"] = spec_artifact
         save()
 
+        if args.workbench:
+            if args.build_workbench_image:
+                build_image(runtime=args.workbench_runtime, image=args.workbench_image,
+                            dockerfile=ROOT / "implementer.Dockerfile", context=ROOT)
+            public_context = json.dumps({"interface": args.interface,
+                                         "contract": interface["contract"],
+                                         "spec": spec, "public_examples": examples},
+                                        sort_keys=True)
+            private_parts, protected = [], []
+            for item in scope.get("included", []):
+                try:
+                    evidence = engine.function(manifest, item["entry"])
+                except Exception:
+                    continue
+                decompilation = evidence.get("decompilation") or ""
+                if decompilation:
+                    private_parts.append(
+                        f"{item.get('name') or item['entry']}:\n{decompilation}")
+                    protected.append(decompilation)
+            broker_folder = args.state / "cleanroom" / run_key / "broker"
+            broker_folder.mkdir(parents=True, exist_ok=True)
+            responder = model_responder(
+                opencode=args.opencode, env_file=ROOT / ".env",
+                model=get_model("cleanroom_broker", explicit=args.broker_model),
+                folder=broker_folder, timeout=args.workbench_timeout)
+            broker = Broker(
+                responder, public_context=public_context,
+                private_context="\n\n".join(private_parts)[:120000],
+                protected_texts=protected, quota=args.broker_quota,
+                store=store, session_id=run_key,
+                allowed_calls={*names, *operation_names.values()})
+
         def implementation_prompt(active_spec: dict) -> str:
             return (
                 "Implement this provisional functional specification in portable C11. The "
@@ -517,6 +582,7 @@ def main() -> None:
                 save()
         supervision = progress.setdefault("supervision", [])
         revisions = []
+        broker_note = None
         previous_watchdog = None
         stale, spec_revisions = 0, 0
         for number in range(args.max_revisions + 1):
@@ -563,23 +629,78 @@ def main() -> None:
             prompt = base or base_prompt
             focused_prompt = prompt + ("\nSupervisor focus (verify against public cases): " +
                                        advice["guidance"] if applied else "")
-            try:
-                reply = invoke_opencode(
-                    args.opencode, turn, focused_prompt, model=active_model, timeout=180,
-                    env_file=Path(__file__).resolve().parents[1] / ".env",
-                    agent_name="functional-c-implementer",
-                    agent_instruction="Return portable C11 code only. Use no tools.")
-                source = extract_c(reply["text"])
-                failures = check(source)
-            except Exception as exc:
-                source = None
-                failures = [{"generation_error": str(exc)}]
+            if broker_note:
+                focused_prompt += ("\nBroker explanation of an earlier failure (verify it against "
+                                   "the public cases before using it):\n" + broker_note)
+            workbench_record = None
+            prompt_text = focused_prompt
+            if args.workbench:
+                workspace = args.state / "cleanroom" / run_key / f"attempt-{number + 1}"
+                try:
+                    shutil.rmtree(workspace, ignore_errors=True)
+                    seeded = store.get(best["source_artifact"]).decode() if best else None
+                    materialized = materialize_workspace(
+                        workspace,
+                        spec={"schema": 2, "interface": args.interface, "spec": spec,
+                              "public_examples": examples},
+                        cases=[{"case_id": row["case_id"], "input": row["input"],
+                                "observed": row["observed"]} for row in public],
+                        contract=interface["contract"],
+                        adapter=Path(__file__).with_name(interface["adapter"]),
+                        broker_client=ROOT / "scripts" / "cleanroom_broker_client.py",
+                        candidate=seeded)
+                    prompt_text = focused_prompt + "\n\n" + build_prompt(
+                        contract=interface["contract"], case_count=len(public))
+                    (workspace / "prompt.txt").write_text(prompt_text)
+                    run = run_workbench(
+                        workspace=workspace, broker=broker,
+                        image=args.workbench_image, opencode=args.opencode,
+                        model=active_model, auth_file=args.auth_file,
+                        timeout=args.workbench_timeout,
+                        runtime=args.workbench_runtime, env=workbench_env,
+                        network=args.workbench_network,
+                        private_markers=[next(iter(hashes)), args.full_report_artifact,
+                                         args.public_report_artifact,
+                                         args.scope_artifact, str(args.state.resolve())],
+                        immutable=materialized["files"],
+                        audit_path=workspace.parent / "broker-audit.jsonl",
+                        container_name=f"splice-cleanroom-{run_key[:8]}-{number + 1}")
+                    source = run["candidate_source"]
+                    failures = [] if source is None else check(source)
+                    if not run["immutable"]["ok"]:
+                        source = None
+                        failures = [{"tampering": run["immutable"]}]
+                    elif source is None:
+                        failures = [{"generation_error":
+                                    f"workbench {run['status']}: " +
+                                    (run.get("candidate_error") or "no candidate.c")}]
+                    workbench_record = {key: run[key] for key in
+                                        ("status", "exit_code", "timed_out",
+                                         "immutable", "broker", "elapsed_seconds")}
+                except Exception as exc:
+                    source = None
+                    failures = [{"generation_error": str(exc)}]
+                    workbench_record = {"status": "error", "error": str(exc)}
+            else:
+                try:
+                    reply = invoke_opencode(
+                        args.opencode, turn, focused_prompt, model=active_model, timeout=180,
+                        env_file=ROOT / ".env",
+                        agent_name="functional-c-implementer",
+                        agent_instruction="Return portable C11 code only. Use no tools.")
+                    source = extract_c(reply["text"])
+                    failures = check(source)
+                except Exception as exc:
+                    source = None
+                    failures = [{"generation_error": str(exc)}]
             revisions.append({"number": number + 1,
-                              "prompt_artifact": store.put(focused_prompt.encode()),
+                              "prompt_artifact": store.put(
+                                  (prompt_text if args.workbench else focused_prompt).encode()),
                               "watchdog_artifact": advice_record["artifact"],
                               "model": active_model,
                               "source_artifact": store.put(source.encode()) if source else None,
-                              "public_failures": len(failures)})
+                              "public_failures": len(failures),
+                              "workbench": workbench_record})
             before = best["public_failures"] if best else None
             kept = bool(source and (best is None or len(failures) < best["public_failures"]))
             if kept:
@@ -598,6 +719,10 @@ def main() -> None:
             save()
             if not failures:
                 break
+            if args.workbench:
+                broker_note = triage_failures(broker, failures)
+                revisions[-1]["broker_answer"] = broker_note
+                save()
             stale = 0 if kept else stale + 1
             if stale >= args.plateau_attempts and spec_revisions < args.max_spec_revisions:
                 # The implementation stopped improving: the rules, not the code,
