@@ -237,11 +237,19 @@ def main() -> None:
     analyze.add_argument("--state", type=Path, default=ENGINE_STATE)
     analyze.add_argument("--headless", type=Path,
                          default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+    analyze.add_argument("--timeout", type=int, default=900,
+                         help="Ghidra timeout in seconds per phase")
+    analyze.add_argument("--analysis-profile", choices=("full", "light"), default="full",
+                         help="Ghidra analysis profile; light skips costly analyzers")
     project_analyze = sub.add_parser("project-analyze", help="import and index a native module set")
     project_analyze.add_argument("--request", type=Path, required=True)
     project_analyze.add_argument("--state", type=Path, default=ENGINE_STATE)
     project_analyze.add_argument("--headless", type=Path,
                                  default=Path(os.environ.get("GHIDRA_HEADLESS", "/opt/ghidra/support/analyzeHeadless")))
+    project_analyze.add_argument("--timeout", type=int, default=900,
+                                 help="Ghidra timeout in seconds per phase")
+    project_analyze.add_argument("--analysis-profile", choices=("full", "light"), default="full",
+                                 help="Ghidra analysis profile; light skips costly analyzers")
     project_export = sub.add_parser("project-export-all", help="export every indexed project function")
     project_export.add_argument("--project-artifact", required=True)
     project_export.add_argument("--state", type=Path, default=ENGINE_STATE)
@@ -498,11 +506,13 @@ def main() -> None:
     elif args.command == "analyze":
         if not args.binary.is_file():
             raise FileNotFoundError(f"Binary file not found: '{args.binary}'")
-        engine = GhidraAnalysis(args.state, check_headless(args.headless))
+        engine = GhidraAnalysis(args.state, check_headless(args.headless),
+                                timeout=args.timeout, analysis_profile=args.analysis_profile)
         manifest = engine.analyze(args.binary)
         print(json.dumps(manifest, indent=2))
     elif args.command == "project-analyze":
-        engine = GhidraAnalysis(args.state, args.headless)
+        engine = GhidraAnalysis(args.state, args.headless,
+                                timeout=args.timeout, analysis_profile=args.analysis_profile)
         print(json.dumps(analyze_project(engine, args.request), indent=2))
     elif args.command == "project-export-all":
         engine = GhidraAnalysis(args.state, args.headless)
