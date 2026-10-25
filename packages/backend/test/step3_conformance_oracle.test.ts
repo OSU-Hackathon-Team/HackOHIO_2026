@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { RawEvidence, type FeatureSpec, type RawEvidence as RawEvidenceType } from "@splice/contracts";
+import { FeatureSpec, RawEvidence, type RawEvidence as RawEvidenceType } from "@splice/contracts";
 import {
   evaluateEngineConformance,
   checkCleanRoomIndependence,
@@ -276,10 +276,10 @@ describe("Step 3: Conformance Oracle & Behavioral Checks", () => {
   });
 
   test("clean-room check safely treats absent or malformed evidence snippets as unavailable", async () => {
-    const malformedEvidence = { ...spec.provenance, snippets: undefined } as unknown as FeatureSpec["provenance"];
+    const malformedEvidence = { ...spec.provenance, snippets: undefined };
     assert.equal(RawEvidence.safeParse({ ...spec.provenance, snippets: undefined }).success, false);
     assert.equal(RawEvidence.safeParse({ ...spec.provenance, snippets: [{ code: 42 }] }).success, false);
-    const malformedSpec = { ...spec, provenance: malformedEvidence } as FeatureSpec;
+    const malformedSpec = { ...spec, provenance: malformedEvidence } as unknown as FeatureSpec;
 
     for (const snippets of [undefined, null, [{ code: 42 }]]) {
       const result = checkCleanRoomIndependence(GOOD_ENGINE, snippets);
