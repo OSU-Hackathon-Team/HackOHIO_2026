@@ -68,7 +68,11 @@ def review_prompt(draft: dict, evidence: dict, scope: dict | None = None) -> str
                           if scope else [])
     return (
         "Independently review these behavior claims against raw native evidence. The "
-        "decompiler prototype is inferred; do not treat an unlocked type as confirmed. Challenge "
+        "review must recover caller-visible behavior even when the binary uses C++ class "
+        "machinery. Instruction counts, callee lists, vtable writes, and RTTI are not "
+        "substitutes for input, output, and state semantics; report omitted semantics in "
+        "missing_behavior when the evidence supports them. "
+        "The decompiler prototype is inferred; do not treat an unlocked type as confirmed. Challenge "
         "plausible but wrong interpretations. An address citation proves location only. Do not "
         "assume the draft's pseudocode is correct. For each claim, choose supported_static, "
         "contradicted, or uncertain. Explain the exact observed instruction/control-flow basis, "
