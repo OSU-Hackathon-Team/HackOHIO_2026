@@ -35,7 +35,7 @@ def inventory(state: Path) -> dict:
             if key == "dossiers":
                 item["blocker_count"] = len(value.get("blockers", []))
             result[key].append(item)
-    for path in sorted((state / "specifications").glob("**/writer-*.json")):
+    for path in sorted((state / "specifications").glob("**/*writer-*.json")):
         pointer = json.loads(path.read_text())
         artifact = pointer.get("artifact")
         if not artifact:

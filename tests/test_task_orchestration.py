@@ -55,6 +55,8 @@ class TaskOrchestrationTest(unittest.TestCase):
             rows = inventory(state)["dossiers"]
             self.assertEqual(rows[0]["artifact"], dossier)
             self.assertEqual(rows[0]["blocker_count"], 1)
+            spec = ready_spec(state)
+            self.assertEqual(inventory(state)["specs"][0]["artifact"], spec)
 
     def test_task_preparation_hashes_inputs_and_reports_tools(self) -> None:
         with TemporaryDirectory() as folder:
