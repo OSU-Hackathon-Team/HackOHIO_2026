@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import heapq
 import json
 import os
 from pathlib import Path
+import subprocess
 
+from engine.analysis.elfinfo import build_id, debug_file_for
 from engine.analysis.ghidra import GhidraAnalysis
 from engine.models import ScopeRequest
 
@@ -17,6 +20,25 @@ def canonical(value: object) -> bytes:
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@functools.lru_cache(maxsize=8)
+def _nm_symbols(debug_path: str, base: int) -> tuple[tuple[int, str], ...]:
+    """Function symbols from a debug file; cached because resolve_seed runs once per seed."""
+    try:
+        out = subprocess.check_output(["nm", "-n", debug_path], text=True,
+                                      stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.CalledProcessError):
+        return ()
+    symbols: dict[int, str] = {}
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[1] in ("T", "t", "W", "w"):
+            sym_addr = int(parts[0], 16)
+            symbols[sym_addr] = parts[2]
+            if base:
+                symbols[base + sym_addr] = parts[2]
+    return tuple(symbols.items())
 
 
 def load_companion_debug_symbols(index: dict, campaign: str | None = None) -> dict[int, str]:
@@ -43,31 +65,23 @@ def load_companion_debug_symbols(index: dict, campaign: str | None = None) -> di
                         candidate_paths.append(Path(b))
                 except Exception:
                     pass
+    base = int(index.get("image_base", "0"), 16)
     for p in candidate_paths:
-        for debug_path in (p.with_suffix(".debug"), p.parent / (p.name + ".debug"),
-                           p.with_name(p.stem + ".debug")):
+        debug_paths = [p.with_suffix(".debug"), p.parent / (p.name + ".debug"),
+                       p.with_name(p.stem + ".debug")]
+        # Distribution debug packages (e.g. libreoffice-calc-dbgsym) install by GNU build-id.
+        if p.is_file():
+            try:
+                by_build_id = debug_file_for(build_id(p.read_bytes()))
+            except OSError:
+                by_build_id = None
+            if by_build_id is not None:
+                debug_paths.append(by_build_id)
+        for debug_path in debug_paths:
             if debug_path.is_file():
-                try:
-                    import subprocess
-                    out = subprocess.check_output(
-                        ["nm", "-n", str(debug_path)],
-                        text=True,
-                        stderr=subprocess.DEVNULL
-                    )
-                    base = int(index.get("image_base", "0"), 16)
-                    symbols: dict[int, str] = {}
-                    for line in out.splitlines():
-                        parts = line.split()
-                        if len(parts) >= 3 and parts[1] in ("T", "t", "W", "w"):
-                            sym_addr = int(parts[0], 16)
-                            sym_name = parts[2]
-                            symbols[sym_addr] = sym_name
-                            if base:
-                                symbols[base + sym_addr] = sym_name
-                    if symbols:
-                        return symbols
-                except Exception:
-                    pass
+                symbols = _nm_symbols(str(debug_path), base)
+                if symbols:
+                    return dict(symbols)
     return {}
 
 

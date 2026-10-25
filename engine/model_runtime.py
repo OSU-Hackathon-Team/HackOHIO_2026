@@ -75,8 +75,10 @@ def add_aws_env(env: dict[str, str], env_file: Path) -> None:
 
 def invoke_opencode(opencode: Path, folder: Path, prompt: str, *, model: str,
                     timeout: int, env_file: Path, agent_name: str,
-                    agent_instruction: str) -> dict:
-    if model.startswith("amazon-bedrock/"):
+                    agent_instruction: str, mcp: dict | None = None,
+                    allow_tools: tuple[str, ...] = ()) -> dict:
+    # Direct Converse has no tools; tool-using agents (the investigator) need OpenCode.
+    if model.startswith("amazon-bedrock/") and not mcp and not allow_tools:
         return _invoke_bedrock(folder, prompt, model=model, timeout=timeout,
                                env_file=env_file, agent_instruction=agent_instruction)
     version = subprocess.run([str(opencode), "--version"], capture_output=True,
@@ -101,18 +103,32 @@ def invoke_opencode(opencode: Path, folder: Path, prompt: str, *, model: str,
         prompt = (agent_instruction + "\nDo not use any tools, files, shell commands, "
                   "or network searches. Answer from the supplied prompt only.\n" + prompt)
     else:
+        # Everything is denied unless named in allow_tools (e.g. read-only MCP tools).
+        permission = {"*": "deny", **{name: "allow" for name in allow_tools}}
         config = {"$schema": "https://opencode.ai/config.json", "model": model,
-                  "permission": {"*": "deny"},
+                  "small_model": model, "permission": permission,
                   "agent": {agent_name: {"mode": "primary", "model": model,
                                         "prompt": agent_instruction,
-                                        "permission": {"*": "deny"}}}}
+                                        "permission": permission}}}
+        provider, _, model_id = model.partition("/")
+        if provider == "amazon-bedrock" and model_id.startswith("qwen."):
+            # The configured Bedrock model can be valid even when OpenCode's catalog omits it.
+            # Conservative client budgets keep these evidence-only calls bounded.
+            config["provider"] = {provider: {"models": {model_id: {
+                "name": model_id, "id": model_id, "status": "active",
+                "provider": {"npm": "@ai-sdk/amazon-bedrock"},
+                "limit": {"context": 32768, "output": 4000},
+            }}}}
+        if mcp:
+            config["mcp"] = mcp
         config_path = folder / "opencode.json"
         config_path.write_text(json.dumps(config, indent=2) + "\n")
         if not env.get("AWS_PROFILE"):
             add_aws_env(env, env_file)
         env["OPENCODE_CONFIG"] = str(config_path)
-        command.extend(["--agent", agent_name, "--model", model])
-    env.update(OPENCODE_DISABLE_AUTOUPDATE="true",
+        command.extend(["--print-logs", "--title", agent_name, "--agent", agent_name,
+                        "--model", model])
+    env.update(PWD=str(folder.resolve()), OPENCODE_DISABLE_AUTOUPDATE="true",
                OPENCODE_DISABLE_EXTERNAL_SKILLS="true")
     command.extend(["--format", "json", prompt])
     with events_path.open("w") as events, stderr_path.open("w") as stderr:
