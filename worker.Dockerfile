@@ -1,5 +1,5 @@
 FROM docker.io/library/node:22.19.0-bookworm-slim AS rea-node
-FROM docker.io/library/eclipse-temurin:21-jdk-noble
+FROM docker.io/library/eclipse-temurin:25-jdk-noble
 
 ARG GHIDRA_VERSION=12.1.3
 ARG GHIDRA_DATE=20260817
