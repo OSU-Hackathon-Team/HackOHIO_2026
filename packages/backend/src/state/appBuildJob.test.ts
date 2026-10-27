@@ -18,7 +18,7 @@ test("migration preserves existing app revisions and records one revision per bu
 
   const upgraded = openStateStore(root);
   try {
-    assert.deepEqual(upgraded.appliedMigrations(), [1, 2, 3, 4, 5]);
+    assert.deepEqual(upgraded.appliedMigrations(), MIGRATIONS.map((migration) => migration.version));
     assert.equal(upgraded.getApp(appId, 0)?.build_job_id, null);
     assert.equal(upgraded.activeApp(appId)?.revision, 0, "migration selects the latest verified stored revision");
     const record = {

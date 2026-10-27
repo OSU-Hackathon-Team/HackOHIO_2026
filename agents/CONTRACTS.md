@@ -882,3 +882,9 @@ Transcribe Streaming adapter is configured. `TranscriptionEvent` is a POST-SSE s
 `segment` updates keyed by stable index, terminal `done` and typed `error`. This is a
 downstream provider substitution, not recovered Notion transcription behavior.
 The opt-in provider requires a separate workspace access token before accepting billable uploads.
+
+**Durable transcription state.** `TranscriptionSegment` gives each ordered partial/final segment
+an index, millisecond bounds and text. `TranscriptionSession` pins the hash-addressed audio,
+provider, sample rate, language, job ID, attempt, status and latest segments. A restarted
+provider attempt replaces the preceding attempt's segments; stale attempts cannot update it.
+The session record is independent of an SSE observer and is stored by SQLite migration 6.

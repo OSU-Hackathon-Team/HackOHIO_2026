@@ -102,12 +102,37 @@ FROM apps WHERE status = 'verified' GROUP BY app_id;
 `.trim(),
 };
 
+/** Persist provider work separately from a browser's SSE connection or a notebook preview. */
+export const TRANSCRIPTION_SESSIONS_MIGRATION: Migration = {
+  version: 6,
+  name: "transcription_sessions",
+  sql: `
+CREATE TABLE IF NOT EXISTS transcription_sessions (
+  session_id TEXT PRIMARY KEY,
+  job_id TEXT UNIQUE,
+  provider TEXT NOT NULL,
+  audio_id TEXT NOT NULL,
+  audio_size INTEGER NOT NULL CHECK (audio_size > 0),
+  sample_rate_hz INTEGER NOT NULL CHECK (sample_rate_hz BETWEEN 8000 AND 48000),
+  language TEXT,
+  status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
+  attempt INTEGER NOT NULL DEFAULT 0 CHECK (attempt >= 0),
+  segments TEXT NOT NULL DEFAULT '[]',
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_transcription_sessions_status ON transcription_sessions (status, updated_at);
+`.trim(),
+};
+
 export const MIGRATIONS: readonly Migration[] = Object.freeze([
   CORE_MIGRATION,
   INDEX_MIGRATION,
   PROCESSED_EVENTS_MIGRATION,
   APP_BUILD_JOB_MIGRATION,
   ACTIVE_APP_REVISION_MIGRATION,
+  TRANSCRIPTION_SESSIONS_MIGRATION,
 ]);
 
 export type MigrationErrorCode =

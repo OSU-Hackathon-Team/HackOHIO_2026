@@ -584,4 +584,30 @@ export const TranscriptionEvent = z.discriminatedUnion("type", [
 ]);
 export type TranscriptionEvent = z.infer<typeof TranscriptionEvent>;
 
+/** Durable status of one external transcription request, including its latest ordered segments. */
+export const TranscriptionSegment = z.object({
+  index: z.number().int().nonnegative(),
+  start_ms: z.number().int().nonnegative(),
+  end_ms: z.number().int().nonnegative(),
+  text: z.string().max(10_000),
+  final: z.boolean(),
+}).strict();
+export type TranscriptionSegment = z.infer<typeof TranscriptionSegment>;
+
+export const TranscriptionSession = z.object({
+  session_id: z.string().regex(/^tr_[a-f0-9]{32}$/),
+  job_id: z.string().regex(/^job_[a-f0-9]{32}$/).nullable(),
+  provider: z.literal("aws_transcribe_streaming"),
+  audio: z.object({ id: Hash, size: z.number().int().positive() }).strict(),
+  sample_rate_hz: z.number().int().min(8_000).max(48_000),
+  language: z.string().nullable(),
+  status: z.enum(["queued", "running", "succeeded", "failed", "cancelled"]),
+  attempt: z.number().int().nonnegative(),
+  segments: z.array(TranscriptionSegment).max(5_000),
+  error: z.string().nullable(),
+  created_at: z.string().datetime({ offset: true }),
+  updated_at: z.string().datetime({ offset: true }),
+}).strict();
+export type TranscriptionSession = z.infer<typeof TranscriptionSession>;
+
 export const CompositionRequest = z.object({ plan: CompositionPlan }).strict();
