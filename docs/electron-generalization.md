@@ -102,14 +102,22 @@ list, tools and MCP servers instead of reusing a background service started by a
    run converges. The final held-out partition is evaluated once, after convergence, and its
    failures are never fed back.
 
-Before a specification is accepted, each channel's case is replayed under a second host
-configuration (a different run directory, window bounds and display size). A channel whose result
-changes there answers from the host or from its own run rather than from data the feature contract
-exposes — the mock's window bounds, a path outside the storage roots, its own clock or
-randomness — so no feature module can reproduce it: it is reported as a host-dependent exclusion
-(`spec.host_dependent_exclusions`, and `readiness.excluded` with `source: "host-variation"`) and
-keeps the run from claiming whole-app readiness. Without this check a mock's own window bounds
-would be verified as if they were the application's behavior.
+Every observed case is observed **twice**, the second time in a different run directory and under
+a different host configuration (other window bounds and display size). An answer that changes
+between the two observations is not the application's behavior but the run's own state — the mock's
+window bounds, a path outside the storage roots, a random identifier the original minted, its own
+clock — and no feature module could reproduce it from the contract:
+
+- the case is dropped, never graded, and is listed with its shape in `spec.unstable_cases`;
+- a channel that keeps no reproducible case at all is excluded, reported in
+  `spec.unreproducible_channel_exclusions` and `readiness.excluded` with `source: "host-variation"`,
+  and removed from the contract so the assembled project does not expect a module for it;
+- either way the run cannot claim whole-app readiness without saying so.
+
+Without this check a mock's own window bounds, or the original's random identifier, would be
+verified as if they were the application's behavior. The check costs one extra observation per
+generated case and covers every case, not a sample of them; two draws can still agree on a value
+that is unstable only more rarely than that.
 
 ## Reconstructing a subsystem
 
@@ -149,7 +157,8 @@ Feedback is bounded and auditable:
 - `scope`: the subsystem this run covered, when `--only` was used (`label`, `patterns`, `channels`,
   `out_of_scope`), and `null` for a whole-application run.
 - `spec`: specification SHA-256, channels, declared scope, exclusions (with their `source`:
-  `specification`, `host-variation` or `run-scope`), blockers, unresolved items.
+  `specification`, `host-variation` or `run-scope`), the cases dropped as unstable or as calling a
+  channel the run does not reconstruct, blockers and unresolved items.
 - `partitions.public|repair|final`: cases, passed, coverage per channel and remaining gaps.
 - `observations`: total generated cases, usable expectations and every observation that produced
   no usable expectation. Unusable original observations are readiness blockers, never silent.
@@ -169,11 +178,13 @@ its declared scope (`readiness.ready`) but never whole-app ready (`readiness.who
 | `ELECTRON_STATE_ROOT` | default parent for run state when `--state` is absent (use a large disk) |
 | `ELECTRON_AGENT_CONTEXT` / `ELECTRON_AGENT_OUTPUT` | model context/output limits (defaults 196608 / 16384) |
 | `ELECTRON_CASES_PER_CHANNEL` | cap on generated argument/fixture cases per channel (default 16) |
+
 | `ELECTRON_NO_SANDBOX=1` | adds `--no-sandbox` to `electron:smoke` for containers without a SUID sandbox |
 | `OPENCODE_BIN` | OpenCode binary to run (default `opencode`) |
 
 The readiness claim is still bounded: generated cases are samples, not equivalence proofs for
-arbitrary input. The specification agent decides what to observe, so behavior it never reached is
+arbitrary input, and reproducibility is decided by two observations — an answer that is unstable
+only more rarely than that is compared against the original's own run state. The specification agent decides what to observe, so behavior it never reached is
 absent from both the specification and the verdict. Only main-process IPC, persisted files and
 error results are compared; renderer layout, menus, tray, updater and other platform effects are
 outside the verified scope. The renderer and preload are generated from the specification.

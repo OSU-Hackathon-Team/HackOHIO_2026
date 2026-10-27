@@ -22,7 +22,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as asar from "@electron/asar";
 import { analyzeElectronArchive } from "./analyze-archive.mjs";
-import { DEFAULT_HOST, VARIANT_HOST, runCase } from "./oracle.mjs";
+import { VARIANT_HOST, runCase } from "./oracle.mjs";
 import { buildCases, comparableShape, compareCase, coverage, coverageGaps, narrowChannels,
   observationFailures, partitionCases, runSuite, usableResults } from "./cases.mjs";
 import { runAgent } from "./agent.mjs";
@@ -75,99 +75,17 @@ async function observe({ cases, appDir, timeout }) {
   return { usable, failures: observationFailures(results), total: results.length };
 }
 
-/*
- * Unreproducible behavior cannot be reimplemented from a specification: the feature-module
- * contract has no window, no display and no way to know the original's random identifiers or
- * clock. Rather than verify a mocked host's own answer, or a random identifier, as if it were the
- * app's, cases are replayed under a second host configuration (a different run directory, window
- * bounds and display) and a channel whose result changes is reported as an exclusion.
- *
- * One case per channel is not enough to find it: a channel can answer stably until a stateful
- * sequence makes the original mint an identifier (Obsidian's vault registry lists a random vault
- * id only after a vault is opened). A few shape-diverse cases per channel are checked, and the
- * report says how many were, because this — like the rest of the evaluation — is a sample.
- */
-const HOST_CHECK_PER_CHANNEL = Number(process.env.ELECTRON_HOST_CHECK_CASES ?? 4);
-
-function hostCheckRank(testCase) {
-  if (testCase.shape === "base") return 0;
-  if (testCase.shape === "sequence") return 1;
-  if (testCase.shape === "repeat") return 2;
-  return 3;
-}
-
-function hostCheckSample(cases) {
-  const byChannel = new Map();
-  for (const testCase of cases) {
-    const list = byChannel.get(testCase.channel) ?? [];
-    list.push(testCase);
-    byChannel.set(testCase.channel, list);
-  }
-  const sample = [];
-  for (const list of byChannel.values())
-    sample.push(...list.map((testCase, index) => ({ testCase, index }))
-      .sort((first, second) => hostCheckRank(first.testCase) - hostCheckRank(second.testCase) ||
-        first.index - second.index)
-      .slice(0, HOST_CHECK_PER_CHANNEL).map(item => item.testCase));
-  return sample;
-}
-
-async function hostDependentChannels({ cases, appDir, timeout, concurrency = 4 }) {
-  const entries = hostCheckSample(cases);
-  const dependent = [];
-  let cursor = 0;
-  async function worker() {
-    while (cursor < entries.length) {
-      const testCase = entries[cursor++];
-      let first, second;
-      try {
-        first = await runCase({ appDir, case: testCase, timeout, host: DEFAULT_HOST });
-        second = await runCase({ appDir, case: testCase, timeout, host: VARIANT_HOST });
-      } catch { continue; /* an unrunnable case says nothing about host dependence */ }
-      const shape = result => JSON.stringify(comparableShape(result));
-      if (shape(first) !== shape(second))
-        dependent.push({ channel: testCase.channel, source: "host-variation", case_shape: testCase.shape,
-          reason: `the ${testCase.shape} case (${testCase.name}) is not reproducible: the observed ` +
-            "result is not stable between two observations of the original " +
-            `(different run directory, window bounds ${DEFAULT_HOST.bounds.width}x${DEFAULT_HOST.bounds.height} ` +
-            `versus ${VARIANT_HOST.bounds.width}x${VARIANT_HOST.bounds.height}, display ` +
-            `${DEFAULT_HOST.display.width}x${DEFAULT_HOST.display.height} versus ` +
-            `${VARIANT_HOST.display.width}x${VARIANT_HOST.display.height}), so it depends on host or ` +
-            "run state — a path outside the storage roots, the invoking window, or its own clock " +
-            "and randomness — that the feature contract does not expose" });
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(concurrency, entries.length) }, worker));
-  /* A channel is excluded once, however many of its sampled cases were unstable. */
-  const byChannel = new Map();
-  for (const item of dependent.sort((a, b) => a.channel.localeCompare(b.channel)))
-    if (!byChannel.has(item.channel)) byChannel.set(item.channel, item);
-  return { excluded: [...byChannel.values()], checked: entries.length };
-}
-
 /* Turn a validated specification into what the driver will actually verify: the channels that can
    be reconstructed, the cases generated for them, and the exclusions that stand in the way of a
-   whole-app claim. */
-async function acceptSpecification({ spec, inventory, appDir, timeout, log }) {
+   whole-app claim. Reproducibility is checked later, once the cases have been observed, because it
+   needs an observation to compare with. */
+function acceptSpecification({ spec, inventory }) {
   const excluded = excludedChannels(spec);
   let required = inventory.filter(entry => !excluded.has(entry.channel));
   if (!required.length)
-    return { excluded, required, built: null, hostDependent: [], contract: spec,
-      hostCheck: { cases: 0, per_channel: HOST_CHECK_PER_CHANNEL }, droppedCases: [] };
+    return { excluded, required, built: null, contract: spec, droppedCases: [] };
   let built = buildCases({ contract: spec, channels: required, seed: "public" });
-  const check = await hostDependentChannels({ cases: built.all, appDir, timeout });
-  const hostDependent = check.excluded;
-  const hostCheck = { cases: check.checked, per_channel: HOST_CHECK_PER_CHANNEL };
   let contract = spec;
-  if (hostDependent.length) {
-    contract = { ...spec, channels: { ...spec.channels },
-      channel_exclusions: [...(spec.channel_exclusions ?? []), ...hostDependent] };
-    for (const item of hostDependent) { delete contract.channels[item.channel]; excluded.set(item.channel, item); }
-    required = inventory.filter(entry => !excluded.has(entry.channel));
-    built = required.length ? buildCases({ contract, channels: required, seed: "public" }) : null;
-    log(`${hostDependent.length} host-dependent channel(s) excluded: ` +
-      hostDependent.map(item => item.channel).join(", "));
-  }
   /* A declared sequence may call a channel this run does not reconstruct — an excluded one, or one
      outside the run's subsystem scope. The candidate cannot register that channel, so the case
      cannot be graded: the original's answer for it would be compared with a missing handler. Such
@@ -191,7 +109,36 @@ async function acceptSpecification({ spec, inventory, appDir, timeout, log }) {
       log(`${dropped.size} case(s) dropped: they call a channel this run does not reconstruct`);
   }
   const droppedCases = [...dropped.values()];
-  return { excluded, required, built, hostDependent, contract, hostCheck, droppedCases };
+  return { excluded, required, built, contract, droppedCases };
+}
+
+/*
+ * Which of the observed cases can be graded at all.
+ *
+ * Each case is observed a second time under a different host configuration (a fresh run directory,
+ * window bounds and display). A case whose comparable shape changes is describing the run, not the
+ * application: the original's own random identifier, a path outside the storage roots, its wall
+ * clock or the mocked window geometry. Those cases are dropped and reported; a channel that keeps
+ * no case at all is reported as an exclusion instead of being verified against its own run state.
+ */
+async function reproducibility({ observed, excluded, appDir, timeout, concurrency = 6 }) {
+  const comparable = item => {
+    /* Excluded channels are not part of the candidate, so they must not appear in the expected
+       channel inventory either. */
+    item.result.channels = item.result.channels.filter(entry => !excluded.has(entry.channel));
+    return JSON.stringify(comparableShape(item.result));
+  };
+  const second = await runSuite({ runCase: args => runCase({ ...args, host: VARIANT_HOST }), appDir,
+    cases: observed.map(item => item.case), timeout, concurrency });
+  const byName = new Map(second.map(item => [item.case.name, item]));
+  const kept = [], unstable = [];
+  for (const item of observed) {
+    const other = byName.get(item.case.name);
+    /* A case the second run could not answer says nothing about instability; it stays. */
+    if (!other || other.error || comparable(item) === comparable(other)) { kept.push(item); continue; }
+    unstable.push({ case: item.case.name, channel: item.case.channel, shape: item.case.shape });
+  }
+  return { kept, unstable };
 }
 
 /** Add this run's subsystem exclusions to the contract that will be verified and assembled. */
@@ -356,8 +303,8 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
   let spec = null;
   let contract = null;
   let hostDependent = [];
-  let hostCheck = null;
   let droppedCases = [];
+  let unstableCases = [];
   let feedback = "";
   let suites = null;
   let observations = null;
@@ -404,28 +351,60 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
     /* The run's scope becomes part of the specification for everything downstream: out-of-scope
        channels are excluded from the expected channel inventory, from case generation and from
        the assembled project, exactly like an exclusion the specification declared. */
-    const accepted = await acceptSpecification({ spec: withScope(declared, scopeExclusions),
-      inventory: requiredInventory, appDir, timeout: caseTimeout, log });
+    const accepted = acceptSpecification({ spec: withScope(declared, scopeExclusions),
+      inventory: requiredInventory });
     if (!accepted.required.length) {
-      feedback = accepted.hostDependent.length
-        ? `Every channel that is not excluded is host-dependent, so nothing is left to reconstruct: ` +
-          `${accepted.hostDependent.map(item => item.channel).join(", ")} answer differently when the ` +
-          "mocked host changes, which no feature module can reproduce."
-        : "Every original channel is excluded, so nothing is left to reconstruct. Exclusions are " +
-          "only for behavior the feature contract cannot express; a channel that reads or writes data can " +
-          "always be specified. Rebuild the fixtures (oracle_find_fixture repairs missing files and fields) " +
-          "and declare the channels you abandoned.";
+      feedback = "Every original channel is excluded, so nothing is left to reconstruct. Exclusions " +
+        "are only for behavior the feature contract cannot express; a channel that reads or writes data " +
+        "can always be specified. Rebuild the fixtures (oracle_find_fixture repairs missing files and " +
+        "fields) and declare the channels you abandoned.";
       continue;
     }
     const { excluded, required, built } = accepted;
     droppedCases = accepted.droppedCases ?? [];
-    const channelNames = required.map(item => item.channel);
-    const observed = [];
+    let channelNames = required.map(item => item.channel);
+    let observed = [];
     const observationProblems = [];
     for (const cases of [built.publicCases, built.repairCases, built.finalCases]) {
       const result = await observe({ cases, appDir, timeout: caseTimeout });
       observed.push(...result.usable);
       observationProblems.push(...result.failures);
+    }
+    /* The second observation of the same cases, in a different run, is what makes an expectation
+       gradable: a value that changes (a random identifier, a path outside the storage roots, the
+       wall clock, the mocked window geometry) is the run's own state, not the application's. */
+    const reproducibilityCheck = await reproducibility({ observed, excluded, appDir,
+      timeout: caseTimeout });
+    unstableCases = reproducibilityCheck.unstable;
+    observed = reproducibilityCheck.kept;
+    const lostChannels = channelNames.filter(channel => !observed.some(item => item.case.channel === channel));
+    for (const channel of lostChannels) {
+      const samples = unstableCases.filter(item => item.channel === channel).map(item => item.case);
+      excluded.set(channel, { channel, source: "host-variation",
+        reason: `every observed case of this channel changes between two observations of the original ` +
+          `(a different run directory, window bounds and display), so none of its answers is ` +
+          `reproducible from the feature contract; unstable cases: ${samples.slice(0, 3).join(", ")}` });
+    }
+    if (lostChannels.length) {
+      /* An excluded channel is not implemented, so it leaves the contract's channel map as well as
+         its cases: the assembled project must not expect a feature module for it. */
+      const channels = { ...accepted.contract.channels };
+      for (const channel of lostChannels) delete channels[channel];
+      contract = { ...accepted.contract, channels,
+        channel_exclusions: [...(accepted.contract.channel_exclusions ?? []),
+          ...lostChannels.map(channel => excluded.get(channel))] };
+      channelNames = channelNames.filter(channel => !lostChannels.includes(channel));
+      log(`${lostChannels.length} channel(s) excluded as unreproducible: ${lostChannels.join(", ")}`);
+    }
+    if (unstableCases.length)
+      log(`${unstableCases.length} case(s) dropped as unreproducible ` +
+        `of ${observed.length + unstableCases.length} observed twice`);
+    if (!channelNames.length) {
+      feedback = "Every channel of this run answers differently between two observations of the " +
+        `original (${observed.length + unstableCases.length} cases), so none of them can be verified ` +
+        "against it: their answers depend on the run (a random identifier, a path outside the storage " +
+        "roots, the wall clock) rather than on data the feature contract exposes.";
+      continue;
     }
     /* Excluded channels are not part of the candidate, so they must not appear in the expected
        channel inventory either. */
@@ -474,13 +453,12 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
       repair: suiteFor(partitioned.repairItems, partitioned.expected.repair),
       final: suiteFor(partitioned.finalItems, partitioned.expected.final) };
     spec = declared;
-    contract = accepted.contract;
-    hostDependent = accepted.hostDependent;
-    hostCheck = accepted.hostCheck;
-    log(`${required.length} required channel(s), ${excluded.size} exclusion(s); ` +
-      `${hostCheck.cases} case(s) checked for reproducibility`);
+    if (!contract) contract = accepted.contract;
+    hostDependent = lostChannels.map(channel => excluded.get(channel));
+    log(`${channelNames.length} required channel(s), ${excluded.size} exclusion(s); ` +
+      `${observed.length} case(s) observed twice`);
     observations = { total: built.all.length, usable: observed.length,
-      failures: observationProblems, host_check: accepted.hostCheck };
+      failures: observationProblems, unstable: unstableCases };
     break;
   }
   if (!spec && suppliedSpec) {
@@ -488,13 +466,30 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
       inventory: requiredInventory, appDir, timeout: caseTimeout, log });
     const { excluded, required, built } = accepted;
     if (!required.length) throw new Error("The supplied specification excludes every channel");
-    const channelNames = required.map(item => item.channel);
-    const observed = [];
+    let channelNames = required.map(item => item.channel);
+    let observed = [];
     const observationProblems = [];
     for (const cases of [built.publicCases, built.repairCases, built.finalCases]) {
       const result = await observe({ cases, appDir, timeout: caseTimeout });
       observed.push(...result.usable);
       observationProblems.push(...result.failures);
+    }
+    const reproducibilityCheck = await reproducibility({ observed, excluded, appDir,
+      timeout: caseTimeout });
+    unstableCases = reproducibilityCheck.unstable;
+    observed = reproducibilityCheck.kept;
+    const lostChannels = channelNames.filter(channel => !observed.some(item => item.case.channel === channel));
+    for (const channel of lostChannels)
+      excluded.set(channel, { channel, source: "host-variation",
+        reason: "every observed case of this channel changes between two observations of the " +
+          "original, so none of its answers is reproducible from the feature contract" });
+    if (lostChannels.length) {
+      const channels = { ...accepted.contract.channels };
+      for (const channel of lostChannels) delete channels[channel];
+      contract = { ...accepted.contract, channels,
+        channel_exclusions: [...(accepted.contract.channel_exclusions ?? []),
+          ...lostChannels.map(channel => excluded.get(channel))] };
+      channelNames = channelNames.filter(channel => !lostChannels.includes(channel));
     }
     const gaps = coverageGaps(observed, channelNames);
     if (gaps.length) throw new Error(`The supplied specification cannot observe the app:\n${gaps.join("\n")}`);
@@ -509,12 +504,11 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
       repair: suiteFor(partitioned.repairItems, partitioned.expected.repair),
       final: suiteFor(partitioned.finalItems, partitioned.expected.final) };
     spec = suppliedSpec;
-    contract = accepted.contract;
-    hostDependent = accepted.hostDependent;
-    hostCheck = accepted.hostCheck;
+    if (!contract) contract = accepted.contract;
+    hostDependent = lostChannels.map(channel => excluded.get(channel));
     droppedCases = accepted.droppedCases ?? [];
     observations = { total: built.all.length, usable: observed.length, failures: observationProblems,
-      host_check: hostCheck };
+      unstable: unstableCases };
   }
   if (!spec) throw new Error(`No usable specification was produced after ${specRounds} round(s).\n${feedback}`);
 
@@ -578,8 +572,8 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
       out_of_scope: outOfScope.map(entry => entry.channel) } : null,
     spec: { sha256: specHash(spec), channels: Object.keys(spec.channels ?? {}),
       channel_exclusions: contract.channel_exclusions ?? [],
-      host_dependent_exclusions: hostDependent,
-      host_check: hostCheck,
+      unreproducible_channel_exclusions: hostDependent,
+      unstable_cases: unstableCases,
       cases_dropped: droppedCases,
       scope: spec.application?.scope ?? [], exclusions: spec.application?.exclusions ?? [],
       blockers: spec.application?.blockers ?? [], unresolved: spec.application?.unresolved ?? [] },
@@ -602,6 +596,8 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
         "specification and therefore from this verdict.",
       "Cases whose calls reach a channel this run does not reconstruct are dropped rather than " +
         "compared, and the report lists them under spec.cases_dropped.",
+      "A case whose answer changes between two observations of the original is dropped as " +
+        "unreproducible rather than graded, and the report lists it under spec.unstable_cases.",
     ],
   };
   const blockers = [];

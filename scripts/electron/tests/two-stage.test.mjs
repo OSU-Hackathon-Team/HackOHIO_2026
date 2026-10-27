@@ -149,8 +149,9 @@ test("a channel whose answer depends on the mocked host is excluded, not claimed
     assert.ok(result.report.partitions.public.coverage["app:version"].cases > 0);
     assert.equal(result.report.partitions.final.coverage["app:version"].distinct, 1);
     assert.ok(result.report.readiness.blockers.every(item => !/app:version/.test(item)));
-    assert.deepEqual(result.report.spec.host_dependent_exclusions.map(item => item.channel), ["window:bounds"]);
-    assert.match(result.report.spec.host_dependent_exclusions[0].reason, /not stable between two observations/);
+    assert.deepEqual(result.report.spec.unreproducible_channel_exclusions.map(item => item.channel),
+      ["window:bounds"]);
+    assert.match(result.report.spec.unreproducible_channel_exclusions[0].reason, /changes between two observations/);
     assert.deepEqual(result.report.readiness.excluded.map(item => item.channel), ["window:bounds"]);
     assert.equal(result.report.readiness.excluded[0].source, "host-variation");
     assert.equal(result.report.readiness.whole_app_ready, false);
@@ -247,15 +248,13 @@ test("a channel that is unstable only in a stateful case is excluded, not verifi
     /* The original mints a random key, so the expectation is its own run state and no
        implementation can match it. One case per channel would have missed it: the unstable
        answer appears only in the declared sequence, so the check samples shapes. */
-    assert.deepEqual(result.report.spec.host_dependent_exclusions.map(item => item.channel),
-      ["registry:list"]);
-    assert.match(result.report.spec.host_dependent_exclusions[0].reason, /sequence case/);
-    assert.ok(result.report.observations.host_check.cases >= 3,
-      "several shape-diverse cases per channel are checked");
+    assert.deepEqual(result.report.spec.unstable_cases.map(item => [item.channel, item.shape]),
+      [["registry:list", "sequence"]]);
+    assert.equal(result.report.spec.unreproducible_channel_exclusions.length, 0,
+      "the channel keeps the cases that are reproducible");
     assert.equal(result.report.readiness.ready, true, JSON.stringify(result.report.readiness.blockers));
-    assert.equal(result.report.readiness.whole_app_ready, false);
-    assert.deepEqual(result.report.readiness.excluded.map(item => [item.channel, item.source]),
-      [["registry:list", "host-variation"]]);
+    const manifest = JSON.parse(await fsp.readFile(path.join(root, "out", "reconstruction.json"), "utf8"));
+    assert.deepEqual(manifest.channels.map(item => item.channel), ["registry:add", "registry:list"]);
   } finally {
     await fsp.rm(root, { recursive: true, force: true });
   }
