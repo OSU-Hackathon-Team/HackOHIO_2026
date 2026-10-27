@@ -6,7 +6,7 @@
 // the gate.
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { HostEffect, OperationSpec } from "@splice/contracts";
 import type {
@@ -78,7 +78,29 @@ export function blobId(bytes: Uint8Array): string {
 }
 
 const BLOB_ID = /^[a-f0-9]{64}$/;
-const TEMP_FILE = /^\.[a-z0-9-]+\.tmp$/;
+const TEMP_FILE = /^\.[a-z0-9-]+\.tmp(?:\.meta)?$/;
+
+async function writeAndSync(file: string, bytes: Uint8Array | string): Promise<void> {
+  const handle = await open(file, "wx", 0o600);
+  try {
+    await handle.writeFile(bytes);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+async function syncDirectory(dir: string): Promise<void> {
+  // Windows does not support opening directories as file handles. The Linux/macOS
+  // path must flush the containing directory before a SQLite row can name the blob.
+  if (process.platform === "win32") return;
+  const handle = await open(dir, "r");
+  try {
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
 
 export interface FsBlobStoreOptions {
   maxBytes?: number;
@@ -114,16 +136,20 @@ export class FsBlobStore implements BlobStore {
     await mkdir(dir, { recursive: true });
 
     const temp = path.join(dir, `.${randomUUID()}.tmp`);
+    const metaTemp = `${temp}.meta`;
     try {
-      await writeFile(temp, bytes, { mode: 0o600 });
+      await syncDirectory(path.dirname(this.root));
+      await syncDirectory(this.root);
+      await writeAndSync(temp, bytes);
       await rename(temp, target);
       if (meta?.contentType) {
-        const metaTemp = `${temp}.meta`;
-        await writeFile(metaTemp, JSON.stringify({ contentType: meta.contentType }), { mode: 0o600 });
+        await writeAndSync(metaTemp, JSON.stringify({ contentType: meta.contentType }));
         await rename(metaTemp, `${target}.meta.json`);
       }
+      await syncDirectory(dir);
     } catch (error) {
       await unlink(temp).catch(() => undefined);
+      await unlink(metaTemp).catch(() => undefined);
       throw new BlobStoreError(
         "blob_write_failed",
         `could not store blob: ${error instanceof Error ? error.message : String(error)}`,

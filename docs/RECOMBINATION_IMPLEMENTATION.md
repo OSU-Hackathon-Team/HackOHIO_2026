@@ -35,7 +35,9 @@ durable transcription job before connecting to SSE. Its latest segments and stat
 the browser reconnects with the workspace key. A simulated provider interruption replays the
 saved audio under the original job ID and replaces old partials. A real AWS stream also finished
 on attempt 2 after the backend process was stopped with a partial segment and restarted using
-the same state directory. Crash timing during SQLite/blob writes remains untested. The notebook
+the same state directory. Blob writes now flush data and metadata before renaming and flush the
+containing directories before returning a reference; abandoned data and metadata temps are
+removed by the store sweep. Crash timing during SQLite/blob writes remains untested. The notebook
 plan now declares an initial meeting document and a provider projection. Each partial/final event
 updates its timestamped, stable-ID transcript array in the same SQLite transaction as the session
 snapshot. A simulated concurrent document edit rejects the later event without overwriting the

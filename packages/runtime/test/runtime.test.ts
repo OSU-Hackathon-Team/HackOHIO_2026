@@ -208,3 +208,21 @@ test("a saved audio blob is rejected if its bytes change before provider replay"
     await assert.rejects(() => blobs.get(ref), (error: { code?: string }) => error.code === "blob_corrupt");
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test("blob store removes abandoned data and metadata temps without touching committed blobs", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "splice-blob-temp-test-"));
+  try {
+    const blobs = new FsBlobStore(root);
+    const ref = await blobs.put(new Uint8Array([1, 2, 3, 4]), { contentType: "audio/L16" });
+    const dir = path.join(root, ref.id.slice(0, 2));
+    const abandoned = ".a0b1c2.tmp";
+    fs.writeFileSync(path.join(dir, abandoned), "partial");
+    fs.writeFileSync(path.join(dir, `${abandoned}.meta`), "partial");
+    assert.deepEqual((await blobs.sweepTemporaryFiles()).sort(), [
+      path.join(ref.id.slice(0, 2), abandoned),
+      path.join(ref.id.slice(0, 2), `${abandoned}.meta`),
+    ].sort());
+    assert.deepEqual(await blobs.get(ref), new Uint8Array([1, 2, 3, 4]));
+    assert.equal(fs.existsSync(path.join(dir, `${ref.id}.meta.json`)), true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
