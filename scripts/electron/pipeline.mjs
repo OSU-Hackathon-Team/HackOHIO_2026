@@ -175,7 +175,7 @@ function failureText(failures, limit = FEEDBACK_PROBLEMS) {
 }
 
 /** Every failing case with its calls, for the agent to read instead of the prompt. */
-function failureReport(checks, limit = 40) {
+function failureReport(checks, limit = 20) {
   const lines = ["# Failing cases", ""];
   for (const [partition, check] of Object.entries(checks)) {
     if (!check) continue;
@@ -184,7 +184,8 @@ function failureReport(checks, limit = 40) {
     for (const item of check.failures.slice(0, limit)) {
       lines.push(`### \`${item.case}\` (${item.channel})`, "");
       lines.push("```json", JSON.stringify(item.calls ?? [], null, 2), "```", "");
-      for (const problem of item.problems ?? []) lines.push("- " + String(problem).replace(/\n/g, "\n  "));
+      for (const problem of (item.problems ?? []).slice(0, 3))
+        lines.push("- " + String(problem).replace(/\n/g, "\n  "));
       lines.push("");
     }
     if (check.failures.length > limit)

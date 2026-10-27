@@ -297,6 +297,13 @@ export function comparableShape(result) {
   };
 }
 
+/* A difference is reported clipped: a real application's default settings file is tens of
+   kilobytes, and a report that pastes it whole is unreadable and cannot be handed to an agent. */
+function clipValue(value, limit = 400) {
+  if (typeof value !== "string") return clipValue(JSON.stringify(value) ?? String(value), limit);
+  return value.length > limit ? `${value.slice(0, limit)}… (${value.length} characters)` : value;
+}
+
 /** Differences that make a candidate fail one case. */
 export function compareCase(expected, actual) {
   const problems = [];
@@ -311,12 +318,12 @@ export function compareCase(expected, actual) {
     const got = actual.outcomes[index] ? normalizeOutcome(actual.outcomes[index]) : null;
     if (!got) return;
     if (JSON.stringify(want) !== JSON.stringify(got))
-      problems.push(`call ${index + 1} differs:\n  original: ${JSON.stringify(want)}\n  candidate: ${JSON.stringify(got)}`);
+      problems.push(`call ${index + 1} differs:\n  original: ${clipValue(want)}\n  candidate: ${clipValue(got)}`);
   });
   const wantFiles = behaviorFiles(expected), gotFiles = behaviorFiles(actual);
   for (const key of new Set([...Object.keys(wantFiles), ...Object.keys(gotFiles)])) {
     if (JSON.stringify(wantFiles[key]) !== JSON.stringify(gotFiles[key]))
-      problems.push(`file ${key} differs:\n  original: ${JSON.stringify(wantFiles[key])}\n  candidate: ${JSON.stringify(gotFiles[key])}`);
+      problems.push(`file ${key} differs:\n  original: ${clipValue(wantFiles[key])}\n  candidate: ${clipValue(gotFiles[key])}`);
   }
   /* Per-call effects catch writes or deletions that a later call undoes or overwrites. */
   const wantEffects = behaviorEffects(expected), gotEffects = behaviorEffects(actual);
@@ -324,7 +331,7 @@ export function compareCase(expected, actual) {
     const got = gotEffects[index];
     if (!got) return;
     if (JSON.stringify(effect.changed) !== JSON.stringify(got.changed))
-      problems.push(`call ${index + 1} writes differ:\n  original: ${JSON.stringify(effect.changed)}\n  candidate: ${JSON.stringify(got.changed)}`);
+      problems.push(`call ${index + 1} writes differ:\n  original: ${clipValue(effect.changed)}\n  candidate: ${clipValue(got.changed)}`);
     if (JSON.stringify(effect.removed) !== JSON.stringify(got.removed))
       problems.push(`call ${index + 1} deletions differ:\n  original: ${JSON.stringify(effect.removed)}\n  candidate: ${JSON.stringify(got.removed)}`);
   });
