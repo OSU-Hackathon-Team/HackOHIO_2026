@@ -22,7 +22,7 @@ test("oracle tools inventory, probe and declare a specification with coverage", 
   try {
     await client.connect(transport);
     const tools = (await client.listTools()).tools.map(tool => tool.name).sort();
-    assert.deepEqual(tools, ["declare_spec", "find_fixture", "inventory", "probe", "public_cases"]);
+    assert.deepEqual(tools, ["declare_spec", "file", "find_fixture", "inventory", "probe", "public_cases"]);
 
     const inventory = JSON.parse((await client.callTool({ name: "inventory", arguments: {} })).content[0].text);
     assert.deepEqual(inventory.channels, [{ channel: "notes:add", arity: 2 }, { channel: "notes:read", arity: 1 }]);
@@ -31,6 +31,31 @@ test("oracle tools inventory, probe and declare a specification with coverage", 
       channel: "notes:add", args: ["alpha", " hi "],
     } })).content[0].text);
     assert.deepEqual(probe.outcomes[0].value, { name: "alpha", length: 2 });
+    assert.equal(probe.calls[0].changed["userData/notes/alpha.txt"], "hi");
+    assert.ok(probe.files["userData/notes/alpha.txt"].sha256);
+
+    /* A large write must not put the whole file in the reply: the head is reported and the exact
+       bytes stay available through the `file` tool. */
+    const tail = "z".repeat(6000);
+    const big = JSON.parse((await client.callTool({ name: "probe", arguments: {
+      channel: "notes:add", args: ["big", tail],
+    } })).content[0].text);
+    const capped = big.calls[0].changed["userData/notes/big.txt"];
+    assert.equal(capped.truncated, true);
+    assert.equal(capped.characters, 6000);
+    assert.equal(capped.head.length, 4000);
+    const exact = JSON.parse((await client.callTool({ name: "file", arguments: {
+      path: "userData/notes/big.txt", channel: "notes:add", args: ["big", tail],
+    } })).content[0].text);
+    assert.equal(exact.text, tail);
+    assert.equal(exact.characters, 6000);
+    assert.equal(exact.more, false);
+
+    const absent = JSON.parse((await client.callTool({ name: "file", arguments: {
+      path: "userData/notes/none.txt", channel: "notes:read", args: ["alpha"],
+    } })).content[0].text);
+    assert.equal(absent.found, false);
+    assert.match(absent.problem, /does not exist/);
 
     const declared = JSON.parse((await client.callTool({ name: "declare_spec",
       arguments: { spec: SPEC } })).content[0].text);

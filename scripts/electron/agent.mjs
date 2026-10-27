@@ -26,7 +26,8 @@ const TOOLS = {
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const FILE_TOOLS = ["read", "list", "glob", "grep", "edit", "write"];
 const STAGE_TOOLS = {
-  spec: ["oracle_inventory", "oracle_probe", "oracle_find_fixture", "oracle_declare_spec", "oracle_public_cases"],
+  spec: ["oracle_inventory", "oracle_probe", "oracle_file", "oracle_find_fixture", "oracle_declare_spec",
+    "oracle_public_cases"],
   implement: ["implement_spec", "implement_public_summary", "implement_public_case", "implement_check",
     "implement_run", "implement_refresh_public"],
 };
@@ -113,8 +114,11 @@ the specification is \`complete\`. Never stop while \`remaining_channels\` is no
 
 - \`oracle_inventory\` — channels with arity, preload bridges, renderer loads, modules, diagnostics.
 - \`oracle_probe\` — run the original with fixtures and calls. The reply has handler values or
-  errors, every file after each call, and the paths read or written. Probe one interaction per
-  call; use \`calls\` for stateful behavior.
+  errors, each call's changed and removed files, and every file's size and digest. Changed
+  content is capped at 4000 characters and marked \`truncated\`, so the reply stays small. Probe
+  one interaction per call; use \`calls\` for stateful behavior.
+- \`oracle_file\` — the exact bytes of one persisted file after a chosen call, re-running the same
+  probe. Use it whenever a requirement has to state a file's contents precisely.
 - \`oracle_find_fixture\` — when a probe fails on a missing file or object field, this searches the
   fixture shape mechanically. Use it instead of guessing structural details.
 - \`oracle_declare_spec\` — validate and save the specification. It returns coverage gaps; a spec

@@ -21,6 +21,12 @@ function argument(name, fallback = null) {
   return index >= 0 ? process.argv[index + 1] : fallback;
 }
 
+/* A probe reply is read by an agent with a finite context window, so persisted file content is
+   reported as a bounded digest plus the head of the file. `file` re-runs the same probe when a
+   requirement has to describe one file's exact bytes. */
+const FILE_CHARS = 4000;
+const IO_PAIRS = 60;
+
 const appDir = path.resolve(argument("app-dir"));
 const workspace = path.resolve(argument("workspace"));
 const analysisFile = argument("analysis");
@@ -52,20 +58,95 @@ function inventory() {
 }
 
 async function probe(input) {
-  const testCase = input.calls ? { calls: input.calls, fixtures: input.fixtures ?? [], fixed_time: input.fixed_time }
-    : { channel: input.channel, args: input.args ?? [], fixtures: input.fixtures ?? [], fixed_time: input.fixed_time };
-  const result = await runCase({ appDir, case: testCase, timeout: input.timeout_ms ?? 20000 });
+  const result = await runCase({ appDir, case: testCaseFrom(input), timeout: input.timeout_ms ?? 20000 });
   return {
     channels: result.channels,
     outcomes: result.outcomes.map(outcome => outcome.ok
       ? { ok: true, value: outcome.value }
       : { ok: false, error: { name: outcome.error.name, message: outcome.error.message, code: outcome.error.code } }),
-    files: result.files,
-    effects: result.effects,
-    io: result.io.slice(-60),
+    calls: callEffects(result),
+    files: fileSummary(result.files),
+    io: ioPairs(result.io),
     bridge: result.bridge,
     startup_error: result.startup_error,
+    note: `Changed file content is capped at ${FILE_CHARS} characters (marked \"truncated\"). ` +
+      "Use the `file` tool, with the same fixtures and calls, to read one file's exact bytes.",
   };
+}
+
+function clipFile(value) {
+  if (typeof value !== "string") return { bytes: value.size, sha256: value.sha256.slice(0, 12) };
+  if (value.length <= FILE_CHARS) return value;
+  return { truncated: true, characters: value.length, head: value.slice(0, FILE_CHARS) };
+}
+
+function fileSummary(files) {
+  const summary = {};
+  for (const [file, value] of Object.entries(files))
+    summary[file] = typeof value === "string"
+      ? { characters: value.length, sha256: hash(value).slice(0, 12) }
+      : { bytes: value.size, sha256: value.sha256.slice(0, 12) };
+  return summary;
+}
+
+function callEffects(result) {
+  return result.effects.map((effect, index) => ({
+    call: index,
+    changed: Object.fromEntries(Object.entries(effect.changed).map(([file, value]) => [file, clipFile(value)])),
+    removed: effect.removed,
+  }));
+}
+
+function ioPairs(io) {
+  const pairs = new Map();
+  for (const entry of io) {
+    const key = `${entry.op} ${entry.path}`;
+    pairs.set(key, (pairs.get(key) ?? 0) + 1);
+  }
+  return { total: io.length, unique: [...pairs.entries()].slice(0, IO_PAIRS)
+    .map(([key, count]) => ({ effect: key, calls: count })) };
+}
+
+function testCaseFrom(input) {
+  return input.calls
+    ? { calls: input.calls, fixtures: input.fixtures ?? [], fixed_time: input.fixed_time }
+    : { channel: input.channel, args: input.args ?? [], fixtures: input.fixtures ?? [], fixed_time: input.fixed_time };
+}
+
+/** The content of one persisted file after call `index`, replayed from the observation. */
+function fileAfter(result, file, index) {
+  let value = Object.hasOwn(result.initial, file) ? result.initial[file] : undefined;
+  for (let call = 0; call <= index; call++) {
+    const effect = result.effects[call];
+    if (!effect) continue;
+    if (Object.hasOwn(effect.changed, file)) value = effect.changed[file];
+    if (effect.removed.includes(file)) value = undefined;
+  }
+  return value;
+}
+
+async function probeFile(input) {
+  const match = /^(userData|documents|logs|temp)\/(.+)$/.exec(String(input.path ?? ""));
+  if (!match) return { found: false,
+    problem: "path must be relative to a fixture base, for example userData/config.json" };
+  const file = `${match[1]}/${match[2]}`;
+  const result = await runCase({ appDir, case: testCaseFrom(input), timeout: input.timeout_ms ?? 20000 });
+  const last = input.call === undefined ? result.outcomes.length - 1 : Number(input.call);
+  if (!Number.isInteger(last) || last < 0 || last >= result.outcomes.length)
+    return { path: file, found: false, calls: result.outcomes.length,
+      problem: `call must be between 0 and ${result.outcomes.length - 1}` };
+  const value = fileAfter(result, file, last);
+  if (value === undefined) return { path: file, call: last, found: false,
+    files: Object.keys(result.files),
+    problem: `${file} does not exist after call ${last}` };
+  if (typeof value !== "string") return { path: file, call: last, found: true, hashed: true,
+    bytes: value.size, sha256: value.sha256,
+    problem: `the file is larger than the oracle's 262144-byte snapshot limit, so only its digest is available` };
+  const offset = Math.max(0, Number(input.offset ?? 0));
+  const maxChars = Math.min(50000, Math.max(200, Number(input.max_chars ?? 20000)));
+  const text = value.slice(offset, offset + maxChars);
+  return { path: file, call: last, found: true, characters: value.length, sha256: hash(value).slice(0, 12),
+    offset, text, more: offset + text.length < value.length };
 }
 
 function readSpec() {
@@ -177,7 +258,7 @@ server.registerTool("inventory", {
 
 server.registerTool("probe", {
   title: "Probe the original app",
-  description: "Run the original app under a mocked Electron host with optional fixtures and invoke IPC channels. Returns handler values or errors and every file effect. Use it to discover behavior; nothing is cached between probes.",
+  description: "Run the original app under a mocked Electron host with optional fixtures and invoke IPC channels. Returns handler values or errors, each call's changed or removed files, and an index of every file. Content is bounded, so use `file` when a file's exact bytes matter. Nothing is cached between probes.",
   inputSchema: {
     channel: z.string().optional().describe("IPC channel to invoke"),
     args: z.array(z.any()).optional().describe("Argument array for channel"),
@@ -188,6 +269,24 @@ server.registerTool("probe", {
     timeout_ms: z.number().optional(),
   },
 }, async input => text(await probe(input)));
+
+server.registerTool("file", {
+  title: "Read one persisted file exactly",
+  description: "Re-run a probe and return the exact bytes of one file under userData, documents, logs or temp after a given call. Probe replies cap file content; use this when a requirement must state a file's bytes precisely.",
+  inputSchema: {
+    path: z.string().describe("Base-relative path, for example userData/config.json"),
+    call: z.number().optional().describe("Call index to read after; defaults to the last call"),
+    channel: z.string().optional().describe("IPC channel to invoke"),
+    args: z.array(z.any()).optional().describe("Argument array for channel"),
+    calls: z.array(z.looseObject({ channel: z.string(), args: z.array(z.any()).optional() })).optional()
+      .describe("Ordered calls for a stateful probe; overrides channel/args"),
+    fixtures: z.array(fixtureSchema).optional(),
+    fixed_time: z.string().optional().describe("Freeze Date to this ISO instant"),
+    offset: z.number().optional().describe("Character offset to start from"),
+    max_chars: z.number().optional().describe("Maximum characters to return (default 20000)"),
+    timeout_ms: z.number().optional(),
+  },
+}, async input => text(await probeFile(input)));
 
 server.registerTool("find_fixture", {
   title: "Repair an unreachable fixture",
@@ -203,7 +302,8 @@ server.registerTool("find_fixture", {
     fixtures: input.fixtures ?? [], timeout: input.timeout_ms ?? 20000 });
   if (!found.found) return text({ found: false, attempts: found.attempts, failures: found.failures });
   return text({ found: true, attempts: found.attempts, fixtures: found.fixtures,
-    outcomes: found.result.outcomes, files: found.result.files });
+    outcomes: found.result.outcomes, calls: callEffects(found.result),
+    files: fileSummary(found.result.files) });
 });
 
 server.registerTool("declare_spec", {
