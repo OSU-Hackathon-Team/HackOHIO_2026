@@ -105,6 +105,16 @@ during setup. The host's executable-specific bubblewrap profile works for the in
 app, but did not apply to the container's overlay executable in this run. A container
 deployment therefore still needs a reviewed seccomp/AppArmor policy that permits bubblewrap's
 setup and confines the resulting worker, followed by the full seed/build/preview acceptance run.
+An opt-in [candidate policy and probe](../infra/recombination-container/README.md) now pass that
+development run on this host. The runner used a Moby-default-derived seccomp allowlist with
+namespace/mount additions, a custom AppArmor profile, Docker `systempaths=unconfined`, UID 65532,
+all capabilities dropped, `no-new-privileges`, a read-only root and a dedicated state mount. The
+probe verified the container's confinement and the nested worker's zero effective capabilities,
+hidden `/app`, and isolated loopback network. It seeded four authored packages, built the notebook,
+previewed 60, restarted with the saved state, then previewed 80. This replaces the earlier
+functionality blocker with a security review and host-compatibility gate: the candidate permits
+mount operations throughout the container and unmasks Docker's system paths, and has only been
+tested on this Ubuntu/AppArmor host. It is not an approved production policy.
 
 The notebook now stores confirmed numeric values in a revisioned workbook document. Its formula
 step reads `workbook.cells` with a stale-result guard, and the 60-to-80 acceptance scenario edits
