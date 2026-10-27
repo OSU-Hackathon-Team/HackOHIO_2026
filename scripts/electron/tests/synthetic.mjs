@@ -35,6 +35,7 @@ app.whenReady().then(() => {
     const window = BrowserWindow.fromWebContents(event.sender);
     return { ...window.getBounds(), display: screen.getPrimaryDisplay().size.width };
   });
+  ipcMain.handle("app:version", () => app.getVersion());
   ipcMain.handle("notes:add", async (_event, name, text) => {
     if (typeof name !== "string" || !name) throw new TypeError("name required");
     const value = String(text).trim();
@@ -55,6 +56,13 @@ export const HOST_SPEC = {
     environments: { clock: "2026-10-25T12:00:00.000Z" },
   },
   channels: {
+    "app:version": {
+      feature: "features/version.cjs",
+      args: [[], [null]],
+      requirements: [
+        "Returns the application version string and ignores any argument.",
+      ],
+    },
     "window:bounds": {
       feature: "features/bounds.cjs",
       args: [[], []],
@@ -88,6 +96,12 @@ export async function hostSyntheticArchive() {
   asar.extractAll(archive, extracted);
   return { root, archive, extracted };
 }
+
+export const VERSION_FEATURE = `"use strict";
+module.exports = async function (args, ctx) {
+  return ctx.app.getVersion();
+};
+`;
 
 export const ADD_FEATURE = `"use strict";
 module.exports = async function (args, ctx) {

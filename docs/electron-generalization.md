@@ -41,7 +41,11 @@ list, tools and MCP servers instead of reusing a background service started by a
    local module graph, IPC channels with handler arity, bridge globals and methods, assets, and
    unresolved or dynamic constructs. It never emits source text.
 2. **Oracle** (`oracle.mjs`). Extracts the archive to a disposable directory and runs its main
-   process in a child worker under a mocked Electron host. A case supplies fixtures under
+   process in a child worker under a mocked Electron host. The host answers the API surface real
+   main processes use — `app.getPath` for the platform keys, `screen` displays, `Tray`,
+   `nativeImage`, `globalShortcut`, windows and an invoking window for `event.sender` — because a
+   missing method makes the app's own behavior look broken and pushes channels into exclusions it
+   does not deserve. A case supplies fixtures under
    `userData`/`documents`/`logs`/`temp`, freezes the clock, and invokes channels. The observation
    records handler values, error names/codes, every read/write path, and the full file contents
    after each call. No target-specific fake exists in the host.
@@ -52,13 +56,14 @@ list, tools and MCP servers instead of reusing a background service started by a
    characters and an index of every file's size and digest; `oracle_file` re-runs the probe to
    return one file's exact bytes when a requirement has to state them. `oracle_declare_spec`
    merges into `spec.json` so a large application is declared in batches, and reports
-   `remaining_channels` alongside problems and gaps; it validates the specification and reports coverage gaps: a
-   channel needs a fixture that reaches it, at least one successful observation, and either three
-   distinct outcomes or six observable cases (constant-result operations cannot produce three
-   outcomes). A specification with gaps is not accepted.
-   Discovery declarations sample up to eight shape-diverse cases per channel for coverage feedback;
-   the driver observes the full suite once after the spec is accepted, so a large application does
-   not re-run hundreds of probes every time the specification changes.
+   `remaining_channels` alongside problems and gaps; a coverage gap is a channel the driver cannot
+   observe at all (no usable case, or no case the original answers), and a channel that answers one
+   way over varying inputs is reported as narrow instead. Narrow is not a rejection: a version string
+   has one answer however it is called, and the sentences that make a channel's result depend on its
+   arguments still have to be reachable. A specification with reachability gaps is not accepted.
+   Discovery declarations sample shape-diverse cases per channel (up to six per shape family, twelve
+   per channel) and cache every observation, so re-declaring a large application only runs what
+   changed; the driver observes the full suite once after the spec is accepted.
 4. **Case generation and partitioning** (`cases.mjs`). The specification expands into mutated
    fixtures, boundary arguments, repeated calls and declared sequences. The driver observes every
    case against the original, then partitions the usable observations into public (~55%), repair
@@ -83,6 +88,13 @@ list, tools and MCP servers instead of reusing a background service started by a
    oracle. Public cases pass before repair cases are revealed; repair cases must pass before the
    run converges. The final held-out partition is evaluated once, after convergence, and its
    failures are never fed back.
+
+Before a specification is accepted, each channel's case is replayed under a second host
+configuration (different window bounds and display size). A channel whose result changes there
+answers from the host rather than from its own data, so no feature module can reproduce it: it is
+reported as a host-dependent exclusion (`spec.host_dependent_exclusions`, and `readiness.excluded`
+with `source: "host-variation"`) and keeps the run from claiming whole-app readiness. Without this
+check a mock's own window bounds would be verified as if they were the application's behavior.
 
 Feedback is bounded and auditable:
 

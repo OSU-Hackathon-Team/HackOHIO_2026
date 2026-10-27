@@ -346,8 +346,10 @@ export function coverage(results) {
   const summary = {};
   for (const item of results) {
     const channel = item.case.channel;
-    summary[channel] ??= { cases: 0, value: 0, error: 0, distinct: new Set() };
+    summary[channel] ??= { cases: 0, value: 0, error: 0, distinct: new Set(), inputs: new Set() };
     summary[channel].cases++;
+    summary[channel].inputs.add(JSON.stringify({ args: (item.case.calls ?? []).map(call => call.args),
+      fixtures: (item.case.fixtures ?? []).map(({ base, path: file, content }) => ({ base, path: file, content })) }));
     for (const outcome of item.result.outcomes) {
       if (outcome.ok) summary[channel].value++;
       else summary[channel].error++;
@@ -355,39 +357,62 @@ export function coverage(results) {
     }
   }
   return Object.fromEntries(Object.entries(summary).map(([channel, entry]) => [channel,
-    { ...entry, distinct: entry.distinct.size }]));
+    { ...entry, distinct: entry.distinct.size, inputs: entry.inputs.size }]));
 }
 
-export function coverageGaps(results, expectedChannels = [], { minDistinct = 1, requireSuccess = true,
-  minCasesForConstant = 6 } = {}) {
-  const gaps = [];
-  const summary = coverage(results);
-  /* A gap message is the specification agent's only lever, so it names what was observed: the
-     failing call it would otherwise have to guess at, and the distance to the threshold. */
-  const firstFailure = new Map();
+/* A gap message is the specification agent's only lever, so it names what was observed: the
+   failing call it would otherwise have to guess at, and the distance to the threshold. */
+function firstFailures(results) {
+  const failures = new Map();
   for (const item of results) {
     for (const outcome of item.result?.outcomes ?? []) {
-      if (outcome.ok || firstFailure.has(item.case.channel)) continue;
-      firstFailure.set(item.case.channel,
+      if (outcome.ok || failures.has(item.case.channel)) continue;
+      failures.set(item.case.channel,
         `${outcome.error?.name ?? "Error"}: ${String(outcome.error?.message ?? "").slice(0, 160)}`);
     }
   }
+  return failures;
+}
+
+/**
+ * Reachability: a channel the driver cannot observe at all cannot be specified, and that is the
+ * only thing a coverage gap blocks. A narrow channel (one distinct outcome) is reported by
+ * `narrowChannels` instead: a constant result such as a version string, or a handler that ignores
+ * its arguments, genuinely has one answer, and the driver still mutates every argument and fixture
+ * of the generated cases, so the implementation has to match those too.
+ */
+export function coverageGaps(results, expectedChannels = [], { requireSuccess = true } = {}) {
+  const gaps = [];
+  const summary = coverage(results);
+  const failures = firstFailures(results);
   for (const channel of expectedChannels)
     if (!summary[channel]) gaps.push(`${channel}: no usable case in this split`);
   for (const [channel, entry] of Object.entries(summary)) {
     if (!entry.distinct) gaps.push(`${channel}: no observable outcomes`);
     if (requireSuccess && !entry.value)
       gaps.push(`${channel}: none of its ${entry.cases} case(s) succeeded against the original` +
-        (firstFailure.has(channel) ? ` — first failure ${firstFailure.get(channel)}` : "") +
+        (failures.has(channel) ? ` — first failure ${failures.get(channel)}` : "") +
         "; declare arguments and fixtures that reach it");
-    /* Constant-result operations (version strings, locale direction) cannot produce three
-       outcomes. They still need breadth, so observable cases count when the result is stable. */
-    if (entry.distinct < minDistinct && entry.cases < minCasesForConstant)
-      gaps.push(`${channel}: ${entry.distinct} distinct outcome(s) from ${entry.cases} case(s); ` +
-        `a stable result needs ${minCasesForConstant} observable cases, changing results need ` +
-        `${minDistinct} distinct outcomes — add argument samples (and fixtures) that reach it`);
   }
   return gaps;
+}
+
+/**
+ * Channels the observation barely characterizes: one distinct outcome across inputs that do vary.
+ * Reported, never blocking — the driver's differential comparison decides correctness, and a
+ * channel whose result really is constant (a version string) can never be anything but narrow.
+ */
+export function narrowChannels(results, expectedChannels = [], { minDistinct = 3 } = {}) {
+  const summary = coverage(results);
+  const narrow = [];
+  for (const channel of expectedChannels) {
+    const entry = summary[channel];
+    if (!entry || !entry.value || entry.inputs < 2) continue;
+    if (entry.distinct >= minDistinct) continue;
+    narrow.push(`${channel}: ${entry.distinct} distinct outcome(s) over ${entry.inputs} input(s) ` +
+      "— add argument samples and fixtures that reach a different result if its result depends on them");
+  }
+  return narrow;
 }
 
 function successful(item) {
@@ -399,14 +424,21 @@ function successful(item) {
  *
  * A plain hash split can put every successful case for a channel in one partition, which would let
  * an error-only candidate pass the partition it is graded on and would hide the behavior from the
- * implementer. So after the hash assignment each channel is rebalanced: the final partition keeps
- * at least three cases, repair one, public one, and public and final each get a successful case
- * whenever the channel has one.
+ * implementer. So after the hash assignment each channel is rebalanced: every partition keeps at
+ * least one case, the held-out partition keeps three where the channel has enough cases, and public
+ * and final each get a successful case whenever the channel has one.
+ *
+ * The minimums scale down with what the channel actually has, because the observation gate can
+ * only ask for reachability: a channel whose result is constant — a version string — cannot be
+ * given more cases by choosing better arguments. The returned `expected` names the partitions a
+ * channel truly owes a case to, so a two-case channel is not reported as a coverage gap for the
+ * repair partition it can never fill.
  */
 export function partitionCases({ items, seed = "public", channels = [] }) {
   const names = [...new Set([...channels, ...items.map(item => item.case.channel)])];
   const publicCases = [], repairCases = [], finalCases = [];
   const publicItems = [], repairItems = [], finalItems = [];
+  const expected = { public: [], repair: [], final: [] };
   for (const channel of names) {
     const channelItems = items.filter(item => item.case.channel === channel)
       .sort((a, b) => a.case.name.localeCompare(b.case.name));
@@ -418,6 +450,11 @@ export function partitionCases({ items, seed = "public", channels = [] }) {
       else if (bucket < 75) pools.repair.push(item);
       else pools.final.push(item);
     }
+    const total = channelItems.length;
+    const minimums = total >= 5 ? { public: 1, repair: 1, final: 3 }
+      : total >= 3 ? { public: 1, repair: 1, final: 1 }
+      : total === 2 ? { public: 1, repair: 0, final: 1 }
+      : { public: 1, repair: 0, final: 0 };
     const move = (from, to, predicate = () => true) => {
       const index = pools[from].findIndex(predicate);
       if (index < 0) return false;
@@ -433,27 +470,35 @@ export function partitionCases({ items, seed = "public", channels = [] }) {
       pools[donor][donorIndex] = temporary;
       return true;
     };
-    while (pools.final.length < 3 && pools.public.length > 1) move("public", "final");
-    while (pools.repair.length < 1 && pools.public.length > 1) move("public", "repair");
-    while (pools.public.length < 1) {
-      if (!move("repair", "public") && !move("final", "public")) break;
-    }
+    const take = (partition, minimum, donors) => {
+      while (pools[partition].length < minimum) {
+        const donor = donors.find(name => pools[name].length > minimums[name]);
+        if (!donor || !move(donor, partition)) break;
+      }
+    };
+    take("final", minimums.final, ["public", "repair"]);
+    take("repair", minimums.repair, ["public", "final"]);
+    take("public", minimums.public, ["repair", "final"]);
     /* Shape stratification: a shape family that only appears in the held-out partition is an
-       unseen rule, not a generalization test. Put one case of every observed shape in public. */
+       unseen rule, not a generalization test. Put one case of every observed shape in public, but
+       never by emptying a partition below its minimum. */
     for (const shape of new Set(channelItems.map(item => item.case.shape ?? "args"))) {
       if (pools.public.some(item => (item.case.shape ?? "args") === shape)) continue;
       for (const donor of ["repair", "final"])
-        if (move(donor, "public", item => (item.case.shape ?? "args") === shape)) break;
+        if (pools[donor].length > minimums[donor] &&
+          move(donor, "public", item => (item.case.shape ?? "args") === shape)) break;
     }
     for (const target of ["public", "final"]) {
       if (!pools[target].length || pools[target].some(successful)) continue;
       for (const donor of ["public", "repair", "final"].filter(name => name !== target))
         if (swap(target, donor)) break;
     }
+    for (const [partition, minimum] of Object.entries(minimums))
+      if (minimum) expected[partition].push(channel);
     for (const item of pools.public) { publicCases.push(item.case); publicItems.push(item); }
     for (const item of pools.repair) { repairCases.push(item.case); repairItems.push(item); }
     for (const item of pools.final) { finalCases.push(item.case); finalItems.push(item); }
   }
-  return { publicCases, repairCases, finalCases, publicItems, repairItems, finalItems,
+  return { publicCases, repairCases, finalCases, publicItems, repairItems, finalItems, expected,
     all: [...publicCases, ...repairCases, ...finalCases] };
 }

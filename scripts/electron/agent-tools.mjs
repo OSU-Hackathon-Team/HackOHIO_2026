@@ -12,7 +12,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { runCase } from "./oracle.mjs";
-import { buildCases, coverage, coverageGaps, hash, partitionCases, runSuite, usableResults } from "./cases.mjs";
+import { buildCases, coverage, coverageGaps, hash, narrowChannels, partitionCases,
+  usableResults } from "./cases.mjs";
 import { excludedChannels, validateSpec } from "./spec.mjs";
 import { findFixture } from "./fixture-search.mjs";
 
@@ -149,6 +150,34 @@ async function probeFile(input) {
     offset, text, more: offset + text.length < value.length };
 }
 
+/* Every declared revision is re-checked, and most of its cases are unchanged, so the round's
+   observations are kept: the oracle freezes the clock and gives each case a fresh data directory,
+   which makes a case's answer a function of its fixtures and calls alone. */
+const caseCache = new Map();
+
+async function cachedRun(testCase) {
+  const key = hash({ channel: testCase.channel, fixtures: testCase.fixtures, calls: testCase.calls,
+    fixed_time: testCase.fixed_time });
+  if (!caseCache.has(key)) {
+    try {
+      caseCache.set(key, { case: testCase, result: await runCase({ appDir, case: testCase }) });
+    } catch (error) {
+      caseCache.set(key, { case: testCase, error: { name: error.name ?? "Error", message: error.message } });
+    }
+  }
+  return caseCache.get(key);
+}
+
+async function runSample(cases, concurrency = 6) {
+  const results = new Array(cases.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < cases.length) { const index = cursor++; results[index] = await cachedRun(cases[index]); }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, cases.length) }, worker));
+  return results;
+}
+
 function readSpec() {
   const file = path.join(workspace, "spec.json");
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null;
@@ -176,20 +205,18 @@ async function prepareCases(spec) {
      the specification changes. */
   const sample = [];
   const perChannel = new Map();
+  const MAX_PER_CHANNEL = 12, MAX_PER_SHAPE = 6;
   for (const testCase of built.all) {
-    const entry = perChannel.get(testCase.channel) ?? { shapes: new Set(), count: 0 };
-    if (entry.count >= 8) continue;
-    if (entry.shapes.has(testCase.shape) && entry.count >= 4) continue;
-    entry.shapes.add(testCase.shape);
+    const entry = perChannel.get(testCase.channel) ?? { shapes: new Map(), count: 0 };
+    if (entry.count >= MAX_PER_CHANNEL) continue;
+    const seen = entry.shapes.get(testCase.shape) ?? 0;
+    if (seen >= MAX_PER_SHAPE) continue;
+    entry.shapes.set(testCase.shape, seen + 1);
     entry.count++;
     perChannel.set(testCase.channel, entry);
     sample.push(testCase);
   }
-  const observed = [];
-  for (const cases of [sample]) {
-    const results = await runSuite({ runCase, appDir, cases });
-    observed.push(...usableResults(results));
-  }
+  const observed = usableResults(await runSample(sample));
   const channelNames = channels.map(item => item.channel);
   for (const item of observed)
     item.result.channels = item.result.channels.filter(entry => !excluded.has(entry.channel));
@@ -206,7 +233,8 @@ async function prepareCases(spec) {
   preparedHash = specHash(spec);
   return { problems: [], cases: publicSuite.cases.length, sampled_cases: sample.length,
     coverage: publicSuite.coverage,
-    gaps: coverageGaps(observed, channelNames, { minDistinct: 3 }),
+    gaps: coverageGaps(observed, channelNames),
+    narrow: narrowChannels(observed, channelNames),
     public_gaps: publicSuite.gaps,
     excluded_channels: [...excluded.keys()] };
 }
@@ -346,11 +374,16 @@ server.registerTool("declare_spec", {
     declared_channels: Object.keys(merged.channels).length,
     excluded_channels: [...excluded.keys()], problems,
     cases: report.cases ?? 0, coverage: report.coverage ?? {}, gaps: report.gaps ?? [],
+    narrow_channels: report.narrow ?? [],
     next: remaining.length
       ? "Declare the remaining channels (send them in batches); the specification is not complete yet."
       : problems.length ? "Fix the listed problems and declare again."
       : report.gaps?.length ? "Close the coverage gaps before finishing."
-      : "Specification complete; stop declaring." });
+      : report.narrow?.length
+        ? "The specification is complete. Channels listed in narrow_channels answered with a " +
+          "single outcome; keep them only if their result genuinely does not depend on their " +
+          "arguments, otherwise add argument samples and declare again."
+        : "Specification complete; stop declaring." });
 });
 
 server.registerTool("public_cases", {

@@ -23,8 +23,8 @@ import { fileURLToPath } from "node:url";
 import * as asar from "@electron/asar";
 import { analyzeElectronArchive } from "./analyze-archive.mjs";
 import { DEFAULT_HOST, VARIANT_HOST, runCase } from "./oracle.mjs";
-import { buildCases, compareCase, coverage, coverageGaps, observationFailures, partitionCases,
-  runSuite, usableResults } from "./cases.mjs";
+import { buildCases, compareCase, coverage, coverageGaps, narrowChannels, observationFailures,
+  partitionCases, runSuite, usableResults } from "./cases.mjs";
 import { runAgent } from "./agent.mjs";
 import { assembleProject } from "./project.mjs";
 import { resolveModel } from "./models.mjs";
@@ -143,6 +143,7 @@ function partitionReport(suite, check) {
     total: check?.total ?? 0,
     coverage: suite?.coverage ?? {},
     gaps: check?.gaps ?? [],
+    narrow: suite?.narrow ?? [],
     failures: (check?.failures ?? []).slice(0, 5).map(item => ({ case: item.case, channel: item.channel,
       problems: item.problems })),
   };
@@ -288,26 +289,35 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
        channel inventory either. */
     for (const item of observed)
       item.result.channels = item.result.channels.filter(entry => !excluded.has(entry.channel));
-    const gaps = coverageGaps(observed, channelNames, { minDistinct: 3 });
-    log(`spec round ${round}: ${observed.length} case(s) observable against the original, ${gaps.length} gap(s)`);
+    const gaps = coverageGaps(observed, channelNames);
+    const narrow = narrowChannels(observed, channelNames);
+    log(`spec round ${round}: ${observed.length} case(s) observable against the original, ` +
+      `${gaps.length} gap(s), ${narrow.length} narrow channel(s)`);
     if (!observed.length) {
       feedback = "No generated case could observe the original app. Check fixtures and arguments; " +
         "every channel must succeed at least once before the specification is usable.";
       continue;
     }
     if (gaps.length) {
-      feedback = `Coverage gaps (a channel needs a reachable fixture, one success and three distinct outcomes):\n` +
-        `${gaps.join("\n")}`;
+      feedback = `Coverage gaps (a channel needs a reachable fixture and one successful ` +
+        `observation):\n${gaps.join("\n")}`;
       continue;
     }
+    if (narrow.length) log(`narrow coverage: ${narrow.length} channel(s) with a single outcome`);
     const partitioned = partitionCases({ items: observed, channels: channelNames });
-    const suiteFor = items => ({
+    /* A partition is only expected to hold a channel's case when that channel has enough cases to
+       go round; the partitioner reports which, so a constant channel with two cases is not
+       reported as a gap for a partition it cannot fill. */
+    const suiteFor = (items, expected) => ({
       coverage: coverage(items),
-      gaps: coverageGaps(items, channelNames),
+      expected,
+      gaps: coverageGaps(items, expected),
+      narrow: narrowChannels(items, channelNames),
       cases: items.map(item => ({ case: item.case, result: item.result })),
     });
-    suites = { public: suiteFor(partitioned.publicItems), repair: suiteFor(partitioned.repairItems),
-      final: suiteFor(partitioned.finalItems) };
+    suites = { public: suiteFor(partitioned.publicItems, partitioned.expected.public),
+      repair: suiteFor(partitioned.repairItems, partitioned.expected.repair),
+      final: suiteFor(partitioned.finalItems, partitioned.expected.final) };
     spec = declared;
     contract = accepted.contract;
     hostDependent = accepted.hostDependent;
@@ -329,15 +339,18 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
       observed.push(...result.usable);
       observationProblems.push(...result.failures);
     }
-    const gaps = coverageGaps(observed, channelNames, { minDistinct: 3 });
+    const gaps = coverageGaps(observed, channelNames);
     if (gaps.length) throw new Error(`The supplied specification cannot observe the app:\n${gaps.join("\n")}`);
+    narrowChannels(observed, channelNames).forEach(item => log(`narrow coverage: ${item}`));
     for (const item of observed)
       item.result.channels = item.result.channels.filter(entry => !excluded.has(entry.channel));
     const partitioned = partitionCases({ items: observed, channels: channelNames });
-    const suiteFor = items => ({ coverage: coverage(items), gaps: coverageGaps(items, channelNames),
+    const suiteFor = (items, expected) => ({ coverage: coverage(items),
+      gaps: coverageGaps(items, expected), narrow: narrowChannels(items, channelNames),
       cases: items.map(item => ({ case: item.case, result: item.result })) });
-    suites = { public: suiteFor(partitioned.publicItems), repair: suiteFor(partitioned.repairItems),
-      final: suiteFor(partitioned.finalItems) };
+    suites = { public: suiteFor(partitioned.publicItems, partitioned.expected.public),
+      repair: suiteFor(partitioned.repairItems, partitioned.expected.repair),
+      final: suiteFor(partitioned.finalItems, partitioned.expected.final) };
     spec = suppliedSpec;
     contract = accepted.contract;
     hostDependent = accepted.hostDependent;

@@ -4,7 +4,8 @@ import path from "node:path";
 import test from "node:test";
 import { reconstruct } from "../pipeline.mjs";
 import { specHash } from "../spec.mjs";
-import { ADD_FEATURE, HOST_SPEC, READ_FEATURE, SPEC, hostSyntheticArchive, syntheticArchive } from "./synthetic.mjs";
+import { ADD_FEATURE, HOST_SPEC, READ_FEATURE, SPEC, VERSION_FEATURE, hostSyntheticArchive,
+  syntheticArchive } from "./synthetic.mjs";
 
 function agentRun(stage, round) {
   return { stage, round, model: "scripted", toolCalls: [], tokens: 0, exitCode: 0,
@@ -137,9 +138,15 @@ test("a channel whose answer depends on the mocked host is excluded, not claimed
   const output = path.join(root, "out");
   try {
     const result = await reconstruct({ archive, output, agentRunner: scriptedAgent({
-      spec: HOST_SPEC, features: { "features/add.cjs": ADD_FEATURE },
+      spec: HOST_SPEC,
+      features: { "features/add.cjs": ADD_FEATURE, "features/version.cjs": VERSION_FEATURE },
     }), options: { state: path.join(root, "state"), "spec-rounds": 1, "impl-rounds": 1 } });
     assert.equal(result.report.readiness.ready, true, JSON.stringify(result.report.readiness.blockers));
+    /* A channel that answers the same way over varying inputs is narrow, not a gap: it is
+       reported, the run still converges, and the candidate implements it. */
+    assert.ok(result.report.partitions.public.coverage["app:version"].cases > 0);
+    assert.equal(result.report.partitions.final.coverage["app:version"].distinct, 1);
+    assert.ok(result.report.readiness.blockers.every(item => !/app:version/.test(item)));
     assert.deepEqual(result.report.spec.host_dependent_exclusions.map(item => item.channel), ["window:bounds"]);
     assert.match(result.report.spec.host_dependent_exclusions[0].reason, /window bounds/);
     assert.deepEqual(result.report.readiness.excluded.map(item => item.channel), ["window:bounds"]);
@@ -147,7 +154,7 @@ test("a channel whose answer depends on the mocked host is excluded, not claimed
     assert.equal(result.report.readiness.whole_app_ready, false);
     /* The candidate is built for the reconstructible channels only, and the handoff says so. */
     const manifest = JSON.parse(await fsp.readFile(path.join(output, "reconstruction.json"), "utf8"));
-    assert.deepEqual(manifest.channels.map(item => item.channel), ["notes:add"]);
+    assert.deepEqual(manifest.channels.map(item => item.channel), ["app:version", "notes:add"]);
     assert.deepEqual(manifest.excluded_channels.map(item => item.channel), ["window:bounds"]);
     const spec = await fsp.readFile(path.join(output, "handoff", "SPEC.md"), "utf8");
     assert.match(spec, /Excluded channels[\s\S]*window:bounds/);

@@ -61,9 +61,14 @@ every IPC channel without ever observing the original:
   across several interactions.
 
 The driver generates differential cases from these declarations, runs them against the original,
-and only hands your specification to the implementation agent if every channel is reachable: one
-successful observation plus either three distinct outcomes or six observable cases (constant
-results such as a version string cannot produce three outcomes).
+and only hands your specification to the implementation agent if every channel is reachable: at
+least one successful observation, and no case that the original refuses to answer.
+
+A channel that answers with a single outcome over varying inputs is reported as narrow rather than
+rejected — a version string has one answer however you call it. Narrow is acceptable only when the
+result genuinely does not depend on the arguments; where it does, add argument samples and
+fixtures until the outcomes differ, because the driver mutates every argument and fixture it is
+given and the implementation has to match those cases too.
 
 Shape (complete, version 2):
 
