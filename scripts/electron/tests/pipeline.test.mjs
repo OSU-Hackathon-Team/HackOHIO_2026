@@ -27,6 +27,10 @@ test("oracle observes a never-seen archive without any target-specific code", as
     const missing = await runCase({ appDir: extracted, case: { channel: "notes:read", args: ["nope"] } });
     assert.equal(missing.outcomes[0].ok, false);
     assert.equal(missing.outcomes[0].error.code, "ENOENT");
+    /* Harness-owned absolute paths are not behavior: the message names the storage root instead, so
+       the same answer is comparable when a reimplementation computes the path from ctx. */
+    assert.match(missing.outcomes[0].error.message, /userData[\\/]notes[\\/]nope\.txt/);
+    assert.equal(missing.outcomes[0].error.message.includes(root), false);
   } finally {
     await fsp.rm(root, { recursive: true, force: true });
   }

@@ -135,7 +135,14 @@ export async function runCase({ appDir, case: rawCase, timeout = 20000, host }) 
     const pkg = JSON.parse(await fsp.readFile(path.join(appDir, "package.json"), "utf8"));
     const main = within(appDir, String(pkg.main ?? "index.js"));
     if (!fs.existsSync(main)) throw new Error(`Main entry is missing: ${main}`);
-    const initial = await snapshot(bases);
+    /* Match the worker's normalization so a fixture that mentions its own absolute location is
+       not reported as a change on the first call. */
+    const labels = BASES.map(base => [bases[base], base]).concat([[appDir, "<app>"]])
+      .sort((first, second) => second[0].length - first[0].length);
+    const initial = Object.fromEntries(Object.entries(await snapshot(bases)).map(([file, value]) => [file,
+      typeof value === "string"
+        ? labels.reduce((text, [absolute, label]) => text.split(absolute).join(label), value)
+        : value]));
     const esmMain = pkg.type === "module" || String(pkg.main ?? "").endsWith(".mjs");
     const result = await runWorker({ appDir, main, esmMain, packageName: pkg.name, packageVersion: pkg.version,
       bases, calls: testCase.calls, fixed_time: testCase.fixed_time, host: hostConfig(host) }, timeout);
@@ -472,6 +479,29 @@ async function worker() {
       static now() { return instant; }
     };
   }
+  /* Harness-owned absolute paths are not behavior: each observation runs in its own directory, so
+     a result, an error message or a written file that mentions one would differ between the
+     original and a reimplementation that computes the same path from ctx. Report them as the
+     storage root they came from, and keep everything else byte for byte. */
+  const pathLabels = BASES.filter(base => payload.bases[base])
+    .map(base => [pathModule.resolve(payload.bases[base]), base])
+    .concat([[pathModule.resolve(payload.appDir), "<app>"]])
+    .sort((first, second) => second[0].length - first[0].length);
+  const normalizeText = text => {
+    let out = String(text);
+    for (const [absolute, label] of pathLabels) out = out.split(absolute).join(label);
+    return out;
+  };
+  const normalizeValue = value => {
+    if (typeof value === "string") return normalizeText(value);
+    if (Array.isArray(value)) return value.map(normalizeValue);
+    if (value && typeof value === "object")
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeValue(item)]));
+    return value;
+  };
+  const normalizeFiles = files => Object.fromEntries(Object.entries(files)
+    .map(([file, value]) => [file, typeof value === "string" ? normalizeText(value) : value]));
+
   const outcomes = [];
   let startupError = null;
   try {
@@ -491,14 +521,14 @@ async function worker() {
       else {
         try {
           const value = await handler(fakeEvent, ...call.args);
-          outcome = { ok: true, value: sanitize(value) };
+          outcome = { ok: true, value: normalizeValue(sanitize(value)) };
         } catch (caught) {
-          outcome = { ok: false, error: { name: caught?.name ?? "Error", message: String(caught?.message ?? caught),
-            code: caught?.code ?? null,
+          outcome = { ok: false, error: { name: caught?.name ?? "Error",
+            message: normalizeText(caught?.message ?? caught), code: caught?.code ?? null,
             ...(process.env.SPLICE_ORACLE_STACKS ? { stack: String(caught?.stack ?? "") } : {}) } };
         }
       }
-      outcome.files = await snapshot(payload.bases);
+      outcome.files = normalizeFiles(await snapshot(payload.bases));
       outcomes.push(outcome);
     }
     const body = JSON.stringify({ channels: [...handlers.keys()].sort().map(channel => ({
