@@ -48,6 +48,9 @@ jobs:
       - name: Test backend and frontend units
         run: npm run test:unit --workspaces --if-present
 
+      - name: Test Electron reconstruction (oracle, cases, handoff, assembly)
+        run: npm run test:electron-general
+
   studio-tests:
     name: Studio Browser Tests
     needs: build-and-typecheck

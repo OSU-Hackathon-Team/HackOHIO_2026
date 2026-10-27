@@ -1,12 +1,18 @@
 # Gotchas (read before writing code in these areas)
 
 ## Electron reconstruction oracle and agent
+- **Two stages, two agents.** `agent-tools.mjs` (oracle) is only for the specification stage. `implement-tools.mjs` is the implementation stage and must never get an archive path, `appDir` or oracle tool; the handoff workspace holds only `SPEC.md`, `spec.json`, `public-cases.json` and `README.md`. If an implementer needs to probe the original, the specification is incomplete: fix the specification stage.
+- **Final partition is sealed.** Never put final held-out case names, counts per channel or failure text into agent feedback. Public and repair feedback only.
+- **Partition after observing.** A hash split can make one partition error-only for a channel. `partitionCases` rebalances so public and final each contain a success; coverage gaps are readiness blockers, not scores.
 - `scripts/electron/oracle.mjs` runs an archive's main process under a fake Electron host. `app.whenReady()` chains are tracked, not just the returned promise: a handler registered after an `await` must be settled before a probe runs, or every channel looks missing.
 - Fixtures are real files under `userData`, `documents`, `logs` or `temp`; `app.getPath` must answer all four. File effects are compared byte for byte, including JSON indentation.
 - Channel arity comes from static analysis (`handler.parameters.length - 1`). Dynamic channels are diagnostics, not invented calls.
 - Coverage is a gate, not a score. A contract whose cases all fail is rejected even if the candidate reproduces every error exactly. Use `find_fixture` for missing-field/ENOENT shapes, and `history`-style fields may live on a different object than the one the agent guessed.
 - The agent never receives archive source, only the oracle tools and its workspace. Do not add a tool that returns source text or archive paths.
-- The agent model is the `electron_reconstructor` role (Qwen over Bedrock). Free OpenCode models hit daily usage limits mid-run; `opencode/beam-free` wrote two files and then failed for hours. Refresh `.env` from the AWS CLI when the session token expires.
+- The agent models are the `electron_spec_writer` and `electron_implementer` roles (Qwen over Bedrock, `electron_reconstructor` as fallback). Free OpenCode models hit daily usage limits mid-run; `opencode/beam-free` wrote two files and then failed for hours. Refresh `.env` from the AWS CLI when the session token expires.
+- **Run OpenCode with `--standalone`.** `opencode run` otherwise attaches to a background service that keeps the agent list, MCP servers and model config from whichever run started it; a later stage then fails with `Agent not found: "spec"`. Each round needs a private server.
+- **A bad provider field silently discards the whole config.** `provider.<name>.models.<id>.status` is not accepted by OpenCode 2.2: with it, the custom agent disappears and the CLI reports `Agent not found`. Keep only `name`, `id`, `provider.npm` and `limit`.
+- Context/output limits come from `ELECTRON_AGENT_CONTEXT` / `ELECTRON_AGENT_OUTPUT` (defaults 196608 / 16384). Tiny limits cause truncated writes and repetition loops that look like model failure.
 
 ## Native decompilation S3 cache
 - `results/<run-id>/results.tgz` is a private run archive and `library/analyses/<run-id>/` is
