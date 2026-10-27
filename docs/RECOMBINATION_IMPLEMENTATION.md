@@ -68,9 +68,13 @@ sandbox helper with root ownership, and launches after installation without `npm
 Splice server. Its display smoke verified workbook and note state after restart, installed a
 UI-only revision over the first package, and preserved both documents through that upgrade and
 a second restart. A fresh Debian bookworm container without Node or a repo checkout installed
-the same package, launched it as an ordinary user, and drove the saved workbook, formula and note
-through 60 then 80; a clean VM install remains a separate check. Other platform
-builds, delivery updates, and realistic performance budgets remain
+the package, launched it as an ordinary user, and drove the saved workbook, formula and note
+through 60 then 80. The package test also builds an authored C multiplication capability,
+checks its verified binary remains executable in the registry and `.deb`, and calls it through
+the exported host before and after an upgrade and inside the clean container. This found and
+fixed a missing execute bit on registry sidecars. Registry reads now restore that bit on
+previously stored, hash-verified sidecars. A clean VM install remains a separate check. Other
+platform builds, delivery updates, and realistic performance budgets remain
 open. The `verified` application status means its current package, scenario and export checks passed; it
 does not assert any of those open acceptance gates passed.
 The CI workflow is configured to run the live Studio and exported Electron smokes on its Linux runner.
@@ -151,8 +155,8 @@ workbook and note data remain editable and durable. This passed on Ubuntu 26.04 
 clean VM install and other Linux distributions remain unverified; the `.deb` does not cover
 Windows or macOS. `npm run test:recombination:linux-clean` adds a disposable Debian bookworm
 container install without Node or a repository checkout. It checks that the app starts as an
-ordinary user and runs the workbook-to-formula-to-note workflow to 60 then 80. The container
-test uses Docker `--privileged` so
+ordinary user and runs the workbook-to-formula-to-note workflow to 60 then 80, plus an authored
+C sidecar that computes 60 then 80. The container test uses Docker `--privileged` so
 nested sandboxing works; that is diagnostic isolation, not a production deployment design.
 
 ## Ground rules

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { canonicalJson } from "@splice/contracts";
 import type { ImplementationSource, PublicTestCase } from "@splice/contracts";
@@ -49,24 +49,28 @@ export function safeRelativePath(relative: string): string {
 }
 
 /** Write immutable files below a content-addressed directory. Existing bytes must match. */
-export async function writeArtifactFiles(root: string, files: ArtifactFile[]): Promise<void> {
+export async function writeArtifactFiles(root: string, files: ArtifactFile[], executablePaths: ReadonlySet<string> = new Set()): Promise<void> {
   const absoluteRoot = path.resolve(root);
   await mkdir(absoluteRoot, { recursive: true });
   for (const file of files) {
     const relative = safeRelativePath(file.path);
     const target = path.resolve(absoluteRoot, relative);
+    const mode = executablePaths.has(relative) ? 0o700 : 0o600;
     if (!target.startsWith(`${absoluteRoot}${path.sep}`)) throw new TypeError(`artifact escapes root: ${file.path}`);
     await mkdir(path.dirname(target), { recursive: true });
     const bytes = Buffer.from(file.data);
     try {
+      if (!(await lstat(target)).isFile()) throw new Error(`artifact is not a regular file: ${file.path}`);
       const existing = await readFile(target);
       if (!existing.equals(bytes)) throw new Error(`immutable artifact collision at ${file.path}`);
+      await chmod(target, mode);
       continue;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
     const temp = `${target}.${randomUUID()}.tmp`;
-    await writeFile(temp, bytes, { mode: 0o600, flag: "wx" });
+    await writeFile(temp, bytes, { mode, flag: "wx" });
+    await chmod(temp, mode);
     try {
       await rename(temp, target);
     } catch (error) {

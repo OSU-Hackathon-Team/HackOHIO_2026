@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, readdir, realpath, rename, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, realpath, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   CapabilityDefinition,
@@ -144,6 +144,12 @@ export class FilesystemCapabilityRegistry implements CapabilityRegistryPort {
       throw new RegistryIntegrityError(`package identity mismatch for ${packageIdValue}`);
     }
     for (const artifact of pkg.artifacts) await this.readArtifact(pkg, artifact.path);
+    // Older registry writes stored sidecars without the owner execute bit. Repair the
+    // mode only after the bytes have passed the immutable artifact check above.
+    for (const entrypoint of pkg.entrypoints.filter((entry) => entry.kind === "sidecar_executable")) {
+      const executable = path.join(this.artifactRoot(pkg), entrypoint.path);
+      if (!((await stat(executable)).mode & 0o100)) await chmod(executable, 0o700);
+    }
     const definitionBytes = await this.readArtifact(pkg, "definition.json");
     let definition: unknown;
     try {
@@ -204,7 +210,8 @@ export class FilesystemCapabilityRegistry implements CapabilityRegistryPort {
       }
     }
     const directory = this.artifactRoot(pkg);
-    await writeArtifactFiles(directory, files);
+    const executablePaths = new Set(pkg.entrypoints.filter((entry) => entry.kind === "sidecar_executable").map((entry) => entry.path));
+    await writeArtifactFiles(directory, files, executablePaths);
     await writeImmutableJson(path.join(directory, "manifest.json"), pkg);
     const stored = await this.getPackage(pkg.package_id);
     if (!stored) throw new RegistryIntegrityError(`package ${pkg.package_id} could not be read after write`);
