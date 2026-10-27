@@ -129,11 +129,13 @@ export function renderSpecMarkdown({ spec, analysis, publicSuite }) {
   lines.push("```js");
   lines.push("module.exports = async function handle(args, ctx) {");
   lines.push("  // args: IPC arguments after the event, as an array");
-  lines.push("  // ctx: { app, fs (node:fs/promises), path, userData, documents }");
+  lines.push("  // ctx: { app, fs (node:fs/promises), path, userData, documents, channel }");
   lines.push("  return value;");
   lines.push("};");
   lines.push("```");
   lines.push("");
+  lines.push("`ctx.channel` names the channel being invoked, so one module declared for several",
+    "channels can tell them apart; each channel's behavior is still verified on its own cases.", "");
   lines.push("The module may also export `{ handle }`. Throw the error the original throws (same name",
     "and code). Return the same JSON value, including undefined results (`{\"$undefined\":true}` in",
     "observations means the handler returned nothing). Files must match in path and exact bytes —",

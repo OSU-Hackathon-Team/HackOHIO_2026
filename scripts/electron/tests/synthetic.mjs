@@ -165,6 +165,56 @@ export async function hostSurfaceArchive() {
   return { root, archive, extracted };
 }
 
+/* One feature module declared for two channels: an implementation can only answer them
+   differently if the contract says which channel is being invoked. */
+export const SHARED_SOURCE = `"use strict";
+const { app, ipcMain } = require("electron");
+
+app.whenReady().then(() => {
+  ipcMain.handle("state:name", () => "state");
+  ipcMain.handle("state:count", () => 3);
+});
+`;
+
+export const SHARED_SPEC = {
+  schema_version: 2,
+  application: {
+    name: "synthetic-shared",
+    version: "1.0.0",
+    scope: ["state IPC behavior"],
+    exclusions: ["renderer layout"],
+    environments: { clock: "2026-10-25T12:00:00.000Z" },
+  },
+  channels: {
+    "state:name": { feature: "features/state.cjs", args: [[], [null]],
+      requirements: ["Returns the string 'state'."] },
+    "state:count": { feature: "features/state.cjs", args: [[], [null]],
+      requirements: ["Returns the number 3."] },
+  },
+};
+
+export const SHARED_FEATURE = `"use strict";
+module.exports = async function (args, ctx) {
+  return ctx.channel === "state:name" ? "state" : 3;
+};
+`;
+
+export async function sharedArchive() {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "splice-synthetic-shared-"));
+  const source = path.join(root, "source");
+  await fsp.mkdir(source);
+  await fsp.writeFile(path.join(source, "package.json"), JSON.stringify({
+    name: "synthetic-shared", version: "1.0.0", main: "main.js",
+  }));
+  await fsp.writeFile(path.join(source, "main.js"), SHARED_SOURCE);
+  const archive = path.join(root, "app.asar");
+  await asar.createPackage(source, archive);
+  const extracted = path.join(root, "extracted");
+  await fsp.mkdir(extracted);
+  asar.extractAll(archive, extracted);
+  return { root, archive, extracted };
+}
+
 /* An application whose stable-looking channel mints a random identifier only inside a stateful
    sequence: checking one case per channel would verify the original's own random key. */
 export const REGISTRY_SOURCE = `"use strict";

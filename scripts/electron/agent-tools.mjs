@@ -394,7 +394,18 @@ server.registerTool("declare_spec", {
     problems, cases: report.cases ?? 0, gaps: report.gaps ?? [],
   }, null, 2) + "\n");
   const ignoredChannels = [...new Set([...ignored, ...(report.out_of_scope_ignored ?? [])])];
+  /* One module can serve several channels, but only if it can tell them apart: the implementation
+     contract passes the channel as ctx.channel. Say so rather than let a declaration look complete
+     while the implementer has no way to answer two channels differently. */
+  const sharedModules = Object.entries(Object.entries(merged.channels).reduce((byFeature, [channel, entry]) => {
+    const feature = entry?.feature;
+    if (typeof feature !== "string") return byFeature;
+    byFeature[feature] = [...(byFeature[feature] ?? []), channel];
+    return byFeature;
+  }, {})).filter(([, channels]) => channels.length > 1)
+    .map(([feature, channels]) => ({ feature, channels: channels.sort() }));
   return text({ saved: true, complete, remaining_channels: remaining,
+    shared_feature_modules: sharedModules,
     declared_channels: Object.keys(merged.channels).length,
     excluded_channels: [...excluded.keys()], problems,
     ignored_channels: ignoredChannels,

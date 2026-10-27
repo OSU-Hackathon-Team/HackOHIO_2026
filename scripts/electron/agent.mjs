@@ -231,10 +231,14 @@ CommonJS and exports a function or \`{ handle }\`:
 \`\`\`js
 module.exports = async function handle(args, ctx) {
   // args: IPC arguments after the event, as an array
-  // ctx: { app, fs, path, userData, documents }
+  // ctx: { app, fs, path, userData, documents, channel }
   return value;
 };
 \`\`\`
+
+A specification may declare one module for several channels; \`ctx.channel\` names the channel
+being invoked, so such a module can answer each one correctly. Nothing else about the original is
+reachable from a module: there is no window, no display, no archive and no oracle.
 
 Implement the stated requirements. Match returned JSON exactly (including key presence,
 \`undefined\` versus \`null\`, and non-finite numbers), throw the same error names and codes,

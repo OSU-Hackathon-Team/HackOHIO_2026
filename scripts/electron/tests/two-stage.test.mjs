@@ -5,8 +5,8 @@ import test from "node:test";
 import { reconstruct } from "../pipeline.mjs";
 import { specHash } from "../spec.mjs";
 import { ADD_FEATURE, HOST_SPEC, READ_FEATURE, REGISTRY_ADD_FEATURE, REGISTRY_LIST_FEATURE,
-  REGISTRY_SPEC, SPEC, SUBSYSTEM_SPEC, VERSION_FEATURE, hostSyntheticArchive, registryArchive,
-  syntheticArchive } from "./synthetic.mjs";
+  REGISTRY_SPEC, SHARED_FEATURE, SHARED_SPEC, SPEC, SUBSYSTEM_SPEC, VERSION_FEATURE,
+  hostSyntheticArchive, registryArchive, sharedArchive, syntheticArchive } from "./synthetic.mjs";
 
 function agentRun(stage, round) {
   return { stage, round, model: "scripted", toolCalls: [], tokens: 0, exitCode: 0,
@@ -159,6 +159,24 @@ test("a channel whose answer depends on the mocked host is excluded, not claimed
     assert.deepEqual(manifest.excluded_channels.map(item => item.channel), ["window:bounds"]);
     const spec = await fsp.readFile(path.join(output, "handoff", "SPEC.md"), "utf8");
     assert.match(spec, /Excluded channels[\s\S]*window:bounds/);
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("one feature module can serve several channels, because the contract names the channel", { timeout: 180000 }, async () => {
+  const { root, archive } = await sharedArchive();
+  try {
+    const result = await reconstruct({ archive, output: path.join(root, "out"), agentRunner: scriptedAgent({
+      spec: SHARED_SPEC, features: { "features/state.cjs": SHARED_FEATURE },
+    }), options: { state: path.join(root, "state"), "spec-rounds": 1, "impl-rounds": 1 } });
+    assert.equal(result.report.readiness.ready, true, JSON.stringify(result.report.readiness.blockers));
+    assert.ok(result.report.partitions.final.total > 0);
+    assert.equal(result.report.partitions.final.passed, result.report.partitions.final.total,
+      "a module that branches on ctx.channel answers both channels");
+    const manifest = JSON.parse(await fsp.readFile(path.join(root, "out", "reconstruction.json"), "utf8"));
+    assert.deepEqual(manifest.channels.map(item => item.feature),
+      ["features/state.cjs", "features/state.cjs"]);
   } finally {
     await fsp.rm(root, { recursive: true, force: true });
   }

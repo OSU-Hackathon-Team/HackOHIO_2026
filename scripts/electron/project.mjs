@@ -100,13 +100,16 @@ const features = manifest.channels.map(entry => ({
   })(),
 }));
 
-function context() {
-  return { app, fs, path, userData: app.getPath("userData"), documents: app.getPath("documents") };
+/* The channel is part of the contract: a specification may declare one module for several
+   channels, and the module has to be able to tell which one it is answering. */
+function context(channel) {
+  return { app, fs, path, userData: app.getPath("userData"), documents: app.getPath("documents"),
+    channel };
 }
 
 app.whenReady().then(() => {
   for (const entry of features)
-    ipcMain.handle(entry.channel, (_event, ...args) => entry.handle(args, context()));
+    ipcMain.handle(entry.channel, (_event, ...args) => entry.handle(args, context(entry.channel)));
 
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   const window = new BrowserWindow({
