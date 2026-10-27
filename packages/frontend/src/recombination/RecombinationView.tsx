@@ -45,6 +45,14 @@ function sampleInput(plan: CompositionPlan, workflow: string): unknown {
   return {};
 }
 
+function sampleEdits(plan: CompositionPlan, workflow: string): Array<{ document: string; path: string; value: unknown }> {
+  for (const scenario of plan.acceptance_scenarios) {
+    const invoke = scenario.steps.findIndex((step) => step.kind === "invoke" && step.workflow === workflow);
+    if (invoke >= 0) return scenario.steps.slice(0, invoke).filter((step) => step.kind === "set_document").map((step) => ({ document: step.document, path: step.path, value: step.value }));
+  }
+  return [];
+}
+
 export function RecombinationView() {
   const [catalog, setCatalog] = useState<CapabilityListResponse>({ packages: [], intakes: [] });
   const [apps, setApps] = useState<Array<{ app_id: string; revision: number; title: string; status: string }>>([]);
@@ -54,6 +62,7 @@ export function RecombinationView() {
   const [history, setHistory] = useState<ApplicationRevisionListResponse | null>(null);
   const [workflow, setWorkflow] = useState("");
   const [inputText, setInputText] = useState("{}");
+  const [editsText, setEditsText] = useState("[]");
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [job, setJob] = useState<JobRecord | null>(null);
   const [activity, setActivity] = useState<string[]>([]);
@@ -163,6 +172,7 @@ export function RecombinationView() {
       const first = plan.workflows[0]?.id ?? "";
       setWorkflow(first);
       setInputText(JSON.stringify(sampleInput(plan, first), null, 2));
+      setEditsText(JSON.stringify(sampleEdits(plan, first), null, 2));
     }
   }
 
@@ -171,6 +181,7 @@ export function RecombinationView() {
     setPlanText(JSON.stringify(example, null, 2));
     setWorkflow(example.workflows[0]?.id ?? "");
     setInputText(JSON.stringify(sampleInput(example, example.workflows[0]?.id ?? ""), null, 2));
+    setEditsText(JSON.stringify(sampleEdits(example, example.workflows[0]?.id ?? ""), null, 2));
     setValidation(null);
   }
 
@@ -357,8 +368,9 @@ export function RecombinationView() {
               <button disabled={busy || selectedActive || record.status !== "verified"} onClick={() => void perform(async () => { const activated = await activateApplicationRevision(record.app_id, record.revision); selectRecord(activated); setHistory(await listApplicationRevisions(record.app_id)); await refresh(); })} className="rounded border border-stone-600 px-3 py-2 disabled:opacity-50">Activate revision</button>
             </div>}
             {history?.app_id === record.app_id && !selectedActive && <p className="text-sm text-amber-200">Activate this revision to preview or export it.</p>}
-            <label className="block text-sm">Workflow <select disabled={transcribing} value={workflow} onChange={(event) => { setWorkflow(event.target.value); if (selectedPlan) setInputText(JSON.stringify(sampleInput(selectedPlan, event.target.value), null, 2)); }} className="ml-2 rounded border border-stone-600 bg-[#141210] p-2">{selectedPlan?.workflows.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label className="block text-sm">Workflow <select disabled={transcribing} value={workflow} onChange={(event) => { setWorkflow(event.target.value); if (selectedPlan) { setInputText(JSON.stringify(sampleInput(selectedPlan, event.target.value), null, 2)); setEditsText(JSON.stringify(sampleEdits(selectedPlan, event.target.value), null, 2)); } }} className="ml-2 rounded border border-stone-600 bg-[#141210] p-2">{selectedPlan?.workflows.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
             <textarea aria-label="Workflow input JSON" spellCheck={false} disabled={transcribing} value={inputText} onChange={(event) => setInputText(event.target.value)} className="h-40 w-full resize-y rounded border border-stone-600 bg-[#141210] p-3 font-mono text-xs" />
+            <label className="block text-sm">Document edits for preview<textarea aria-label="Document edits JSON" spellCheck={false} disabled={transcribing} value={editsText} onChange={(event) => setEditsText(event.target.value)} className="mt-2 h-28 w-full resize-y rounded border border-stone-600 bg-[#141210] p-3 font-mono text-xs" /></label>
             {selectedActive && acceptsTranscript && <div className="rounded border border-stone-700 p-3 text-sm">
               <p className="font-medium">Import speech with AWS Transcribe</p>
               <p className="mt-1 text-xs text-stone-400">External provider substitution. Record a microphone or upload mono 16-bit PCM WAV; finalized speech segments fill the workflow input.</p>
@@ -378,7 +390,7 @@ export function RecombinationView() {
               {audioId && <p className="mt-1 break-all font-mono text-xs text-stone-500">Stored audio: {audioId}</p>}
               {liveSegments.length > 0 && <ol className="mt-2 space-y-1 text-xs text-stone-300">{liveSegments.map((item) => <li key={item.index}>{(item.start_ms / 1000).toFixed(1)}s · {item.text}{item.final ? "" : " …"}</li>)}</ol>}
             </div>}
-            <div className="flex gap-2"><button disabled={busy || !workflow || !selectedActive} onClick={() => void perform(async () => setPreview(await previewApplication(record.app_id, { workflow, input: JSON.parse(inputText), document_edits: [] })))} className="rounded bg-amber-400 px-3 py-2 text-sm font-medium text-stone-950 disabled:opacity-50">Run preview</button><button disabled={busy || !selectedActive} onClick={() => void perform(downloadExport)} className="rounded border border-stone-600 px-3 py-2 text-sm disabled:opacity-50">Download Electron source</button></div>
+            <div className="flex gap-2"><button disabled={busy || !workflow || !selectedActive} onClick={() => void perform(async () => setPreview(await previewApplication(record.app_id, { workflow, input: JSON.parse(inputText), document_edits: JSON.parse(editsText) })))} className="rounded bg-amber-400 px-3 py-2 text-sm font-medium text-stone-950 disabled:opacity-50">Run preview</button><button disabled={busy || !selectedActive} onClick={() => void perform(downloadExport)} className="rounded border border-stone-600 px-3 py-2 text-sm disabled:opacity-50">Download Electron source</button></div>
             {preview && <pre aria-live="polite" className="max-h-96 overflow-auto rounded border border-stone-700 bg-[#141210] p-3 text-xs">{JSON.stringify(preview, null, 2)}</pre>}
           </div>}
         </section>

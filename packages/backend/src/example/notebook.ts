@@ -1,5 +1,6 @@
 import type { CapabilityDefinition, CapabilityIntakeRequest, JsonValue, Meaning, WireObjectType, WireType } from "@splice/contracts";
 import { hashJson } from "../capabilities/identity.js";
+import { documentSignature } from "../composition/documentMigrations.js";
 
 const text = (max_bytes: number): WireType => ({ kind: "string", encoding: "utf-8", max_bytes });
 const float64: WireType = { kind: "float", bits: 64 };
@@ -232,10 +233,13 @@ export function notebookPlan(packages: ReadonlyMap<string, string>) {
     kind: "object", additional: false, fields: [
       { name: "segments", type: segmentArray, optional: false },
       { name: "formula", type: text(2048), optional: false },
-      { name: "cells", type: stringMap, optional: false },
       { name: "markdown", type: text(100_000), optional: false },
     ],
   };
+  const documents = [
+    { id: "meeting", kind: "document" as const, schema: notebookSchema, owner_instance: null, revisioned: true, description: "Composition-owned meeting notebook state.", initial: { transcript: [], formula: "", value: 0, html: "" } },
+    { id: "workbook", kind: "workbook" as const, schema: { kind: "object" as const, additional: false as const, fields: [{ name: "cells", type: stringMap, optional: false }] }, owner_instance: null, revisioned: true, description: "Confirmed numeric cells for meeting calculations.", initial: { cells: {} } },
+  ];
   return {
     schema_version: 1 as const,
     app: { title: "Meeting notebook", description: "Authored development slice that stores recorded transcript segments, evaluates a bounded formula and renders a safe Markdown subset." },
@@ -248,7 +252,8 @@ export function notebookPlan(packages: ReadonlyMap<string, string>) {
       { id: "formula_markdown", from: { instance: "formula", port: "evaluate" }, to: { instance: "markdown", port: "calculation" }, mappings: [{ from: "$from.value", to: "value", transform: "identity" as const, factor: null }], unit_bridge: null, notes: ["Formula output is explicitly mapped into Markdown rendering"] },
       { id: "transcript_markdown", from: { instance: "transcript", port: "accept_segments" }, to: { instance: "markdown", port: "transcript" }, mappings: [{ from: "$from.segments", to: "segments", transform: "identity" as const, factor: null }], unit_bridge: null, notes: ["Recorded transcript segments are explicitly mapped into the note"] },
     ],
-    documents: [{ id: "meeting", kind: "document" as const, schema: notebookSchema, owner_instance: null, revisioned: true, description: "Composition-owned meeting notebook state.", initial: { transcript: [], formula: "", value: 0, html: "" } }],
+    documents,
+    document_migrations: [{ id: "add_workbook", from_signature: documentSignature(documents.slice(0, 1)), to_signature: documentSignature(documents), add_documents: ["workbook"] }],
     workflows: [{
       id: "update_notebook", name: "Update meeting notebook", trigger: "user" as const, input: wfInput,
       output: { kind: "object" as const, additional: false as const, fields: [
@@ -258,32 +263,40 @@ export function notebookPlan(packages: ReadonlyMap<string, string>) {
       ] },
       steps: [
         { id: "transcribe", operation: { instance: "transcript", port: "accept_segments" }, input: [{ from: "$input.segments", to: "segments", transform: "identity" as const, factor: null }], depends_on: [], timeout_ms: 5_000, retries: 0, retry_on_codes: [], idempotency: "none" as const, on_error: "fail" as const, cancellation: "propagate" as const, stale_guard: null, writes: [{ document: "meeting", path: "transcript", from: "$steps.transcribe.segments" }] },
-        { id: "calculate", operation: { instance: "formula", port: "evaluate" }, input: [{ from: "$input.formula", to: "formula", transform: "identity" as const, factor: null }, { from: "$input.cells", to: "cells", transform: "identity" as const, factor: null }], depends_on: [], timeout_ms: 5_000, retries: 0, retry_on_codes: [], idempotency: "none" as const, on_error: "fail" as const, cancellation: "propagate" as const, stale_guard: null, writes: [{ document: "meeting", path: "formula", from: "$input.formula" }, { document: "meeting", path: "value", from: "$steps.calculate.value" }] },
+        { id: "calculate", operation: { instance: "formula", port: "evaluate" }, input: [{ from: "$input.formula", to: "formula", transform: "identity" as const, factor: null }, { from: "$doc.workbook.cells", to: "cells", transform: "identity" as const, factor: null }], depends_on: [], timeout_ms: 5_000, retries: 0, retry_on_codes: [], idempotency: "none" as const, on_error: "fail" as const, cancellation: "propagate" as const, stale_guard: { document: "workbook" }, writes: [{ document: "meeting", path: "formula", from: "$input.formula" }, { document: "meeting", path: "value", from: "$steps.calculate.value" }] },
         { id: "render", operation: { instance: "markdown", port: "render" }, input: [{ from: "$input.markdown", to: "markdown", transform: "identity" as const, factor: null }, { from: "$bindings.formula_markdown.value", to: "value", transform: "identity" as const, factor: null }, { from: "$bindings.transcript_markdown.segments", to: "segments", transform: "identity" as const, factor: null }], depends_on: ["calculate", "transcribe"], timeout_ms: 5_000, retries: 0, retry_on_codes: [], idempotency: "none" as const, on_error: "fail" as const, cancellation: "propagate" as const, stale_guard: null, writes: [{ document: "meeting", path: "html", from: "$steps.render.html" }] },
       ],
     }],
-    ui: [{ id: "notebook", kind: "document" as const, title: "Meeting notebook", bindings: [{ name: "transcript", source: "$doc.meeting.transcript", operation: null }, { name: "formula", source: "$doc.meeting.formula", operation: null }, { name: "value", source: "$doc.meeting.value", operation: null }, { name: "html", source: "$doc.meeting.html", operation: null }], actions: [{ id: "update", label: "Update notebook", workflow: "update_notebook" }] }],
+    ui: [
+      { id: "notebook", kind: "document" as const, title: "Meeting notebook", bindings: [{ name: "transcript", source: "$doc.meeting.transcript", operation: null }, { name: "formula", source: "$doc.meeting.formula", operation: null }, { name: "value", source: "$doc.meeting.value", operation: null }, { name: "html", source: "$doc.meeting.html", operation: null }], actions: [{ id: "update", label: "Update notebook", workflow: "update_notebook" }] },
+      { id: "workbook", kind: "table" as const, title: "Confirmed budget cells", bindings: [{ name: "cells", source: "$doc.workbook.cells", operation: null }], actions: [] },
+    ],
     permissions: [], providers: [{ id: "recorded_provider", capability: "splice.example.transcription", transport: "env" as const, required: false, config_schema: { kind: "object" as const, additional: false as const, fields: [{ name: "region", type: text(100), optional: true }] }, replacement_for: "Notion speech recognition", document_projection: { document: "meeting", path: "transcript", id_prefix: "aws" }, workflow_input: { workflow: "update_notebook", path: "segments" } }],
     acceptance_scenarios: [{ id: "formula_60_to_80", name: "Notebook updates formula result", steps: [
-      { kind: "invoke" as const, workflow: "update_notebook", input: { segments: [{ id: "seg-1", start_ms: 0, end_ms: 500, text: "Budget line" }], formula: "=B2*C2", cells: { B2: 3, C2: 20 }, markdown: "# Meeting\nBudget is **{{value}}**" }, expect_status: "succeeded" as const },
+      { kind: "set_document" as const, document: "workbook", path: "cells", value: { B2: 3, C2: 20 } },
+      { kind: "invoke" as const, workflow: "update_notebook", input: { segments: [{ id: "seg-1", start_ms: 0, end_ms: 500, text: "Budget line" }], formula: "=B2*C2", markdown: "# Meeting\nBudget is **{{value}}**" }, expect_status: "succeeded" as const },
       { kind: "assert_document" as const, document: "meeting", path: "value", equals: 60 },
       { kind: "assert_document" as const, document: "meeting", path: "html", equals: '<h1>Meeting</h1>\n<p>Budget is <strong>60</strong></p>\n<ol class="transcript"><li>Budget line</li></ol>' },
       { kind: "restart" as const },
       { kind: "assert_document" as const, document: "meeting", path: "value", equals: 60 },
-      { kind: "invoke" as const, workflow: "update_notebook", input: { segments: [{ id: "seg-1", start_ms: 0, end_ms: 500, text: "Budget line" }], formula: "=B2*C2", cells: { B2: 4, C2: 20 }, markdown: "# Meeting\nBudget is **{{value}}**" }, expect_status: "succeeded" as const },
+      { kind: "assert_document" as const, document: "workbook", path: "cells", equals: { B2: 3, C2: 20 } },
+      { kind: "set_document" as const, document: "workbook", path: "cells", value: { B2: 4, C2: 20 } },
+      { kind: "invoke" as const, workflow: "update_notebook", input: { segments: [{ id: "seg-1", start_ms: 0, end_ms: 500, text: "Budget line" }], formula: "=B2*C2", markdown: "# Meeting\nBudget is **{{value}}**" }, expect_status: "succeeded" as const },
       { kind: "assert_document" as const, document: "meeting", path: "value", equals: 80 },
       { kind: "assert_document" as const, document: "meeting", path: "html", equals: '<h1>Meeting</h1>\n<p>Budget is <strong>80</strong></p>\n<ol class="transcript"><li>Budget line</li></ol>' },
     ] }, {
       id: "formula_error",
       name: "Invalid formula fails with an explicit error",
       steps: [
-        { kind: "invoke" as const, workflow: "update_notebook", input: { segments: [], formula: "=B2/0", cells: { B2: 3 }, markdown: "Error {{value}}" }, expect_status: "failed" as const },
+        { kind: "set_document" as const, document: "workbook", path: "cells", value: { B2: 3 } },
+        { kind: "invoke" as const, workflow: "update_notebook", input: { segments: [], formula: "=B2/0", markdown: "Error {{value}}" }, expect_status: "failed" as const },
       ],
     }, {
       id: "duplicate_transcript_event",
       name: "Duplicate transcript segment is inserted once",
       steps: [
-        { kind: "invoke" as const, workflow: "update_notebook", input: { segments: [{ id: "seg-1", start_ms: 0, end_ms: 500, text: "One" }, { id: "seg-1", start_ms: 0, end_ms: 500, text: "One" }], formula: "=B2*C2", cells: { B2: 1, C2: 2 }, markdown: "Value {{value}}" }, expect_status: "succeeded" as const },
+        { kind: "set_document" as const, document: "workbook", path: "cells", value: { B2: 1, C2: 2 } },
+        { kind: "invoke" as const, workflow: "update_notebook", input: { segments: [{ id: "seg-1", start_ms: 0, end_ms: 500, text: "One" }, { id: "seg-1", start_ms: 0, end_ms: 500, text: "One" }], formula: "=B2*C2", markdown: "Value {{value}}" }, expect_status: "succeeded" as const },
         { kind: "assert_document" as const, document: "meeting", path: "transcript", equals: [{ id: "seg-1", start_ms: 0, end_ms: 500, text: "One" }] },
       ],
     }],

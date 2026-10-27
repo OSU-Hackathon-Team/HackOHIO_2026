@@ -3,10 +3,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createCapabilityClient } from "@splice/runtime";
+import { encodeWireValue } from "@splice/contracts";
 import type { ApplicationPlanManifest } from "./manifest.js";
 import { openStateStore } from "../../backend/src/state/store.js";
 import { WorkflowEngine } from "../../backend/src/composition/workflows.js";
 import { DesktopTranscription } from "./transcription.js";
+import { initializeDocuments } from "../../backend/src/composition/documentMigrations.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 let window: BrowserWindow | null = null;
@@ -44,6 +46,7 @@ async function startRuntime(): Promise<void> {
   }
   const userData = app.getPath("userData");
   store = openStateStore(path.join(userData, "splice-state"));
+  initializeDocuments(store, manifest.plan);
   engine = new WorkflowEngine(store, definitions, runtimeClients);
   transcription = new DesktopTranscription(store, manifest.app_id, manifest.plan, path.join(userData, "splice-audio"), (session) => {
     window?.webContents.send("splice:transcription-event", session);
@@ -62,6 +65,15 @@ async function startRuntime(): Promise<void> {
     const runtime = ready();
     if (typeof documentId !== "string" || !runtime.manifest.plan.documents.some((document) => document.id === documentId)) throw new Error("Document is not declared in this application");
     return runtime.store.getDocument(documentId);
+  });
+  ipcMain.handle("splice:document-save", (event, documentId: unknown, value: unknown, expectedRevision: unknown) => {
+    if (event.sender !== window?.webContents) throw new Error("Unexpected document caller");
+    const runtime = ready();
+    const definition = runtime.manifest.plan.documents.find((document) => document.id === documentId);
+    if (!definition || definition.owner_instance !== null) throw new Error("Document is not editable in this application");
+    if (expectedRevision !== null && (!Number.isSafeInteger(expectedRevision) || (expectedRevision as number) < 1)) throw new Error("Expected document revision is invalid");
+    const encoded = encodeWireValue(definition.schema, value);
+    return runtime.store.putDocument(definition.id, encoded, expectedRevision as number | null);
   });
   ipcMain.handle("splice:transcription-availability", (event) => {
     if (event.sender !== window?.webContents) throw new Error("Unexpected transcription caller");

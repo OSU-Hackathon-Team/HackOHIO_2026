@@ -236,7 +236,13 @@ export class WorkflowEngine {
       return { value: readPath(mapped, source.path) };
     }
     const definition = plan.documents.find((document) => document.id === source.id);
-    const data = documents[source.id!];
+    let data = documents[source.id!];
+    if (definition && data === undefined && definition.initial !== undefined) {
+      const stored = this.store.getDocument(definition.id)
+        ?? this.store.putDocument(definition.id, encodeWireValue(definition.schema, definition.initial), null);
+      data = stored.data;
+      documents[definition.id] = data;
+    }
     if (!definition || data === undefined) throw new WorkflowExecutionError("document_missing", `Document ${source.id} is not initialized`);
     const value = readPath(data, source.path);
     const type = wireField(definition.schema, source.path);
@@ -257,7 +263,7 @@ export class WorkflowEngine {
     for (const write of step.writes) {
       const definition = plan.documents.find((document) => document.id === write.document);
       if (!definition || definition.owner_instance !== null) throw new WorkflowExecutionError("document_write_denied", `Document ${write.document} is not composition-owned`);
-      const currentData = grouped.get(write.document) ?? structuredClone(writeSnapshots.get(write.document)?.data ?? {});
+      const currentData = grouped.get(write.document) ?? structuredClone(writeSnapshots.get(write.document)?.data ?? definition.initial ?? {});
       if (!isRecord(currentData)) throw new WorkflowExecutionError("document_shape_invalid", `Document ${write.document} is not an object`);
       const docData = currentData;
       const source = parseSource(write.from);
@@ -271,7 +277,8 @@ export class WorkflowEngine {
     const committed: DocumentRecord[] = [];
     this.store.transaction(() => {
       for (const [document, value] of grouped) {
-        committed.push(this.store.putDocument(document, value as JsonValue, writeSnapshots.get(document)?.revision ?? null));
+        const definition = plan.documents.find((item) => item.id === document)!;
+        committed.push(this.store.putDocument(document, definition.initial === undefined ? value as JsonValue : encodeWireValue(definition.schema, value), writeSnapshots.get(document)?.revision ?? null));
       }
     });
     for (const saved of committed) currentDocuments[saved.document] = saved.data;

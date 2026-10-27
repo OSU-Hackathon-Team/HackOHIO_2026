@@ -87,7 +87,10 @@ export function budgetBoardPlan(notebook: CompositionPlan, formulaPackageId: str
       { name: "total", type: valueType, optional: false }, { name: "html", type: htmlType, optional: false },
     ] },
   }];
+  delete plan.document_migrations;
   const budgetStep = structuredClone(calculation);
+  budgetStep.input = budgetStep.input.map((mapping) => mapping.to === "cells" ? { ...mapping, from: "$input.cells" } : mapping);
+  budgetStep.stale_guard = null;
   budgetStep.writes = [{ document: "budget", path: "total", from: "$steps.calculate.value" }];
   const reportStep = structuredClone(rendering);
   reportStep.operation = { instance: "budget_report", port: "render_budget" };
@@ -100,7 +103,8 @@ export function budgetBoardPlan(notebook: CompositionPlan, formulaPackageId: str
   plan.workflows = [{
     id: "compute_budget", name: "Compute budget report", trigger: "user",
     input: { ...notebook.workflows[0].input, fields: [
-      ...notebook.workflows[0].input.fields.filter((field) => ["formula", "cells"].includes(field.name)),
+      ...notebook.workflows[0].input.fields.filter((field) => field.name === "formula"),
+      { name: "cells", type: { kind: "map", values: { kind: "float", bits: 64 }, max_entries: 2048 }, optional: false },
       { name: "label", type: labelType, optional: false },
     ] },
     output: { kind: "object", additional: false, fields: [

@@ -92,6 +92,15 @@ export const DocumentDef = z
   .strict();
 export type DocumentDef = z.infer<typeof DocumentDef>;
 
+/** Additive, reversible-by-retention document transition between pinned plan signatures. */
+export const DocumentMigration = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/),
+  from_signature: Hash,
+  to_signature: Hash,
+  add_documents: z.array(DocumentId).min(1),
+}).strict();
+export type DocumentMigration = z.infer<typeof DocumentMigration>;
+
 export const WorkflowStep = z
   .object({
     id: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/),
@@ -292,6 +301,7 @@ export const CompositionPlan = z
     instances: z.array(PackageInstance).min(1),
     bindings: z.array(Binding),
     documents: z.array(DocumentDef),
+    document_migrations: z.array(DocumentMigration).optional(),
     workflows: z.array(Workflow).min(1),
     ui: z.array(UiSurface).min(1),
     permissions: z.array(PermissionGrant),
@@ -309,6 +319,7 @@ export const CompositionPlan = z
       instances.add(instance.instance);
     }
     const documents = new Set(plan.documents.map((document) => document.id));
+    if (documents.size !== plan.documents.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Document IDs must be unique" });
     for (const workflow of plan.workflows) {
       for (const step of workflow.steps) {
         if (!instances.has(step.operation.instance)) {

@@ -24,6 +24,7 @@ test("a later step merges from its checked document revision, preserving an inte
     ["markdown", { async call() { return { html: "<p>computed</p>" }; } }],
   ]);
   const store = openMemoryStateStore();
+  store.putDocument("workbook", { cells: { B2: 3, C2: 20 } }, null);
   const originalTransaction = store.transaction.bind(store);
   const external = [{ id: "external", start_ms: 0, end_ms: 500, text: "Later editor change" }];
   let depth = 0;
@@ -47,7 +48,7 @@ test("a later step merges from its checked document revision, preserving an inte
     const engine = new WorkflowEngine(store, definitions, clients);
     const result = await engine.run(plan, "update_notebook", {
       segments: [{ id: "original", start_ms: 0, end_ms: 500, text: "Original" }],
-      formula: "=B2*C2", cells: { B2: 3, C2: 20 }, markdown: "Value {{value}}",
+      formula: "=B2*C2", markdown: "Value {{value}}",
     });
     assert.equal(result.status, "succeeded");
     assert.deepEqual((store.getDocument("meeting")?.data as Record<string, unknown>).transcript, external);
@@ -71,6 +72,7 @@ test("a stale write rolls back every document write and returns the committed st
     schema: { kind: "object", additional: false, fields: [{ name: "count", type: { kind: "float", bits: 64 }, optional: false }] },
   });
   const store = openMemoryStateStore();
+  store.putDocument("workbook", { cells: { B2: 3, C2: 20 } }, null);
   store.putDocument("audit", { count: 0 }, null);
   const clients = new Map<string, WorkflowCapabilityClient>([["formula", {
     async call() {
@@ -82,7 +84,7 @@ test("a stale write rolls back every document write and returns the committed st
   try {
     const engine = new WorkflowEngine(store, new Map([["formula", intakes[0].definition]]), clients);
     const result = await engine.run(plan, "update_notebook", {
-      segments: [], formula: "=B2*C2", cells: { B2: 3, C2: 20 }, markdown: "",
+      segments: [], formula: "=B2*C2", markdown: "",
     });
     assert.equal(result.status, "failed");
     assert.match(result.errors.calculate, /revision/);
@@ -93,4 +95,29 @@ test("a stale write rolls back every document write and returns the committed st
   } finally {
     store.close();
   }
+});
+
+test("a workbook edit during calculation rejects the stale formula result", async () => {
+  const { intakes, plan } = fixturePlan();
+  const store = openMemoryStateStore();
+  store.putDocument("workbook", { cells: { B2: 3, C2: 20 } }, null);
+  const clients = new Map<string, WorkflowCapabilityClient>([
+    ["transcript", { async call(_operation, input) { return { segments: input.segments }; } }],
+    ["formula", { async call() {
+      const current = store.getDocument("workbook")!;
+      store.putDocument("workbook", { cells: { B2: 4, C2: 20 } }, current.revision);
+      return { value: 60 };
+    } }],
+    ["markdown", { async call() { return { html: "<p>stale</p>" }; } }],
+  ]);
+  try {
+    const engine = new WorkflowEngine(store, new Map([
+      ["transcript", intakes[2].definition], ["formula", intakes[0].definition], ["markdown", intakes[1].definition],
+    ]), clients);
+    const result = await engine.run(plan, "update_notebook", { segments: [], formula: "=B2*C2", markdown: "Value {{value}}" });
+    assert.equal(result.status, "failed");
+    assert.match(result.errors.calculate, /stale result: document workbook changed/);
+    assert.equal((store.getDocument("meeting")?.data as { value: number }).value, 0);
+    assert.deepEqual(store.getDocument("workbook")?.data, { cells: { B2: 4, C2: 20 } });
+  } finally { store.close(); }
 });

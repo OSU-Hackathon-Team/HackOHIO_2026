@@ -75,6 +75,7 @@ root.replaceChildren();
 const title = document.createElement("h1"); title.textContent = descriptor.title; root.append(title);
 const description = document.createElement("p"); description.textContent = descriptor.description; root.append(description);
 const workflowInputs = new Map();
+const surfaceRefreshers = [];
 for (const workflow of descriptor.workflows) {
   const section = document.createElement("section");
   const heading = document.createElement("h2"); heading.textContent = workflow.name; section.append(heading);
@@ -84,11 +85,63 @@ for (const workflow of descriptor.workflows) {
   const output = document.createElement("pre"); output.setAttribute("aria-live", "polite"); section.append(output);
   button.addEventListener("click", async () => {
     button.disabled = true; output.textContent = "Running…";
-    try { const result = await window.splice.runWorkflow(workflow.id, JSON.parse(input.value)); output.textContent = JSON.stringify(result, null, 2); }
+    try { const result = await window.splice.runWorkflow(workflow.id, JSON.parse(input.value)); output.textContent = JSON.stringify(result, null, 2); await Promise.allSettled(surfaceRefreshers.map((refresh) => refresh())); }
     catch (error) { output.textContent = error instanceof Error ? error.message : String(error); }
     finally { button.disabled = false; }
   });
   root.append(section);
+}
+for (const surface of descriptor.surfaces) {
+  const source = surface.bindings.find((binding) => binding.source.startsWith("$doc."))?.source;
+  if (!source) continue;
+  const documentId = source.split(".")[1];
+  const section = document.createElement("section");
+  const heading = document.createElement("h2"); heading.textContent = surface.title; section.append(heading);
+  const body = document.createElement("div"); section.append(body);
+  const status = document.createElement("pre"); status.setAttribute("aria-live", "polite"); section.append(status);
+  root.append(section);
+  let snapshot = null;
+  async function refresh() {
+    snapshot = await window.splice.getDocument(documentId);
+    body.replaceChildren();
+    if (surface.kind !== "table" || !source.endsWith(".cells")) {
+      const display = document.createElement("pre"); display.textContent = JSON.stringify(snapshot?.data ?? null, null, 2); body.append(display);
+      return;
+    }
+    const table = document.createElement("table");
+    const header = document.createElement("tr");
+    for (const label of ["Cell", "Confirmed value", ""]) { const th = document.createElement("th"); th.textContent = label; header.append(th); }
+    table.append(header);
+    function addRow(cell, value) {
+      const row = document.createElement("tr");
+      const nameCell = document.createElement("td"); const name = document.createElement("input"); name.type = "text"; name.value = cell; name.setAttribute("aria-label", "Cell name"); nameCell.append(name);
+      const valueCell = document.createElement("td"); const amount = document.createElement("input"); amount.type = "number"; amount.step = "any"; amount.value = String(value); amount.setAttribute("aria-label", "Value for " + cell); valueCell.append(amount);
+      const removeCell = document.createElement("td"); const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Remove"; remove.addEventListener("click", () => row.remove()); removeCell.append(remove);
+      row.append(nameCell, valueCell, removeCell); table.append(row);
+    }
+    for (const [cell, value] of Object.entries(snapshot?.data?.cells ?? {}).sort()) addRow(cell, value);
+    body.append(table);
+    const add = document.createElement("button"); add.type = "button"; add.textContent = "Add cell"; add.addEventListener("click", () => addRow("", "")); body.append(add);
+    const save = document.createElement("button"); save.type = "button"; save.textContent = "Save confirmed cells"; body.append(save);
+    save.addEventListener("click", async () => {
+      save.disabled = true;
+      try {
+        const cells = {};
+        for (const row of [...table.querySelectorAll("tr")].slice(1)) {
+          const [name, amount] = row.querySelectorAll("input");
+          const cell = name.value.trim().toUpperCase();
+          if (!/^[A-Z]{1,3}[1-9][0-9]{0,6}$/.test(cell) || amount.value.trim() === "" || !Number.isFinite(Number(amount.value)) || Object.hasOwn(cells, cell)) throw new Error("Enter a unique A1-style cell and a finite number for each row");
+          cells[cell] = Number(amount.value);
+        }
+        snapshot = await window.splice.saveDocument(documentId, { cells }, snapshot?.revision ?? null);
+        status.textContent = "Confirmed cells saved (revision " + snapshot.revision + ")";
+        await refresh();
+      } catch (error) { status.textContent = error instanceof Error ? error.message : String(error); }
+      finally { save.disabled = false; }
+    });
+  }
+  surfaceRefreshers.push(refresh);
+  void refresh().catch((error) => { status.textContent = error instanceof Error ? error.message : String(error); });
 }
 for (const provider of descriptor.providers) {
   const section = document.createElement("section");

@@ -18,6 +18,7 @@ import {
 import type { CapabilityResolver } from "../capabilities/types.js";
 import { capabilityGate } from "../verification/gates.js";
 import { hashJson } from "../capabilities/identity.js";
+import { documentSignature } from "./documentMigrations.js";
 
 interface LoadedInstance {
   pkg: CapabilityPackage;
@@ -263,6 +264,24 @@ export async function validateCompositionPlan(
   }
 
   const documents = new Map(plan.documents.map((document) => [document.id, document]));
+  const targetSignature = documentSignature(plan.documents);
+  const migrationIds = new Set<string>();
+  for (const migration of plan.document_migrations ?? []) {
+    if (migrationIds.has(migration.id)) addError(errors, "document_migration_duplicate", `document_migrations.${migration.id}`, "Document migration ID is duplicated");
+    migrationIds.add(migration.id);
+    if (migration.to_signature !== targetSignature || migration.from_signature === targetSignature) {
+      addError(errors, "document_migration_signature", `document_migrations.${migration.id}`, "Migration signatures must name a distinct source and the current document set");
+    }
+    if (new Set(migration.add_documents).size !== migration.add_documents.length) {
+      addError(errors, "document_migration_duplicate_document", `document_migrations.${migration.id}`, "A migration adds the same document more than once");
+    }
+    for (const id of migration.add_documents) {
+      const document = documents.get(id);
+      if (!document || document.owner_instance !== null || !document.revisioned || document.initial === undefined) {
+        addError(errors, "document_migration_target", `document_migrations.${migration.id}`, `Migration target ${id} needs an initial composition-owned, revisioned document`);
+      }
+    }
+  }
   for (const document of plan.documents) {
     if (document.owner_instance !== null && !instancesById.has(document.owner_instance)) {
       addError(errors, "document_owner_missing", `documents.${document.id}.owner_instance`, `Unknown owner instance ${document.owner_instance}`);

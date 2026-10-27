@@ -98,9 +98,11 @@ try {
   });
   await page.getByRole("button", { name: "Record microphone" }).click();
   await expect(page.getByText("Microphone permission was denied. Allow microphone access in the browser and try again.")).toBeVisible();
+  assert.deepEqual(JSON.parse(await page.getByRole("textbox", { name: "Document edits JSON" }).inputValue()), [{ document: "workbook", path: "cells", value: { B2: 3, C2: 20 } }]);
   await page.getByRole("button", { name: "Run preview" }).click();
   const preview = page.locator("pre").filter({ hasText: '"documents"' });
   await expect(preview).toContainText('"value": 60', { timeout: 20_000 });
+  assert.deepEqual(service.state.getDocument(`${activeAppId}:workbook`)?.data, { cells: { B2: 3, C2: 20 } });
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     page.getByRole("button", { name: "Download Electron source" }).click(),

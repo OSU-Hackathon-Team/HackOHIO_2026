@@ -916,3 +916,14 @@ It exposes provider availability, session snapshots, start, cancel and event not
 the renderer. `DesktopTranscription` uses the same `TranscriptionStore` and document projection
 rule as Studio, resumes unfinished sessions from saved audio on launch, and leaves interrupted
 work replayable when the app closes. The Studio access key is not part of an exported app.
+
+**Additive document migrations.** `CompositionPlan.document_migrations` optionally declares a
+`DocumentMigration` with a stable ID, source and target hashes of the sorted document
+schema/owner/revision signature, and the exact IDs of added documents. Added documents must
+be composition-owned, revisioned, and have schema-checked initial values. Build and activation
+apply the declared addition in the same state transaction as the application revision change.
+Older stored revisions may hide newer documents while preserving their data; undeclared schema
+changes and document removal remain incompatible. The generated Electron host initializes
+explicit document defaults on launch and offers revision-checked, schema-validated edits to
+composition-owned documents through the preload bridge. The authored notebook uses this to
+store confirmed numeric workbook cells, which its formula workflow reads from durable state.

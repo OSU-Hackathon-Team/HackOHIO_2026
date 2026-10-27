@@ -57,8 +57,10 @@ SQLite migration ties each saved app revision to its build job, so replay after 
 returns that revision without creating another. Checkpoints are diagnostic, not resumable compiler
 state. The app commit and job-result file are still separate writes; recovery replays the request
 to reconcile them. A durable active revision now supports same-schema rollback through Studio;
-the previous revision and shared documents remain stored. A schema or durable package-state change
-needs an explicit data migration before activation. Builds and switches compare the active revision
+the previous revision and shared documents remain stored. An additive, declared document migration
+can initialize a new composition-owned document atomically with build or activation and preserve it
+through rollback. Other schema and durable package-state changes still require a data migration.
+Builds and switches compare the active revision
 again inside the SQLite transaction, so a concurrent change returns a conflict. Activation also
 revalidates package availability, file hashes, the application hash and bundled migrations.
 Platform builds, delivery updates, and realistic
@@ -73,6 +75,15 @@ namespaces, so package build and preview do **not** work in a normal container. 
 privileges are not a production deployment solution; a separately reviewed sandbox deployment
 design is still required for container-hosted recombination. The CI container smoke checks startup,
 the capabilities API, and compiler template bundling, not nested sandbox execution.
+
+The notebook now stores confirmed numeric values in a revisioned workbook document. Its formula
+step reads `workbook.cells` with a stale-result guard, and the 60-to-80 acceptance scenario edits
+that workbook, restarts, and checks the saved cells and rendered note. Studio preview exposes
+explicit document edits. The exported Electron renderer offers an editable cell table backed by
+schema validation and optimistic revisions in the host; the Linux display smoke saves cells,
+recalculates, and verifies both documents after restart. The separate budget-board recipe keeps
+its own input contract. These are authored development fixtures and do not establish source-app
+behavioral equivalence.
 
 ### Optional live transcription
 

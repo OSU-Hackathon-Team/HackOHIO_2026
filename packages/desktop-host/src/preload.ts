@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld("splice", Object.freeze({
   workflows: () => ipcRenderer.invoke("splice:workflows"),
   runWorkflow: (workflowId: string, input: Record<string, unknown>) => ipcRenderer.invoke("splice:run", workflowId, input),
   getDocument: (documentId: string) => ipcRenderer.invoke("splice:document", documentId),
+  saveDocument: (documentId: string, value: unknown, expectedRevision: number | null) => ipcRenderer.invoke("splice:document-save", documentId, value, expectedRevision),
   transcriptionAvailability: () => ipcRenderer.invoke("splice:transcription-availability"),
   listTranscriptions: () => ipcRenderer.invoke("splice:transcriptions"),
   getTranscription: (sessionId: string) => ipcRenderer.invoke("splice:transcription", sessionId),

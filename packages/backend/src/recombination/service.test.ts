@@ -6,11 +6,57 @@ import path from "node:path";
 import { getAuthoredNotebookIntakes } from "../example/notebook.js";
 import { budgetBoardPlan } from "../example/budget.js";
 import { hashJson } from "../capabilities/identity.js";
+import { documentSignature } from "../composition/documentMigrations.js";
 import { createRecombinationRouter } from "../routes/recombination.js";
 import { JobManager } from "./jobs.js";
 import { FilesystemRecombinationService } from "./service.js";
 
 const context = { signal: new AbortController().signal, stage() {}, log() {}, transcriptionReset() {}, transcriptionSegment() {} };
+
+test("app revisions add a workbook atomically and retain its data through rollback", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "splice-document-migration-test-"));
+  const service = new FilesystemRecombinationService(root);
+  try {
+    await service.seedAuthored();
+    const old = await service.notebookPlan();
+    old.documents = old.documents.filter((document) => document.id !== "workbook");
+    old.ui = old.ui.filter((surface) => surface.id !== "workbook");
+    delete old.document_migrations;
+    old.workflows[0].input.fields.push({ name: "cells", type: { kind: "map", values: { kind: "float", bits: 64 }, max_entries: 2048 }, optional: false });
+    const oldCalculation = old.workflows[0].steps.find((step) => step.id === "calculate")!;
+    oldCalculation.input.find((mapping) => mapping.to === "cells")!.from = "$input.cells";
+    oldCalculation.stale_guard = null;
+    old.acceptance_scenarios = [{ id: "old_formula", name: "Original notebook calculation", steps: [
+      { kind: "invoke", workflow: "update_notebook", input: { segments: [], formula: "=B2*C2", cells: { B2: 3, C2: 20 }, markdown: "Value {{value}}" }, expect_status: "succeeded" },
+      { kind: "assert_document", document: "meeting", path: "value", equals: 60 },
+    ] }];
+    const first = await service.buildApp(old, context);
+    const sample = old.acceptance_scenarios[0].steps.find((step) => step.kind === "invoke");
+    assert.ok(sample?.kind === "invoke");
+    assert.equal((await service.previewApp(first.app_id, { workflow: "update_notebook", input: sample.input, document_edits: [] })).ok, true);
+    const before = service.state.getDocument(`${first.app_id}:meeting`)!;
+    const next = await service.notebookPlan();
+    assert.equal(next.document_migrations?.[0].from_signature, documentSignature(old.documents));
+    assert.equal((await service.validatePlan(next)).ok, true);
+    const built = await service.buildApp(next, context);
+    assert.equal(built.revision, 1);
+    assert.deepEqual(service.state.getDocument(`${first.app_id}:meeting`), { ...before, document: `${first.app_id}:meeting` });
+    assert.deepEqual(service.state.getDocument(`${first.app_id}:workbook`)?.data, { cells: {} });
+    service.state.putDocument(`${first.app_id}:workbook`, { cells: { B2: 3, C2: 20 } }, 1);
+    await service.activateRevision(first.app_id, 0);
+    assert.deepEqual(service.state.getDocument(`${first.app_id}:workbook`)?.data, { cells: { B2: 3, C2: 20 } });
+    await service.activateRevision(first.app_id, 1);
+    assert.deepEqual(service.state.getDocument(`${first.app_id}:workbook`)?.data, { cells: { B2: 3, C2: 20 } });
+    await service.activateRevision(first.app_id, 0);
+    const invalid = structuredClone(next);
+    invalid.document_migrations![0].from_signature = "0".repeat(64);
+    await assert.rejects(() => service.buildApp(invalid, context), /explicit data migration/);
+    assert.equal((await service.getApp(first.app_id, "latest"))?.revision, 0);
+  } finally {
+    service.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("recombination builds, executes, persists, exports and replaces pinned packages", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "splice-recombination-test-"));
@@ -56,14 +102,19 @@ test("recombination builds, executes, persists, exports and replaces pinned pack
     assert.equal(built.revision, 0);
     const first = plan.acceptance_scenarios[0].steps.find((step) => step.kind === "invoke");
     assert.ok(first?.kind === "invoke");
-    const preview60 = await service.previewApp(built.app_id, { workflow: "update_notebook", input: first.input, document_edits: [] });
+    const preview60 = await service.previewApp(built.app_id, { workflow: "update_notebook", input: first.input, document_edits: [{ document: "workbook", path: "cells", value: { B2: 3, C2: 20 } }] });
     assert.equal(preview60.ok, true);
     assert.match(String((preview60.documents.meeting as { html: string }).html), /<strong>60<\/strong>/);
     const second = plan.acceptance_scenarios[0].steps.filter((step) => step.kind === "invoke")[1];
     assert.ok(second?.kind === "invoke");
-    const preview80 = await service.previewApp(built.app_id, { workflow: "update_notebook", input: second.input, document_edits: [] });
+    const preview80 = await service.previewApp(built.app_id, { workflow: "update_notebook", input: second.input, document_edits: [{ document: "workbook", path: "cells", value: { B2: 4, C2: 20 } }] });
     assert.equal((preview80.documents.meeting as { value: number }).value, 80);
     assert.match(String((preview80.documents.meeting as { html: string }).html), /<strong>80<\/strong>/);
+    await assert.rejects(() => service!.previewApp(built.app_id, { workflow: "update_notebook", input: second.input, document_edits: [
+      { document: "workbook", path: "cells", value: { B2: 99, C2: 20 } },
+      { document: "workbook", path: "cells", value: { B2: "invalid" } },
+    ] }), /expected|float|number/i);
+    assert.deepEqual(service!.state.getDocument(`${built.app_id}:workbook`)?.data, { cells: { B2: 4, C2: 20 } });
 
     const exported = await service.exportApp(built.app_id);
     assert.ok(exported.files.some((file) => file.path === "host/main.js"));
@@ -108,7 +159,7 @@ test("recombination builds, executes, persists, exports and replaces pinned pack
     await service.activateRevision(built.app_id, 1);
     const incompatible = structuredClone(plan);
     incompatible.documents[0].schema.fields.push({ name: "new_field", type: { kind: "string", encoding: "utf-8", max_bytes: 100 }, optional: true });
-    await assert.rejects(() => service!.buildApp(incompatible, context), /explicit data migration/);
+    await assert.rejects(() => service!.buildApp(incompatible, context), /Composition plan has blockers|explicit data migration/);
     assert.equal((await service.getApp(built.app_id, "latest"))?.revision, 1);
     const olderRuntime = structuredClone((await service.getApp(built.app_id, 1))!.bundle);
     olderRuntime.revision = 3;

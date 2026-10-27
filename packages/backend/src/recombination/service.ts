@@ -18,6 +18,7 @@ import type {
   VerificationReport,
   JsonValue,
   CapabilityDefinition,
+  DocumentMigration,
 } from "@splice/contracts";
 import { ApplicationBundle, CompositionPlan as CompositionPlanSchema, canonicalJson, encodeWireValue } from "@splice/contracts";
 import path from "node:path";
@@ -36,6 +37,7 @@ import { compileApplication } from "../composition/compiler.js";
 import { readPath, writePath } from "../composition/bindings.js";
 import { WorkflowEngine, type WorkflowCapabilityClient } from "../composition/workflows.js";
 import { projectTranscript } from "../composition/transcriptProjection.js";
+import { applyDocumentMigration, documentTransition, initializeDocuments } from "../composition/documentMigrations.js";
 import { openStateStore, type SqliteStateStore } from "../state/store.js";
 import { MIGRATIONS } from "../state/migrations.js";
 import { applicationGate, exportGate } from "../verification/gates.js";
@@ -408,14 +410,11 @@ export class FilesystemRecombinationService implements RecombinationService {
     }
   }
 
-  private async assertCompatibleState(current: ApplicationRecord, targetPlan: CompositionPlan): Promise<void> {
+  private async assertCompatibleState(current: ApplicationRecord, targetPlan: CompositionPlan, allowRetiredDocuments = false): Promise<DocumentMigration | null> {
     const currentPlan = this.storedPlan(current);
-    const signature = (plan: CompositionPlan) => canonicalJson(plan.documents.map((document) => ({
-      id: document.id, schema: document.schema, owner_instance: document.owner_instance, revisioned: document.revisioned,
-    })).sort((a, b) => a.id.localeCompare(b.id)));
-    if (signature(currentPlan) !== signature(targetPlan)) {
-      throw error(409, "Application document schemas changed; an explicit data migration is required before switching revisions");
-    }
+    let migration: DocumentMigration | null;
+    try { migration = documentTransition(currentPlan, targetPlan, allowRetiredDocuments); }
+    catch (cause) { throw error(409, cause instanceof Error ? cause.message : String(cause)); }
     const oldInstances = new Map(currentPlan.instances.map((instance) => [instance.instance, instance.package_id]));
     const newInstances = new Map(targetPlan.instances.map((instance) => [instance.instance, instance.package_id]));
     for (const instance of new Set([...oldInstances.keys(), ...newInstances.keys()])) {
@@ -429,6 +428,7 @@ export class FilesystemRecombinationService implements RecombinationService {
         if (definition.state.durable) throw error(409, `Package ${packageId} owns durable state; changing it requires a migration`);
       }
     }
+    return migration;
   }
 
   async buildApp(plan: CompositionPlan, job: JobContext): Promise<{ app_id: string; revision: number }> {
@@ -444,7 +444,7 @@ export class FilesystemRecombinationService implements RecombinationService {
     if (!validation.ok) throw error(422, "Composition plan has blockers", validation.errors);
     const appId = `app_${hashJson({ title: plan.app.title.trim().toLowerCase() }).slice(0, 32)}`;
     const active = this.apps.get(appId, "latest");
-    if (active?.status === "verified") await this.assertCompatibleState(active, plan);
+    const documentMigration = active?.status === "verified" ? await this.assertCompatibleState(active, plan) : null;
     job.stage("scenarios", "Executing composition acceptance scenarios", 30);
     const compositionReport = await this.runScenarios(plan, job.signal);
     if (compositionReport.verdict !== "passed") throw error(422, "Composition acceptance scenarios failed", compositionReport.tests.filter((test) => !test.passed));
@@ -455,7 +455,10 @@ export class FilesystemRecombinationService implements RecombinationService {
     const gate = applicationGate(bundle);
     if (!gate.ok) throw error(422, "Application verification failed", gate.findings);
     job.signal.throwIfAborted();
-    this.apps.save(bundle, job.job_id, active?.status === "verified" ? active.revision : null);
+    this.state.transaction(() => {
+      this.apps.save(bundle, job.job_id, active?.status === "verified" ? active.revision : null);
+      if (documentMigration) applyDocumentMigration(new NamespacedStateStore(this.state, appId), plan, documentMigration);
+    });
     job.stage("stored", `Application ${bundle.app_id} revision ${bundle.revision} stored`, 95);
     return { app_id: bundle.app_id, revision: bundle.revision };
   }
@@ -488,8 +491,12 @@ export class FilesystemRecombinationService implements RecombinationService {
         throw error(409, `Revision ${revision} cannot read state migration ${version}; rebuild or migrate it before activation`);
       }
     }
-    if (active?.status === "verified") await this.assertCompatibleState(active, candidatePlan);
-    return this.apps.activate(appId, revision, active?.revision ?? null);
+    const documentMigration = active?.status === "verified" ? await this.assertCompatibleState(active, candidatePlan, true) : null;
+    return this.state.transaction(() => {
+      const activated = this.apps.activate(appId, revision, active?.revision ?? null);
+      if (documentMigration) applyDocumentMigration(new NamespacedStateStore(this.state, appId), candidatePlan, documentMigration);
+      return activated;
+    });
   }
 
   async exportApp(appId: string): Promise<ApplicationExportResponse> {
@@ -518,13 +525,17 @@ export class FilesystemRecombinationService implements RecombinationService {
     const unsupported = plan.instances.flatMap((instance) => instance.permissions.filter((effect) => ["audio_capture", "renderer_dom"].includes(effect)).map((effect) => `${instance.instance} requires ${effect}, which this preview host does not provide`));
     if (unsupported.length) return { ok: false, status: "failed", documents: {}, step_results: {}, unsupported, error: "Unsupported host effects" };
     const state = new NamespacedStateStore(this.state, appId);
-    for (const edit of request.document_edits) {
-      if (!plan.documents.some((document) => document.id === edit.document && document.owner_instance === null)) throw error(400, `Document ${edit.document} cannot be edited in preview`);
-      const current = state.getDocument(edit.document);
-      const value = current?.data && typeof current.data === "object" && !Array.isArray(current.data) ? structuredClone(current.data) as Record<string, unknown> : {};
-      writePath(value, edit.path, edit.value);
-      state.putDocument(edit.document, value as JsonValue, current?.revision ?? null);
-    }
+    initializeDocuments(state, plan);
+    state.transaction(() => {
+      for (const edit of request.document_edits) {
+        const definition = plan.documents.find((document) => document.id === edit.document && document.owner_instance === null);
+        if (!definition) throw error(400, `Document ${edit.document} cannot be edited in preview`);
+        const current = state.getDocument(edit.document);
+        const value = current?.data && typeof current.data === "object" && !Array.isArray(current.data) ? structuredClone(current.data) as Record<string, unknown> : {};
+        writePath(value, edit.path, edit.value);
+        state.putDocument(edit.document, encodeWireValue(definition.schema, value), current?.revision ?? null);
+      }
+    });
     const runtime = await this.clients(plan);
     try {
       const engine = new WorkflowEngine(state, runtime.definitions, runtime.clients);

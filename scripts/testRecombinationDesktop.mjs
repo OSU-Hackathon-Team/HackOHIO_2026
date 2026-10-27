@@ -39,12 +39,20 @@ try {
   try {
     const page = await desktop.firstWindow();
     await expect(page).toHaveTitle("Meeting notebook");
+    await page.getByRole("button", { name: "Add cell" }).click();
+    await page.getByRole("button", { name: "Add cell" }).click();
+    await page.getByRole("textbox", { name: "Cell name" }).nth(0).fill("B2");
+    await page.getByRole("textbox", { name: "Cell name" }).nth(1).fill("C2");
+    await page.locator("table input[type=number]").nth(0).fill("3");
+    await page.locator("table input[type=number]").nth(1).fill("20");
+    await page.getByRole("button", { name: "Save confirmed cells" }).click();
+    await expect(page.getByText(/Confirmed cells saved/)).toBeVisible();
     await page.getByRole("button", { name: "Run workflow" }).click();
     await page.waitForFunction(() => document.querySelector("pre")?.textContent?.includes('"status": "succeeded"'));
     assert.equal((await page.evaluate(() => window.splice.getDocument("meeting"))).data.value, 60);
-    const input = JSON.parse(await page.locator("textarea").inputValue());
-    input.cells.B2 = 4;
-    await page.locator("textarea").fill(JSON.stringify(input));
+    await page.getByRole("spinbutton", { name: "Value for B2" }).fill("4");
+    await page.getByRole("button", { name: "Save confirmed cells" }).click();
+    await expect(page.getByText(/revision 3/)).toBeVisible();
     await page.getByRole("button", { name: "Run workflow" }).click();
     await page.waitForFunction(() => document.querySelector("pre")?.textContent?.includes('"value": 80'));
     assert.equal((await page.evaluate(() => window.splice.getDocument("meeting"))).data.value, 80);
@@ -70,6 +78,7 @@ try {
     await page.getByRole("button", { name: "Run workflow" }).waitFor();
     const saved = await page.evaluate(() => window.splice.getDocument("meeting"));
     assert.equal(saved.data.value, 80);
+    assert.deepEqual((await page.evaluate(() => window.splice.getDocument("workbook"))).data.cells, { B2: 4, C2: 20 });
     if (liveTranscriptionWav) assert.ok(saved.data.transcript.length > 0, "transcript survives exported app restart");
     assert.ok(saved.revision >= 2);
     console.log(`Electron export launched; revision ${saved.revision} and value 80 survived restart.`);
