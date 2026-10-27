@@ -202,12 +202,13 @@ export async function transcribeWav(
 const transcriptionJobBase = (sessionId: string) => `/api/recombination/transcription/jobs/${encodeURIComponent(sessionId)}`;
 
 /** Start a durable provider job; disconnecting from its event stream leaves it running. */
-export async function startTranscriptionJob(file: File, accessToken: string, signal?: AbortSignal): Promise<TranscriptionStartResponse> {
+export async function startTranscriptionJob(file: File, accessToken: string, binding?: { appId: string; providerId: string }, signal?: AbortSignal): Promise<TranscriptionStartResponse> {
   const url = "/api/recombination/transcription/jobs";
   if (file.size > 10 * 1024 * 1024) throw new RecombinationApiError("WAV file exceeds the 10 MB upload limit", { url });
   return readJson(TranscriptionStartResponse, "TranscriptionStartResponse", url, {
     method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "audio/wav", "X-Splice-Transcription-Token": accessToken },
+    headers: { Accept: "application/json", "Content-Type": "audio/wav", "X-Splice-Transcription-Token": accessToken,
+      ...(binding ? { "X-Splice-App-Id": binding.appId, "X-Splice-Provider-Id": binding.providerId } : {}) },
     body: file,
     signal,
   });

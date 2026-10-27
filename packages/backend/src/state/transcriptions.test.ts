@@ -64,7 +64,7 @@ test("a failed replay request can leave an interrupted session terminal", () => 
   } finally { state.close(); }
 });
 
-test("migration adds transcription sessions without changing existing documents", () => {
+test("migrations add transcription sessions and projections without changing existing documents", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "splice-transcription-migrate-"));
   try {
     const old = openStateStore(root, { migrations: MIGRATIONS.slice(0, 5) });
@@ -72,7 +72,7 @@ test("migration adds transcription sessions without changing existing documents"
     old.close();
     const current = openStateStore(root);
     assert.deepEqual(current.getDocument("meeting")?.data, { value: 60 });
-    assert.equal(current.appliedMigrations().at(-1), 6);
+    assert.equal(current.appliedMigrations().at(-1), 7);
     assert.equal(new TranscriptionStore(current).get(`tr_${"0".repeat(32)}`), null);
     current.close();
   } finally { fs.rmSync(root, { recursive: true, force: true }); }

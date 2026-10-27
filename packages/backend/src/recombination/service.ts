@@ -19,7 +19,7 @@ import type {
   JsonValue,
   CapabilityDefinition,
 } from "@splice/contracts";
-import { ApplicationBundle, CompositionPlan as CompositionPlanSchema, canonicalJson } from "@splice/contracts";
+import { ApplicationBundle, CompositionPlan as CompositionPlanSchema, canonicalJson, encodeWireValue } from "@splice/contracts";
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
@@ -64,7 +64,7 @@ export interface RecombinationService {
   notebookPlan(): Promise<unknown>;
   transcriptionAvailability(): Promise<TranscriptionAvailabilityResponse>;
   transcribePcm(input: { pcm: Uint8Array; sampleRateHz: number; language: string | null }, signal?: AbortSignal): AsyncIterable<TranscriptionEvent>;
-  prepareTranscription(input: { pcm: Uint8Array; sampleRateHz: number; language: string | null }): Promise<TranscriptionSession>;
+  prepareTranscription(input: { pcm: Uint8Array; sampleRateHz: number; language: string | null; appId?: string; providerId?: string }): Promise<TranscriptionSession>;
   runTranscription(sessionId: string, job: JobContext): Promise<{ session_id: string }>;
   getTranscriptionSession(sessionId: string): Promise<TranscriptionSession | null>;
   reconcileTranscriptionSession(sessionId: string, status: "failed" | "cancelled", message: string): Promise<TranscriptionSession>;
@@ -224,11 +224,29 @@ export class FilesystemRecombinationService implements RecombinationService {
     yield { type: "done", final_segments: final.size };
   }
 
-  async prepareTranscription(input: { pcm: Uint8Array; sampleRateHz: number; language: string | null }): Promise<TranscriptionSession> {
+  async prepareTranscription(input: { pcm: Uint8Array; sampleRateHz: number; language: string | null; appId?: string; providerId?: string }): Promise<TranscriptionSession> {
     if (!(await this.transcriptionAvailability()).configured) throw error(503, "Live transcription provider is not configured");
+    if (Boolean(input.appId) !== Boolean(input.providerId)) throw error(400, "Application and provider must be supplied together");
     const blobs = new FsBlobStore(path.join(this.stateDir, "audio"), { maxBytes: 10 * 1024 * 1024 });
     const audio = await blobs.put(input.pcm, { contentType: "audio/L16" });
-    return this.transcriptions.create({ audio, sample_rate_hz: input.sampleRateHz, language: input.language });
+    return this.state.transaction(() => {
+      let projection: TranscriptionSession["projection"] = null;
+      if (input.appId && input.providerId) {
+        const record = this.apps.get(input.appId, "latest");
+        if (!record || record.status !== "verified") throw error(404, `No verified application ${input.appId}`);
+        const plan = this.storedPlan(record);
+        const provider = plan.providers.find((item) => item.id === input.providerId);
+        if (!provider?.document_projection) throw error(400, `Provider ${input.providerId} has no document projection`);
+        const document = plan.documents.find((item) => item.id === provider.document_projection!.document);
+        if (!document || document.owner_instance !== null || !document.revisioned || document.initial === undefined) throw error(409, "Provider projection document is unavailable");
+        projection = { app_id: input.appId, provider_id: input.providerId, ...provider.document_projection, revision: 1 };
+        const state = new NamespacedStateStore(this.state, projection.app_id);
+        const current = state.getDocument(projection.document)
+          ?? state.putDocument(projection.document, encodeWireValue(document.schema, document.initial), null);
+        projection.revision = current.revision;
+      }
+      return this.transcriptions.create({ audio, sample_rate_hz: input.sampleRateHz, language: input.language, projection });
+    });
   }
 
   async getTranscriptionSession(sessionId: string): Promise<TranscriptionSession | null> {
@@ -241,7 +259,17 @@ export class FilesystemRecombinationService implements RecombinationService {
 
   async runTranscription(sessionId: string, job: JobContext): Promise<{ session_id: string }> {
     if (!job.job_id) throw new Error("Transcription requires a durable job id");
-    const started = this.transcriptions.beginAttempt(sessionId, job.job_id);
+    let started: ReturnType<TranscriptionStore["beginAttempt"]>;
+    try {
+      started = this.state.transaction(() => {
+        const value = this.transcriptions.beginAttempt(sessionId, job.job_id!);
+        if (value.session.status !== "succeeded" && value.session.projection) this.projectTranscription(value.session, []);
+        return value;
+      });
+    } catch (cause) {
+      this.transcriptions.reconcileTerminal(sessionId, "failed", cause instanceof Error ? cause.message : String(cause));
+      throw cause;
+    }
     if (started.session.status === "succeeded") return { session_id: sessionId };
     const attempt = started.session.attempt;
     job.transcriptionReset(attempt);
@@ -254,7 +282,13 @@ export class FilesystemRecombinationService implements RecombinationService {
       const session = started.session;
       for await (const raw of provider.transcribe({ audio: session.audio, language: session.language, format: "pcm_s16le", sampleRateHz: session.sample_rate_hz, channels: 1 }, { signal: job.signal })) {
         const segment = { index: raw.index, start_ms: raw.startMs, end_ms: raw.endMs, text: raw.text, final: raw.final };
-        this.transcriptions.putSegment(sessionId, attempt, segment);
+        this.state.transaction(() => {
+          const previous = this.transcriptions.get(sessionId);
+          const updated = this.transcriptions.putSegment(sessionId, attempt, segment);
+          if (updated.projection && canonicalJson(previous?.segments ?? []) !== canonicalJson(updated.segments)) {
+            this.projectTranscription(updated, updated.segments);
+          }
+        });
         job.transcriptionSegment(attempt, segment);
       }
       if (job.signal.aborted) throw new Error("Transcription cancelled");
@@ -265,6 +299,30 @@ export class FilesystemRecombinationService implements RecombinationService {
       this.transcriptions.fail(sessionId, attempt, job.signal.aborted ? "cancelled" : "failed", message);
       throw cause;
     }
+  }
+
+  private projectTranscription(session: TranscriptionSession, segments: TranscriptionSession["segments"]): void {
+    const projection = session.projection;
+    if (!projection) return;
+    const app = this.apps.get(projection.app_id, "latest");
+    if (!app || app.status !== "verified") throw error(409, `Application ${projection.app_id} is unavailable during transcription`);
+    const plan = this.storedPlan(app);
+    const declared = plan.providers.find((item) => item.id === projection.provider_id)?.document_projection;
+    if (!declared || declared.document !== projection.document || declared.path !== projection.path || declared.id_prefix !== projection.id_prefix) {
+      throw error(409, "Provider document projection changed during transcription");
+    }
+    const definition = plan.documents.find((item) => item.id === projection.document);
+    if (!definition) throw error(409, `Document ${projection.document} is unavailable during transcription`);
+    const state = new NamespacedStateStore(this.state, projection.app_id);
+    const current = state.getDocument(projection.document);
+    if (!current || current.revision !== projection.revision) throw error(409, `Document ${projection.document} changed during transcription`);
+    const data = asObject(structuredClone(current.data), `document ${projection.document}`);
+    writePath(data, projection.path, segments.map((item) => ({
+      id: `${projection.id_prefix}-${item.index}`, start_ms: item.start_ms, end_ms: item.end_ms, text: item.text,
+    })));
+    const validated = encodeWireValue(definition.schema, data);
+    const saved = state.putDocument(projection.document, validated, projection.revision);
+    this.transcriptions.setProjectionRevision(session.session_id, session.attempt, saved.revision);
   }
 
   private async clients(plan: CompositionPlan): Promise<{ definitions: Map<string, CapabilityDefinition>; clients: Map<string, CapabilityClient>; dispose(): Promise<void> }> {

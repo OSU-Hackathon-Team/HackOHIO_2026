@@ -216,7 +216,9 @@ export function RecombinationView() {
     transcriptionAbort.current = controller;
     setTranscribing(true); setError(null); setAudioId(null); setLiveSegments([]); setTranscriptionNotice("Transcribing through external AWS provider…");
     try {
-      const started = await startTranscriptionJob(audioFile, transcriptionToken, controller.signal);
+      const provider = record && embeddedPlan(record)?.providers.find((item) => item.document_projection);
+      const binding = record && provider ? { appId: record.app_id, providerId: provider.id } : undefined;
+      const started = await startTranscriptionJob(audioFile, transcriptionToken, binding, controller.signal);
       localStorage.setItem(ACTIVE_TRANSCRIPTION_KEY, started.session.session_id);
       setActiveSessionId(started.session.session_id);
       await observeTranscription(started.session.session_id, currentInput, controller);
@@ -251,7 +253,9 @@ export function RecombinationView() {
     const segments = session.segments.filter((item) => item.final).map((item) => ({ id: `aws-${item.index}`, start_ms: item.start_ms, end_ms: item.end_ms, text: item.text }));
     if (!segments.length) throw new Error("Provider returned no final speech segments");
     setInputText(JSON.stringify({ ...currentInput, segments }, null, 2));
-    setTranscriptionNotice(`${segments.length} final segment(s) added to workflow input. Run preview to save them in the document.`);
+    setTranscriptionNotice(session.projection
+      ? `${segments.length} final segment(s) saved to ${session.projection.document} and added to workflow input.`
+      : `${segments.length} final segment(s) added to workflow input. Run preview to save them in a document.`);
   }
 
   async function reconnectTranscription() {

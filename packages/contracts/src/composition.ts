@@ -87,6 +87,7 @@ export const DocumentDef = z
     owner_instance: InstanceId.nullable(),
     revisioned: z.boolean(),
     description: z.string().max(500),
+    initial: JsonValueSchema.optional(),
   })
   .strict();
 export type DocumentDef = z.infer<typeof DocumentDef>;
@@ -200,6 +201,7 @@ export const ProviderConfig = z
     required: z.boolean(),
     config_schema: WireObjectSchema,
     replacement_for: z.string().nullable(),
+    document_projection: z.object({ document: DocumentId, path: z.string().regex(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/), id_prefix: z.string().regex(/^[a-z][a-z0-9_-]{0,39}$/) }).strict().optional(),
   })
   .strict();
 export type ProviderConfig = z.infer<typeof ProviderConfig>;
@@ -606,6 +608,7 @@ export const TranscriptionSession = z.object({
   status: z.enum(["queued", "running", "succeeded", "failed", "cancelled"]),
   attempt: z.number().int().nonnegative(),
   segments: z.array(TranscriptionSegment).max(5_000),
+  projection: z.object({ app_id: z.string(), provider_id: z.string(), document: DocumentId, path: z.string(), id_prefix: z.string(), revision: z.number().int().positive() }).strict().nullable(),
   error: z.string().nullable(),
   created_at: z.string().datetime({ offset: true }),
   updated_at: z.string().datetime({ offset: true }),

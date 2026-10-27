@@ -76,6 +76,9 @@ try {
   await expect(page.getByText(/Saved transcription: tr_/)).toBeVisible({ timeout: 10_000 });
   const sessionId = await page.evaluate(() => localStorage.getItem("splice.recombination.activeTranscriptionSession"));
   assert.match(sessionId, /^tr_[a-f0-9]{32}$/);
+  const activeAppId = (await service.listApps()).apps.find((entry) => entry.title === "Meeting notebook")?.app_id;
+  assert.ok(activeAppId);
+  await expect.poll(() => service.state.getDocument(`${activeAppId}:meeting`)?.data?.transcript?.[0]?.text).toBe("Budget");
   await page.unroute("**/api/recombination/transcription/jobs/*/events");
   await page.reload();
   await openRecombine();
@@ -83,7 +86,8 @@ try {
   await page.getByLabel("Transcription access key").fill(smokeToken);
   await page.getByRole("button", { name: "Reconnect saved transcription" }).click();
   releaseProvider();
-  await expect(page.getByRole("status")).toContainText("final segment(s) added", { timeout: 10_000 });
+  await expect(page.getByRole("status")).toContainText("final segment(s) saved to meeting", { timeout: 10_000 });
+  assert.equal(service.state.getDocument(`${activeAppId}:meeting`)?.data?.transcript?.[0]?.text, "Budget line");
   const transcribedInput = JSON.parse(await page.getByRole("textbox", { name: "Workflow input JSON" }).inputValue());
   assert.equal(transcribedInput.segments[0].text, "Budget line");
   await page.evaluate(() => {

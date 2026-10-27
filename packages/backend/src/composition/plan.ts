@@ -1,5 +1,6 @@
 import {
   canonicalJson,
+  encodeWireValue,
   type CapabilityDefinition,
   type CapabilityPackage,
   type CompositionPlan,
@@ -266,10 +267,28 @@ export async function validateCompositionPlan(
     if (document.owner_instance !== null && !instancesById.has(document.owner_instance)) {
       addError(errors, "document_owner_missing", `documents.${document.id}.owner_instance`, `Unknown owner instance ${document.owner_instance}`);
     }
+    if (document.initial !== undefined) {
+      try { encodeWireValue(document.schema, document.initial); }
+      catch (cause) { addError(errors, "document_initial_invalid", `documents.${document.id}.initial`, cause instanceof Error ? cause.message : String(cause)); }
+    }
   }
   for (const provider of plan.providers) {
     if (![...loaded.entries()].some(([instance, value]) => instance === provider.capability || value.definition.id === provider.capability)) {
       addError(errors, "provider_capability_missing", `providers.${provider.id}`, `Provider capability ${provider.capability} is not selected in the plan`);
+    }
+    if (provider.document_projection) {
+      const projection = provider.document_projection;
+      const document = documents.get(projection.document);
+      if (!document || document.owner_instance !== null || !document.revisioned || document.initial === undefined) {
+        addError(errors, "provider_projection_document", `providers.${provider.id}.document_projection`, "Projection needs a composition-owned, revisioned document with an initial value");
+      } else {
+        const target = fieldType(document.schema, projection.path);
+        if (!target || target.kind !== "array") addError(errors, "provider_projection_path", `providers.${provider.id}.document_projection.path`, "Projection path must name a transcript array");
+        else {
+          try { encodeWireValue(target, [{ id: `${projection.id_prefix}-0`, start_ms: 0, end_ms: 1, text: "sample" }]); }
+          catch (cause) { addError(errors, "provider_projection_type", `providers.${provider.id}.document_projection.path`, cause instanceof Error ? cause.message : String(cause)); }
+        }
+      }
     }
   }
   const workflowIds = new Set<string>();

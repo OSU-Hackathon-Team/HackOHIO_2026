@@ -13,6 +13,7 @@ type Row = {
   status: string;
   attempt: number;
   segments: string;
+  projection: string | null;
   error: string | null;
   created_at: string;
   updated_at: string;
@@ -26,17 +27,17 @@ export class TranscriptionStateError extends Error {
 export class TranscriptionStore {
   constructor(private readonly state: SqliteStateStore) {}
 
-  create(input: Pick<Session, "audio" | "sample_rate_hz" | "language">): Session {
+  create(input: Pick<Session, "audio" | "sample_rate_hz" | "language"> & { projection?: Session["projection"] }): Session {
     const session_id = `tr_${randomBytes(16).toString("hex")}`;
     const now = new Date().toISOString();
     const session = TranscriptionSession.parse({
       session_id, job_id: null, provider: "aws_transcribe_streaming", ...input,
-      status: "queued", attempt: 0, segments: [], error: null, created_at: now, updated_at: now,
+      status: "queued", attempt: 0, segments: [], projection: input.projection ?? null, error: null, created_at: now, updated_at: now,
     });
     this.state.dbHandle.prepare(`INSERT INTO transcription_sessions
-      (session_id, job_id, provider, audio_id, audio_size, sample_rate_hz, language, status, attempt, segments, error, created_at, updated_at)
-      VALUES (?, NULL, ?, ?, ?, ?, ?, 'queued', 0, '[]', NULL, ?, ?)`)
-      .run(session.session_id, session.provider, session.audio.id, session.audio.size, session.sample_rate_hz, session.language, now, now);
+      (session_id, job_id, provider, audio_id, audio_size, sample_rate_hz, language, status, attempt, segments, projection, error, created_at, updated_at)
+      VALUES (?, NULL, ?, ?, ?, ?, ?, 'queued', 0, '[]', ?, NULL, ?, ?)`)
+      .run(session.session_id, session.provider, session.audio.id, session.audio.size, session.sample_rate_hz, session.language, session.projection ? JSON.stringify(session.projection) : null, now, now);
     return session;
   }
 
@@ -56,6 +57,7 @@ export class TranscriptionStore {
       status: row.status,
       attempt: Number(row.attempt),
       segments,
+      projection: row.projection ? JSON.parse(row.projection) : null,
       error: row.error,
       created_at: row.created_at,
       updated_at: row.updated_at,
@@ -103,6 +105,18 @@ export class TranscriptionStore {
       if (segments.length > 5_000) throw new TranscriptionStateError("Transcript has too many segments");
       this.state.dbHandle.prepare("UPDATE transcription_sessions SET segments = ?, updated_at = ? WHERE session_id = ?")
         .run(JSON.stringify(segments), new Date().toISOString(), sessionId);
+      return this.required(sessionId);
+    });
+  }
+
+  setProjectionRevision(sessionId: string, attempt: number, revision: number): Session {
+    if (!Number.isSafeInteger(revision) || revision < 1) throw new TranscriptionStateError("Invalid projection revision");
+    return this.state.transaction(() => {
+      const session = this.running(sessionId, attempt);
+      if (!session.projection) throw new TranscriptionStateError(`Transcription ${sessionId} has no document projection`);
+      const projection = { ...session.projection, revision };
+      this.state.dbHandle.prepare("UPDATE transcription_sessions SET projection = ?, updated_at = ? WHERE session_id = ?")
+        .run(JSON.stringify(projection), new Date().toISOString(), sessionId);
       return this.required(sessionId);
     });
   }

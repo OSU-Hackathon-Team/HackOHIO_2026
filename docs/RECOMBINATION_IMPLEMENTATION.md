@@ -31,9 +31,11 @@ durable transcription job before connecting to SSE. Its latest segments and stat
 the browser reconnects with the workspace key. A simulated provider interruption replays the
 saved audio under the original job ID and replaces old partials. A real AWS stream also finished
 on attempt 2 after the backend process was stopped with a partial segment and restarted using
-the same state directory. Crash timing during SQLite/blob writes remains untested. Transcript
-segments enter the meeting document when preview runs, not on every
-provider event. The
+the same state directory. Crash timing during SQLite/blob writes remains untested. The notebook
+plan now declares an initial meeting document and a provider projection. Each partial/final event
+updates its timestamped, stable-ID transcript array in the same SQLite transaction as the session
+snapshot. A simulated concurrent document edit rejects the later event without overwriting the
+edit; restart retains the document. The
 native-origin intake test uses a synthetic artifact and approval solely to exercise the gate;
 it is not an upstream review result. On Linux, JS and native packages now run as separate
 processes inside bubblewrap user, PID, mount and network namespaces. Tests confirm package
@@ -86,8 +88,12 @@ a provider replay. The earlier POST-SSE route
 `/api/recombination/transcription` remains an ephemeral compatibility path. Both POST routes
 require `X-Splice-Transcription-Token` before accepting an upload; serve Studio over HTTPS when
 users connect remotely so the workspace key stays private in transit.
-Studio inserts finalized segments into the workflow input; run preview to save them in the meeting
-document. `npm run test:recombination:transcription:live -- <mono-pcm16.wav>` checks the actual
+When an active app has a declared provider projection, Studio sends its app and provider IDs and
+each accepted segment is saved to the composition document immediately. The session retains the
+document revision so a later edit causes a conflict rather than an overwrite. Studio also inserts
+finalized segments into the workflow input for the later formula and Markdown preview. Standalone
+uploads without app/provider IDs still produce a durable session without a document projection.
+`npm run test:recombination:transcription:live -- <mono-pcm16.wav>` checks the actual
 provider without Studio. The synthetic sample above is a plumbing check; a labeled human-audio
 latency/quality test remains required. AWS Transcribe needs permission to start a streaming
 transcription and is an external provider substitution, not a Notion implementation.

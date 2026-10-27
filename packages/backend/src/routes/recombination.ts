@@ -144,7 +144,9 @@ export function createRecombinationRouter(service: RecombinationService, jobs: J
     catch (cause) { throw new HttpError(400, cause instanceof Error ? cause.message : String(cause)); }
     const language = req.get("X-Splice-Language") ?? "en-US";
     if (!/^[a-z]{2,3}-[A-Z]{2}$/.test(language)) throw new HttpError(400, "X-Splice-Language must be a language code such as en-US");
-    const session = await service.prepareTranscription({ ...parsed, language });
+    const appId = req.get("X-Splice-App-Id");
+    const providerId = req.get("X-Splice-Provider-Id");
+    const session = await service.prepareTranscription({ ...parsed, language, appId, providerId });
     const request = { session_id: session.session_id };
     let job: ReturnType<JobManager["start"]>;
     try {

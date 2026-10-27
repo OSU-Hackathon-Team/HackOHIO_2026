@@ -107,6 +107,69 @@ test("transcription job streams after upload, survives observation disconnect an
   }
 });
 
+test("transcription projects each segment into the application document and rejects a concurrent edit", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "splice-transcription-projection-"));
+  let release = () => {};
+  let gate = new Promise<void>((resolve) => { release = resolve; });
+  const adapter: ProviderAdapter = {
+    id: "aws_transcribe_streaming",
+    async *transcribe() {
+      yield { index: 0, startMs: 0, endMs: 100, text: "partial", final: false };
+      yield { index: 0, startMs: 0, endMs: 100, text: "partial", final: false };
+      await gate;
+      yield { index: 0, startMs: 0, endMs: 100, text: "final", final: true };
+    },
+  };
+  let service = new FilesystemRecombinationService(root, { transcriptionProvider: () => adapter });
+  try {
+    await service.seedAuthored();
+    const plan = await service.notebookPlan();
+    const buildContext = { signal: new AbortController().signal, stage() {}, log() {}, transcriptionReset() {}, transcriptionSegment() {} };
+    const built = await service.buildApp(plan, buildContext);
+    const run = async (jobId: string) => {
+      let sawPartial = () => {};
+      const partial = new Promise<void>((resolve) => { sawPartial = resolve; });
+      const session = await service.prepareTranscription({ pcm: new Uint8Array(3_200), sampleRateHz: 16_000, language: "en-US", appId: built.app_id, providerId: "recorded_provider" });
+      const result = service.runTranscription(session.session_id, {
+        ...buildContext, job_id: jobId,
+        transcriptionSegment(_attempt, segment) { if (!segment.final) sawPartial(); },
+      });
+      await partial;
+      return { session, result };
+    };
+    const first = await run(`job_${"b".repeat(32)}`);
+    await new Promise((resolve) => setImmediate(resolve));
+    const document = service.state.getDocument(`${built.app_id}:meeting`);
+    assert.deepEqual((document?.data as { transcript: unknown[] }).transcript, [{ id: "aws-0", start_ms: 0, end_ms: 100, text: "partial" }]);
+    assert.equal(document?.revision, 3, "duplicate provider updates do not advance the document revision");
+    assert.equal((document?.data as { formula: string }).formula, "");
+    release();
+    await first.result;
+    assert.equal((service.state.getDocument(`${built.app_id}:meeting`)?.data as { transcript: Array<{ text: string }> }).transcript[0].text, "final");
+    assert.equal((await service.getTranscriptionSession(first.session.session_id))?.projection?.revision, 4);
+
+    service.close();
+    service = new FilesystemRecombinationService(root, { transcriptionProvider: () => adapter });
+    assert.equal((service.state.getDocument(`${built.app_id}:meeting`)?.data as { transcript: Array<{ text: string }> }).transcript[0].text, "final");
+
+    gate = new Promise<void>((resolve) => { release = resolve; });
+    const second = await run(`job_${"c".repeat(32)}`);
+    const beforeEdit = service.state.getDocument(`${built.app_id}:meeting`)!;
+    const edited = { ...(beforeEdit.data as Record<string, unknown>), formula: "=9" };
+    service.state.putDocument(`${built.app_id}:meeting`, edited, beforeEdit.revision);
+    release();
+    await assert.rejects(second.result, /changed during transcription/);
+    assert.equal((await service.getTranscriptionSession(second.session.session_id))?.status, "failed");
+    const protectedDocument = service.state.getDocument(`${built.app_id}:meeting`)!;
+    assert.equal((protectedDocument.data as { formula: string }).formula, "=9");
+    assert.equal((protectedDocument.data as { transcript: Array<{ text: string }> }).transcript[0].text, "partial");
+  } finally {
+    release();
+    service.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("an interrupted transcription job restarts from its saved audio and discards old partial results", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "splice-transcription-resume-"));
   const jobId = `job_${"d".repeat(32)}`;

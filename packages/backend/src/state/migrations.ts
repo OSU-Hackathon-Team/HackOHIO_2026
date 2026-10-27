@@ -126,6 +126,13 @@ CREATE INDEX IF NOT EXISTS idx_transcription_sessions_status ON transcription_se
 `.trim(),
 };
 
+/** Keep the provider's document cursor with the job across worker restarts. */
+export const TRANSCRIPTION_PROJECTION_MIGRATION: Migration = {
+  version: 7,
+  name: "transcription_document_projection",
+  sql: "ALTER TABLE transcription_sessions ADD COLUMN projection TEXT;",
+};
+
 export const MIGRATIONS: readonly Migration[] = Object.freeze([
   CORE_MIGRATION,
   INDEX_MIGRATION,
@@ -133,6 +140,7 @@ export const MIGRATIONS: readonly Migration[] = Object.freeze([
   APP_BUILD_JOB_MIGRATION,
   ACTIVE_APP_REVISION_MIGRATION,
   TRANSCRIPTION_SESSIONS_MIGRATION,
+  TRANSCRIPTION_PROJECTION_MIGRATION,
 ]);
 
 export type MigrationErrorCode =

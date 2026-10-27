@@ -896,3 +896,14 @@ persisted `TranscriptionSession` and its `JobRecord`. The authenticated session 
 snapshots, replayable events and cancellation; generic job routes do not expose transcription
 jobs. A disconnected SSE observer does not cancel the provider job. The older direct
 `TranscriptionEvent` POST-SSE route remains ephemeral for compatibility.
+
+**Provider document projection.** A composition-owned `DocumentDef` may declare an `initial`
+JSON value checked against its wire schema. `ProviderConfig.document_projection` explicitly
+names a revisioned document, transcript array path and stable segment ID prefix. A durable
+`TranscriptionSession.projection` records the app/provider binding and expected document revision;
+SQLite migration 7 persists it. An authenticated job upload may name the app and provider through
+`X-Splice-App-Id` and `X-Splice-Provider-Id`. Each accepted partial/final segment updates the
+session snapshot and composition document in one SQLite transaction. An intervening document
+revision fails the provider job without replacing the edit. A restarted attempt clears the old
+segments and document projection under the same revision guard. Uploads without an app binding
+retain session-only behavior.
