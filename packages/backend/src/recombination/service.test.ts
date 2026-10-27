@@ -143,6 +143,11 @@ test("recombination builds, executes, persists, exports and replaces pinned pack
     await assert.rejects(() => service!.buildApp(badRevision, context), /acceptance scenarios failed/);
     assert.equal((await service.getApp(built.app_id, "latest"))?.revision, 0, "failed build retains the last verified app");
 
+    const invalidScenarioEdit = structuredClone(plan);
+    invalidScenarioEdit.acceptance_scenarios[0].steps.unshift({ kind: "set_document", document: "workbook", path: "cells", value: { B2: "invalid" } });
+    await assert.rejects(() => service!.buildApp(invalidScenarioEdit, context), /acceptance scenarios failed/);
+    assert.equal((await service.getApp(built.app_id, "latest"))?.revision, 0, "invalid scenario state cannot verify a revision");
+
     const refined = structuredClone(plan);
     refined.app.description += " Refined UI copy.";
     const next = await service.buildApp(refined, context);

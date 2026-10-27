@@ -358,10 +358,12 @@ export class FilesystemRecombinationService implements RecombinationService {
               assertions += 1;
               if (outcome.status !== step.expect_status) throw new Error(`Workflow ${step.workflow} ended ${outcome.status}; expected ${step.expect_status}: ${canonicalJson(outcome.errors)}`);
             } else if (step.kind === "set_document") {
+              const definition = plan.documents.find((document) => document.id === step.document && document.owner_instance === null);
+              if (!definition) throw new Error(`Scenario ${scenario.id} cannot edit document ${step.document}`);
               const current = state.getDocument(step.document);
               const value = current?.data && typeof current.data === "object" && !Array.isArray(current.data) ? structuredClone(current.data) as Record<string, unknown> : {};
               writePath(value, step.path, step.value);
-              state.putDocument(step.document, value as JsonValue, current?.revision ?? null);
+              state.putDocument(step.document, encodeWireValue(definition.schema, value), current?.revision ?? null);
             } else if (step.kind === "assert_document") {
               const current = state.getDocument(step.document);
               if (!current) throw new Error(`Document ${step.document} does not exist`);
