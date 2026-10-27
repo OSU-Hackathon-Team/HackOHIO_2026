@@ -63,8 +63,13 @@ through rollback. Other schema and durable package-state changes still require a
 Builds and switches compare the active revision
 again inside the SQLite transaction, so a concurrent change returns a conflict. Activation also
 revalidates package availability, file hashes, the application hash and bundled migrations.
-Platform builds, delivery updates, and realistic
-performance budgets remain open. The `verified` application status means its current package, scenario and export checks passed; it
+An opt-in Ubuntu x64 `.deb` now bundles the verified app and Electron, installs the Chromium
+sandbox helper with root ownership, and launches after installation without `npm install` or a
+Splice server. Its display smoke verified workbook and note state after restart, installed a
+UI-only revision over the first package, and preserved both documents through that upgrade and
+a second restart. Clean VM
+installation, other platform builds, delivery updates, and realistic performance budgets remain
+open. The `verified` application status means its current package, scenario and export checks passed; it
 does not assert any of those open acceptance gates passed.
 The CI workflow is configured to run the live Studio and exported Electron smokes on its Linux runner.
 The production Docker image builds locally, starts, serves the frontend, and returns healthy API
@@ -120,6 +125,27 @@ the audio and session under Electron `userData`. The plan's `workflow_input` dec
 final transcript segments into the notebook workflow input. Closing the app leaves an unfinished
 job for replay on the next launch. To repeat the live exported-app check, run
 `SPLICE_TEST_EXPORTED_TRANSCRIPTION_WAV=<mono-pcm16.wav> AWS_REGION=<region> npm run test:recombination:desktop`.
+
+### Linux x64 install package
+
+The source export can also be packaged as a Debian archive on Linux x64. Build the app in a
+persistent `SPLICE_STATE_DIR`, then run
+`npm run package:recombination:linux -- <state-dir> <app-id> <output-dir>` from this repo with
+Electron 45 installed in `node_modules`. The command verifies each exported file hash, the
+plan/lock/application hash, the selected platform and the Electron version before creating
+`<output-dir>.deb`. Install it with `sudo dpkg -i <output-dir>.deb` and launch the generated
+`splice-app-<app-id-hash>` command. The package contains Electron, the host, renderer, locked
+capabilities, binaries and migrations; users do not run `npm install` or the Splice server.
+The package declares bubblewrap, util-linux and core Electron library dependencies. Its
+setuid Chromium sandbox helper requires root ownership and mode 4755, which `dpkg` sets at
+installation; unpacking the app directory as an ordinary user is not an equivalent install.
+The package can be removed with `sudo dpkg -r splice-app-<app-id-hash>`; user data stays under
+Electron's per-user application directory. `npm run test:recombination:linux-package` builds,
+installs, launches, restarts and removes the package on a Linux host with `sudo`, Xvfb and
+`dpkg-deb`. The smoke also installs a UI-only revision over the first package and confirms its
+workbook and note data remain editable and durable. This passed on Ubuntu 26.04 x64. A separate
+clean VM install and other
+Linux distributions remain unverified; the `.deb` does not cover Windows or macOS.
 
 ## Ground rules
 

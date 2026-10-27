@@ -7,6 +7,7 @@ import { getAuthoredNotebookIntakes } from "../example/notebook.js";
 import { budgetBoardPlan } from "../example/budget.js";
 import { hashJson } from "../capabilities/identity.js";
 import { documentSignature } from "../composition/documentMigrations.js";
+import { packageLinuxApplication } from "../composition/linuxPackage.js";
 import { createRecombinationRouter } from "../routes/recombination.js";
 import { JobManager } from "./jobs.js";
 import { FilesystemRecombinationService } from "./service.js";
@@ -121,6 +122,10 @@ test("recombination builds, executes, persists, exports and replaces pinned pack
     assert.ok(exported.files.some((file) => file.path === "renderer/index.html"));
     assert.ok(exported.files.some((file) => file.path.startsWith("migrations/")));
     assert.ok(exported.files.some((file) => file.path === "splice.lock.json"));
+    const tampered = structuredClone(exported);
+    const renderer = tampered.files.find((file) => file.path === "renderer/index.html")!;
+    renderer.content = `${renderer.content ?? ""}tampered`;
+    await assert.rejects(() => packageLinuxApplication(tampered, "unused", path.join(root, "tampered-package")), /Export hash mismatch/);
 
     service.close();
     service = new FilesystemRecombinationService(root);

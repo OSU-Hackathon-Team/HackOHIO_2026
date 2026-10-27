@@ -32,6 +32,8 @@
     "build:targets": "node scripts/build-targets.mjs",
     "test:studio": "playwright test",
     "test:recombination:desktop": "npm run build:contracts && npm run build --workspace=@splice/runtime && xvfb-run -a node --import tsx scripts/testRecombinationDesktop.mjs",
+    "package:recombination:linux": "node --import tsx scripts/packageRecombinationLinux.mjs",
+    "test:recombination:linux-package": "npm run build:contracts && npm run build --workspace=@splice/runtime && xvfb-run -a node --import tsx scripts/testRecombinationLinuxPackage.mjs",
     "test:recombination:studio": "npm run build && node --import tsx scripts/testRecombinationStudio.mjs",
     "test:recombination:transcription:live": "npm run build:backend && node --import tsx scripts/testAwsTranscribeLive.mjs"
   },
