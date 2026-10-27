@@ -215,6 +215,69 @@ export async function sharedArchive() {
   return { root, archive, extracted };
 }
 
+/* An application that cannot even start when a particular fixture is present: no case built on
+   that fixture can produce an expectation, and the specification stage has to repair it. */
+export const FRAGILE_SOURCE = `"use strict";
+const { app, ipcMain } = require("electron");
+const fs = require("fs");
+const path = require("path");
+
+if (fs.existsSync(path.join(app.getPath("userData"), "state.lock"))) process.exit(3);
+
+app.whenReady().then(() => {
+  ipcMain.handle("safe:echo", (_event, value) => String(value));
+});
+`;
+
+export const FRAGILE_SPEC = {
+  schema_version: 2,
+  application: {
+    name: "synthetic-fragile",
+    version: "1.0.0",
+    scope: ["safe:echo IPC behavior"],
+    exclusions: ["renderer layout"],
+    environments: { clock: "2026-10-25T12:00:00.000Z" },
+  },
+  channels: {
+    "safe:echo": {
+      feature: "features/echo.cjs",
+      /* The lock file makes the original exit before it registers anything. */
+      fixtures: [{ base: "userData", path: "state.lock", content: "" }],
+      args: [["alpha"], ["beta"]],
+      requirements: ["Returns its argument as a string."],
+    },
+  },
+};
+
+/** The same specification after the stage repaired the fixture that made the app exit. */
+export const FRAGILE_SPEC_REPAIRED = {
+  ...FRAGILE_SPEC,
+  channels: { "safe:echo": { ...FRAGILE_SPEC.channels["safe:echo"], fixtures: [],
+    args: [["alpha"], ["beta"]] } },
+};
+
+export const ECHO_FEATURE = `"use strict";
+module.exports = async function (args) {
+  return String(args[0]);
+};
+`;
+
+export async function fragileArchive() {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "splice-synthetic-fragile-"));
+  const source = path.join(root, "source");
+  await fsp.mkdir(source);
+  await fsp.writeFile(path.join(source, "package.json"), JSON.stringify({
+    name: "synthetic-fragile", version: "1.0.0", main: "main.js",
+  }));
+  await fsp.writeFile(path.join(source, "main.js"), FRAGILE_SOURCE);
+  const archive = path.join(root, "app.asar");
+  await asar.createPackage(source, archive);
+  const extracted = path.join(root, "extracted");
+  await fsp.mkdir(extracted);
+  asar.extractAll(archive, extracted);
+  return { root, archive, extracted };
+}
+
 /* An application whose stable-looking channel mints a random identifier only inside a stateful
    sequence: checking one case per channel would verify the original's own random key. */
 export const REGISTRY_SOURCE = `"use strict";

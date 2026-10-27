@@ -106,13 +106,17 @@ function sampleArguments(sample, arity) {
   return [defaults];
 }
 
-export function validateContract(contract, originalChannels) {
+export function validateContract(contract, originalChannels, { knownChannels = null } = {}) {
   const problems = [];
   if (!contract || typeof contract !== "object") return ["Contract must be a JSON object"];
   if (!SUPPORTED_VERSIONS.has(contract.schema_version))
     problems.push(`schema_version must be one of ${[...SUPPORTED_VERSIONS].join(", ")}`);
   if (!contract.channels || typeof contract.channels !== "object") return [...problems, "Contract needs a channels object"];
   const names = new Set(originalChannels.map(item => item.channel));
+  /* Channels this contract does not implement but that the archive registers: a sequence may call
+     one, and the driver drops that case rather than grading a channel the candidate cannot
+     register. `knownChannels` defaults to the contract's own channels. */
+  const known = new Set([...names, ...(knownChannels ?? []).map(item => item.channel)]);
   if (contract.application !== undefined) {
     if (!contract.application || typeof contract.application !== "object") problems.push("application must be an object");
     for (const key of ["scope", "exclusions", "blockers", "unresolved"])
@@ -142,7 +146,7 @@ export function validateContract(contract, originalChannels) {
         continue;
       }
       for (const call of sequence.calls) {
-        if (typeof call?.channel !== "string" || !names.has(call.channel))
+        if (typeof call?.channel !== "string" || !known.has(call.channel))
           problems.push(`${channel}: sequence calls unknown channel ${call?.channel}`);
         if (call?.args !== undefined && !Array.isArray(call.args))
           problems.push(`${channel}: sequence call args must be an array`);

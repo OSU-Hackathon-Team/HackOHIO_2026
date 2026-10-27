@@ -47,7 +47,10 @@ export function validateSpec(spec, originalChannels) {
   for (const channel of Object.keys(spec?.channels ?? {}))
     if (excluded.has(channel)) problems.push(`${channel}: is declared and excluded at the same time`);
   const required = originalChannels.filter(entry => !excluded.has(entry.channel));
-  problems.push(...validateContract(spec, required));
+  /* An excluded channel still exists in the archive, so a sequence of an implemented channel may
+     legitimately call it; the driver drops that case instead of grading a missing handler. */
+  problems.push(...validateContract(spec, required,
+    { knownChannels: originalChannels }));
   if (spec?.schema_version === SPEC_VERSION) {
     if (!spec.application || typeof spec.application !== "object")
       problems.push("application is required: name, version, scope and exclusions");

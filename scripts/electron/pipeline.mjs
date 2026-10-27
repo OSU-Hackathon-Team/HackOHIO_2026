@@ -153,20 +153,45 @@ async function acceptSpecification({ spec, inventory, appDir, timeout, log }) {
   let required = inventory.filter(entry => !excluded.has(entry.channel));
   if (!required.length)
     return { excluded, required, built: null, hostDependent: [], contract: spec,
-      hostCheck: { cases: 0, per_channel: HOST_CHECK_PER_CHANNEL } };
+      hostCheck: { cases: 0, per_channel: HOST_CHECK_PER_CHANNEL }, droppedCases: [] };
   let built = buildCases({ contract: spec, channels: required, seed: "public" });
   const check = await hostDependentChannels({ cases: built.all, appDir, timeout });
   const hostDependent = check.excluded;
   const hostCheck = { cases: check.checked, per_channel: HOST_CHECK_PER_CHANNEL };
-  if (!hostDependent.length) return { excluded, required, built, hostDependent, contract: spec, hostCheck };
-  const contract = { ...spec, channels: { ...spec.channels },
-    channel_exclusions: [...(spec.channel_exclusions ?? []), ...hostDependent] };
-  for (const item of hostDependent) { delete contract.channels[item.channel]; excluded.set(item.channel, item); }
-  required = inventory.filter(entry => !excluded.has(entry.channel));
-  built = required.length ? buildCases({ contract, channels: required, seed: "public" }) : null;
-  log(`${hostDependent.length} host-dependent channel(s) excluded: ` +
-    hostDependent.map(item => item.channel).join(", "));
-  return { excluded, required, built, hostDependent, contract, hostCheck };
+  let contract = spec;
+  if (hostDependent.length) {
+    contract = { ...spec, channels: { ...spec.channels },
+      channel_exclusions: [...(spec.channel_exclusions ?? []), ...hostDependent] };
+    for (const item of hostDependent) { delete contract.channels[item.channel]; excluded.set(item.channel, item); }
+    required = inventory.filter(entry => !excluded.has(entry.channel));
+    built = required.length ? buildCases({ contract, channels: required, seed: "public" }) : null;
+    log(`${hostDependent.length} host-dependent channel(s) excluded: ` +
+      hostDependent.map(item => item.channel).join(", "));
+  }
+  /* A declared sequence may call a channel this run does not reconstruct — an excluded one, or one
+     outside the run's subsystem scope. The candidate cannot register that channel, so the case
+     cannot be graded: the original's answer for it would be compared with a missing handler. Such
+     a case is dropped and reported, never silently expected. */
+  const dropped = new Map();
+  if (built) {
+    /* `all` holds every case as well as the partition it landed in, so the drop is collected by
+       case name and reported once. */
+    const keep = cases => cases.filter(testCase => {
+      const blocked = (testCase.calls ?? []).map(call => call.channel).filter(channel => excluded.has(channel));
+      if (!blocked.length) return true;
+      if (!dropped.has(testCase.name))
+        dropped.set(testCase.name, { case: testCase.name, channel: testCase.channel,
+          excluded_calls: [...new Set(blocked)] });
+      return false;
+    });
+    built = { ...built, publicCases: keep(built.publicCases), repairCases: keep(built.repairCases),
+      finalCases: keep(built.finalCases), all: keep(built.all) };
+    built.heldOut = built.finalCases;
+    if (dropped.size)
+      log(`${dropped.size} case(s) dropped: they call a channel this run does not reconstruct`);
+  }
+  const droppedCases = [...dropped.values()];
+  return { excluded, required, built, hostDependent, contract, hostCheck, droppedCases };
 }
 
 /** Add this run's subsystem exclusions to the contract that will be verified and assembled. */
@@ -332,6 +357,7 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
   let contract = null;
   let hostDependent = [];
   let hostCheck = null;
+  let droppedCases = [];
   let feedback = "";
   let suites = null;
   let observations = null;
@@ -392,6 +418,7 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
       continue;
     }
     const { excluded, required, built } = accepted;
+    droppedCases = accepted.droppedCases ?? [];
     const channelNames = required.map(item => item.channel);
     const observed = [];
     const observationProblems = [];
@@ -416,6 +443,19 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
     if (gaps.length) {
       feedback = `Coverage gaps (a channel needs a reachable fixture and one successful ` +
         `observation):\n${gaps.join("\n")}`;
+      continue;
+    }
+    /* A case the original cannot be observed on is not an expectation. The specification stage
+       gets a chance to repair the fixture or the arguments it declared, because only it can: a
+       case the driver cannot observe says nothing about behavior. */
+    if (observationProblems.length && round < specRounds) {
+      feedback = `${observationProblems.length} generated case(s) produced no usable observation ` +
+        `against the original, so they cannot be verified:\n` +
+        `${failureLines(observationProblems.map(item => ({ case: item.case, channel: item.channel,
+          problems: [item.reason] })), 6)}\n` +
+        "Repair the fixtures and arguments of those channels (oracle_find_fixture repairs a missing " +
+        "file or object field) so the original answers, or state the failure as a requirement if the " +
+        "original consistently refuses, then declare the specification again.";
       continue;
     }
     if (narrow.length) log(`narrow coverage: ${narrow.length} channel(s) with a single outcome`);
@@ -472,6 +512,7 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
     contract = accepted.contract;
     hostDependent = accepted.hostDependent;
     hostCheck = accepted.hostCheck;
+    droppedCases = accepted.droppedCases ?? [];
     observations = { total: built.all.length, usable: observed.length, failures: observationProblems,
       host_check: hostCheck };
   }
@@ -539,6 +580,7 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
       channel_exclusions: contract.channel_exclusions ?? [],
       host_dependent_exclusions: hostDependent,
       host_check: hostCheck,
+      cases_dropped: droppedCases,
       scope: spec.application?.scope ?? [], exclusions: spec.application?.exclusions ?? [],
       blockers: spec.application?.blockers ?? [], unresolved: spec.application?.unresolved ?? [] },
     partitions: {
@@ -558,6 +600,8 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
         "layout, menus, tray, updater and other platform effects are outside the verified scope.",
       "The specification agent decides what to observe; behavior it never reached is absent from the " +
         "specification and therefore from this verdict.",
+      "Cases whose calls reach a channel this run does not reconstruct are dropped rather than " +
+        "compared, and the report lists them under spec.cases_dropped.",
     ],
   };
   const blockers = [];

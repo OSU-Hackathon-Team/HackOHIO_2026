@@ -4,9 +4,10 @@ import path from "node:path";
 import test from "node:test";
 import { reconstruct } from "../pipeline.mjs";
 import { specHash } from "../spec.mjs";
-import { ADD_FEATURE, HOST_SPEC, READ_FEATURE, REGISTRY_ADD_FEATURE, REGISTRY_LIST_FEATURE,
-  REGISTRY_SPEC, SHARED_FEATURE, SHARED_SPEC, SPEC, SUBSYSTEM_SPEC, VERSION_FEATURE,
-  hostSyntheticArchive, registryArchive, sharedArchive, syntheticArchive } from "./synthetic.mjs";
+import { ADD_FEATURE, ECHO_FEATURE, FRAGILE_SPEC, FRAGILE_SPEC_REPAIRED, HOST_SPEC, READ_FEATURE,
+  REGISTRY_ADD_FEATURE, REGISTRY_LIST_FEATURE, REGISTRY_SPEC, SHARED_FEATURE, SHARED_SPEC, SPEC,
+  SUBSYSTEM_SPEC, VERSION_FEATURE, fragileArchive, hostSyntheticArchive, registryArchive,
+  sharedArchive, syntheticArchive } from "./synthetic.mjs";
 
 function agentRun(stage, round) {
   return { stage, round, model: "scripted", toolCalls: [], tokens: 0, exitCode: 0,
@@ -159,6 +160,60 @@ test("a channel whose answer depends on the mocked host is excluded, not claimed
     assert.deepEqual(manifest.excluded_channels.map(item => item.channel), ["window:bounds"]);
     const spec = await fsp.readFile(path.join(output, "handoff", "SPEC.md"), "utf8");
     assert.match(spec, /Excluded channels[\s\S]*window:bounds/);
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("an unobservable case is repaired by the specification stage, not verified", { timeout: 240000 }, async () => {
+  const { root, archive } = await fragileArchive();
+  const state = path.join(root, "state");
+  const feedbacks = [];
+  try {
+    const result = await reconstruct({ archive, output: path.join(root, "out"),
+      agentRunner: async ({ stage, round, workspace, feedback }) => {
+        if (stage === "spec") {
+          feedbacks.push(feedback ?? "");
+          /* The declared fixture makes the original exit before it registers a channel, so no case
+             built on it can produce an expectation. The stage is told and repairs it. */
+          await declare(workspace, round === 1 ? FRAGILE_SPEC : FRAGILE_SPEC_REPAIRED);
+        } else {
+          await fsp.mkdir(path.join(workspace, "features"), { recursive: true });
+          await fsp.writeFile(path.join(workspace, "features/echo.cjs"), ECHO_FEATURE);
+        }
+        return agentRun(stage, round);
+      },
+      options: { state, "spec-rounds": 2, "impl-rounds": 1 } });
+    assert.match(feedbacks[1] ?? "", /produced no usable observation/);
+    assert.equal(result.report.readiness.ready, true, JSON.stringify(result.report.readiness.blockers));
+    assert.equal(result.report.observations.failures.length, 0);
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a case that calls a channel outside the run is dropped, not compared", { timeout: 180000 }, async () => {
+  const { root, archive } = await syntheticArchive();
+  const spec = structuredClone(SPEC);
+  delete spec.channels["notes:read"];
+  spec.channel_exclusions = [{ channel: "notes:read",
+    reason: "test: the channel is outside the reproducible feature contract" }];
+  /* A sequence of a reconstructed channel that calls the excluded one: the candidate cannot
+     register it, so grading the case would compare the original's answer with a missing handler. */
+  spec.channels["notes:add"].sequences = [{ description: "add, then read through the excluded channel",
+    calls: [{ channel: "notes:add", args: ["alpha", "one"] }, { channel: "notes:read", args: ["alpha"] }] }];
+  try {
+    const result = await reconstruct({ archive, output: path.join(root, "out"), agentRunner: async context => {
+      if (context.stage === "spec") await declare(context.workspace, spec);
+      else {
+        await fsp.mkdir(path.join(context.workspace, "features"), { recursive: true });
+        await fsp.writeFile(path.join(context.workspace, "features/add.cjs"), ADD_FEATURE);
+      }
+      return agentRun(context.stage, context.round);
+    }, options: { state: path.join(root, "state"), "spec-rounds": 1, "impl-rounds": 1 } });
+    assert.equal(result.report.readiness.ready, true, JSON.stringify(result.report.readiness.blockers));
+    assert.deepEqual(result.report.spec.cases_dropped.map(item => item.excluded_calls), [["notes:read"]]);
+    assert.ok(result.report.partitions.public.cases > 0);
   } finally {
     await fsp.rm(root, { recursive: true, force: true });
   }
