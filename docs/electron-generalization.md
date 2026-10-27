@@ -51,6 +51,9 @@ list, tools and MCP servers instead of reusing a background service started by a
    channel needs a fixture that reaches it, at least one successful observation, and either three
    distinct outcomes or six observable cases (constant-result operations cannot produce three
    outcomes). A specification with gaps is not accepted.
+   Discovery declarations sample up to eight shape-diverse cases per channel for coverage feedback;
+   the driver observes the full suite once after the spec is accepted, so a large application does
+   not re-run hundreds of probes every time the specification changes.
 4. **Case generation and partitioning** (`cases.mjs`). The specification expands into mutated
    fixtures, boundary arguments, repeated calls and declared sequences. The driver observes every
    case against the original, then partitions the usable observations into public (~55%), repair
@@ -108,6 +111,7 @@ its declared scope (`readiness.ready`) but never whole-app ready (`readiness.who
 |---|---|
 | `ELECTRON_STATE_ROOT` | default parent for run state when `--state` is absent (use a large disk) |
 | `ELECTRON_AGENT_CONTEXT` / `ELECTRON_AGENT_OUTPUT` | model context/output limits (defaults 196608 / 16384) |
+| `ELECTRON_CASES_PER_CHANNEL` | cap on generated argument/fixture cases per channel (default 16) |
 | `ELECTRON_NO_SANDBOX=1` | adds `--no-sandbox` to `electron:smoke` for containers without a SUID sandbox |
 | `OPENCODE_BIN` | OpenCode binary to run (default `opencode`) |
 

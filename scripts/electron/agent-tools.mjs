@@ -86,8 +86,23 @@ async function prepareCases(spec) {
       "(find_fixture repairs missing files and fields) and declare the channels you abandoned."] };
   }
   const built = buildCases({ contract: spec, channels, seed: "public" });
+  /* Coverage feedback during discovery samples shape-diverse cases per channel instead of running
+     the whole generated suite on every declaration. The driver observes the full suite once, so
+     a large application does not spend its round budget re-running hundreds of probes each time
+     the specification changes. */
+  const sample = [];
+  const perChannel = new Map();
+  for (const testCase of built.all) {
+    const entry = perChannel.get(testCase.channel) ?? { shapes: new Set(), count: 0 };
+    if (entry.count >= 8) continue;
+    if (entry.shapes.has(testCase.shape) && entry.count >= 4) continue;
+    entry.shapes.add(testCase.shape);
+    entry.count++;
+    perChannel.set(testCase.channel, entry);
+    sample.push(testCase);
+  }
   const observed = [];
-  for (const cases of [built.publicCases, built.repairCases, built.finalCases]) {
+  for (const cases of [sample]) {
     const results = await runSuite({ runCase, appDir, cases });
     observed.push(...usableResults(results));
   }
@@ -105,7 +120,8 @@ async function prepareCases(spec) {
     fs.writeFileSync(publicFile, JSON.stringify(publicSuite) + "\n");
   }
   preparedHash = specHash(spec);
-  return { problems: [], cases: publicSuite.cases.length, coverage: publicSuite.coverage,
+  return { problems: [], cases: publicSuite.cases.length, sampled_cases: sample.length,
+    coverage: publicSuite.coverage,
     gaps: coverageGaps(observed, channelNames, { minDistinct: 3 }),
     public_gaps: publicSuite.gaps,
     excluded_channels: [...excluded.keys()] };

@@ -180,9 +180,10 @@ export function buildCases({ contract, channels, seed = "splice" }) {
           variants.push(copy);
         }
       let count = 0;
+      const perChannel = Number(process.env.ELECTRON_CASES_PER_CHANNEL ?? 16);
       for (const args of unique(variants)) {
         for (let fixtureIndex = 0; fixtureIndex < fixtureVariants.length; fixtureIndex++) {
-          if (count++ >= 24) break;
+          if (count++ >= perChannel) break;
           const fixtures = fixtureVariants[fixtureIndex];
           const testCase = { channel, fixtures, fixed_time: fixedTime, calls: [{ channel, args }] };
           const key = hash({ channel, fixtures: fixtures.map(({ base, path, content }) => ({ base, path, content })), args });
@@ -294,7 +295,7 @@ export function compareCase(expected, actual) {
 }
 
 /** Run cases with bounded parallelism; one case cannot poison another. */
-export async function runSuite({ runCase, appDir, cases, concurrency = 4, timeout = 20000 }) {
+export async function runSuite({ runCase, appDir, cases, concurrency = 6, timeout = 20000 }) {
   const results = new Array(cases.length);
   let cursor = 0;
   async function worker() {
