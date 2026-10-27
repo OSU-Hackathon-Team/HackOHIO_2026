@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { _electron, chromium, expect } from "@playwright/test";
 import { hashJson } from "../packages/backend/src/capabilities/identity.ts";
 import { FilesystemRecombinationService } from "../packages/backend/src/recombination/service.ts";
+import { benchmarkInstalledNotebook } from "./benchmarkInstalledRecombination.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "splice-linux-package-smoke-"));
@@ -153,6 +154,11 @@ try {
   const upgradedNativeResult = await finalPage.evaluate(() => window.splice.runWorkflow("native_multiply", { a: 4, b: 20 }));
   assert.equal(upgradedNativeResult.status, "succeeded", JSON.stringify(upgradedNativeResult.errors));
   assert.equal(upgradedNativeResult.step_results.multiply.product, 80);
+  if (process.env.SPLICE_TEST_PACKAGED_PERFORMANCE === "1") {
+    const electronPid = desktop.process().pid;
+    assert.ok(electronPid, "installed Electron process has no PID");
+    await benchmarkInstalledNotebook(finalPage, electronPid);
+  }
   await desktop.close(); desktop = undefined;
   if (process.env.SPLICE_TEST_CLEAN_CONTAINER === "1") {
     const probe = spawnSync("sudo", ["-n", "docker", "run", "-d", "--privileged", "--shm-size=1g", "-p", "127.0.0.1::9222",

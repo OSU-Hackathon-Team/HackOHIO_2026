@@ -47,6 +47,30 @@ notebook workflow, and 253 ms for the budget workflow. These are one-host
 development results; the script prints the full JSON result on each run.
 
 M7 performance acceptance still requires workloads for approved capabilities,
-human audio latency, installed app measurements, platform-specific resource
-budgets, and a representative load profile beyond one sequential caller. The
-current `verified` app status does not include this performance gate.
+human audio latency, platform-specific resource budgets, and a representative
+load profile beyond one sequential caller. The current `verified` app status
+does not include this performance gate.
+
+## Installed Linux package probe
+
+Run `npm run test:recombination:linux-package:performance` on a Linux x64 host
+with Xvfb, `dpkg`, Bubblewrap, Electron 45 and passwordless sudo for package
+installation. The ordinary `.deb` smoke builds an authored native sidecar,
+installs the app, exercises its workflows, installs a UI-only upgrade, and
+restarts. The optional performance phase then saves 512 workbook cells and
+runs 200 ordered segments with the same 8,737-byte Markdown note through
+`window.splice.runWorkflow` in the installed renderer. It uses three warmups
+and 20 timed calls, checking value 80 each time. The timer runs inside the
+renderer and includes preload IPC, host workflow execution and persistence.
+
+The installed notebook target is p95 latency at most 1,500 ms and sampled
+Electron process-tree RSS at most 2,048 MiB. These limits apply to the warmed
+app after install, upgrade and restart; they do not cover startup time or the
+package build. The process-tree sampler polls every 50 ms and sums process RSS,
+which may count shared pages more than once and miss short peaks.
+
+On 2026-10-27, the installed Ubuntu 26.04 x64 app passed: 14.1 ms p95, 15.5 ms
+maximum among 20 calls, and 981 MiB peak sampled process-tree RSS. The native
+sidecar and saved documents also passed the existing upgrade/restart smoke.
+This closes a local authored-workload measurement, not release performance
+acceptance on clean default-policy hosts or other advertised platforms.

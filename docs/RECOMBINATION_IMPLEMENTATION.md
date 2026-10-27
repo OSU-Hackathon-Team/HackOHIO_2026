@@ -88,8 +88,10 @@ an out-of-box clean VM pass; the launcher now reports a namespace policy blocker
 the app. Other platform builds, delivery updates, and full performance acceptance remain
 open. An [opt-in development workload gate](RECOMBINATION_PERFORMANCE.md) now measures the four
 authored packages and both workflows with declared input sizes, p95 latency and sampled
-process-tree memory budgets. It passed on this Linux x64 host; installed-app, live-audio and
-approved-package performance remain unmeasured. The `verified` application status means its current
+process-tree memory budgets. It passed on this Linux x64 host. An opt-in installed `.deb` workload
+also passed after upgrade and restart, measuring the renderer-to-host notebook path with 512
+cells and 200 segments. Live-audio, approved-package, other-platform and concurrent-load
+performance remain unmeasured. The `verified` application status means its current
 package, scenario and export checks passed; it does not assert any of those open acceptance gates
 passed.
 The CI workflow is configured to run the live Studio and exported Electron smokes on its Linux runner.

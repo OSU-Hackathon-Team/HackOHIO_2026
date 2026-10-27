@@ -1,6 +1,5 @@
 // Opt-in development performance gate for authored packages and workflows.
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +7,7 @@ import { performance } from "node:perf_hooks";
 import { createCapabilityClient } from "@splice/runtime";
 import { budgetBoardPlan } from "../packages/backend/src/example/budget.ts";
 import { FilesystemRecombinationService } from "../packages/backend/src/recombination/service.ts";
+import { processTreeRss } from "./processTreeRss.mjs";
 
 if (process.platform !== "linux") throw new Error("The development benchmark currently needs Linux bubblewrap and /proc");
 const iterations = 20;
@@ -28,23 +28,8 @@ let currentStage = "cold_build";
 const memoryPeaks = {};
 let peakProcesses = [];
 
-function treeRss() {
-  const rows = execFileSync("ps", ["-eo", "pid=,ppid=,rss=,comm="], { encoding: "utf8" }).trim().split("\n")
-    .map((line) => line.trim().split(/\s+/))
-    .map(([pid, ppid, rss, command]) => ({ pid: Number(pid), ppid: Number(ppid), rss_kib: Number(rss), command }))
-    .filter((row) => Number.isFinite(row.pid) && Number.isFinite(row.ppid) && Number.isFinite(row.rss_kib));
-  const descendants = new Set([process.pid]);
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const { pid, ppid } of rows) {
-      if (descendants.has(ppid) && !descendants.has(pid)) { descendants.add(pid); changed = true; }
-    }
-  }
-  const processes = rows.filter(({ pid }) => descendants.has(pid));
-  return { bytes: processes.reduce((sum, row) => sum + row.rss_kib * 1024, 0), processes };
-}
 const memorySampler = setInterval(() => {
-  const { bytes, processes } = treeRss();
+  const { bytes, processes } = processTreeRss(process.pid);
   if (bytes > peakTreeRssBytes) peakProcesses = processes;
   peakTreeRssBytes = Math.max(peakTreeRssBytes, bytes);
   memoryPeaks[currentStage] = Math.max(memoryPeaks[currentStage] ?? 0, bytes);
@@ -129,7 +114,7 @@ try {
     assert.equal(result.ok, true);
     assert.equal(result.documents.budget.total, 60);
   });
-  peakTreeRssBytes = Math.max(peakTreeRssBytes, treeRss().bytes);
+  peakTreeRssBytes = Math.max(peakTreeRssBytes, processTreeRss(process.pid).bytes);
   const buildRssMiB = Number(((memoryPeaks.cold_build ?? 0) / 1048576).toFixed(1));
   const interactiveRssMiB = Number((Math.max(...Object.entries(memoryPeaks).filter(([stage]) => stage !== "cold_build").map(([, bytes]) => bytes)) / 1048576).toFixed(1));
   const summary = {
