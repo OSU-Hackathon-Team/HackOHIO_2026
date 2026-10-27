@@ -159,6 +159,8 @@ try {
     assert.ok(electronPid, "installed Electron process has no PID");
     await benchmarkInstalledNotebook(finalPage, electronPid);
   }
+  const beforeRollbackWorkbook = await finalPage.evaluate(() => window.splice.getDocument("workbook"));
+  const beforeRollbackMeeting = await finalPage.evaluate(() => window.splice.getDocument("meeting"));
   await desktop.close(); desktop = undefined;
   if (process.env.SPLICE_TEST_CLEAN_CONTAINER === "1") {
     const probe = spawnSync("sudo", ["-n", "docker", "run", "-d", "--privileged", "--shm-size=1g", "-p", "127.0.0.1::9222",
@@ -217,7 +219,37 @@ try {
       spawnSync("sudo", ["-n", "docker", "rm", "-f", containerId], { encoding: "utf8" });
     }
   }
-  console.log(`Installed Linux package ran without npm install or Splice server; UI upgrade and restart preserved workbook and note (${upgradeOutput.deb_sha256}).`);
+  const rollbackInstall = spawnSync("sudo", ["-n", "dpkg", "-i", output.deb], { encoding: "utf8" });
+  assert.equal(rollbackInstall.status, 0, rollbackInstall.stderr || rollbackInstall.stdout);
+  const installedVersion = spawnSync("dpkg-query", ["-W", "-f=${Version}", installedPackage], { encoding: "utf8" });
+  assert.equal(installedVersion.status, 0, installedVersion.stderr);
+  assert.equal(installedVersion.stdout.trim(), "1.0.0");
+  desktop = await _electron.launch({ executablePath: executable, args: [], env: appEnv, timeout: 30_000 });
+  const rolledBackPage = await desktop.firstWindow();
+  await expect(rolledBackPage.getByRole("heading", { name: "Meeting notebook", level: 1, exact: true })).toBeVisible();
+  assert.deepEqual(await rolledBackPage.evaluate(() => window.splice.getDocument("workbook")), beforeRollbackWorkbook);
+  assert.deepEqual(await rolledBackPage.evaluate(() => window.splice.getDocument("meeting")), beforeRollbackMeeting);
+  const rolledBackNative = await rolledBackPage.evaluate(() => window.splice.runWorkflow("native_multiply", { a: 4, b: 20 }));
+  assert.equal(rolledBackNative.status, "succeeded", JSON.stringify(rolledBackNative.errors));
+  assert.equal(rolledBackNative.step_results.multiply.product, 80);
+  const rolledBackNotebook = await rolledBackPage.evaluate(() => window.splice.runWorkflow("update_notebook", {
+    segments: [], formula: "=B2*C2", markdown: "Rollback value **{{value}}**",
+  }));
+  assert.equal(rolledBackNotebook.status, "succeeded", JSON.stringify(rolledBackNotebook.errors));
+  assert.equal(rolledBackNotebook.step_results.calculate.value, 80);
+  const afterRollbackMeeting = await rolledBackPage.evaluate(() => window.splice.getDocument("meeting"));
+  assert.match(afterRollbackMeeting.data.html, /<strong>80<\/strong>/);
+  await desktop.close(); desktop = undefined;
+
+  const reinstall = spawnSync("sudo", ["-n", "dpkg", "-i", upgradeOutput.deb], { encoding: "utf8" });
+  assert.equal(reinstall.status, 0, reinstall.stderr || reinstall.stdout);
+  desktop = await _electron.launch({ executablePath: executable, args: [], env: appEnv, timeout: 30_000 });
+  const restoredPage = await desktop.firstWindow();
+  await expect(restoredPage.getByRole("heading", { name: "Refined meeting notebook" })).toBeVisible();
+  assert.deepEqual(await restoredPage.evaluate(() => window.splice.getDocument("workbook")), beforeRollbackWorkbook);
+  assert.deepEqual(await restoredPage.evaluate(() => window.splice.getDocument("meeting")), afterRollbackMeeting);
+  await desktop.close(); desktop = undefined;
+  console.log(`Installed Linux package upgrade, rollback and reinstall preserved workbook, note and native sidecar (${upgradeOutput.deb_sha256}).`);
 } finally {
   await desktop?.close();
   if (installedPackage) {

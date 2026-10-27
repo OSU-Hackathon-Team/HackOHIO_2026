@@ -72,7 +72,10 @@ An opt-in Ubuntu x64 `.deb` now bundles the verified app and Electron, installs 
 sandbox helper with root ownership, and launches on hosts that permit bubblewrap's required
 namespaces without `npm install` or a Splice server. Its display smoke verified workbook and note
 state after restart, installed a UI-only revision over the first package, and preserved both
-documents through that upgrade and a second restart. A fresh Debian bookworm container without
+documents through that upgrade and a second restart. The package smoke now reinstalls the original
+`.deb` as a downgrade, checks the original UI and saved workbook, note and native sidecar, then
+reinstalls the upgraded `.deb` and checks the same data again. This proves same-schema manual
+package rollback on this host. A fresh Debian bookworm container without
 Node or a repo checkout installed
 the package, launched it as an ordinary user, and drove the saved workbook, formula and note
 through 60 then 80. The package test also builds an authored C multiplication capability,
@@ -85,10 +88,10 @@ capabilities, so the first native call failed. After the VM administrator enable
 optional bubblewrap profile, the installed native and notebook workflows ran through 60 then 80
 and preserved both documents after a full app restart. This is a tested host prerequisite, not
 an out-of-box clean VM pass; the launcher now reports a namespace policy blocker before opening
-the app. Other platform builds, delivery updates, and full performance acceptance remain
-open. An [opt-in development workload gate](RECOMBINATION_PERFORMANCE.md) now measures the four
-authored packages and both workflows with declared input sizes, p95 latency and sampled
-process-tree memory budgets. It passed on this Linux x64 host. An opt-in installed `.deb` workload
+the app. Other platform builds, automated delivery and update policy, and full performance
+acceptance remain open. An [opt-in development workload gate](RECOMBINATION_PERFORMANCE.md) now
+measures the four authored packages and both workflows with declared input sizes, p95 latency
+and sampled process-tree memory budgets. It passed on this Linux x64 host. An opt-in installed `.deb` workload
 also passed after upgrade and restart, measuring the renderer-to-host notebook path with 512
 cells and 200 segments. Live-audio, approved-package, other-platform and concurrent-load
 performance remain unmeasured. The `verified` application status means its current
@@ -192,8 +195,10 @@ installation; unpacking the app directory as an ordinary user is not an equivale
 The package can be removed with `sudo dpkg -r splice-app-<app-id-hash>`; user data stays under
 Electron's per-user application directory. `npm run test:recombination:linux-package` builds,
 installs, launches, restarts and removes the package on a Linux host with `sudo`, Xvfb and
-`dpkg-deb`. The smoke also installs a UI-only revision over the first package and confirms its
-workbook and note data remain editable and durable. This passed on Ubuntu 26.04 x64. A separate
+`dpkg-deb`. The smoke also installs a UI-only revision over the first package, downgrades to the
+original package, and reinstalls the upgrade. It confirms the workbook and note data remain
+editable and durable and the native sidecar still runs. This passed on Ubuntu 26.04 x64 for a
+same-schema UI change. A separate
 Ubuntu 24.04.5 VM installation is conditional on its optional bubblewrap AppArmor profile;
 other Linux distributions remain unverified, and the `.deb` does not cover Windows or macOS.
 `npm run test:recombination:linux-clean` adds a disposable Debian bookworm
