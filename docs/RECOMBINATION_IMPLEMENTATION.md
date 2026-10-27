@@ -92,6 +92,19 @@ namespaces, so package build and preview do **not** work in a normal container. 
 privileges are not a production deployment solution; a separately reviewed sandbox deployment
 design is still required for container-hosted recombination. The CI container smoke checks startup,
 the capabilities API, and compiler template bundling, not nested sandbox execution.
+An additional nonroot container probe used the current production image with all capabilities
+dropped, a read-only root filesystem, a writable `/tmp`, `no-new-privileges`, and Docker seccomp
+and AppArmor set to `unconfined`. The API was healthy, but `/api/recombination/seed` failed while
+running public tests: bubblewrap could not mount `/proc` (`Operation not permitted`). A direct
+`bwrap --unshare-user` probe in the same container failed while setting its UID map. Host kernel
+audit records show the container process entering the generic `unprivileged_userns` AppArmor
+profile and denial of the UID-map write and namespace capabilities. The earlier simple bubblewrap
+probe did not cover this namespace setup. Assigning the host's `bwrap` profile to the entire
+container also failed, since its child `unpriv_bwrap` profile strips the capabilities needed
+during setup. The host's executable-specific bubblewrap profile works for the installed desktop
+app, but did not apply to the container's overlay executable in this run. A container
+deployment therefore still needs a reviewed seccomp/AppArmor policy that permits bubblewrap's
+setup and confines the resulting worker, followed by the full seed/build/preview acceptance run.
 
 The notebook now stores confirmed numeric values in a revisioned workbook document. Its formula
 step reads `workbook.cells` with a stale-result guard, and the 60-to-80 acceptance scenario edits
