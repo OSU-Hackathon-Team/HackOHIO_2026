@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { _electron, expect } from "@playwright/test";
+import { _electron, chromium, expect } from "@playwright/test";
 import { FilesystemRecombinationService } from "../packages/backend/src/recombination/service.ts";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -87,13 +87,53 @@ try {
   assert.deepEqual((await finalPage.evaluate(() => window.splice.getDocument("workbook"))).data.cells, { B2: 4, C2: 20 });
   await desktop.close(); desktop = undefined;
   if (process.env.SPLICE_TEST_CLEAN_CONTAINER === "1") {
-    const probe = spawnSync("sudo", ["-n", "docker", "run", "--rm", "--privileged", "--shm-size=1g",
+    const probe = spawnSync("sudo", ["-n", "docker", "run", "-d", "--privileged", "--shm-size=1g", "-p", "127.0.0.1::9222",
       "-v", `${upgradeOutput.deb}:/tmp/app.deb:ro`,
       "-v", `${path.join(repo, "scripts", "cleanRecombinationLinuxPackageProbe.sh")}:/tmp/probe.sh:ro`,
       "-e", `SPLICE_PACKAGE_NAME=${installedPackage}`,
-      "debian:bookworm-slim", "/bin/sh", "/tmp/probe.sh"], { encoding: "utf8", timeout: 180_000 });
+      "debian:bookworm-slim", "/bin/sh", "/tmp/probe.sh"], { encoding: "utf8" });
     assert.equal(probe.status, 0, probe.stderr || probe.stdout);
-    console.log(probe.stdout.trim());
+    const containerId = probe.stdout.trim();
+    let browser;
+    try {
+      const published = spawnSync("sudo", ["-n", "docker", "port", containerId, "9222"], { encoding: "utf8" });
+      assert.equal(published.status, 0, published.stderr);
+      const port = /127\.0\.0\.1:(\d+)/.exec(published.stdout)?.[1];
+      assert.ok(port, `No loopback debug port: ${published.stdout}`);
+      const endpoint = `http://127.0.0.1:${port}`;
+      const deadline = Date.now() + 120_000;
+      while (!browser && Date.now() < deadline) {
+        try { browser = await chromium.connectOverCDP(endpoint, { timeout: 2_000 }); }
+        catch { await new Promise((resolve) => setTimeout(resolve, 1_000)); }
+      }
+      assert.ok(browser, "Clean container did not expose the installed app");
+      const context = browser.contexts()[0];
+      const cleanPage = context.pages()[0] ?? await context.waitForEvent("page", { timeout: 15_000 });
+      await expect(cleanPage).toHaveTitle("Meeting notebook");
+      await cleanPage.getByRole("button", { name: "Add cell" }).click();
+      await cleanPage.getByRole("button", { name: "Add cell" }).click();
+      await cleanPage.getByRole("textbox", { name: "Cell name" }).nth(0).fill("B2");
+      await cleanPage.getByRole("textbox", { name: "Cell name" }).nth(1).fill("C2");
+      await cleanPage.locator("table input[type=number]").nth(0).fill("3");
+      await cleanPage.locator("table input[type=number]").nth(1).fill("20");
+      await cleanPage.getByRole("button", { name: "Save confirmed cells" }).click();
+      await expect.poll(async () => (await cleanPage.evaluate(() => window.splice.getDocument("workbook"))).data.cells).toEqual({ B2: 3, C2: 20 });
+      await cleanPage.getByRole("button", { name: "Run workflow" }).click();
+      await expect.poll(async () => (await cleanPage.evaluate(() => window.splice.getDocument("meeting"))).data.value).toBe(60);
+      await cleanPage.getByRole("spinbutton", { name: "Value for B2" }).fill("4");
+      await cleanPage.getByRole("button", { name: "Save confirmed cells" }).click();
+      await expect.poll(async () => (await cleanPage.evaluate(() => window.splice.getDocument("workbook"))).data.cells.B2).toBe(4);
+      await cleanPage.getByRole("button", { name: "Run workflow" }).click();
+      await expect.poll(async () => (await cleanPage.evaluate(() => window.splice.getDocument("meeting"))).data.value).toBe(80);
+      console.log("Fresh Debian container ran installed workbook, formula and note workflow from 60 to 80 without Node or a repo checkout.");
+    } catch (error) {
+      const logs = spawnSync("sudo", ["-n", "docker", "logs", "--tail", "80", containerId], { encoding: "utf8" });
+      console.error(logs.stderr || logs.stdout);
+      throw error;
+    } finally {
+      await browser?.close();
+      spawnSync("sudo", ["-n", "docker", "rm", "-f", containerId], { encoding: "utf8" });
+    }
   }
   console.log(`Installed Linux package ran without npm install or Splice server; UI upgrade and restart preserved workbook and note (${upgradeOutput.deb_sha256}).`);
 } finally {
