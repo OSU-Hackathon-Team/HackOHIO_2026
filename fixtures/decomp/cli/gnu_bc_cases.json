@@ -1,0 +1,667 @@
+{
+  "schema": 1,
+  "kind": "cli",
+  "subsystem": "GNU bc arbitrary-precision calculator",
+  "notes": "Each case runs `bc -q` with a program file written from the case's script. Results come from the real program; this suite has no expected values. Runtime-error cases are excluded on purpose: bc's diagnostics contain interpreter internals that an independent implementation cannot reproduce. Held-out cases are never shown to spec writers or implementers. Every script ends with quit so a non-interactive run terminates after the case instead of waiting on standard input.",
+  "query": "arbitrary-precision expression evaluation: numeric representation and scale, arithmetic operators, comparisons, variables, arrays, functions, control flow, output conversion and builtins",
+  "expected_observables": [
+    "one line of result per evaluated expression on stdout",
+    "division and modulus results follow the current scale and truncate the quotient toward zero",
+    "negative operands follow bc sign rules for quotient and remainder",
+    "the printed form uses the number's scale, including a leading decimal point below one",
+    "assignment, arrays, user functions and loops update state visible to later expressions",
+    "ibase and obase change input parsing and output conversion"
+  ],
+  "cases": [
+    {
+      "id": "add_small",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "1+2\nquit\n",
+      "input_description": "Integer addition",
+      "held_out": false
+    },
+    {
+      "id": "sub_basic",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "100-45\nquit\n",
+      "input_description": "Integer subtraction",
+      "held_out": false
+    },
+    {
+      "id": "mul_basic",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "12*12\nquit\n",
+      "input_description": "Integer multiplication",
+      "held_out": false
+    },
+    {
+      "id": "div_scale0",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "10/3\nquit\n",
+      "input_description": "Division at the default scale of zero",
+      "held_out": false
+    },
+    {
+      "id": "div_scale5",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "scale=5\n10/3\nquit\n",
+      "input_description": "Division at scale five",
+      "held_out": false
+    },
+    {
+      "id": "mod_basic",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "17%5\nquit\n",
+      "input_description": "Remainder of positive operands",
+      "held_out": false
+    },
+    {
+      "id": "pow_basic",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "2^10\nquit\n",
+      "input_description": "Integer exponentiation",
+      "held_out": false
+    },
+    {
+      "id": "sqrt_scaled",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "scale=5\nsqrt(2)\nquit\n",
+      "input_description": "Square root at a requested scale",
+      "held_out": false
+    },
+    {
+      "id": "precedence",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "1+2*3\nquit\n",
+      "input_description": "Multiplication binds tighter than addition",
+      "held_out": false
+    },
+    {
+      "id": "parens",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "(1+2)*3\nquit\n",
+      "input_description": "Parentheses override precedence",
+      "held_out": false
+    },
+    {
+      "id": "neg_add",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "-5+3\nquit\n",
+      "input_description": "Unary minus on a literal",
+      "held_out": false
+    },
+    {
+      "id": "compare_lt",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "1<2\nquit\n",
+      "input_description": "Less-than comparison is 1 or 0",
+      "held_out": false
+    },
+    {
+      "id": "compare_eq",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "5==5\nquit\n",
+      "input_description": "Equality comparison",
+      "held_out": false
+    },
+    {
+      "id": "bool_and",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "1&&0\nquit\n",
+      "input_description": "Logical and",
+      "held_out": false
+    },
+    {
+      "id": "bool_or",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "0||0\nquit\n",
+      "input_description": "Logical or",
+      "held_out": false
+    },
+    {
+      "id": "bool_not",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "!0\nquit\n",
+      "input_description": "Logical negation",
+      "held_out": false
+    },
+    {
+      "id": "scale_div",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "scale=3\n7/2\nquit\n",
+      "input_description": "Scale controls the number of decimal digits",
+      "held_out": false
+    },
+    {
+      "id": "mod_negative",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "-7%3\nquit\n",
+      "input_description": "Remainder with a negative dividend",
+      "held_out": false
+    },
+    {
+      "id": "mod_negative_divisor",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "7%-3\nquit\n",
+      "input_description": "Remainder with a negative divisor",
+      "held_out": false
+    },
+    {
+      "id": "pow_negative_exponent",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "scale=4\n2^-1\nquit\n",
+      "input_description": "Negative exponent uses the current scale",
+      "held_out": false
+    },
+    {
+      "id": "var_assign",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "x=5\nx*2\nquit\n",
+      "input_description": "Assignment then use of the variable",
+      "held_out": false
+    },
+    {
+      "id": "var_compound",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "x=5\nx+=3\nx\nquit\n",
+      "input_description": "Compound assignment",
+      "held_out": false
+    },
+    {
+      "id": "array_assign",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "a[0]=7\na[2]=9\na[0]+a[2]\nquit\n",
+      "input_description": "Array element assignment and read",
+      "held_out": false
+    },
+    {
+      "id": "array_default",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "a[3]\nquit\n",
+      "input_description": "Unassigned array element reads as zero",
+      "held_out": false
+    },
+    {
+      "id": "increment",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "i=1\ni++\ni\nquit\n",
+      "input_description": "Post-increment returns the old value",
+      "held_out": false
+    },
+    {
+      "id": "func_square",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "define f(x) {\n return x*x\n}\nf(5)\nquit\n",
+      "input_description": "User-defined function with one parameter",
+      "held_out": false
+    },
+    {
+      "id": "func_two_args",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "define g(a,b) {\n return a*b+1\n}\ng(3,4)\nquit\n",
+      "input_description": "User-defined function with two parameters",
+      "held_out": false
+    },
+    {
+      "id": "loop_for",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "s=0\nfor(i=1;i<=4;i++) s+=i\ns\nquit\n",
+      "input_description": "Accumulation in a for loop",
+      "held_out": false
+    },
+    {
+      "id": "loop_while",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "n=1\nwhile(n<20) n*=2\nn\nquit\n",
+      "input_description": "Repetition in a while loop",
+      "held_out": false
+    },
+    {
+      "id": "if_else",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "if(3>2) 1 else 2\nquit\n",
+      "input_description": "Conditional expression",
+      "held_out": false
+    },
+    {
+      "id": "print_text",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "print \"hi\",\" \",5,\"\\n\"\nquit\n",
+      "input_description": "print writes strings and numbers without a trailing newline unless escaped",
+      "held_out": false
+    },
+    {
+      "id": "length_builtin",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "length(12345)\nquit\n",
+      "input_description": "length reports significant decimal digits",
+      "held_out": false
+    },
+    {
+      "id": "scale_builtin",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "scale(1.25)\nquit\n",
+      "input_description": "scale reports the number's decimal places",
+      "held_out": false
+    },
+    {
+      "id": "obase_hex",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "obase=16\n255\nquit\n",
+      "input_description": "Output base sixteen",
+      "held_out": false
+    },
+    {
+      "id": "ibase_hex",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "ibase=16\nFF\nquit\n",
+      "input_description": "Input base sixteen",
+      "held_out": false
+    },
+    {
+      "id": "pow_bignum",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "2^64\nquit\n",
+      "input_description": "Result beyond 32-bit range",
+      "held_out": false
+    },
+    {
+      "id": "factorial_loop",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "f=1\nfor(i=1;i<=20;i++) f*=i\nf\nquit\n",
+      "input_description": "Twenty factorial",
+      "held_out": false
+    },
+    {
+      "id": "block_comment",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "1+1 /* added */\nquit\n",
+      "input_description": "Integer addition beside a block comment; the case stays a held-out observation because the published example gate refuses comment markers in example data",
+      "held_out": true
+    },
+    {
+      "id": "nested_call",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "define sq(x){ return x*x }\nsq(sq(2))\nquit\n",
+      "input_description": "Nested user function calls",
+      "held_out": false
+    },
+    {
+      "id": "obase_binary",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "obase=2\n10\nquit\n",
+      "input_description": "Output base two",
+      "held_out": false
+    },
+    {
+      "id": "divide_truncate",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "scale=2\n100/7\nquit\n",
+      "input_description": "Division result is truncated to the scale",
+      "held_out": false
+    },
+    {
+      "id": "bignum_mul",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "99999999999999999999*3\nquit\n",
+      "input_description": "Multiplication of twenty-digit numbers",
+      "held_out": false
+    },
+    {
+      "id": "divide_negative",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "-7/2\nquit\n",
+      "input_description": "Integer division truncates toward zero",
+      "held_out": false
+    },
+    {
+      "id": "mod_large",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "1000000007%97\nquit\n",
+      "input_description": "Remainder of a large dividend",
+      "held_out": false
+    },
+    {
+      "id": "add_large",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "1234+5678\nquit\n",
+      "input_description": "Addition of four-digit operands",
+      "held_out": true
+    },
+    {
+      "id": "sub_negative_result",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "3-10\nquit\n",
+      "input_description": "Subtraction producing a negative result",
+      "held_out": true
+    },
+    {
+      "id": "mul_decimals",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "1.5*2.5\nquit\n",
+      "input_description": "Multiplication of scaled decimals",
+      "held_out": true
+    },
+    {
+      "id": "div_scale7",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "scale=7\n22/7\nquit\n",
+      "input_description": "Division at scale seven",
+      "held_out": true
+    },
+    {
+      "id": "mod_negative_big",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "-100%7\nquit\n",
+      "input_description": "Negative dividend with a larger magnitude",
+      "held_out": true
+    },
+    {
+      "id": "pow_three",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "3^7\nquit\n",
+      "input_description": "Exponentiation of a small base",
+      "held_out": true
+    },
+    {
+      "id": "sqrt_precision",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "scale=6\nsqrt(3)\nquit\n",
+      "input_description": "Square root of a non-square",
+      "held_out": true
+    },
+    {
+      "id": "compare_ge",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "2>=2\nquit\n",
+      "input_description": "Greater-or-equal comparison",
+      "held_out": true
+    },
+    {
+      "id": "bool_and_true",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "1&&1\nquit\n",
+      "input_description": "Logical and of two true operands",
+      "held_out": true
+    },
+    {
+      "id": "not_nonzero",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "!5\nquit\n",
+      "input_description": "Logical negation of a nonzero value",
+      "held_out": true
+    },
+    {
+      "id": "var_decimal",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "y=3.5\ny*4\nquit\n",
+      "input_description": "Arithmetic with a decimal variable",
+      "held_out": true
+    },
+    {
+      "id": "array_index",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "b[5]=11\nb[5]-1\nquit\n",
+      "input_description": "Reading back an array element",
+      "held_out": true
+    },
+    {
+      "id": "func_three_args",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "define h(a,b,c) {\n return a+b*c\n}\nh(1,2,3)\nquit\n",
+      "input_description": "Function with three parameters and operator precedence",
+      "held_out": true
+    },
+    {
+      "id": "loop_product",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "p=1\nfor(i=1;i<=6;i++) p*=i\np\nquit\n",
+      "input_description": "Product accumulated in a loop",
+      "held_out": true
+    },
+    {
+      "id": "obase_octal",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "obase=8\n64\nquit\n",
+      "input_description": "Output base eight",
+      "held_out": true
+    },
+    {
+      "id": "ibase_octal",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "ibase=8\n77\nquit\n",
+      "input_description": "Input base eight",
+      "held_out": true
+    },
+    {
+      "id": "print_escaped",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "print \"a\\tb\\n\"\nquit\n",
+      "input_description": "print expands tab and newline escapes",
+      "held_out": true
+    },
+    {
+      "id": "scale_of_number",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "scale(3.14159)\nquit\n",
+      "input_description": "scale of a five-digit decimal",
+      "held_out": true
+    },
+    {
+      "id": "hex_arithmetic",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "obase=16\nibase=16\n1F*2\nquit\n",
+      "input_description": "Arithmetic with hexadecimal input and output",
+      "held_out": true
+    },
+    {
+      "id": "nested_sqrt",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "scale=4\nsqrt(sqrt(16))\nquit\n",
+      "input_description": "Nested square roots keep the requested scale",
+      "held_out": true
+    },
+    {
+      "id": "bignum_div",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "scale=10\n2^100/3\nquit\n",
+      "input_description": "Division of large numbers at scale ten",
+      "held_out": true
+    }
+  ]
+}

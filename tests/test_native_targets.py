@@ -128,5 +128,23 @@ class GenericProbeTests(unittest.TestCase):
         self.assertEqual(handoff["observed_cases"][0]["input"], {"args": ["-t", "1 mile", "km"]})
 
 
+class CliScriptCaseTests(unittest.TestCase):
+    def test_the_recorded_invocation_names_the_script_placeholder_not_a_host_path(self):
+        from engine.cli_target import cli_case_input, materialize_scripts
+        with tempfile.TemporaryDirectory() as temp:
+            cases = materialize_scripts(
+                [{"id": "add_small", "args": ["-q", "{script}"], "script": "1+2\nquit\n"}],
+                Path(temp))
+            self.assertTrue(Path(cases[0]["args"][1]).is_file())
+            recorded = cli_case_input(cases[0])
+        self.assertEqual(recorded, {"args": ["-q", "{script}"], "program_text": "1+2\nquit\n"})
+        self.assertNotIn(temp, json.dumps(recorded))
+
+    def test_a_case_without_a_script_records_its_arguments_unchanged(self):
+        from engine.cli_target import cli_case_input
+        self.assertEqual(cli_case_input({"id": "mile_km", "args": ["-t", "1 mile", "km"]}),
+                         {"args": ["-t", "1 mile", "km"]})
+
+
 if __name__ == "__main__":
     unittest.main()

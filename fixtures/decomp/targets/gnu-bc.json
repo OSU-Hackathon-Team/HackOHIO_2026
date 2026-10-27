@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "id": "gnu-bc",
+  "name": "GNU bc",
+  "description": "Arbitrary-precision calculator: runtime-seeded scope over the real /usr/bin/bc, reviewed claims, and the real program as the oracle.",
+  "driver": "cli",
+  "library": "bc",
+  "install": { "apt": "bc", "binary": "/usr/bin/bc" },
+  "cases": "fixtures/decomp/cli/gnu_bc_cases.json",
+  "trace_patterns": ["*"],
+  "scoped_analysis": false,
+  "function_budgets": [40, 60],
+  "estimated_cost_usd": { "40": 0.8, "60": 1.2 },
+  "depth_by_budget": { "40": 3, "60": 3 },
+  "handoff": "gnu-bc"
+}
