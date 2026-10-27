@@ -25,7 +25,9 @@ written, and an independent agent implements the app from that specification alo
 - Typecheck: `npm run typecheck`
 - Python tests: `npm run test:python`
 - Run the Electron pipeline:
-  `npm run electron:reconstruct -- <app.asar> <out> [--spec-rounds 2] [--impl-rounds 2] [--state <dir>]`
+  `npm run electron:reconstruct -- <app.asar> <out> [--spec-rounds 2] [--impl-rounds 2] [--state <dir>] [--only <channel[,channel|*]>] [--scope-label <text>]`
+  (`--only` reconstructs one subsystem of a large app; the report marks the run scoped and never
+  claims whole-app readiness)
 - Static inventory only: `npm run electron:analyze -- <app.asar>`
 - Desktop smoke test of a generated project: `npm run electron:smoke -- <out>`
 - AWS check: `aws sts get-caller-identity`
@@ -58,9 +60,8 @@ written, and an independent agent implements the app from that specification alo
 
 ## Definition of done
 
-- `npm run test:electron-general` passes (CI runs it).
-- A pipeline run finishes with `readiness.ready: true` in `reconstruction-report.json`: public,
-  repair and final partitions all match, no coverage gaps, no observation failures, no declared
-  blocker.
+- `npm run test:electron-general` passes (CI runs it).- A pipeline run finishes with `readiness.ready: true` in `reconstruction-report.json`: public,
+  repair and final partitions all match, no coverage gaps, no observation failures, no declared blocker.
+  `readiness.whole_app_ready` additionally requires no exclusions and no `--only` scope.
 - The generated project starts with Electron and serves the reconstructed IPC channels.
 - Documentation and report labels state the verified scope, exclusions and blockers honestly.

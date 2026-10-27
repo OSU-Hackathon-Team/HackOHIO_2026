@@ -17,7 +17,8 @@ a row is only "covered" when a command produces the evidence.
 | A real third-party app reaches parity | Stretchly run, 2026-10-27 | **Open** | `public 0/99`, `repair 0/29` in three implementation rounds; the candidate does not reproduce the app's 16 KB default `config.json` |
 | A large third-party main process is observable and specified at all | Obsidian runs, 2026-10-27 | Covered | 47 of 47 channels registered with 0 startup error, 263 usable observations, 0 coverage gaps, 6 exclusions |
 | A subsystem of a real third-party app reaches scoped parity | Obsidian informational-channel run, 2026-10-27 | Covered | `ready: true`, public 5/5, final 5/5, `whole_app_ready: false` |
-| The whole surface of a real third-party app reaches parity | Obsidian large run, 2026-10-27 | **Open** | `public 134/134`, `repair 53/53`, `final 73/76` across 41 required channels |
+| The whole surface of a real third-party app reaches parity | Obsidian large runs, 2026-10-27 | **Open, close** | `public 144/144`, `repair 51/51`, `final 80/84` across 45 declared channels (`runs/large6`); the four held-out differences are specification content, not comparison fairness |
+| A large subsystem of a real third-party app converges | Obsidian vault-registry runs | **Open** | Not converged in three attempts (see the subsystem table) |
 | An unreproducible answer is excluded instead of verified | `test:electron-general`, Obsidian runs | Covered | every case observed twice; unstable cases dropped (`spec.unstable_cases`), channels that keep no case excluded (`host-variation`): Obsidian's `file-url`, `desktop-dir`, `sandbox`, `vault-open` |
 | Unusable original observations are visible readiness blockers | Report `observations.failures` | Covered | `observationFailures`, report `readiness.blockers` |
 | Declared channel exclusions are explicit, reasoned and reported | Exclusion test in `test:electron-general` | Covered | `spec.mjs`, `project.mjs` manifest `excluded_channels` |
@@ -87,9 +88,15 @@ Obsidian's subsystem runs (2026-10-27, `--only`, three sizes):
 
 | Subsystem | Scope | Result |
 |---|---|---|
-| Informational channels | `version`, `policy`, `resources`, `documents-dir`, `get-documents-path`, `file-url` (6 of 47) | **Scoped parity** (`runs/small`): `ready: true`, public 5/5, final 5/5; `file-url` excluded as unreproducible (it embeds a path-derived hash), `whole_app_ready: false` |
-| Vault registry | `vault*`, `get-default-vault-path`, `get-sandbox-vault-path` (8 of 47) | **Not converged** (`runs/medium3`): public 27/30, repair 5/7, final 11/18. The specification declared four channels on one feature module, and the implementation contract did not tell a module which channel it was answering, so the candidate answered all four the same way. Fixed (`ctx.channel`); the subsystem was re-run as `runs/medium4` |
-| Whole application surface | all 47 channels: 41 required, 2 declared exclusions (`print-to-pdf`, `set-menu`), 4 unreproducible (`desktop-dir`, `file-url`, `sandbox`, `vault-open`) | **Not converged, 3 cases short** (`runs/large3`): `public 134/134`, `repair 53/53`, `final 73/76`, 263 usable observations, 0 coverage gaps. The three held-out differences are persistence detail of the settings channels (`adblock-frequency` default 4, and `disable-update`/`insider-build` adding keys the original does not write to `obsidian.json`) |
+| Informational channels | `version`, `policy`, `resources`, `documents-dir`, `get-documents-path`, `file-url` (6 of 47) | **Scoped parity** (`runs/small`): `ready: true`, public 5/5, final 5/5; `file-url` excluded as unreproducible (its answer embeds a path-derived hash), `whole_app_ready: false` |
+| Vault registry | `vault*`, `get-default-vault-path`, `get-sandbox-vault-path` (8 of 47) | **Not converged** in three attempts: `runs/medium2` public 41/41 and repair 15/15 but one held-out case expected the original's random vault id (that case is now dropped instead of graded); `runs/medium3` public 27/30, repair 5/7, final 11/18 (four channels shared one feature module, and the contract could not tell them apart — fixed); `runs/medium6` public 38/38, repair 15/15, final 15/23, all eight differences being the app's startup-written `userData/obsidian.json` (`{"vaults":{}}`) not promised by any requirement for those channels |
+| Whole application surface | all 47 channels: 45 declared, 2 declared exclusions (`print-to-pdf`, `set-menu`), 3 unreproducible channels (`desktop-dir`, `file-url`, `sandbox`), 8 unstable cases dropped, 279 usable observations | **Visible partitions converge, 4 held-out cases differ** (`runs/large6`, current code): `public 144/144`, `repair 51/51`, `final 80/84`, 0 coverage gaps, 0 observation failures. All four differences are specification content: a default ad-block frequency (original 4, candidate 0), the startup `userData/obsidian.json` bytes for `disable-update`/`insider-build`, and a mutated-argument branch of `vault-open`. Earlier attempts: `runs/large3` 134/134 / 53/53 / 73/76, `runs/large4` 128/128 / 50/50 / 79/82 |
+
+The large runs are the same application surface measured three times (three specification revisions from
+the same model): the visible partitions converge exactly each time, and 3–4 held-out cases differ each
+time on specification content, in different channels. The medium subsystem is the honest counterexample
+to a simple "bigger is harder" story: it is small enough that its gaps show up in the held-out partition
+rather than in the public one, and it did not converge in three attempts.
 
 ## Reproducing acceptance locally
 
