@@ -1,7 +1,7 @@
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import asar from "@electron/asar";
+import * as asar from "@electron/asar";
 
 export const APP_SOURCE = `"use strict";
 const { app, ipcMain } = require("electron");

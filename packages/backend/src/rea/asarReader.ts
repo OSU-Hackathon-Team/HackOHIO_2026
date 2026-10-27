@@ -1,4 +1,4 @@
-import asar from "@electron/asar";
+import * as asar from "@electron/asar";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import path from "node:path";

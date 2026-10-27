@@ -12,7 +12,7 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import asar from "@electron/asar";
+import * as asar from "@electron/asar";
 import { analyzeElectronArchive } from "./analyze-archive.mjs";
 import { runCase } from "./oracle.mjs";
 import { buildCases, compareCase, coverage, coverageGaps, runSuite, usableResults, validateContract } from "./cases.mjs";

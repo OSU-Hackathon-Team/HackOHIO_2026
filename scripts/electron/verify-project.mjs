@@ -6,7 +6,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
-import asar from "@electron/asar";
+import * as asar from "@electron/asar";
 
 const self = fileURLToPath(import.meta.url);
 

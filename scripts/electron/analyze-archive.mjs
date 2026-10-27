@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
-import asar from "@electron/asar";
+import * as asar from "@electron/asar";
 import ts from "typescript";
 
 const sha256 = bytes => crypto.createHash("sha256").update(bytes).digest("hex");

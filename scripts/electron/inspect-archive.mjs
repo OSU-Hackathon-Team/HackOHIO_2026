@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import crypto from "node:crypto";
 import path from "node:path";
-import asar from "@electron/asar";
+import * as asar from "@electron/asar";
 import ts from "typescript";
 
 const hash = value => crypto.createHash("sha256").update(value).digest("hex");
