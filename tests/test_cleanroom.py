@@ -129,6 +129,123 @@ int token_array_run(const uint8_t *ops, const uint16_t *opcodes, const double *n
 """
 
 
+CLI_CASES = [
+    {"case_id": "add",
+     "input": {"args": ["-q", "{script}"], "program_text": "2+3\n"},
+     "observed": {"stdout": "5\n", "stderr": "", "exit_code": 0}},
+    {"case_id": "syntax",
+     "input": {"args": ["-q", "{script}"], "program_text": "2+\n"},
+     "observed": {"stdout": "", "stderr": "syntax error\n", "exit_code": 1}},
+]
+
+CLI_C = r'''#include <stdio.h>
+
+int main(int argc, char **argv) {
+    if (argc < 3) return 2;
+    FILE *script = fopen(argv[2], "r");
+    if (!script) return 2;
+    long left = 0, right = 0;
+    char operator = 0;
+    int read = fscanf(script, "%ld %c %ld", &left, &operator, &right);
+    fclose(script);
+    if (read != 3 || operator != '+') {
+        fputs("syntax error\n", stderr);
+        return 1;
+    }
+    printf("%ld\n", left + right);
+    return 0;
+}
+'''
+
+
+class ExecutableWorkbenchTests(unittest.TestCase):
+    def _workspace(self, temporary: str, candidate: str = CLI_C,
+                   broker_client: Path | None = None) -> tuple[Path, dict]:
+        workspace = Path(temporary) / "workspace"
+        materialized = materialize_workspace(
+            workspace,
+            spec={"schema": 2, "interface": "executable",
+                  "spec": {"purpose": "Add two integers from a script."},
+                  "public_examples": CLI_CASES},
+            cases=CLI_CASES,
+            contract="PROGRAM -q <script-file>",
+            broker_client=broker_client,
+            candidate=candidate, executable=True)
+        return workspace, materialized
+
+    def test_harness_builds_the_program_and_passes_every_public_case(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace, _ = self._workspace(temporary)
+            self.assertFalse((workspace / "adapters").exists())
+            self.assertFalse((workspace / "ask_broker.sh").exists())
+            self.assertIn("case_scripts", (workspace / "README.md").read_text())
+            passed = subprocess.run([sys.executable, str(workspace / "check.py")],
+                                    capture_output=True, text=True, check=False)
+            self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
+            self.assertIn("PUBLIC TESTS: 2/2 passed", passed.stdout)
+            # The harness feeds the case's own program text through the declared argument.
+            self.assertEqual((workspace / "case_scripts" / "add.bc").read_text(), "2+3\n")
+
+    def test_harness_reports_a_mismatch_and_a_build_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace, _ = self._workspace(temporary, candidate=CLI_C.replace(
+                'printf("%ld\\n", left + right);', 'printf("%ld\\n", left - right);'))
+            failed = subprocess.run([sys.executable, str(workspace / "check.py")],
+                                    capture_output=True, text=True, check=False)
+            self.assertEqual(failed.returncode, 1)
+            self.assertIn("PUBLIC TESTS: 1/2 passed", failed.stdout)
+            self.assertIn("FAIL add", failed.stdout)
+            self.assertIn("expected output:", failed.stdout)
+            (workspace / "candidate.c").write_text("int main(void) { return 0 }\n")
+            broken = subprocess.run([sys.executable, str(workspace / "check.py")],
+                                    capture_output=True, text=True, check=False)
+            self.assertIn("compilation failed", broken.stdout)
+            self.assertIn("PUBLIC TESTS: 0/2 passed", broken.stdout)
+
+    def test_executable_candidate_may_use_its_own_process_but_not_start_programs(self):
+        self.assertEqual(validate_candidate_source(CLI_C, executable=True), CLI_C)
+        for source in ('int main(void){return system("id");}',
+                       '#include <unistd.h>\nint main(void){execv("/bin/sh", 0); return 0;}',
+                       'int main(void){ __asm__("nop"); return 0; }'):
+            with self.assertRaises(ValueError):
+                validate_candidate_source(source, executable=True)
+        # The in-process interface still refuses file and environment access.
+        with self.assertRaises(ValueError):
+            validate_candidate_source(CLI_C)
+
+    def test_a_run_without_a_broker_mounts_only_the_workspace(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace, materialized = self._workspace(temporary)
+
+            def runner(command, **kwargs):
+                self.assertNotIn("/broker", " ".join(command))
+                (workspace / "candidate.c").write_text(CLI_C)
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            result = run_workbench(
+                workspace=workspace, broker=None, image="impl:test",
+                opencode=Path("/bin/true"), model="opencode/test", timeout=30,
+                runtime="podman", runner=runner, executable=True,
+                immutable=materialized["files"], container_name="test")
+            self.assertEqual(result["status"], "completed")
+            self.assertEqual(result["candidate_source"], CLI_C)
+            self.assertEqual(result["broker"], {"exchanges": 0, "counts": {},
+                                                "audit_path": None})
+            self.assertTrue(result["immutable"]["ok"])
+
+    def test_container_command_without_a_broker_passes_isolation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace, _ = self._workspace(temporary)
+            opencode = Path(temporary) / "opencode"
+            opencode.write_text("#!/bin/sh\n")
+            command = container_command(image="impl:test", workspace=workspace,
+                                        broker_dir=None, opencode=opencode,
+                                        model="opencode/test", container_name="test")
+            assert_container_isolation(command, workspace=workspace, broker_dir=None,
+                                       opencode=opencode)
+            self.assertNotIn("/broker:rw", " ".join(command))
+
+
 class WorkbenchTests(unittest.TestCase):
     def _workspace(self, temporary: str, candidate: str = PASSING_C) -> tuple[Path, dict]:
         root = Path(temporary)

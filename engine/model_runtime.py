@@ -11,6 +11,7 @@ import subprocess
 # need a whole program or patch (the executable implementer) ask for the Converse ceiling.
 # Requests above the ceiling are refused by Bedrock, so the bound is checked here.
 CONVERSE_DEFAULT_TOKENS, CONVERSE_MAX_TOKENS = 4096, 16_384
+DEFAULT_REGION = "us-east-2"
 
 
 def _invoke_bedrock(folder: Path, prompt: str, *, model: str, timeout: int,
@@ -35,7 +36,7 @@ def _invoke_bedrock(folder: Path, prompt: str, *, model: str, timeout: int,
                    else boto3.Session())
     client = session.client(
         "bedrock-runtime", region_name=env.get("AWS_REGION") or
-        env.get("AWS_DEFAULT_REGION") or "us-east-2",
+        env.get("AWS_DEFAULT_REGION") or DEFAULT_REGION,
         config=Config(connect_timeout=10, read_timeout=timeout,
                       retries={"mode": "standard", "max_attempts": 3}))
     response = client.converse(
@@ -77,6 +78,35 @@ def add_aws_env(env: dict[str, str], env_file: Path) -> None:
         if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
             value = value[1:-1]
         env.setdefault(key, value)
+
+
+def effective_aws_env(env: dict | None = None) -> dict:
+    """The credentials this process would use, as environment variables for a container.
+
+    A sandboxed implementer calls the model provider itself, so it needs the same
+    credentials the host resolves, which may live in a shared credentials file rather than
+    in the process environment. Values already in ``env`` win; nothing else is copied.
+    """
+    source = dict(env or {})
+    resolved = {key: source.get(key) for key in
+                ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN")}
+    if not resolved["AWS_ACCESS_KEY_ID"] or not resolved["AWS_SECRET_ACCESS_KEY"]:
+        import boto3
+        credentials = boto3.Session().get_credentials()
+        if credentials is None:
+            return {}
+        frozen = credentials.get_frozen_credentials()
+        resolved = {"AWS_ACCESS_KEY_ID": frozen.access_key,
+                    "AWS_SECRET_ACCESS_KEY": frozen.secret_key,
+                    "AWS_SESSION_TOKEN": frozen.token}
+    result = {key: value for key, value in resolved.items() if value}
+    for key in ("AWS_REGION", "AWS_DEFAULT_REGION"):
+        value = source.get(key) or os.environ.get(key)
+        if value:
+            result[key] = value
+    # The sandbox provider needs a region; use the same default the host calls assume.
+    result.setdefault("AWS_REGION", DEFAULT_REGION)
+    return result
 
 
 def invoke_opencode(opencode: Path, folder: Path, prompt: str, *, model: str,

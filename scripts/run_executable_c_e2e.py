@@ -10,6 +10,11 @@ fails a public example is a result to measure, not a reason to hide the acceptan
 
 Held-out inputs never enter a prompt and are never fed back. A passing public set is not
 equivalence; the result records the public gate, and what the held-out campaign observed.
+
+With --workbench the implementer is an agent in a public-only container instead of one
+answer per revision: it gets bash, a compiler and a harness that builds candidate.c into a
+program and runs the public cases. Its own exit is not the gate -- the host rebuilds the
+candidate it left behind and reruns the public set before the single held-out pass.
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -28,7 +34,10 @@ sys.path.insert(0, str(ROOT))
 
 from engine.artifacts import LocalArtifactStore  # noqa: E402
 from engine.cli_target import cli_matches  # noqa: E402
-from engine.model_runtime import CONVERSE_MAX_TOKENS, invoke_opencode  # noqa: E402
+from engine.model_runtime import (CONVERSE_MAX_TOKENS, effective_aws_env,  # noqa: E402
+                                 invoke_opencode)
+from engine.workbench import (build_image, build_prompt,  # noqa: E402
+                             materialize_workspace, run_workbench)
 from model_config import get_model  # noqa: E402
 from scripts.run_native_c_candidate import extract_c  # noqa: E402
 
@@ -218,6 +227,14 @@ def main() -> None:
     parser.add_argument("--plateau-attempts", type=int, default=2)
     parser.add_argument("--max-spec-revisions", type=int, default=1)
     parser.add_argument("--case-timeout", type=int, default=15)
+    parser.add_argument("--workbench", action="store_true",
+                        help="run the implementer in a public-only container with bash, a "
+                             "compiler and its own public test harness")
+    parser.add_argument("--workbench-image", default="splice-cleanroom-implementer:local")
+    parser.add_argument("--workbench-runtime", default="podman")
+    parser.add_argument("--workbench-timeout", type=int, default=1800)
+    parser.add_argument("--workbench-network", default=None)
+    parser.add_argument("--build-workbench-image", action="store_true")
     parser.add_argument("--restart", action="store_true")
     parser.add_argument("--allow-draft", action="store_true",
                         help="implement a draft spec; the run is then explicitly not an "
@@ -228,6 +245,10 @@ def main() -> None:
     spec_document = json.loads(store.get(args.spec_artifact))
     if spec_document.get("schema") != 2:
         raise ValueError("the public package requires a schema 2 native spec")
+    if args.workbench_timeout < 1:
+        raise ValueError("workbench timeout must be positive")
+    if args.workbench and not args.opencode.is_file():
+        raise FileNotFoundError(f"OpenCode executable not found: {args.opencode}")
     if spec_document.get("status") != "ready_for_review" and not args.allow_draft:
         raise ValueError("only a review-ready native spec is an implementation contract; "
                          f"this spec is {spec_document.get('status')!r}")
@@ -253,7 +274,8 @@ def main() -> None:
     package_sha = hashlib.sha256(json.dumps(package, sort_keys=True).encode()).hexdigest()
     run_key = hashlib.sha256(json.dumps(
         {"spec": args.spec_artifact, "public": args.public_report_artifact,
-         "full": args.full_report_artifact, "package": package_sha},
+         "full": args.full_report_artifact, "package": package_sha,
+         **({"workbench": True} if args.workbench else {})},
         sort_keys=True).encode()).hexdigest()
     run_folder = state / "runs" / "executable-c" / run_key
     run_folder.mkdir(parents=True, exist_ok=True)
@@ -274,6 +296,18 @@ def main() -> None:
         os.replace(pending, checkpoint_path)
 
     model = get_model("engine_writer", explicit=args.model)
+    workbench_env: dict = {}
+    if args.workbench:
+        if args.build_workbench_image:
+            build_image(runtime=args.workbench_runtime, image=args.workbench_image,
+                        dockerfile=ROOT / "implementer.Dockerfile", context=ROOT)
+        # The container reaches the model provider itself, so it needs the credentials this
+        # host resolves, which may live in a shared credentials file rather than the
+        # environment. Only these keys cross into the sandbox.
+        workbench_env.update(effective_aws_env())
+        workbench_env.pop("AWS_PROFILE", None)
+        if not workbench_env.get("AWS_ACCESS_KEY_ID"):
+            raise ValueError("workbench runs need AWS credentials for the agent's model")
     work = run_folder / "work"
     work.mkdir(exist_ok=True)
     note = ""
@@ -291,18 +325,62 @@ def main() -> None:
             prompt = _revision_prompt(package, best_text, progress.get("last_failures", []),
                                       note=note)
         errors, reply_artifact = None, None
-        try:
-            # A whole program does not fit the evidence-only budget: ask for the ceiling.
-            reply = invoke_opencode(
-                args.opencode, turn, prompt, model=model, timeout=900,
-                env_file=ROOT / ".env", agent_name="native-c-implementer",
-                agent_instruction="Return one complete C11 program. Use no tools.",
-                max_tokens=args.max_tokens)
-            # The raw answer is kept for audit even when it yields no candidate.
-            reply_artifact = store.put(reply["text"].encode())
-            source = extract_c(reply["text"], executable=True)
-        except Exception as error:  # a revision that will not compile is a recorded failure
-            source, errors = None, f"{type(error).__name__}: {error}"
+        workbench_record = None
+        if args.workbench:
+            # The agent gets the public package and a harness that builds its program and runs
+            # the public cases. Its exit is not the gate: the host rebuilds candidate.c and
+            # reruns the public set below, then measures held-out cases once.
+            workspace = state / "cleanroom" / "executable-c" / run_key / \
+                f"attempt-{revision + 1}"
+            try:
+                shutil.rmtree(workspace, ignore_errors=True)
+                materialized = materialize_workspace(
+                    workspace,
+                    spec={"schema": 2, "interface": "executable", "spec": spec_document,
+                          "public_examples": examples},
+                    cases=[{"case_id": row["case_id"], "input": row["input"],
+                            "observed": row["observed"]} for row in public],
+                    contract=INTERFACE_CONTRACT,
+                    candidate=best_text, broker_enabled=False, executable=True)
+                prompt = prompt + "\n\n" + build_prompt(
+                    contract=INTERFACE_CONTRACT, case_count=len(public),
+                    broker_enabled=False, executable=True)
+                (workspace / "prompt.txt").write_text(prompt)
+                run = run_workbench(
+                    workspace=workspace, image=args.workbench_image,
+                    opencode=args.opencode, model=model,
+                    timeout=args.workbench_timeout, runtime=args.workbench_runtime,
+                    env=workbench_env, network=args.workbench_network,
+                    private_markers=[args.spec_artifact, args.public_report_artifact,
+                                     args.full_report_artifact, binary_sha256,
+                                     str(state.resolve())],
+                    immutable=materialized["files"], executable=True,
+                    container_name=f"splice-executable-{run_key[:8]}-{revision + 1}")
+                source = run["candidate_source"]
+                if not run["immutable"]["ok"]:
+                    source, errors = None, f"tampered harness: {run['immutable']}"
+                elif source is None:
+                    errors = (f"workbench {run['status']}: " +
+                              (run.get("candidate_error") or "no candidate.c"))
+                workbench_record = {key: run[key] for key in
+                                    ("status", "exit_code", "timed_out", "immutable",
+                                     "broker", "elapsed_seconds")}
+            except Exception as error:
+                source, errors = None, f"{type(error).__name__}: {error}"
+                workbench_record = {"status": "error", "error": str(error)}
+        else:
+            try:
+                # A whole program does not fit the evidence-only budget: ask for the ceiling.
+                reply = invoke_opencode(
+                    args.opencode, turn, prompt, model=model, timeout=900,
+                    env_file=ROOT / ".env", agent_name="native-c-implementer",
+                    agent_instruction="Return one complete C11 program. Use no tools.",
+                    max_tokens=args.max_tokens)
+                # The raw answer is kept for audit even when it yields no candidate.
+                reply_artifact = store.put(reply["text"].encode())
+                source = extract_c(reply["text"], executable=True)
+            except Exception as error:  # a revision that will not compile is a recorded failure
+                source, errors = None, f"{type(error).__name__}: {error}"
         prompt_artifact = store.put(prompt.encode())
         source_artifact = store.put(source.encode()) if source else None
         machinery, failures = None, []
@@ -314,7 +392,7 @@ def main() -> None:
                       "expected_output": None, "observed": {"error": errors or machinery}}]
                     if source is None or machinery else failures)
         record = {"revision": revision + 1, "model": model, "prompt_artifact": prompt_artifact,
-                  "reply_artifact": reply_artifact,
+                  "reply_artifact": reply_artifact, "workbench": workbench_record,
                   "source_artifact": source_artifact, "public_failures": len(failures),
                   "failures": [{key: value for key, value in failure.items()
                                 if key != "program_text"} for failure in failures[:10]],
@@ -380,6 +458,7 @@ def main() -> None:
               for outcome in sorted({row["outcome"] for row in held_results})}
     result = {"schema": 1, "run_key": run_key, "spec_artifact": args.spec_artifact,
               "spec_status": spec_document.get("status"),
+              "workbench": bool(args.workbench),
               "public_gate_met": not public_failures,
               "public_failures": [failure["case_id"] for failure in public_failures],
               "public_report_artifact": args.public_report_artifact,
