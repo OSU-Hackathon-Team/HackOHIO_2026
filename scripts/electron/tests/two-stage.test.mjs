@@ -4,8 +4,9 @@ import path from "node:path";
 import test from "node:test";
 import { reconstruct } from "../pipeline.mjs";
 import { specHash } from "../spec.mjs";
-import { ADD_FEATURE, HOST_SPEC, READ_FEATURE, SPEC, SUBSYSTEM_SPEC, VERSION_FEATURE,
-  hostSyntheticArchive, syntheticArchive } from "./synthetic.mjs";
+import { ADD_FEATURE, HOST_SPEC, READ_FEATURE, REGISTRY_ADD_FEATURE, REGISTRY_LIST_FEATURE,
+  REGISTRY_SPEC, SPEC, SUBSYSTEM_SPEC, VERSION_FEATURE, hostSyntheticArchive, registryArchive,
+  syntheticArchive } from "./synthetic.mjs";
 
 function agentRun(stage, round) {
   return { stage, round, model: "scripted", toolCalls: [], tokens: 0, exitCode: 0,
@@ -158,6 +159,30 @@ test("a channel whose answer depends on the mocked host is excluded, not claimed
     assert.deepEqual(manifest.excluded_channels.map(item => item.channel), ["window:bounds"]);
     const spec = await fsp.readFile(path.join(output, "handoff", "SPEC.md"), "utf8");
     assert.match(spec, /Excluded channels[\s\S]*window:bounds/);
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a channel that is unstable only in a stateful case is excluded, not verified", { timeout: 180000 }, async () => {
+  const { root, archive } = await registryArchive();
+  try {
+    const result = await reconstruct({ archive, output: path.join(root, "out"), agentRunner: scriptedAgent({
+      spec: REGISTRY_SPEC,
+      features: { "features/add.cjs": REGISTRY_ADD_FEATURE, "features/list.cjs": REGISTRY_LIST_FEATURE },
+    }), options: { state: path.join(root, "state"), "spec-rounds": 1, "impl-rounds": 1 } });
+    /* The original mints a random key, so the expectation is its own run state and no
+       implementation can match it. One case per channel would have missed it: the unstable
+       answer appears only in the declared sequence, so the check samples shapes. */
+    assert.deepEqual(result.report.spec.host_dependent_exclusions.map(item => item.channel),
+      ["registry:list"]);
+    assert.match(result.report.spec.host_dependent_exclusions[0].reason, /sequence case/);
+    assert.ok(result.report.observations.host_check.cases >= 3,
+      "several shape-diverse cases per channel are checked");
+    assert.equal(result.report.readiness.ready, true, JSON.stringify(result.report.readiness.blockers));
+    assert.equal(result.report.readiness.whole_app_ready, false);
+    assert.deepEqual(result.report.readiness.excluded.map(item => [item.channel, item.source]),
+      [["registry:list", "host-variation"]]);
   } finally {
     await fsp.rm(root, { recursive: true, force: true });
   }

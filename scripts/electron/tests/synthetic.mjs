@@ -165,6 +165,81 @@ export async function hostSurfaceArchive() {
   return { root, archive, extracted };
 }
 
+/* An application whose stable-looking channel mints a random identifier only inside a stateful
+   sequence: checking one case per channel would verify the original's own random key. */
+export const REGISTRY_SOURCE = `"use strict";
+const { app, ipcMain } = require("electron");
+const crypto = require("crypto");
+
+const items = {};
+
+app.whenReady().then(() => {
+  ipcMain.handle("registry:add", () => {
+    items[crypto.randomBytes(8).toString("hex")] = { at: Date.now() };
+    return Object.keys(items).length;
+  });
+  ipcMain.handle("registry:list", () => items);
+});
+`;
+
+export const REGISTRY_SPEC = {
+  schema_version: 2,
+  application: {
+    name: "synthetic-registry",
+    version: "1.0.0",
+    scope: ["registry IPC behavior"],
+    exclusions: ["renderer layout"],
+    environments: { clock: "2026-10-25T12:00:00.000Z" },
+  },
+  channels: {
+    "registry:add": {
+      feature: "features/add.cjs",
+      args: [[], [null]],
+      requirements: ["Adds an item under a fresh identifier and returns the number of items."],
+    },
+    "registry:list": {
+      feature: "features/list.cjs",
+      args: [[], [null]],
+      requirements: ["Returns every stored item keyed by its identifier."],
+      sequences: [{ description: "listing after an add exposes the new identifier",
+        calls: [{ channel: "registry:list", args: [] }, { channel: "registry:add", args: [] },
+          { channel: "registry:list", args: [] }] }],
+    },
+  },
+};
+
+export const REGISTRY_ADD_FEATURE = `"use strict";
+const crypto = require("crypto");
+const items = {};
+module.exports = async function () {
+  items[crypto.randomBytes(8).toString("hex")] = { at: Date.now() };
+  return Object.keys(items).length;
+};
+`;
+
+export const REGISTRY_LIST_FEATURE = `"use strict";
+const items = {};
+module.exports = async function () {
+  return items;
+};
+`;
+
+export async function registryArchive() {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "splice-synthetic-registry-"));
+  const source = path.join(root, "source");
+  await fsp.mkdir(source);
+  await fsp.writeFile(path.join(source, "package.json"), JSON.stringify({
+    name: "synthetic-registry", version: "1.0.0", main: "main.js",
+  }));
+  await fsp.writeFile(path.join(source, "main.js"), REGISTRY_SOURCE);
+  const archive = path.join(root, "app.asar");
+  await asar.createPackage(source, archive);
+  const extracted = path.join(root, "extracted");
+  await fsp.mkdir(extracted);
+  asar.extractAll(archive, extracted);
+  return { root, archive, extracted };
+}
+
 /* A launcher package: the declared entry does not exist, the module the launcher requires exports an
    initializer instead of registering as it loads, it reaches for Electron's unpatched fs, and its
    channels answer through sendSync returnValue. Each of those is a general main-process shape a

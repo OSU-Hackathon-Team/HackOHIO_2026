@@ -39,13 +39,24 @@ list, tools and MCP servers instead of reusing a background service started by a
 
 1. **Static inventory** (`analyze-archive.mjs`). Reports the main entry, preloads, renderer loads,
    local module graph, IPC channels with handler arity, bridge globals and methods, assets, and
-   unresolved or dynamic constructs. It never emits source text.
+   unresolved or dynamic constructs. It never emits source text. Entry resolution is shared with the
+   oracle (`entry.mjs`): the file `package.json` names is used when it exists, and when it does not
+   (a launcher package that ships its payload as a second archive) a conventional entry name is used
+   and reported as an `entry-fallback` diagnostic rather than failing the run.
 2. **Oracle** (`oracle.mjs`). Extracts the archive to a disposable directory and runs its main
    process in a child worker under a mocked Electron host. The host answers the API surface real
-   main processes use — `app.getPath` for the platform keys, `screen` displays, `Tray`,
-   `nativeImage`, `globalShortcut`, windows and an invoking window for `event.sender` — because a
-   missing method makes the app's own behavior look broken and pushes channels into exclusions it
-   does not deserve. A case supplies fixtures under
+   main processes use — `app.getPath` for the platform keys, `app.name`, desktop integration
+   (`dock`, recent documents, default protocol client), `screen` displays, `Tray`, `nativeImage`,
+   `Menu`, `protocol`, `systemPreferences`, `session` (including `webRequest`, `getUserAgent` and
+   the spell-checker surface), `globalShortcut`, `remote`, windows and an invoking window for
+   `event.sender` — because a missing method makes the app's own behavior look broken and pushes
+   channels into exclusions it does not deserve. Electron-only modules are answered too: `original-fs`
+   resolves to Node's `fs`, and `process._linkedBinding` returns a stub instead of throwing.
+   A main module that registers nothing as it loads but exports an initializer (the launcher shape)
+   is invoked the way a launcher invokes it, with the application directory and an event emitter.
+   Both IPC forms are observed: `ipcMain.handle` returns a value to `invoke`, and an `ipcMain.on`
+   channel answers `sendSync` through `event.returnValue`, so a main process built from synchronous
+   channels is observable rather than invisible. A case supplies fixtures under
    `userData`/`documents`/`logs`/`temp`, freezes the clock, and invokes channels. The observation
    records handler values, error names/codes, every read/write path, and the full file contents
    after each call. No target-specific fake exists in the host.
@@ -92,11 +103,35 @@ list, tools and MCP servers instead of reusing a background service started by a
    failures are never fed back.
 
 Before a specification is accepted, each channel's case is replayed under a second host
-configuration (different window bounds and display size). A channel whose result changes there
-answers from the host rather than from its own data, so no feature module can reproduce it: it is
-reported as a host-dependent exclusion (`spec.host_dependent_exclusions`, and `readiness.excluded`
-with `source: "host-variation"`) and keeps the run from claiming whole-app readiness. Without this
-check a mock's own window bounds would be verified as if they were the application's behavior.
+configuration (a different run directory, window bounds and display size). A channel whose result
+changes there answers from the host or from its own run rather than from data the feature contract
+exposes — the mock's window bounds, a path outside the storage roots, its own clock or
+randomness — so no feature module can reproduce it: it is reported as a host-dependent exclusion
+(`spec.host_dependent_exclusions`, and `readiness.excluded` with `source: "host-variation"`) and
+keeps the run from claiming whole-app readiness. Without this check a mock's own window bounds
+would be verified as if they were the application's behavior.
+
+## Reconstructing a subsystem
+
+A real application can be larger than one specification round can carry. `--only` limits a run to a
+named subset of the discovered channels (a channel name, a comma-separated list or a `*`
+wildcard), which the specification agent is told about and which the driver enforces:
+
+- the specification stage declares and the driver verifies only the channels in scope; the
+  inventory reports the others as `out_of_scope_channels`, and a declaration about one is ignored
+  rather than failed;
+- out-of-scope channels are written into the contract as exclusions with `source: "run-scope"` and a
+  reason naming the scope, so the assembled project registers exactly what was verified and
+  `validateWorkspace` still sees a complete contract;
+- the report carries a top-level `scope` block (`label`, `patterns`, `channels`, `out_of_scope`) and
+  `readiness.scoped`; `readiness.ready` means this subsystem reached parity, while
+  `readiness.whole_app_ready` stays false because the other channels were neither specified nor
+  verified.
+
+Scope is a different claim from an exclusion: an exclusion says the channel's behavior cannot be
+expressed by the feature contract, a scope says this run did not attempt it. Subsystems are how the
+same pipeline works incrementally on a large app, and the report never lets the result be mistaken
+for the application.
 
 Feedback is bounded and auditable:
 
@@ -111,7 +146,10 @@ Feedback is bounded and auditable:
 
 `reconstruction-report.json` (schema 2) carries:
 
-- `spec`: specification SHA-256, channels, declared scope, exclusions, blockers, unresolved items.
+- `scope`: the subsystem this run covered, when `--only` was used (`label`, `patterns`, `channels`,
+  `out_of_scope`), and `null` for a whole-application run.
+- `spec`: specification SHA-256, channels, declared scope, exclusions (with their `source`:
+  `specification`, `host-variation` or `run-scope`), blockers, unresolved items.
 - `partitions.public|repair|final`: cases, passed, coverage per channel and remaining gaps.
 - `observations`: total generated cases, usable expectations and every observation that produced
   no usable expectation. Unusable original observations are readiness blockers, never silent.
@@ -146,7 +184,8 @@ outside the verified scope. The renderer and preload are generated from the spec
 - `npm run electron:reconstruct -- <app.asar> <out>` — both stages, verification and assembly.
   Options: `--spec-rounds`, `--impl-rounds`, `--spec-timeout`, `--impl-timeout`, `--case-timeout`,
   `--spec-model`, `--impl-model`, `--spec <spec.json>` (reuse a reviewed specification and skip
-  discovery), `--state <dir>`, `--keep-workspace`.
+  discovery), `--only <channel[,channel|*]>` (reconstruct a subsystem; repeatable),
+  `--scope-label <text>` (how the report names that subsystem), `--state <dir>`, `--keep-workspace`.
 - `npm run electron:verify -- <app.asar> <project> <scenario.json>` — differential comparison for
   an explicit scenario you supply.
 - `npm run electron:workbench -- <app.asar> <out>` — offline function workbench from a verified
