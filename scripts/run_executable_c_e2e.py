@@ -5,10 +5,11 @@ a public native spec plus unlabelled original observations. This driver gives an
 independent implementer that public package only: the declared program interface, the
 spec, and the public observations. The implementer writes a complete C program, the driver
 compiles and runs it against the public cases, and held-out original cases are executed
-exactly once after the last revision is accepted.
+exactly once after the last revision, whatever the public set shows: a candidate that still
+fails a public example is a result to measure, not a reason to hide the acceptance set.
 
-Held-out inputs never enter a prompt. A passing public set is not equivalence; the result
-records what the held-out campaign actually observed.
+Held-out inputs never enter a prompt and are never fed back. A passing public set is not
+equivalence; the result records the public gate, and what the held-out campaign observed.
 """
 
 from __future__ import annotations
@@ -334,11 +335,12 @@ def main() -> None:
         if not failures:
             break
         if revision == args.max_revisions:
-            print(json.dumps({"complete": False, "reason": "public examples not satisfied",
+            # Stop revising; the best candidate is measured against the held-out cases below.
+            print(json.dumps({"complete": False, "reason": "revision budget spent",
                               "revisions": len(progress["revisions"]),
                               "best_public_failures": progress.get("best_public_failures"),
                               "failures": progress.get("best_failures", [])[:6]}, indent=2))
-            raise SystemExit(1)
+            break
         if (progress.get("stale", 0) + 1 >= args.plateau_attempts and
                 spec_revisions < args.max_spec_revisions):
             progress["stale"] = 0
@@ -353,16 +355,21 @@ def main() -> None:
 
     if progress.get("best_source") is None:
         raise SystemExit("no compilable candidate was produced")
-    program, machinery = _compile(store.get(progress["best_source"]).decode(), work / "final")
+    final = work / "final"
+    final.mkdir(parents=True, exist_ok=True)
+    program, machinery = _compile(store.get(progress["best_source"]).decode(), final)
     if program is None:
         raise SystemExit(f"best candidate no longer compiles: {machinery}")
-    checked = _check(program, public, work / "final", timeout=args.case_timeout)
-    if checked:
-        raise SystemExit(f"best candidate fails {len(checked)} public examples")
+    public_failures = _check(program, public, final, timeout=args.case_timeout)
+    # Held-out cases judge the result and are never fed back, so they are executed once here
+    # whether or not the public set was satisfied; a public failure is recorded, not hidden.
+    if public_failures:
+        print(f"[final] the public set is not satisfied: {len(public_failures)} of "
+              f"{len(public)} examples fail; measuring held-out cases anyway", flush=True)
     held_results = []
     for case in held_out:
         text = _script_text(case)
-        script = _write_script(work / "final", case, text)
+        script = _write_script(final, case, text)
         observed = _run_candidate(program, case, script, timeout=args.case_timeout)
         agreement = cli_matches(case["observed"], observed)
         held_results.append({"case_id": case["case_id"], "input": case["input"],
@@ -373,6 +380,8 @@ def main() -> None:
               for outcome in sorted({row["outcome"] for row in held_results})}
     result = {"schema": 1, "run_key": run_key, "spec_artifact": args.spec_artifact,
               "spec_status": spec_document.get("status"),
+              "public_gate_met": not public_failures,
+              "public_failures": [failure["case_id"] for failure in public_failures],
               "public_report_artifact": args.public_report_artifact,
               "full_report_artifact": args.full_report_artifact,
               "package_sha256": package_sha, "model": model,
