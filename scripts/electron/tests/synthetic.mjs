@@ -23,6 +23,72 @@ app.whenReady().then(() => {
 });
 `;
 
+/* An application with one channel whose answer comes from the invoking window and the display:
+   the feature-module contract cannot express it, so the driver must not claim it. */
+export const HOST_APP_SOURCE = `"use strict";
+const { app, ipcMain, BrowserWindow, screen } = require("electron");
+const path = require("path");
+const fs = require("fs/promises");
+
+app.whenReady().then(() => {
+  ipcMain.handle("window:bounds", event => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    return { ...window.getBounds(), display: screen.getPrimaryDisplay().size.width };
+  });
+  ipcMain.handle("notes:add", async (_event, name, text) => {
+    if (typeof name !== "string" || !name) throw new TypeError("name required");
+    const value = String(text).trim();
+    await fs.mkdir(path.join(app.getPath("userData"), "notes"), { recursive: true });
+    await fs.writeFile(path.join(app.getPath("userData"), "notes", name + ".txt"), value);
+    return { name, length: value.length };
+  });
+});
+`;
+
+export const HOST_SPEC = {
+  schema_version: 2,
+  application: {
+    name: "synthetic-host",
+    version: "1.0.0",
+    scope: ["window:bounds and notes:add IPC behavior"],
+    exclusions: ["renderer layout"],
+    environments: { clock: "2026-10-25T12:00:00.000Z" },
+  },
+  channels: {
+    "window:bounds": {
+      feature: "features/bounds.cjs",
+      args: [[], []],
+      requirements: ["Returns the invoking window's bounds and the primary display width."],
+    },
+    "notes:add": {
+      feature: "features/add.cjs",
+      fixtures: [],
+      args: [["alpha", " hello "], ["beta", "world"], ["", "x"]],
+      requirements: [
+        "Trims the note text and writes userData/notes/<name>.txt with the trimmed text and no newline.",
+        "Throws TypeError with message 'name required' when name is not a nonempty string.",
+        "Returns { name, length } where length is the trimmed text length.",
+      ],
+    },
+  },
+};
+
+export async function hostSyntheticArchive() {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "splice-synthetic-host-"));
+  const source = path.join(root, "source");
+  await fsp.mkdir(source);
+  await fsp.writeFile(path.join(source, "package.json"), JSON.stringify({
+    name: "synthetic-host", version: "1.0.0", main: "main.js",
+  }));
+  await fsp.writeFile(path.join(source, "main.js"), HOST_APP_SOURCE);
+  const archive = path.join(root, "app.asar");
+  await asar.createPackage(source, archive);
+  const extracted = path.join(root, "extracted");
+  await fsp.mkdir(extracted);
+  asar.extractAll(archive, extracted);
+  return { root, archive, extracted };
+}
+
 export const ADD_FEATURE = `"use strict";
 module.exports = async function (args, ctx) {
   const [name, text] = args;

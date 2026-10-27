@@ -362,17 +362,30 @@ export function coverageGaps(results, expectedChannels = [], { minDistinct = 1, 
   minCasesForConstant = 6 } = {}) {
   const gaps = [];
   const summary = coverage(results);
+  /* A gap message is the specification agent's only lever, so it names what was observed: the
+     failing call it would otherwise have to guess at, and the distance to the threshold. */
+  const firstFailure = new Map();
+  for (const item of results) {
+    for (const outcome of item.result?.outcomes ?? []) {
+      if (outcome.ok || firstFailure.has(item.case.channel)) continue;
+      firstFailure.set(item.case.channel,
+        `${outcome.error?.name ?? "Error"}: ${String(outcome.error?.message ?? "").slice(0, 160)}`);
+    }
+  }
   for (const channel of expectedChannels)
     if (!summary[channel]) gaps.push(`${channel}: no usable case in this split`);
   for (const [channel, entry] of Object.entries(summary)) {
     if (!entry.distinct) gaps.push(`${channel}: no observable outcomes`);
     if (requireSuccess && !entry.value)
-      gaps.push(`${channel}: no case succeeded against the original; declare reachable fixtures and arguments`);
+      gaps.push(`${channel}: none of its ${entry.cases} case(s) succeeded against the original` +
+        (firstFailure.has(channel) ? ` — first failure ${firstFailure.get(channel)}` : "") +
+        "; declare arguments and fixtures that reach it");
     /* Constant-result operations (version strings, locale direction) cannot produce three
        outcomes. They still need breadth, so observable cases count when the result is stable. */
     if (entry.distinct < minDistinct && entry.cases < minCasesForConstant)
-      gaps.push(`${channel}: only ${entry.distinct} distinct outcome(s) from ${entry.cases} case(s); ` +
-        "declare broader sample arguments or reachable fixtures");
+      gaps.push(`${channel}: ${entry.distinct} distinct outcome(s) from ${entry.cases} case(s); ` +
+        `a stable result needs ${minCasesForConstant} observable cases, changing results need ` +
+        `${minDistinct} distinct outcomes — add argument samples (and fixtures) that reach it`);
   }
   return gaps;
 }

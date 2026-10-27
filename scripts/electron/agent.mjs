@@ -174,7 +174,10 @@ and do not describe mock behavior as app behavior. Declare it in \`channel_exclu
 
 Every original channel must be either implemented or explicitly excluded with a reason. Exclusions
 are reported to the reader and prevent a whole-app readiness claim, so exclude only what genuinely
-cannot be expressed, never a channel that is merely inconvenient.
+cannot be expressed, never a channel that is merely inconvenient. The driver also replays the
+generated cases under a second mocked host (different window bounds and display size) and excludes
+any channel whose result changes there: an answer that follows the host is not your behavior to
+specify, and describing it would only be describing this mock.
 
 Exclusion is the last resort, not an escape hatch. If a channel only fails because a fixture is
 unreachable, that is a fixture problem: call \`oracle_find_fixture\`, then probe the repaired

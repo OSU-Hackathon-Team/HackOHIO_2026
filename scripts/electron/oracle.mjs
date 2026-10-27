@@ -20,6 +20,19 @@ import * as asar from "@electron/asar";
 const self = fileURLToPath(import.meta.url);
 const BASES = ["userData", "documents", "logs", "temp"];
 
+/* Host parameters a channel's result may legitimately depend on. They are inputs to the mocked
+   host, so a case can be replayed under a second configuration: a result that changes is
+   host-dependent, and the feature contract cannot reproduce it. */
+export const DEFAULT_HOST = { bounds: { x: 0, y: 0, width: 800, height: 600 },
+  display: { width: 1280, height: 800 } };
+export const VARIANT_HOST = { bounds: { x: 40, y: 60, width: 1024, height: 720 },
+  display: { width: 1920, height: 1080 } };
+
+function hostConfig(host) {
+  return { bounds: { ...DEFAULT_HOST.bounds, ...(host?.bounds ?? {}) },
+    display: { ...DEFAULT_HOST.display, ...(host?.display ?? {}) } };
+}
+
 function within(root, relative) {
   if (typeof relative !== "string" || !relative || path.isAbsolute(relative))
     throw new Error(`Invalid relative path: ${relative}`);
@@ -104,7 +117,7 @@ export function validateCase(value) {
 }
 
 /** Run a validated case against an extracted app directory. */
-export async function runCase({ appDir, case: rawCase, timeout = 20000 }) {
+export async function runCase({ appDir, case: rawCase, timeout = 20000, host }) {
   appDir = path.resolve(appDir);
   const testCase = validateCase(rawCase);
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "splice-oracle-run-"));
@@ -125,7 +138,7 @@ export async function runCase({ appDir, case: rawCase, timeout = 20000 }) {
     const initial = await snapshot(bases);
     const esmMain = pkg.type === "module" || String(pkg.main ?? "").endsWith(".mjs");
     const result = await runWorker({ appDir, main, esmMain, packageName: pkg.name, packageVersion: pkg.version,
-      bases, calls: testCase.calls, fixed_time: testCase.fixed_time }, timeout);
+      bases, calls: testCase.calls, fixed_time: testCase.fixed_time, host: hostConfig(host) }, timeout);
     const effects = [];
     let files = initial;
     for (const outcome of result.outcomes) {
@@ -244,7 +257,12 @@ async function worker() {
     on: () => {}, once: () => {}, removeListener: () => {},
     id: 1, isDestroyed: () => false,
   };
-  const fakeEvent = { get sender() { return windows[0]?.webContents ?? sender; },
+  /* A handler is invoked by a window, and real main processes resolve that window with
+     BrowserWindow.fromWebContents(event.sender). When the app has not created one yet, provide a
+     default window so bound-dependent call shapes run instead of failing on null. */
+  let defaultWindow = null;
+  const senderWindow = () => windows[0] ?? (defaultWindow ??= new BrowserWindow(payload.host.bounds));
+  const fakeEvent = { get sender() { return senderWindow().webContents; },
     senderFrame: { url: `file://${payload.appDir}/index.html` }, frameId: 1, processId: 1 };
   const webContents = () => ({
     send: () => {}, postMessage: () => {}, on: () => {}, once: () => {}, removeListener: () => {},
@@ -264,6 +282,8 @@ async function worker() {
     on() { return this; } once() { return this; } removeListener() { return this; }
     show() {} hide() {} focus() {} close() {} destroy() {} isDestroyed() { return false; }
     getBounds() { const { x = 0, y = 0, width = 800, height = 600 } = this.options; return { x, y, width, height }; }
+    getContentBounds() { return this.getBounds(); }
+    setContentBounds(next) { this.setBounds(next); }
     setBounds(next) { this.options = { ...this.options, ...next }; }
     getSize() { const { width = 800, height = 600 } = this.options; return [width, height]; }
     setSize(width, height) { this.options = { ...this.options, width, height }; }
@@ -284,6 +304,23 @@ async function worker() {
     appListeners.set(event, [...(appListeners.get(event) ?? []), entry]);
     return app;
   };
+  /* app.getPath is a lookup, not a capability gate: an unsupported key must return the path the
+     platform would use, not throw, or every channel that reads a directory looks broken. */
+  const home = pathModule.join(pathModule.dirname(payload.bases.userData), "home");
+  const systemPaths = {
+    home,
+    appData: pathModule.dirname(payload.bases.userData),
+    sessionData: payload.bases.userData,
+    crashDumps: pathModule.join(payload.bases.userData, "crashDumps"),
+    desktop: pathModule.join(home, "Desktop"),
+    downloads: pathModule.join(home, "Downloads"),
+    music: pathModule.join(home, "Music"),
+    pictures: pathModule.join(home, "Pictures"),
+    videos: pathModule.join(home, "Videos"),
+    recent: pathModule.join(home, "Recent"),
+    exe: pathModule.join(payload.appDir, "app"),
+    module: payload.appDir,
+  };
   const app = {
     whenReady: () => new TrackedPromise(Promise.resolve()),
     isReady: () => true,
@@ -303,8 +340,9 @@ async function worker() {
       return entries.length > 0;
     },
     getPath: key => {
-      if (!payload.bases[key]) throw new Error(`App requested unsupported Electron path ${key}`);
-      return payload.bases[key];
+      const value = payload.bases[key] ?? systemPaths[key];
+      if (!value) throw new Error(`App requested unsupported Electron path ${key}`);
+      return value;
     },
     setPath: () => {},
     getName: () => payload.packageName ?? "app",
@@ -344,8 +382,25 @@ async function worker() {
         protocol: { handle: () => {}, registerFileProtocol: () => {} }, webRequest: noopEmitter },
       fromPartition: () => electron.session.defaultSession,
     },
-    Menu: { setApplicationMenu: () => {}, buildFromTemplate: () => ({}), getApplicationMenu: () => null },
-    Tray: class { constructor() {} setToolTip() {} setContextMenu() {} on() {} destroy() {} },
+    Menu: { setApplicationMenu: () => {}, buildFromTemplate: () => ({}), getApplicationMenu: () => null,
+      sendActionToFirstResponder: () => {} },
+    Tray: class {
+      constructor() {} setImage() {} setPressedImage() {} setToolTip() {} setTitle() {} getTitle() { return ""; }
+      setContextMenu() {} getBounds() { return { x: 0, y: 0, width: 0, height: 0 }; } popUpContextMenu() {}
+      close() {} destroy() {} isDestroyed() { return false; } setIgnoreDoubleClickEvents() {}
+      getIgnoreDoubleClickEvents() { return false; } displayBalloon() {} removeBalloon() {} focus() {}
+      on() { return this; } once() { return this; } addListener() { return this; }
+      removeListener() { return this; } removeAllListeners() { return this; }
+    },
+    nativeImage: (() => {
+      const image = () => ({ isEmpty: () => true, getSize: () => ({ width: 0, height: 0 }),
+        getAspectRatio: () => 1, resize: () => image(), crop: () => image(),
+        toPNG: () => Buffer.alloc(0), toJPEG: () => Buffer.alloc(0), toBitmap: () => Buffer.alloc(0),
+        toDataURL: () => "data:image/png;base64,", isTemplateImage: () => false,
+        setTemplateImage: () => {}, addRepresentation: () => {} });
+      return { createEmpty: () => image(), createFromPath: () => image(), createFromBuffer: () => image(),
+        createFromBitmap: () => image(), createFromDataURL: () => image(), createFromNamedImage: () => image() };
+    })(),
     Notification: class { constructor() {} show() {} on() {} close() {} },
     dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
       showSaveDialog: async () => ({ canceled: true, filePath: null }),
@@ -354,11 +409,23 @@ async function worker() {
     shell: { openExternal: async () => {}, openPath: async () => "", showItemInFolder: () => {}, beep: () => {} },
     clipboard: { readText: () => "", writeText: () => {}, readImage: () => null, writeImage: () => {} },
     nativeTheme: noopEmitter,
-    screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 1280, height: 800 }, scaleFactor: 1 }),
-      getAllDisplays: () => [{ workAreaSize: { width: 1280, height: 800 }, scaleFactor: 1 }],
-      getCursorScreenPoint: () => ({ x: 0, y: 0 }) },
+    screen: (() => {
+      const { width, height } = payload.host.display;
+      const bounds = { x: 0, y: 0, width, height };
+      const display = { id: 1, label: "", bounds, workArea: bounds,
+        size: { width, height }, workAreaSize: { width, height }, scaleFactor: 1, rotation: 0,
+        internal: false, touchSupport: "unknown", accelerometerSupport: "unknown", colorSpace: "srgb",
+        colorDepth: 24, depthPerComponent: 8, displayFrequency: 60, monochrome: false };
+      const primary = () => display;
+      return { getPrimaryDisplay: primary, getAllDisplays: () => [display],
+        getDisplayNearestPoint: primary, getDisplayMatching: primary, getDisplayNearestWindow: primary,
+        getCursorScreenPoint: () => ({ x: 0, y: 0 }),
+        screenToDipPoint: point => point, dipToScreenPoint: point => point,
+        screenToDipRect: rect => rect, dipToScreenRect: rect => rect };
+    })(),
     powerMonitor: noopEmitter,
-    globalShortcut: { register: () => true, unregister: () => {}, unregisterAll: () => {} },
+    globalShortcut: { register: () => true, isRegistered: () => false, unregister: () => {},
+      unregisterAll: () => {} },
     safeStorage: { isEncryptionAvailable: () => false, encryptString: value => Buffer.from(String(value)),
       decryptString: value => Buffer.from(value).toString() },
     net: { fetch: (...args) => fetch(...args), request: () => { throw new Error("net.request is unavailable in the oracle"); } },
@@ -415,6 +482,8 @@ async function worker() {
     await Promise.allSettled(readyCallbacks);
     const settled = await Promise.allSettled(readyCallbacks);
     startupError = settled.find(item => item.status === "rejected")?.reason;
+    /* The calls arrive from a window; a handler that looks up its invoking window must find one. */
+    senderWindow();
     for (const call of payload.calls) {
       const handler = handlers.get(call.channel);
       let outcome;
@@ -425,7 +494,8 @@ async function worker() {
           outcome = { ok: true, value: sanitize(value) };
         } catch (caught) {
           outcome = { ok: false, error: { name: caught?.name ?? "Error", message: String(caught?.message ?? caught),
-            code: caught?.code ?? null } };
+            code: caught?.code ?? null,
+            ...(process.env.SPLICE_ORACLE_STACKS ? { stack: String(caught?.stack ?? "") } : {}) } };
         }
       }
       outcome.files = await snapshot(payload.bases);

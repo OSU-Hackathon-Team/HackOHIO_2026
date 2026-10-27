@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { reconstruct } from "../pipeline.mjs";
 import { specHash } from "../spec.mjs";
-import { ADD_FEATURE, READ_FEATURE, SPEC, syntheticArchive } from "./synthetic.mjs";
+import { ADD_FEATURE, HOST_SPEC, READ_FEATURE, SPEC, hostSyntheticArchive, syntheticArchive } from "./synthetic.mjs";
 
 function agentRun(stage, round) {
   return { stage, round, model: "scripted", toolCalls: [], tokens: 0, exitCode: 0,
@@ -19,10 +19,10 @@ async function declare(workspace, spec) {
 
 /** A scripted stand-in for the model: the specification stage declares SPEC, the implementation
  *  stage writes the given feature modules. It proves the driver and the handoff, not model skill. */
-function scriptedAgent({ features }) {
+function scriptedAgent({ features, spec = SPEC }) {
   return async ({ stage, round, workspace }) => {
     if (stage === "spec") {
-      await declare(workspace, SPEC);
+      await declare(workspace, spec);
     } else {
       await fsp.mkdir(path.join(workspace, "features"), { recursive: true });
       for (const [file, content] of Object.entries(features))
@@ -127,6 +127,30 @@ test("a supplied specification skips discovery but keeps verification", { timeou
     assert.deepEqual(stages, ["implement"], "the specification stage must not run");
     assert.equal(result.report.readiness.ready, true, JSON.stringify(result.report.readiness.blockers));
     assert.ok(result.report.partitions.final.total >= 3);
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a channel whose answer depends on the mocked host is excluded, not claimed", { timeout: 180000 }, async () => {
+  const { root, archive } = await hostSyntheticArchive();
+  const output = path.join(root, "out");
+  try {
+    const result = await reconstruct({ archive, output, agentRunner: scriptedAgent({
+      spec: HOST_SPEC, features: { "features/add.cjs": ADD_FEATURE },
+    }), options: { state: path.join(root, "state"), "spec-rounds": 1, "impl-rounds": 1 } });
+    assert.equal(result.report.readiness.ready, true, JSON.stringify(result.report.readiness.blockers));
+    assert.deepEqual(result.report.spec.host_dependent_exclusions.map(item => item.channel), ["window:bounds"]);
+    assert.match(result.report.spec.host_dependent_exclusions[0].reason, /window bounds/);
+    assert.deepEqual(result.report.readiness.excluded.map(item => item.channel), ["window:bounds"]);
+    assert.equal(result.report.readiness.excluded[0].source, "host-variation");
+    assert.equal(result.report.readiness.whole_app_ready, false);
+    /* The candidate is built for the reconstructible channels only, and the handoff says so. */
+    const manifest = JSON.parse(await fsp.readFile(path.join(output, "reconstruction.json"), "utf8"));
+    assert.deepEqual(manifest.channels.map(item => item.channel), ["notes:add"]);
+    assert.deepEqual(manifest.excluded_channels.map(item => item.channel), ["window:bounds"]);
+    const spec = await fsp.readFile(path.join(output, "handoff", "SPEC.md"), "utf8");
+    assert.match(spec, /Excluded channels[\s\S]*window:bounds/);
   } finally {
     await fsp.rm(root, { recursive: true, force: true });
   }

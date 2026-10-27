@@ -42,12 +42,17 @@ list, tools and MCP servers instead of reusing a background service started by a
    unresolved or dynamic constructs. It never emits source text.
 2. **Oracle** (`oracle.mjs`). Extracts the archive to a disposable directory and runs its main
    process in a child worker under a mocked Electron host. A case supplies fixtures under
-   `userData`/`documents`/`logs`/`temp`, freezes the clock, and invokes channels. The reply records
-   handler values, error names/codes, every read/write path, and the full file contents after each
-   call. No target-specific fake exists in the host.
+   `userData`/`documents`/`logs`/`temp`, freezes the clock, and invokes channels. The observation
+   records handler values, error names/codes, every read/write path, and the full file contents
+   after each call. No target-specific fake exists in the host.
 3. **Specification agent** (`agent-tools.mjs`). OpenCode runs with file tools limited to its
-   workspace and the `oracle` MCP server: inventory, probe, fixture search, declare specification,
-   public cases.   `oracle_declare_spec` validates the specification and reports coverage gaps: a
+   workspace and the `oracle` MCP server: inventory, probe, file, fixture search, declare
+   specification, public cases. Probe replies have to fit an agent's context window on a real
+   application, so each call reports its changed and removed files with content capped at 4000
+   characters and an index of every file's size and digest; `oracle_file` re-runs the probe to
+   return one file's exact bytes when a requirement has to state them. `oracle_declare_spec`
+   merges into `spec.json` so a large application is declared in batches, and reports
+   `remaining_channels` alongside problems and gaps; it validates the specification and reports coverage gaps: a
    channel needs a fixture that reaches it, at least one successful observation, and either three
    distinct outcomes or six observable cases (constant-result operations cannot produce three
    outcomes). A specification with gaps is not accepted.

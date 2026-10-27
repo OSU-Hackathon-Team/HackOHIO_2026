@@ -22,7 +22,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as asar from "@electron/asar";
 import { analyzeElectronArchive } from "./analyze-archive.mjs";
-import { runCase } from "./oracle.mjs";
+import { DEFAULT_HOST, VARIANT_HOST, runCase } from "./oracle.mjs";
 import { buildCases, compareCase, coverage, coverageGaps, observationFailures, partitionCases,
   runSuite, usableResults } from "./cases.mjs";
 import { runAgent } from "./agent.mjs";
@@ -54,6 +54,65 @@ async function observe({ cases, appDir, timeout }) {
   const results = await runSuite({ runCase, appDir, cases, timeout });
   const usable = usableResults(results);
   return { usable, failures: observationFailures(results), total: results.length };
+}
+
+/*
+ * Host-dependent behavior cannot be reimplemented from a specification: the feature-module
+ * contract has no window and no display. Rather than verify a mocked host's own answer as if it
+ * were the app's, the same case is replayed under a second host configuration (window bounds and
+ * display size) and a channel whose result changes is reported as an exclusion.
+ */
+async function hostDependentChannels({ cases, appDir, timeout, concurrency = 4 }) {
+  const representatives = new Map();
+  for (const testCase of cases) {
+    const known = representatives.get(testCase.channel);
+    if (known && known.shape === "base") continue;
+    if (!known || testCase.shape === "base") representatives.set(testCase.channel, testCase);
+  }
+  const entries = [...representatives.values()];
+  const dependent = [];
+  let cursor = 0;
+  async function worker() {
+    while (cursor < entries.length) {
+      const testCase = entries[cursor++];
+      let first, second;
+      try {
+        first = await runCase({ appDir, case: testCase, timeout, host: DEFAULT_HOST });
+        second = await runCase({ appDir, case: testCase, timeout, host: VARIANT_HOST });
+      } catch { continue; /* an unrunnable case says nothing about host dependence */ }
+      const shape = result => JSON.stringify({ outcomes: result.outcomes, effects: result.effects });
+      if (shape(first) !== shape(second))
+        dependent.push({ channel: testCase.channel, source: "host-variation",
+          reason: `the observed result changes when the mocked host changes (window bounds ` +
+            `${DEFAULT_HOST.bounds.width}x${DEFAULT_HOST.bounds.height} to ` +
+            `${VARIANT_HOST.bounds.width}x${VARIANT_HOST.bounds.height}, display ` +
+            `${DEFAULT_HOST.display.width}x${DEFAULT_HOST.display.height} to ` +
+            `${VARIANT_HOST.display.width}x${VARIANT_HOST.display.height}), so it depends on a host ` +
+            "object the feature contract does not expose" });
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, entries.length) }, worker));
+  return dependent.sort((a, b) => a.channel.localeCompare(b.channel));
+}
+
+/* Turn a validated specification into what the driver will actually verify: the channels that can
+   be reconstructed, the cases generated for them, and the exclusions that stand in the way of a
+   whole-app claim. */
+async function acceptSpecification({ spec, inventory, appDir, timeout, log }) {
+  const excluded = excludedChannels(spec);
+  let required = inventory.filter(entry => !excluded.has(entry.channel));
+  if (!required.length) return { excluded, required, built: null, hostDependent: [], contract: spec };
+  let built = buildCases({ contract: spec, channels: required, seed: "public" });
+  const hostDependent = await hostDependentChannels({ cases: built.all, appDir, timeout });
+  if (!hostDependent.length) return { excluded, required, built, hostDependent, contract: spec };
+  const contract = { ...spec, channels: { ...spec.channels },
+    channel_exclusions: [...(spec.channel_exclusions ?? []), ...hostDependent] };
+  for (const item of hostDependent) { delete contract.channels[item.channel]; excluded.set(item.channel, item); }
+  required = inventory.filter(entry => !excluded.has(entry.channel));
+  built = required.length ? buildCases({ contract, channels: required, seed: "public" }) : null;
+  log(`${hostDependent.length} host-dependent channel(s) excluded: ` +
+    hostDependent.map(item => item.channel).join(", "));
+  return { excluded, required, built, hostDependent, contract };
 }
 
 async function checkSuite({ suite, candidate, timeout }) {
@@ -160,6 +219,8 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
 
   const runs = [];
   let spec = null;
+  let contract = null;
+  let hostDependent = [];
   let feedback = "";
   let suites = null;
   let observations = null;
@@ -201,16 +262,20 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
     }
     const problems = validateSpec(declared, inventory);
     if (problems.length) { feedback = `Specification problems:\n${problems.join("\n")}`; continue; }
-    const excluded = excludedChannels(declared);
-    const required = inventory.filter(entry => !excluded.has(entry.channel));
-    if (!required.length) {
-      feedback = "Every original channel is excluded, so nothing is left to reconstruct. Exclusions are " +
-        "only for behavior the feature contract cannot express; a channel that reads or writes data can " +
-        "always be specified. Rebuild the fixtures (oracle_find_fixture repairs missing files and fields) " +
-        "and declare the channels you abandoned.";
+    const accepted = await acceptSpecification({ spec: declared, inventory, appDir,
+      timeout: caseTimeout, log });
+    if (!accepted.required.length) {
+      feedback = accepted.hostDependent.length
+        ? `Every channel that is not excluded is host-dependent, so nothing is left to reconstruct: ` +
+          `${accepted.hostDependent.map(item => item.channel).join(", ")} answer differently when the ` +
+          "mocked host changes, which no feature module can reproduce."
+        : "Every original channel is excluded, so nothing is left to reconstruct. Exclusions are " +
+          "only for behavior the feature contract cannot express; a channel that reads or writes data can " +
+          "always be specified. Rebuild the fixtures (oracle_find_fixture repairs missing files and fields) " +
+          "and declare the channels you abandoned.";
       continue;
     }
-    const built = buildCases({ contract: declared, channels: required, seed: "public" });
+    const { excluded, required, built } = accepted;
     const channelNames = required.map(item => item.channel);
     const observed = [];
     const observationProblems = [];
@@ -244,16 +309,18 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
     suites = { public: suiteFor(partitioned.publicItems), repair: suiteFor(partitioned.repairItems),
       final: suiteFor(partitioned.finalItems) };
     spec = declared;
-    log(`${required.length} required channel(s), ${excluded.size} declared exclusion(s)`);
+    contract = accepted.contract;
+    hostDependent = accepted.hostDependent;
+    log(`${required.length} required channel(s), ${excluded.size} exclusion(s)`);
     observations = { total: built.all.length, usable: observed.length,
       failures: observationProblems };
     break;
   }
   if (!spec && suppliedSpec) {
-    const excluded = excludedChannels(suppliedSpec);
-    const required = inventory.filter(entry => !excluded.has(entry.channel));
+    const accepted = await acceptSpecification({ spec: suppliedSpec, inventory, appDir,
+      timeout: caseTimeout, log });
+    const { excluded, required, built } = accepted;
     if (!required.length) throw new Error("The supplied specification excludes every channel");
-    const built = buildCases({ contract: suppliedSpec, channels: required, seed: "public" });
     const channelNames = required.map(item => item.channel);
     const observed = [];
     const observationProblems = [];
@@ -272,17 +339,19 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
     suites = { public: suiteFor(partitioned.publicItems), repair: suiteFor(partitioned.repairItems),
       final: suiteFor(partitioned.finalItems) };
     spec = suppliedSpec;
+    contract = accepted.contract;
+    hostDependent = accepted.hostDependent;
     observations = { total: built.all.length, usable: observed.length, failures: observationProblems };
   }
   if (!spec) throw new Error(`No usable specification was produced after ${specRounds} round(s).\n${feedback}`);
 
   /* ---------------------------------------------------------------- stage 2: implementation */
-  await writeHandoff({ spec, analysis, publicSuite: suites.public, directory: handoff });
+  await writeHandoff({ spec: contract, analysis, publicSuite: suites.public, directory: handoff });
   let repairVisible = false;
   let publicCheck = null, repairCheck = null;
   feedback = "";
   for (let round = 1; round <= implRounds; round++) {
-    if (repairVisible) await writeHandoff({ spec, analysis, publicSuite: suites.public,
+    if (repairVisible) await writeHandoff({ spec: contract, analysis, publicSuite: suites.public,
       directory: handoff, repairSuite: suites.repair });
     const run = await agentRunner({ stage: "implement", workspace: handoff, stateDir, appDir,
       archiveName: analysis.archive.name ?? "", analysisFile, publicFile: handoffPublicFile,
@@ -292,7 +361,7 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
     log(describeRun(run));
     let assembled;
     try {
-      assembled = await assembleProject({ analysis, contract: spec, workspace: handoff, output: candidate });
+      assembled = await assembleProject({ analysis, contract, workspace: handoff, output: candidate });
     } catch (error) {
       feedback = `The candidate could not be assembled: ${error.message}\nFix the feature modules and run check again.`;
       continue;
@@ -306,7 +375,7 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
     if (!publicFailed && !repairFailed) break;
     if (!repairVisible) {
       repairVisible = true;
-      await writeHandoff({ spec, analysis, publicSuite: suites.public, directory: handoff,
+      await writeHandoff({ spec: contract, analysis, publicSuite: suites.public, directory: handoff,
         repairSuite: suites.repair });
     }
     feedback = publicFailed
@@ -327,6 +396,7 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
       implementer: runs.find(run => run.stage === "implement")?.model ?? null },
     spec: { sha256: specHash(spec), channels: Object.keys(spec.channels ?? {}),
       channel_exclusions: spec.channel_exclusions ?? [],
+      host_dependent_exclusions: hostDependent,
       scope: spec.application?.scope ?? [], exclusions: spec.application?.exclusions ?? [],
       blockers: spec.application?.blockers ?? [], unresolved: spec.application?.unresolved ?? [] },
     partitions: {
@@ -360,23 +430,25 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
   }
   for (const item of spec.application?.blockers ?? []) blockers.push(`specification blocker: ${item}`);
   for (const item of spec.application?.unresolved ?? []) blockers.push(`unresolved question: ${item}`);
-  const excludedList = spec.channel_exclusions ?? [];
+  const excludedList = [...(spec.channel_exclusions ?? []), ...hostDependent];
   finalReport.readiness = {
     ready: blockers.length === 0,
     whole_app_ready: blockers.length === 0 && excludedList.length === 0,
     blockers,
-    excluded: excludedList.map(item => ({ channel: item.channel, reason: item.reason })),
+    excluded: excludedList.map(item => ({ channel: item.channel, reason: item.reason,
+      source: item.source ?? "specification" })),
     note: excludedList.length
-      ? "Declared exclusions keep this run from claiming whole-app readiness. They were declared by the " +
-        "specification stage and have not been independently reviewed."
+      ? "Exclusions keep this run from claiming whole-app readiness. They were declared by the " +
+        "specification stage, or detected mechanically as host-dependent, and have not been " +
+        "independently reviewed."
       : "All discovered IPC channels are in the verified scope.",
   };
 
-  await assembleProject({ analysis, contract: spec, workspace: handoff, output: outputPath });
+  await assembleProject({ analysis, contract, workspace: handoff, output: outputPath });
   await fsp.mkdir(path.join(outputPath, "handoff"), { recursive: true });
-  await fsp.writeFile(path.join(outputPath, "handoff", "spec.json"), JSON.stringify(spec, null, 2) + "\n");
+  await fsp.writeFile(path.join(outputPath, "handoff", "spec.json"), JSON.stringify(contract, null, 2) + "\n");
   await fsp.writeFile(path.join(outputPath, "handoff", "SPEC.md"),
-    renderSpecMarkdown({ spec, analysis, publicSuite: suites.public }) + "\n");
+    renderSpecMarkdown({ spec: contract, analysis, publicSuite: suites.public }) + "\n");
   await fsp.writeFile(path.join(outputPath, "handoff", "public-cases.json"),
     JSON.stringify(suites.public) + "\n");
   await fsp.writeFile(path.join(outputPath, "reconstruction-report.json"),
