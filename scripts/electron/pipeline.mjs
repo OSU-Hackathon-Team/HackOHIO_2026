@@ -432,8 +432,8 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
         `case is in failures.md:\n${failureText(publicCheck.failures)}\n`
       : `Public cases pass (${counts}). Repair cases, now visible in repair-cases.json, do not; ` +
         `every failing case is in failures.md:\n${failureText(repairCheck?.failures ?? [])}\n`) +
-      `\nRead failures.md for the calls and the exact original-versus-candidate difference of the ` +
-      `first 40 failures, and implement_public_case for any case by name.`;
+      `\nRead failures.md for the calls and the original-versus-candidate difference of the first ` +
+      `failing cases, and implement_public_case for any case by name.`;
   }
 
   /* ------------------------------------------------------------------ stage 3: final evaluation */
