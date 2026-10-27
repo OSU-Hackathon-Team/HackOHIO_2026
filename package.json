@@ -37,6 +37,7 @@
     "test:recombination:linux-clean": "SPLICE_TEST_CLEAN_CONTAINER=1 npm run test:recombination:linux-package",
     "test:recombination:linux-vm": "node scripts/testRecombinationLinuxVm.mjs",
     "test:recombination:studio": "npm run build && node --import tsx scripts/testRecombinationStudio.mjs",
+    "test:recombination:performance": "npm run build:contracts && npm run build:backend && node --import tsx scripts/benchmarkRecombination.mjs",
     "test:recombination:transcription:live": "npm run build:backend && node --import tsx scripts/testAwsTranscribeLive.mjs"
   },
   "devDependencies": {

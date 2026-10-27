@@ -85,9 +85,13 @@ capabilities, so the first native call failed. After the VM administrator enable
 optional bubblewrap profile, the installed native and notebook workflows ran through 60 then 80
 and preserved both documents after a full app restart. This is a tested host prerequisite, not
 an out-of-box clean VM pass; the launcher now reports a namespace policy blocker before opening
-the app. Other platform builds, delivery updates, and realistic performance budgets remain
-open. The `verified` application status means its current package, scenario and export checks passed; it
-does not assert any of those open acceptance gates passed.
+the app. Other platform builds, delivery updates, and full performance acceptance remain
+open. An [opt-in development workload gate](RECOMBINATION_PERFORMANCE.md) now measures the four
+authored packages and both workflows with declared input sizes, p95 latency and sampled
+process-tree memory budgets. It passed on this Linux x64 host; installed-app, live-audio and
+approved-package performance remain unmeasured. The `verified` application status means its current
+package, scenario and export checks passed; it does not assert any of those open acceptance gates
+passed.
 The CI workflow is configured to run the live Studio and exported Electron smokes on its Linux runner.
 The production Docker image builds locally, starts, serves the frontend, and returns healthy API
 responses. Its runner includes the runtime package and the TypeScript templates needed to compile
