@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import * as asar from "@electron/asar";
 
 const self = fileURLToPath(import.meta.url);
@@ -123,7 +123,9 @@ export async function runCase({ appDir, case: rawCase, timeout = 20000 }) {
     const main = within(appDir, String(pkg.main ?? "index.js"));
     if (!fs.existsSync(main)) throw new Error(`Main entry is missing: ${main}`);
     const initial = await snapshot(bases);
-    const result = await runWorker({ appDir, main, bases, calls: testCase.calls, fixed_time: testCase.fixed_time }, timeout);
+    const esmMain = pkg.type === "module" || String(pkg.main ?? "").endsWith(".mjs");
+    const result = await runWorker({ appDir, main, esmMain, packageName: pkg.name, packageVersion: pkg.version,
+      bases, calls: testCase.calls, fixed_time: testCase.fixed_time }, timeout);
     const effects = [];
     let files = initial;
     for (const outcome of result.outcomes) {
@@ -208,6 +210,10 @@ async function worker() {
   console.info = console.log;
   console.warn = console.log;
   process.stdout.write = (chunk, ...rest) => error(chunk, ...rest);
+  /* Libraries branch on process.type. Without it, packages such as electron-log load their
+     renderer preload inside the main process and crash on renderer-only globals. */
+  if (!process.type) process.type = "browser";
+  try { process.versions.electron ??= "45.0.0"; } catch { /* versions may be frozen */ }
 
   const require = createRequire(import.meta.url);
   const Module = require("node:module");
@@ -238,7 +244,8 @@ async function worker() {
     on: () => {}, once: () => {}, removeListener: () => {},
     id: 1, isDestroyed: () => false,
   };
-  const fakeEvent = { sender, senderFrame: { url: `file://${payload.appDir}/index.html` }, frameId: 1, processId: 1 };
+  const fakeEvent = { get sender() { return windows[0]?.webContents ?? sender; },
+    senderFrame: { url: `file://${payload.appDir}/index.html` }, frameId: 1, processId: 1 };
   const webContents = () => ({
     send: () => {}, postMessage: () => {}, on: () => {}, once: () => {}, removeListener: () => {},
     executeJavaScript: async () => undefined, setWindowOpenHandler: () => {}, openDevTools: () => {},
@@ -256,14 +263,45 @@ async function worker() {
     loadFile(file) { this.url = `file://${pathModule.resolve(payload.appDir, String(file))}`; return Promise.resolve(); }
     on() { return this; } once() { return this; } removeListener() { return this; }
     show() {} hide() {} focus() {} close() {} destroy() {} isDestroyed() { return false; }
+    getBounds() { const { x = 0, y = 0, width = 800, height = 600 } = this.options; return { x, y, width, height }; }
+    setBounds(next) { this.options = { ...this.options, ...next }; }
+    getSize() { const { width = 800, height = 600 } = this.options; return [width, height]; }
+    setSize(width, height) { this.options = { ...this.options, width, height }; }
+    isMaximized() { return false; } maximize() {} unmaximize() {} isMinimized() { return false; }
+    minimize() {} restore() {}
     static getAllWindows() { return windows; }
     static getFocusedWindow() { return windows[0] ?? null; }
-    static fromWebContents() { return null; }
-    static fromId() { return null; }
+    static fromWebContents(contents) { return windows.find(window => window.webContents === contents) ?? null; }
+    static fromId(id) { return windows.find(window => window.id === id) ?? null; }
   }
+  /* Lifecycle listeners: apps commonly do real startup work in app.on("ready"), not only in
+     whenReady() chains. Without emitting it, settings stores and timers stay uninitialized and
+     every handler looks broken. */
+  const appListeners = new Map();
+  const appOn = (event, listener, once = false) => {
+    if (typeof listener !== "function") return app;
+    const entry = { listener, once };
+    appListeners.set(event, [...(appListeners.get(event) ?? []), entry]);
+    return app;
+  };
   const app = {
     whenReady: () => new TrackedPromise(Promise.resolve()),
     isReady: () => true,
+    on: (event, listener) => appOn(event, listener),
+    once: (event, listener) => appOn(event, listener, true),
+    off: (event, listener) => { appListeners.set(event, (appListeners.get(event) ?? [])
+      .filter(entry => entry.listener !== listener)); return app; },
+    removeListener: (event, listener) => app.off(event, listener),
+    removeAllListeners: event => { appListeners.delete(event); return app; },
+    emit: (event, ...args) => {
+      const entries = appListeners.get(event) ?? [];
+      appListeners.set(event, entries.filter(entry => !entry.once));
+      for (const entry of entries) {
+        try { entry.listener(...args); }
+        catch (caught) { try { error(`${caught?.stack ?? caught}\n`); } catch { /* stderr is closed */ } }
+      }
+      return entries.length > 0;
+    },
     getPath: key => {
       if (!payload.bases[key]) throw new Error(`App requested unsupported Electron path ${key}`);
       return payload.bases[key];
@@ -274,7 +312,6 @@ async function worker() {
     getAppPath: () => payload.appDir,
     getLocale: () => "en-US",
     isPackaged: false,
-    on: () => {}, once: () => {}, removeListener: () => {},
     quit: () => {}, exit: () => {}, relaunch: () => {}, focus: () => {},
     setAppUserModelId: () => {}, requestSingleInstanceLock: () => true, releaseSingleInstanceLock: () => {},
     disableHardwareAcceleration: () => {}, setAsDefaultProtocolClient: () => true,
@@ -291,17 +328,17 @@ async function worker() {
       removeHandler: channel => { handlers.delete(channel); },
       removeListener: () => {}, removeAllListeners: () => {},
     },
-    ipcRenderer: {
-      invoke: async () => undefined, send: () => {}, sendSync: () => undefined,
-      postMessage: () => {}, on: () => {}, once: () => {}, removeListener: () => {},
-      removeAllListeners: () => {}, setMaxListeners: () => {},
-    },
+    /* The main process has no ipcRenderer: in real Electron require("electron") inside main
+       only exposes main-process APIs. Libraries such as electron-log branch on that absence. */
     contextBridge: {
       exposeInMainWorld: (name, value) => { bridge.push({ global: name, methods: Object.keys(value ?? {}) }); },
       exposeInIsolatedWorld: () => {},
     },
     BrowserWindow,
     webContents: { getAllWebContents: () => windows.map(window => window.webContents), fromId: () => null },
+    /* Real Electron resolves BrowserWindow.fromWebContents(event.sender); channels such as
+       "get-window-bounds" are useless without it. */
+    /* (fromWebContents is defined on BrowserWindow below.) */
     session: {
       defaultSession: { setPermissionRequestHandler: () => {}, setPermissionCheckHandler: () => {},
         protocol: { handle: () => {}, registerFileProtocol: () => {} }, webRequest: noopEmitter },
@@ -333,6 +370,34 @@ async function worker() {
     if (name === "electron") return electron;
     return nativeLoad.call(this, name, parent, isMain);
   };
+  /* ES module main processes ("type": "module", import from "electron") bypass Module._load.
+     Publish the same host through a shim package in the extracted directory's node_modules and
+     expose it on a global that the ESM shim reads. Writes are idempotent and atomic so parallel
+     cases can share one extracted app. */
+  function exposeElectronToEsm() {
+    const directory = pathModule.join(payload.appDir, "node_modules", "electron");
+    const write = (name, content) => {
+      const file = pathModule.join(directory, name);
+      if (fs.existsSync(file) && fs.readFileSync(file, "utf8") === content) return;
+      const temporary = `${file}.${process.pid}.tmp`;
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(temporary, content);
+      fs.renameSync(temporary, file);
+    };
+    const keys = Object.keys(electron);
+    write("package.json", JSON.stringify({ name: "electron", version: "0.0.0-splice-oracle",
+      main: "index.cjs",
+      exports: { ".": { import: "./index.mjs", require: "./index.cjs" },
+        "./main": { import: "./index.mjs", require: "./index.cjs" },
+        "./common": { import: "./index.mjs", require: "./index.cjs" },
+        "./renderer": { import: "./index.mjs", require: "./index.cjs" } } }, null, 2) + "\n");
+    write("index.cjs", "\"use strict\";\nmodule.exports = globalThis.__spliceElectron;\n");
+    write("index.mjs", ["const host = globalThis.__spliceElectron;",
+      ...keys.map(key => `export const ${key} = host.${key};`),
+      "export default host;", ""].join("\n"));
+  }
+  globalThis.__spliceElectron = electron;
+  try { exposeElectronToEsm(); } catch { /* A read-only app directory falls back to require only. */ }
   if (payload.fixed_time) {
     const NativeDate = globalThis.Date, instant = Date.parse(payload.fixed_time);
     globalThis.Date = class extends NativeDate {
@@ -343,7 +408,11 @@ async function worker() {
   const outcomes = [];
   let startupError = null;
   try {
-    require(payload.main);
+    if (payload.esmMain) await import(pathToFileURL(payload.main).href);
+    else require(payload.main);
+    await Promise.allSettled(readyCallbacks);
+    app.emit("ready");
+    await Promise.allSettled(readyCallbacks);
     const settled = await Promise.allSettled(readyCallbacks);
     startupError = settled.find(item => item.status === "rejected")?.reason;
     for (const call of payload.calls) {
@@ -362,11 +431,20 @@ async function worker() {
       outcome.files = await snapshot(payload.bases);
       outcomes.push(outcome);
     }
-    output(JSON.stringify({ channels: [...handlers.keys()].sort().map(channel => ({
+    const body = JSON.stringify({ channels: [...handlers.keys()].sort().map(channel => ({
       channel, arity: Math.max(0, (handlers.get(channel)?.length ?? 1) - 1) })), outcomes, io, bridge,
       windows: windows.map(window => ({ url: window.url ?? null })),
       startup_error: startupError ? { name: startupError.name ?? "Error",
-        message: String(startupError.message ?? startupError) } : null }));
+        message: String(startupError.message ?? startupError) } : null });
+    /* The app may have started timers, sockets or watchers. Report and exit deliberately instead
+       of waiting for its event loop to drain, which it never does for a real application. */
+    await new Promise((resolve, reject) => {
+      output(body, error => (error ? reject(error) : resolve()));
+    });
+    process.exit(0);
+  } catch (caught) {
+    error(`${caught?.stack ?? caught}\n`);
+    process.exit(1);
   } finally {
     Module._load = nativeLoad;
   }
