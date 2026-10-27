@@ -48,7 +48,7 @@ try {
     await page.getByRole("button", { name: "Save confirmed cells" }).click();
     await expect(page.getByText(/Confirmed cells saved/)).toBeVisible();
     await page.getByRole("button", { name: "Run workflow" }).click();
-    await page.waitForFunction(() => document.querySelector("pre")?.textContent?.includes('"status": "succeeded"'));
+    await page.waitForFunction(() => document.querySelector("pre")?.textContent?.includes('"status": "succeeded"')).catch(async (error) => { console.error(await page.locator("pre").allTextContents()); throw error; });
     assert.equal((await page.evaluate(() => window.splice.getDocument("meeting"))).data.value, 60);
     await page.getByRole("spinbutton", { name: "Value for B2" }).fill("4");
     await page.getByRole("button", { name: "Save confirmed cells" }).click();
@@ -126,5 +126,6 @@ try {
   }
 } finally {
   service.close();
-  fs.rmSync(root, { recursive: true, force: true });
+  if (process.env.SPLICE_KEEP_DESKTOP_SMOKE) console.error(`Desktop smoke files: ${root}`);
+  else fs.rmSync(root, { recursive: true, force: true });
 }

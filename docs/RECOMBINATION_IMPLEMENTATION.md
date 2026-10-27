@@ -67,8 +67,10 @@ An opt-in Ubuntu x64 `.deb` now bundles the verified app and Electron, installs 
 sandbox helper with root ownership, and launches after installation without `npm install` or a
 Splice server. Its display smoke verified workbook and note state after restart, installed a
 UI-only revision over the first package, and preserved both documents through that upgrade and
-a second restart. Clean VM
-installation, other platform builds, delivery updates, and realistic performance budgets remain
+a second restart. A fresh Debian bookworm container without Node or a repo checkout installed
+the same package, launched it as an ordinary user and initialized durable state; workflow
+execution in that container and a clean VM install remain separate checks. Other platform
+builds, delivery updates, and realistic performance budgets remain
 open. The `verified` application status means its current package, scenario and export checks passed; it
 does not assert any of those open acceptance gates passed.
 The CI workflow is configured to run the live Studio and exported Electron smokes on its Linux runner.
@@ -135,7 +137,9 @@ Electron 45 installed in `node_modules`. The command verifies each exported file
 plan/lock/application hash, the selected platform and the Electron version before creating
 `<output-dir>.deb`. Install it with `sudo dpkg -i <output-dir>.deb` and launch the generated
 `splice-app-<app-id-hash>` command. The package contains Electron, the host, renderer, locked
-capabilities, binaries and migrations; users do not run `npm install` or the Splice server.
+capabilities, binaries and migrations; users do not run `npm install`, install Node separately,
+or start the Splice server. Isolated JavaScript capabilities use Electron's embedded Node mode,
+with only the required Electron runtime files mounted inside bubblewrap.
 The package declares bubblewrap, util-linux and core Electron library dependencies. Its
 setuid Chromium sandbox helper requires root ownership and mode 4755, which `dpkg` sets at
 installation; unpacking the app directory as an ordinary user is not an equivalent install.
@@ -144,8 +148,11 @@ Electron's per-user application directory. `npm run test:recombination:linux-pac
 installs, launches, restarts and removes the package on a Linux host with `sudo`, Xvfb and
 `dpkg-deb`. The smoke also installs a UI-only revision over the first package and confirms its
 workbook and note data remain editable and durable. This passed on Ubuntu 26.04 x64. A separate
-clean VM install and other
-Linux distributions remain unverified; the `.deb` does not cover Windows or macOS.
+clean VM install and other Linux distributions remain unverified; the `.deb` does not cover
+Windows or macOS. `npm run test:recombination:linux-clean` adds a disposable Debian bookworm
+container install without Node or a repository checkout. It checks that the app starts as an
+ordinary user and initializes durable state. The container test uses Docker `--privileged` so
+nested sandboxing works; that is diagnostic isolation, not a production deployment design.
 
 ## Ground rules
 

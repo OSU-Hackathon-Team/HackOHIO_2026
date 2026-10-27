@@ -35,7 +35,8 @@ try {
   const install = spawnSync("sudo", ["-n", "dpkg", "-i", output.deb], { encoding: "utf8" });
   assert.equal(install.status, 0, install.stderr || install.stdout);
   const executable = path.join("/opt", "splice", built.app_id, "electron");
-  desktop = await _electron.launch({ executablePath: executable, args: [], env: { ...process.env, XDG_CONFIG_HOME: path.join(root, "config") }, timeout: 30_000 });
+  const appEnv = { ...process.env, PATH: "/nonexistent", XDG_CONFIG_HOME: path.join(root, "config") };
+  desktop = await _electron.launch({ executablePath: executable, args: [], env: appEnv, timeout: 30_000 });
   const page = await desktop.firstWindow();
   await expect(page).toHaveTitle("Meeting notebook");
   await page.getByRole("button", { name: "Add cell" }).click();
@@ -48,7 +49,7 @@ try {
   await page.getByRole("button", { name: "Run workflow" }).click();
   await expect.poll(async () => (await page.evaluate(() => window.splice.getDocument("meeting")))?.data.value).toBe(60);
   await desktop.close(); desktop = undefined;
-  desktop = await _electron.launch({ executablePath: executable, args: [], env: { ...process.env, XDG_CONFIG_HOME: path.join(root, "config") }, timeout: 30_000 });
+  desktop = await _electron.launch({ executablePath: executable, args: [], env: appEnv, timeout: 30_000 });
   const reopened = await desktop.firstWindow();
   await expect(reopened).toHaveTitle("Meeting notebook");
   assert.equal((await reopened.evaluate(() => window.splice.getDocument("meeting"))).data.value, 60);
@@ -69,7 +70,7 @@ try {
   assert.equal(upgradeOutput.package_name, installedPackage);
   const upgradeInstall = spawnSync("sudo", ["-n", "dpkg", "-i", upgradeOutput.deb], { encoding: "utf8" });
   assert.equal(upgradeInstall.status, 0, upgradeInstall.stderr || upgradeInstall.stdout);
-  desktop = await _electron.launch({ executablePath: executable, args: [], env: { ...process.env, XDG_CONFIG_HOME: path.join(root, "config") }, timeout: 30_000 });
+  desktop = await _electron.launch({ executablePath: executable, args: [], env: appEnv, timeout: 30_000 });
   const upgradedPage = await desktop.firstWindow();
   await expect(upgradedPage.getByRole("heading", { name: "Refined meeting notebook" })).toBeVisible();
   assert.equal((await upgradedPage.evaluate(() => window.splice.getDocument("meeting"))).data.value, 60);
@@ -79,10 +80,21 @@ try {
   await upgradedPage.getByRole("button", { name: "Run workflow" }).click();
   await expect.poll(async () => (await upgradedPage.evaluate(() => window.splice.getDocument("meeting")))?.data.value).toBe(80);
   await desktop.close(); desktop = undefined;
-  desktop = await _electron.launch({ executablePath: executable, args: [], env: { ...process.env, XDG_CONFIG_HOME: path.join(root, "config") }, timeout: 30_000 });
+  desktop = await _electron.launch({ executablePath: executable, args: [], env: appEnv, timeout: 30_000 });
   const finalPage = await desktop.firstWindow();
+  await expect(finalPage.getByRole("heading", { name: "Refined meeting notebook" })).toBeVisible();
   assert.equal((await finalPage.evaluate(() => window.splice.getDocument("meeting"))).data.value, 80);
   assert.deepEqual((await finalPage.evaluate(() => window.splice.getDocument("workbook"))).data.cells, { B2: 4, C2: 20 });
+  await desktop.close(); desktop = undefined;
+  if (process.env.SPLICE_TEST_CLEAN_CONTAINER === "1") {
+    const probe = spawnSync("sudo", ["-n", "docker", "run", "--rm", "--privileged", "--shm-size=1g",
+      "-v", `${upgradeOutput.deb}:/tmp/app.deb:ro`,
+      "-v", `${path.join(repo, "scripts", "cleanRecombinationLinuxPackageProbe.sh")}:/tmp/probe.sh:ro`,
+      "-e", `SPLICE_PACKAGE_NAME=${installedPackage}`,
+      "debian:bookworm-slim", "/bin/sh", "/tmp/probe.sh"], { encoding: "utf8", timeout: 180_000 });
+    assert.equal(probe.status, 0, probe.stderr || probe.stdout);
+    console.log(probe.stdout.trim());
+  }
   console.log(`Installed Linux package ran without npm install or Splice server; UI upgrade and restart preserved workbook and note (${upgradeOutput.deb_sha256}).`);
 } finally {
   await desktop?.close();
