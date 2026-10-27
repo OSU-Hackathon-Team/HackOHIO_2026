@@ -31,7 +31,14 @@ try {
   await fs.chmod(path.join(appDestination, "chrome-sandbox"), 0o4755);
   const command = path.join(payload, "usr", "bin", packageName);
   await fs.mkdir(path.dirname(command), { recursive: true });
-  await fs.writeFile(command, `#!/bin/sh\nset -eu\nexec /opt/splice/${appId}/electron "$@"\n`, { mode: 0o755 });
+  await fs.writeFile(command, `#!/bin/sh
+set -eu
+if ! /usr/bin/bwrap --die-with-parent --unshare-user --unshare-net --unshare-pid --unshare-ipc --unshare-uts --ro-bind / / -- /usr/bin/true >/dev/null 2>&1; then
+  printf '%s\\n' 'Splice cannot start isolated capabilities: bubblewrap cannot create the required namespaces.' 'Check the host namespace and AppArmor policy before launching this package.' >&2
+  exit 78
+fi
+exec /opt/splice/${appId}/electron "$@"
+`, { mode: 0o755 });
   await fs.chmod(command, 0o755);
   await fs.mkdir(path.join(payload, "DEBIAN"));
   await fs.writeFile(path.join(payload, "DEBIAN", "control"), `Package: ${packageName}\nVersion: 1.0.${revision}\nSection: utils\nPriority: optional\nArchitecture: amd64\nMaintainer: Splice\nDepends: bubblewrap, util-linux, libc6, libnss3, libgtk-3-0t64 | libgtk-3-0, libgbm1, libasound2t64 | libasound2\nDescription: Splice generated ${exported.filename}\n`);

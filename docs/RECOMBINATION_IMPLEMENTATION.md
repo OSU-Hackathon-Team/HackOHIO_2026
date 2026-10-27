@@ -64,17 +64,23 @@ Builds and switches compare the active revision
 again inside the SQLite transaction, so a concurrent change returns a conflict. Activation also
 revalidates package availability, file hashes, the application hash and bundled migrations.
 An opt-in Ubuntu x64 `.deb` now bundles the verified app and Electron, installs the Chromium
-sandbox helper with root ownership, and launches after installation without `npm install` or a
-Splice server. Its display smoke verified workbook and note state after restart, installed a
-UI-only revision over the first package, and preserved both documents through that upgrade and
-a second restart. A fresh Debian bookworm container without Node or a repo checkout installed
+sandbox helper with root ownership, and launches on hosts that permit bubblewrap's required
+namespaces without `npm install` or a Splice server. Its display smoke verified workbook and note
+state after restart, installed a UI-only revision over the first package, and preserved both
+documents through that upgrade and a second restart. A fresh Debian bookworm container without
+Node or a repo checkout installed
 the package, launched it as an ordinary user, and drove the saved workbook, formula and note
 through 60 then 80. The package test also builds an authored C multiplication capability,
 checks its verified binary remains executable in the registry and `.deb`, and calls it through
 the exported host before and after an upgrade and inside the clean container. This found and
 fixed a missing execute bit on registry sidecars. Registry reads now restore that bit on
-previously stored, hash-verified sidecars. A clean VM install remains a separate check. Other
-platform builds, delivery updates, and realistic performance budgets remain
+previously stored, hash-verified sidecars. A clean Ubuntu 24.04.5 VM installed the package
+without Node or a repo checkout. Its default AppArmor policy blocked bubblewrap's user namespace
+capabilities, so the first native call failed. After the VM administrator enabled Ubuntu's
+optional bubblewrap profile, the installed native and notebook workflows ran through 60 then 80
+and preserved both documents after a full app restart. This is a tested host prerequisite, not
+an out-of-box clean VM pass; the launcher now reports a namespace policy blocker before opening
+the app. Other platform builds, delivery updates, and realistic performance budgets remain
 open. The `verified` application status means its current package, scenario and export checks passed; it
 does not assert any of those open acceptance gates passed.
 The CI workflow is configured to run the live Studio and exported Electron smokes on its Linux runner.
@@ -140,9 +146,11 @@ persistent `SPLICE_STATE_DIR`, then run
 Electron 45 installed in `node_modules`. The command verifies each exported file hash, the
 plan/lock/application hash, the selected platform and the Electron version before creating
 `<output-dir>.deb`. Install it with `sudo dpkg -i <output-dir>.deb` and launch the generated
-`splice-app-<app-id-hash>` command. The package contains Electron, the host, renderer, locked
-capabilities, binaries and migrations; users do not run `npm install`, install Node separately,
-or start the Splice server. Isolated JavaScript capabilities use Electron's embedded Node mode,
+`splice-app-<app-id-hash>` command. Its launcher checks that bubblewrap can create the required
+namespaces and exits with code 78 and a diagnostic if host policy blocks them. The package
+contains Electron, the host, renderer, locked capabilities, binaries and migrations; users do not
+run `npm install`, install Node separately, or start the Splice server. Isolated JavaScript
+capabilities use Electron's embedded Node mode,
 with only the required Electron runtime files mounted inside bubblewrap.
 The package declares bubblewrap, util-linux and core Electron library dependencies. Its
 setuid Chromium sandbox helper requires root ownership and mode 4755, which `dpkg` sets at
@@ -152,12 +160,32 @@ Electron's per-user application directory. `npm run test:recombination:linux-pac
 installs, launches, restarts and removes the package on a Linux host with `sudo`, Xvfb and
 `dpkg-deb`. The smoke also installs a UI-only revision over the first package and confirms its
 workbook and note data remain editable and durable. This passed on Ubuntu 26.04 x64. A separate
-clean VM install and other Linux distributions remain unverified; the `.deb` does not cover
-Windows or macOS. `npm run test:recombination:linux-clean` adds a disposable Debian bookworm
+Ubuntu 24.04.5 VM installation is conditional on its optional bubblewrap AppArmor profile;
+other Linux distributions remain unverified, and the `.deb` does not cover Windows or macOS.
+`npm run test:recombination:linux-clean` adds a disposable Debian bookworm
 container install without Node or a repository checkout. It checks that the app starts as an
 ordinary user and runs the workbook-to-formula-to-note workflow to 60 then 80, plus an authored
 C sidecar that computes 60 then 80. The container test uses Docker `--privileged` so
 nested sandboxing works; that is diagnostic isolation, not a production deployment design.
+
+On a fresh Ubuntu 24.04.5 VM, the package installed, but Ubuntu's default
+`kernel.apparmor_restrict_unprivileged_userns=1` policy denied capabilities needed by
+`/usr/bin/bwrap`. The first native workflow returned a sidecar `EPIPE`. Ubuntu ships a
+purpose-built profile in the optional `apparmor-profiles` package; that profile is disabled by
+default because enabling it can affect other applications. For this disposable VM, the
+administrator installed that package, copied its `bwrap-userns-restrict` profile into
+`/etc/apparmor.d/`, and loaded it with `apparmor_parser -r`. With that profile active,
+`npm run test:recombination:linux-vm -- <CDP URL> initial` verified the renderer's workbook,
+formula, note and native sidecar at 60 then 80. After a systemd service restart, the same command
+with `restart` verified saved workbook and note data and another native call. The discovery used
+`.deb` SHA-256 `9402d39e4c6303057c4c9d5f696ce9f68c7c00930a1cbb03909aed728c122cf3`.
+A rebuilt package with SHA-256 `2a000395fd20a176f093ef1187770e3460c2b4dccffe7031abe93e0182a47708`
+exited with code 78 and an actionable message under the default policy; after the profile was
+restored, a fresh VM user passed both `initial` and `restart` with the rebuilt package. The
+temporary VM was Ubuntu 24.04.5 x64 on EC2 t3.large. This evidence does not clear the
+default-policy M6 gate. See the
+[Ubuntu 24.04 release notes](https://documentation.ubuntu.com/release-notes/24.04/) and
+[Ubuntu's AppArmor profile guidance](https://discourse.ubuntu.com/t/understanding-apparmor-user-namespace-restriction/58007).
 
 ## Ground rules
 
