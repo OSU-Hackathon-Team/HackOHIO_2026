@@ -4,8 +4,8 @@ import path from "node:path";
 import test from "node:test";
 import { reconstruct } from "../pipeline.mjs";
 import { specHash } from "../spec.mjs";
-import { ADD_FEATURE, HOST_SPEC, READ_FEATURE, SPEC, VERSION_FEATURE, hostSyntheticArchive,
-  syntheticArchive } from "./synthetic.mjs";
+import { ADD_FEATURE, HOST_SPEC, READ_FEATURE, SPEC, SUBSYSTEM_SPEC, VERSION_FEATURE,
+  hostSyntheticArchive, syntheticArchive } from "./synthetic.mjs";
 
 function agentRun(stage, round) {
   return { stage, round, model: "scripted", toolCalls: [], tokens: 0, exitCode: 0,
@@ -158,6 +158,51 @@ test("a channel whose answer depends on the mocked host is excluded, not claimed
     assert.deepEqual(manifest.excluded_channels.map(item => item.channel), ["window:bounds"]);
     const spec = await fsp.readFile(path.join(output, "handoff", "SPEC.md"), "utf8");
     assert.match(spec, /Excluded channels[\s\S]*window:bounds/);
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a run can reconstruct one subsystem and says so in its report", { timeout: 180000 }, async () => {
+  const { root, archive } = await hostSyntheticArchive();
+  const output = path.join(root, "out");
+  const stages = [];
+  try {
+    const result = await reconstruct({ archive, output, agentRunner: async context => {
+      stages.push(context.stage);
+      if (context.stage === "spec") {
+        /* The specification stage is told which channels this run covers, and a declaration about
+           a channel outside that list is ignored rather than failed. */
+        assert.deepEqual(context.scope.channels, ["notes:add"]);
+        assert.equal(context.scope.total, 3);
+        await declare(context.workspace, SUBSYSTEM_SPEC);
+      } else {
+        await fsp.mkdir(path.join(context.workspace, "features"), { recursive: true });
+        await fsp.writeFile(path.join(context.workspace, "features/add.cjs"), ADD_FEATURE);
+      }
+      return agentRun(context.stage, context.round);
+    }, options: { state: path.join(root, "state"), "spec-rounds": 1, "impl-rounds": 1,
+      only: ["notes:*"], "scope-label": "notes subsystem" } });
+    assert.deepEqual(stages, ["spec", "implement"]);
+    assert.equal(result.report.readiness.ready, true, JSON.stringify(result.report.readiness.blockers));
+    /* Parity here is parity of the subsystem: the other channels were neither specified nor
+       verified, so the run must not claim the application. */
+    assert.equal(result.report.readiness.whole_app_ready, false);
+    assert.deepEqual(result.report.scope.channels, ["notes:add"]);
+    assert.deepEqual(result.report.scope.out_of_scope.slice().sort(), ["app:version", "window:bounds"]);
+    assert.deepEqual(result.report.readiness.scoped,
+      { label: "notes subsystem", channels: 1, application_channels: 3, out_of_scope: 2 });
+    assert.deepEqual(result.report.readiness.excluded
+      .map(({ channel, source }) => [channel, source]).sort(),
+      [["app:version", "run-scope"], ["window:bounds", "run-scope"]]);
+    /* Out-of-scope channels are excluded, not silently dropped, and the note explains the verdict. */
+    assert.match(result.report.readiness.note, /subsystem \(notes subsystem\): 1 of 3 IPC channels/);
+    assert.equal(result.report.readiness.excluded.every(item => /subsystem scope/.test(item.reason)), true);
+    const manifest = JSON.parse(await fsp.readFile(path.join(output, "reconstruction.json"), "utf8"));
+    assert.deepEqual(manifest.channels.map(item => item.channel), ["notes:add"]);
+    const spec = await fsp.readFile(path.join(output, "handoff", "SPEC.md"), "utf8");
+    assert.match(spec, /Excluded channels[\s\S]*app:version[\s\S]*subsystem scope/);
+    assert.doesNotMatch(spec, /### `app:version`/);
   } finally {
     await fsp.rm(root, { recursive: true, force: true });
   }

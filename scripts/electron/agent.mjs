@@ -39,13 +39,27 @@ const STAGE_FILE_TOOLS = {
   implement: FILE_TOOLS,
 };
 
-export function specPrompt({ workspace, archiveName }) {
+export function specPrompt({ workspace, archiveName, scope = null }) {
   return `You are writing the behavioral specification for a desktop Electron application. You cannot
 see its source; that is deliberate. The packaged app is available only through the \`oracle\` tools,
 which run the real main process under a mocked Electron host.
 
 Application: ${archiveName}
 Workspace: ${workspace}
+${scope ? `
+## This run covers one subsystem
+
+The application registers ${scope.total} IPC channels. This run specifies and verifies ${scope.channels.length}
+of them (\`${scope.label}\`):
+
+${scope.channels.map(channel => `- \`${channel}\``).join("\n")}
+
+That list is your whole job. The inventory reports the other channels as \`out_of_scope\`; they are
+neither specified nor verified here and no declaration about them is accepted. Do not exclude them
+either: this run's scope is a decision already made, and exclusions are for channels inside the
+subsystem that the feature contract cannot express. A smaller, complete subsystem is the point of
+the run — do not try to be exhaustive about the application.
+` : ""}
 
 ## What you produce
 
@@ -254,7 +268,7 @@ function limitsFor(model) {
 
 export async function runAgent({ stage = "spec", workspace, stateDir, appDir, archiveName, analysisFile,
   publicFile, candidateDir, model, timeout = Number(process.env.ELECTRON_AGENT_TIMEOUT || 1200),
-  round = 1, feedback = "", log }) {
+  round = 1, feedback = "", log, scope = null }) {
   if (!STAGE_TOOLS[stage]) throw new Error(`Unknown agent stage ${stage}`);
   workspace = path.resolve(workspace);
   stateDir = path.resolve(stateDir);
@@ -269,6 +283,7 @@ export async function runAgent({ stage = "spec", workspace, stateDir, appDir, ar
       command: [process.execPath, TOOLS.spec, "--app-dir", path.resolve(appDir),
         "--workspace", workspace, "--analysis", analysisFile,
         "--public-cases", publicFile ? path.resolve(publicFile) : "",
+        "--scope", scope ? JSON.stringify(scope.channels) : "",
         "--candidate", path.resolve(candidateDir ?? path.join(stateDir, "candidate"))],
       timeout: 600000,
     },
@@ -311,7 +326,7 @@ export async function runAgent({ stage = "spec", workspace, stateDir, appDir, ar
   const eventsPath = path.join(stateDir, `agent-${stage}-round-${round}.events.jsonl`);
   const stderrPath = path.join(stateDir, `agent-${stage}-round-${round}.stderr.log`);
   const prompt = (stage === "spec"
-    ? specPrompt({ workspace, archiveName: archiveName ?? path.basename(stateDir) })
+    ? specPrompt({ workspace, archiveName: archiveName ?? path.basename(stateDir), scope })
     : implementationPrompt({ workspace, archiveName: archiveName ?? path.basename(stateDir) })) +
     (feedback ? `\n\n## Previous round feedback\n${feedback}\n` : "");
   const opencode = process.env.OPENCODE_BIN || "opencode";

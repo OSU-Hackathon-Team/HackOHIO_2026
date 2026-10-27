@@ -33,6 +33,14 @@ const workspace = path.resolve(argument("workspace"));
 const analysisFile = argument("analysis");
 const publicFile = argument("public-cases");
 const analysis = JSON.parse(fs.readFileSync(analysisFile, "utf8"));
+/* A run may cover one subsystem of the application. `--scope` lists the channels this run
+   specifies; every other registered channel is reported as out of scope, not as work to do. */
+const scopeArgument = argument("scope");
+const scope = scopeArgument ? JSON.parse(scopeArgument) : null;
+const scopeSet = scope ? new Set(scope) : null;
+const inScope = entry => !scopeSet || scopeSet.has(entry.channel);
+const outOfScope = () => (analysis.ipc?.handles ?? []).filter(entry => !inScope(entry))
+  .map(entry => entry.channel);
 let publicSuite = publicFile && fs.existsSync(publicFile)
   ? JSON.parse(fs.readFileSync(publicFile, "utf8")) : { cases: [], gaps: [] };
 let preparedHash = null;
@@ -41,13 +49,17 @@ const specHash = spec => (spec ? hash(spec) : null);
 const text = value => ({ content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value) }] });
 
 function inventory() {
+  const out = outOfScope();
   return {
     package: { name: analysis.archive?.name ?? null, version: analysis.archive?.version ?? null,
       sha256: analysis.archive?.sha256 ?? null },
     entry: analysis.entries?.main ?? null,
     preloads: analysis.entries?.preloads ?? [],
     renderer_loads: analysis.entries?.renderers ?? [],
-    channels: (analysis.ipc?.handles ?? []).map(({ channel, arity }) => ({ channel, arity })),
+    channels: (analysis.ipc?.handles ?? []).filter(inScope).map(({ channel, arity }) => ({ channel, arity })),
+    ...(out.length ? { out_of_scope_channels: out,
+      out_of_scope_note: "The application registers these too; this run neither specifies nor " +
+        "verifies them, and a declaration about one is not accepted." } : {}),
     bridge_exports: (analysis.bridge_exports ?? []).map(({ global, methods }) => ({ global,
       methods: (methods ?? []).map(method => ({ name: method.name, invokes: method.invokes })) })),
     assets: (analysis.assets ?? []).map(asset => ({ file: asset.file, type: asset.type })),
@@ -183,10 +195,15 @@ function readSpec() {
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null;
 }
 
-async function prepareCases(spec) {
+async function prepareCases(rawSpec) {
+  /* Only what this run covers is evaluated. A channel outside the scope is reported back and left
+     out of the evaluation instead of failing validation with a message about the archive. */
+  const foreign = Object.keys(rawSpec?.channels ?? {}).filter(channel => !inScope({ channel }));
+  const spec = foreign.length ? { ...rawSpec, channels: Object.fromEntries(Object.entries(rawSpec.channels)
+    .filter(([channel]) => inScope({ channel }))) } : rawSpec;
   const problems = spec?.schema_version === 2 ? validateSpec(spec, inventory().channels)
     : ["schema_version must be 2 for a handoff specification"];
-  if (problems.length) { preparedHash = null; return { problems }; }
+  if (problems.length) { preparedHash = null; return { problems, out_of_scope_ignored: foreign }; }
   const excluded = excludedChannels(spec);
   const declared = new Set(Object.keys(spec.channels ?? {}));
   /* Declaration is incremental, so evaluate only what is declared: a channel that has not been
@@ -231,7 +248,8 @@ async function prepareCases(spec) {
     fs.writeFileSync(publicFile, JSON.stringify(publicSuite) + "\n");
   }
   preparedHash = specHash(spec);
-  return { problems: [], cases: publicSuite.cases.length, sampled_cases: sample.length,
+  return { problems: [], out_of_scope_ignored: foreign, cases: publicSuite.cases.length,
+    sampled_cases: sample.length,
     coverage: publicSuite.coverage,
     gaps: coverageGaps(observed, channelNames),
     narrow: narrowChannels(observed, channelNames),
@@ -345,11 +363,15 @@ server.registerTool("declare_spec", {
   },
 }, async ({ spec, replace_channels }) => {
   const existing = readSpec();
+  /* Channels the run does not cover never reach the specification file: the driver validates what
+     is written against the run scope, and a stray channel would be rejected as unknown. */
+  const requested = Object.entries(spec.channels ?? {}).filter(([channel]) => inScope({ channel }));
+  const ignored = Object.keys(spec.channels ?? {}).filter(channel => !inScope({ channel }));
   const merged = {
     schema_version: spec.schema_version ?? existing?.schema_version ?? 2,
     application: { ...(existing?.application ?? {}), ...(spec.application ?? {}) },
-    channels: replace_channels ? { ...(spec.channels ?? {}) }
-      : { ...(existing?.channels ?? {}), ...(spec.channels ?? {}) },
+    channels: replace_channels ? Object.fromEntries(requested)
+      : { ...(existing?.channels ?? {}), ...Object.fromEntries(requested) },
     channel_exclusions: spec.channel_exclusions !== undefined
       ? spec.channel_exclusions : (existing?.channel_exclusions ?? []),
   };
@@ -371,15 +393,20 @@ server.registerTool("declare_spec", {
     sha256: specHash(merged), declared_at: new Date().toISOString(),
     problems, cases: report.cases ?? 0, gaps: report.gaps ?? [],
   }, null, 2) + "\n");
+  const ignoredChannels = [...new Set([...ignored, ...(report.out_of_scope_ignored ?? [])])];
   return text({ saved: true, complete, remaining_channels: remaining,
     declared_channels: Object.keys(merged.channels).length,
     excluded_channels: [...excluded.keys()], problems,
+    ignored_channels: ignoredChannels,
     cases: report.cases ?? 0, coverage: report.coverage ?? {}, gaps: report.gaps ?? [],
     narrow_channels: report.narrow ?? [],
     undescribed_files: report.undescribed_files ?? [],
     next: remaining.length
       ? "Declare the remaining channels (send them in batches); the specification is not complete yet."
       : problems.length ? "Fix the listed problems and declare again."
+      : ignoredChannels.length
+        ? `Ignored ${ignoredChannels.join(", ")}: outside this run's subsystem scope, so nothing about ` +
+          "them is accepted here. Declare only the channels the run prompt lists."
       : report.gaps?.length ? "Close the coverage gaps before finishing."
       : report.narrow?.length || report.undescribed_files?.length
         ? "The specification is complete. Channels listed in narrow_channels answered with a single " +

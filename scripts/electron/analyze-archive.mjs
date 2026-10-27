@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as asar from "@electron/asar";
 import ts from "typescript";
+import { resolveMainEntry } from "./entry.mjs";
 
 const sha256 = bytes => crypto.createHash("sha256").update(bytes).digest("hex");
 const scriptExtensions = [".js", ".cjs", ".mjs"];
@@ -60,12 +61,18 @@ export function analyzeElectronArchive(archivePath) {
   const mainBase = normalized(declaredMain);
   if (mainBase.startsWith("../") || mainBase === "..")
     throw new Error(`Electron main entry is outside archive: ${declaredMain}`);
-  const main = [mainBase, ...scriptExtensions.map(ext => mainBase + ext),
-    ...scriptExtensions.map(ext => path.posix.join(mainBase, "index" + ext))]
-    .find(candidate => fileNames.has(candidate) && isScript(candidate));
-  if (!main) throw new Error(`Electron main entry is missing or unsupported: ${declaredMain}`);
+  /* A package whose declared entry is absent is a launcher package: the archive holds the module
+     the launcher requires instead. Conventional names are tried and the substitution is reported. */
+  const resolved = resolveMainEntry(mainBase, name => fileNames.has(name));
+  if (!resolved.entry)
+    throw new Error(`Electron main entry is missing or unsupported: ${declaredMain}`);
+  const main = resolved.entry;
 
   const diagnostics = [];
+  if (resolved.fallback)
+    diagnostics.push({ severity: "warning", code: "entry-fallback", file: main, line: null,
+      detail: `package.json names ${declaredMain}, which the archive does not contain; ${main} is ` +
+        "the conventional entry the launcher loads" });
   const modules = {};
   const ipc = { handles: [], sends: [], invokes: [], listens: [] };
   const preloads = new Set();

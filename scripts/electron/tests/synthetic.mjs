@@ -81,6 +81,30 @@ export const HOST_SPEC = {
   },
 };
 
+/* One subsystem of the host application: a scoped run declares and verifies only this channel. */
+export const SUBSYSTEM_SPEC = {
+  schema_version: 2,
+  application: {
+    name: "synthetic-host",
+    version: "1.0.0",
+    scope: ["notes:add IPC behavior", "note files under userData/notes"],
+    exclusions: ["renderer layout"],
+    environments: { clock: "2026-10-25T12:00:00.000Z" },
+  },
+  channels: {
+    "notes:add": {
+      feature: "features/add.cjs",
+      fixtures: [],
+      args: [["alpha", " hello "], ["beta", "world"], ["", "x"]],
+      requirements: [
+        "Trims the note text and writes userData/notes/<name>.txt with the trimmed text and no newline.",
+        "Throws TypeError with message 'name required' when name is not a nonempty string.",
+        "Returns { name, length } where length is the trimmed text length.",
+      ],
+    },
+  },
+};
+
 export async function hostSyntheticArchive() {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "splice-synthetic-host-"));
   const source = path.join(root, "source");
@@ -133,6 +157,45 @@ export async function hostSurfaceArchive() {
     name: "synthetic-surface", version: "1.0.0", main: "main.js",
   }));
   await fsp.writeFile(path.join(source, "main.js"), HOST_SURFACE_SOURCE);
+  const archive = path.join(root, "app.asar");
+  await asar.createPackage(source, archive);
+  const extracted = path.join(root, "extracted");
+  await fsp.mkdir(extracted);
+  asar.extractAll(archive, extracted);
+  return { root, archive, extracted };
+}
+
+/* A launcher package: the declared entry does not exist, the module the launcher requires exports an
+   initializer instead of registering as it loads, it reaches for Electron's unpatched fs, and its
+   channels answer through sendSync returnValue. Each of those is a general main-process shape a
+   large application uses, and none of them is specific to this fixture. */
+export const LAUNCHER_SOURCE = `"use strict";
+const { app, ipcMain } = require("electron");
+const fs = require("original-fs");
+const path = require("path");
+
+module.exports = function (appDir, events) {
+  ipcMain.on("launcher:state", event => {
+    event.returnValue = { name: app.name, directory: path.basename(appDir),
+      events: typeof events.on };
+  });
+  ipcMain.on("launcher:write", (event, value) => {
+    fs.writeFileSync(path.join(app.getPath("userData"), "state.json"), JSON.stringify({ value }));
+    event.returnValue = null;
+  });
+};
+`;
+
+export async function launcherArchive() {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "splice-synthetic-launcher-"));
+  const source = path.join(root, "source");
+  await fsp.mkdir(source);
+  /* The declared entry is absent on purpose: a launcher package describes the launcher, not the
+     payload archive it ships. */
+  await fsp.writeFile(path.join(source, "package.json"), JSON.stringify({
+    name: "synthetic-launcher", version: "1.0.0", main: "index.js",
+  }));
+  await fsp.writeFile(path.join(source, "main.js"), LAUNCHER_SOURCE);
   const archive = path.join(root, "app.asar");
   await asar.createPackage(source, archive);
   const extracted = path.join(root, "extracted");

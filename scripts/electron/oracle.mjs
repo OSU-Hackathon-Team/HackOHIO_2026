@@ -13,9 +13,11 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import * as asar from "@electron/asar";
+import { resolveMainEntry } from "./entry.mjs";
 
 const self = fileURLToPath(import.meta.url);
 const BASES = ["userData", "documents", "logs", "temp"];
@@ -140,8 +142,12 @@ export async function runCase({ appDir, case: rawCase, timeout = 20000, host }) 
       await fsp.writeFile(file, typeof fixture.content === "string" ? fixture.content : JSON.stringify(fixture.content, null, 2));
     }
     const pkg = JSON.parse(await fsp.readFile(path.join(appDir, "package.json"), "utf8"));
-    const main = within(appDir, String(pkg.main ?? "index.js"));
-    if (!fs.existsSync(main)) throw new Error(`Main entry is missing: ${main}`);
+    /* Same resolution as the static inventory: a launcher package names an entry it does not
+       ship, and the archive's conventional main is what it loads. */
+    const resolved = resolveMainEntry(String(pkg.main ?? "index.js"),
+      name => fs.existsSync(path.join(appDir, name)));
+    if (!resolved.entry) throw new Error(`Main entry is missing: ${pkg.main ?? "index.js"}`);
+    const main = within(appDir, resolved.entry);
     /* Match the worker's normalization so a fixture that mentions its own absolute location is
        not reported as a change on the first call. */
     const labels = BASES.map(base => [bases[base], base]).concat([[appDir, "<app>"]])
@@ -293,8 +299,15 @@ async function worker() {
      default window so bound-dependent call shapes run instead of failing on null. */
   let defaultWindow = null;
   const senderWindow = () => windows[0] ?? (defaultWindow ??= new BrowserWindow(payload.host.bounds));
-  const fakeEvent = { get sender() { return senderWindow().webContents; },
-    senderFrame: { url: `file://${payload.appDir}/index.html` }, frameId: 1, processId: 1 };
+  /* Electron registers two IPC forms, and they answer differently: ipcMain.handle returns a value
+     to ipcRenderer.invoke, while ipcMain.on answers ipcRenderer.sendSync by assigning
+     event.returnValue. Most main-process APIs in a large application are the sendSync form, so
+     each call gets its own event object and an ipcMain.on channel's observed result is its
+     returnValue. */
+  const callEvent = () => ({ get sender() { return senderWindow().webContents; },
+    senderFrame: { url: `file://${payload.appDir}/index.html` }, frameId: 1, processId: 1,
+    returnValue: undefined });
+  const fakeEvent = callEvent();
   const webContents = () => ({
     send: () => {}, postMessage: () => {}, on: () => {}, once: () => {}, removeListener: () => {},
     executeJavaScript: async () => undefined, setWindowOpenHandler: () => {}, openDevTools: () => {},
@@ -353,6 +366,8 @@ async function worker() {
     module: payload.appDir,
   };
   const app = {
+    name: payload.packageName ?? "app",
+    setName: value => { app.name = String(value); },
     whenReady: () => new TrackedPromise(Promise.resolve()),
     isReady: () => true,
     on: (event, listener) => appOn(event, listener),
@@ -383,17 +398,49 @@ async function worker() {
     isPackaged: false,
     quit: () => {}, exit: () => {}, relaunch: () => {}, focus: () => {},
     setAppUserModelId: () => {}, requestSingleInstanceLock: () => true, releaseSingleInstanceLock: () => {},
+    /* Desktop integration: the rest of the Electron app API, answered rather than missing. An app
+       that registers a protocol client, a recent document or an about panel reads a bare boolean
+       or returns nothing, and a missing member would fail at import time for a platform effect no
+       channel result depends on. */
     disableHardwareAcceleration: () => {}, setAsDefaultProtocolClient: () => true,
-    commandLine: { appendSwitch: () => {}, hasSwitch: () => false, getSwitchValue: () => "" },
+    removeAsDefaultProtocolClient: () => true, isDefaultProtocolClient: () => false,
+    addRecentDocument: () => {}, clearRecentDocuments: () => {},
+    setAboutPanelOptions: () => {}, showAboutPanel: () => {}, hide: () => {}, show: () => {},
+    getLoginItemSettings: () => ({ openAtLogin: false, wasOpenedAtLogin: false }),
+    setLoginItemSettings: () => {}, setActivationPolicy: () => true,
+    isAccessibilitySupportEnabled: () => false, getGPUFeatureStatus: () => ({}),
+    getCurrentActivityType: () => null, setUserActivity: () => {}, enableSandbox: () => {},
+    getSystemPreferences: () => ({}), setSecureKeyboardEntryEnabled: () => {},
+    dock: { hide: () => {}, show: () => {}, setBadge: () => {}, setBadgeCount: () => true,
+      getBadgeCount: () => 0, setIcon: () => {}, setMenu: () => {}, bounce: () => 0,
+      cancelBounce: () => {}, isVisible: () => false, setJumpList: () => {},
+      downloadFinished: () => {}, setAutoHideMenuBar: () => {} },
+    commandLine: { appendSwitch: () => {}, appendArgument: () => {}, hasSwitch: () => false,
+      getSwitchValue: () => "", removeSwitch: () => {} },
   };
   const noopEmitter = { on: () => {}, once: () => {}, removeListener: () => {}, emit: () => false };
+  /* webRequest is an event registrar, not an emitter: an application calls onBeforeRequest(filter,
+     listener) while installing content blocking. The listener is registered and the call returns,
+     which is what an application needs to finish starting; whether a real request would be
+     intercepted is outside what the oracle can observe (nothing here performs network I/O for the
+     app). */
+  const webRequest = (() => {
+    const api = {};
+    for (const name of ["onBeforeRequest", "onBeforeSendHeaders", "onSendHeaders", "onHeadersReceived",
+      "onResponseStarted", "onBeforeRedirect", "onCompleted", "onErrorOccurred"])
+      api[name] = (filter, listener) => ({
+        listener: typeof filter === "function" ? filter : listener,
+        removeListener: () => {},
+      });
+    return api;
+  })();
   const electron = {
     app,
     ipcMain: {
-      handle: (channel, handler) => { handlers.set(channel, handler); },
-      handleOnce: (channel, handler) => { handlers.set(channel, handler); },
-      on: (channel, handler) => { handlers.set(channel, handler); },
-      once: (channel, handler) => { handlers.set(channel, handler); },
+      handle: (channel, handler) => { handlers.set(channel, { handler, sync: false }); },
+      handleOnce: (channel, handler) => { handlers.set(channel, { handler, sync: false }); },
+      on: (channel, handler) => { handlers.set(channel, { handler, sync: true }); },
+      once: (channel, handler) => { handlers.set(channel, { handler, sync: true }); },
       removeHandler: channel => { handlers.delete(channel); },
       removeListener: () => {}, removeAllListeners: () => {},
     },
@@ -410,10 +457,15 @@ async function worker() {
     /* (fromWebContents is defined on BrowserWindow below.) */
     session: {
       defaultSession: { setPermissionRequestHandler: () => {}, setPermissionCheckHandler: () => {},
-        protocol: { handle: () => {}, registerFileProtocol: () => {} }, webRequest: noopEmitter,
+        protocol: { handle: () => {}, registerFileProtocol: () => {}, interceptFileProtocol: () => true },
+        webRequest,
         getPreloads: () => [], setPreloads: () => {}, getStoragePath: () => payload.bases.userData,
-        clearStorageData: async () => {}, flushStorageData: async () => {},
-        cookies: { get: async () => [], set: async () => {}, remove: async () => {} } },
+        clearStorageData: async () => {}, flushStorageData: async () => {}, clearCache: async () => {},
+        setCertificateVerifyProc: () => {}, setProxy: async () => {}, resolveProxy: async () => "",
+        setSpellCheckerLanguages: () => {}, getSpellCheckerLanguages: () => [],
+        spellCheckerDictionaryDownloadURL: "",
+        cookies: { get: async () => [], set: async () => {}, remove: async () => {}, flushStore: async () => {},
+          on: () => {}, once: () => {}, removeListener: () => {} } },
       fromPartition: () => electron.session.defaultSession,
     },
     Menu: { setApplicationMenu: () => {}, buildFromTemplate: () => ({}), getApplicationMenu: () => null,
@@ -440,7 +492,13 @@ async function worker() {
       showSaveDialog: async () => ({ canceled: true, filePath: null }),
       showMessageBox: async () => ({ response: 0, checkboxChecked: false }),
       showErrorBox: () => {} },
-    shell: { openExternal: async () => {}, openPath: async () => "", showItemInFolder: () => {}, beep: () => {} },
+    shell: { openExternal: async () => {}, openPath: async () => "", showItemInFolder: () => {}, beep: () => {},
+      trashItem: async () => {}, writeShortcutLink: () => true, readShortcutLink: () => ({}) },
+    /* Electron's deprecated built-in remote module, which a launcher may enable before loading the
+       application's own window. Enabling it is a renderer capability; no case observes it. */
+    remote: { enable: () => {}, initialize: () => {}, getCurrentWindow: () => null,
+      getGlobal: () => globalThis, require: () => ({}), app, process, BrowserWindow,
+      getBuiltin: () => null, getOwnerBrowserWindow: () => null },
     clipboard: { readText: () => "", writeText: () => {}, readImage: () => null, writeImage: () => {} },
     nativeTheme: noopEmitter,
     screen: (() => {
@@ -501,6 +559,9 @@ async function worker() {
   const nativeLoad = Module._load;
   Module._load = function (name, parent, isMain) {
     if (name === "electron") return electron;
+    /* Electron ships an unpatched `original-fs` built-in for applications that must bypass the
+       asar layer. Nothing here is packed, so it is the same module. */
+    if (name === "original-fs" || name === "node:original-fs") return nativeLoad.call(this, "fs", parent, isMain);
     return nativeLoad.call(this, name, parent, isMain);
   };
   /* ES module main processes ("type": "module", import from "electron") bypass Module._load.
@@ -563,9 +624,18 @@ async function worker() {
 
   const outcomes = [];
   let startupError = null;
+  const exports = [];
   try {
-    if (payload.esmMain) await import(pathToFileURL(payload.main).href);
-    else require(payload.main);
+    /* An application whose main module only exports an initializer has a launcher of its own,
+       which calls it with the application directory. Running the module alone would observe an
+       app that registers nothing, so the exported function is invoked the way such a launcher
+       does. A module that registers as it loads never reaches this path. */
+    if (payload.esmMain) {
+      const module = await import(pathToFileURL(payload.main).href);
+      exports.push(module.default, module.exports);
+    } else exports.push(require(payload.main));
+    for (const exported of exports)
+      if (typeof exported === "function") exported(payload.appDir, new EventEmitter());
     await Promise.allSettled(readyCallbacks);
     app.emit("ready");
     await Promise.allSettled(readyCallbacks);
@@ -574,12 +644,18 @@ async function worker() {
     /* The calls arrive from a window; a handler that looks up its invoking window must find one. */
     senderWindow();
     for (const call of payload.calls) {
-      const handler = handlers.get(call.channel);
+      const entry = handlers.get(call.channel);
       let outcome;
-      if (!handler) outcome = { ok: false, error: { name: "MissingHandler", message: "No handler registered", code: null } };
+      if (!entry) outcome = { ok: false, error: { name: "MissingHandler", message: "No handler registered", code: null } };
       else {
+        const event = callEvent();
         try {
-          const value = await handler(fakeEvent, ...call.args);
+          const returned = await entry.handler(event, ...call.args);
+          /* A sendSync handler answers through returnValue; a handler that only does work leaves it
+             undefined, which is the honest observation of a fire-and-forget channel. */
+          const value = entry.sync
+            ? (event.returnValue !== undefined ? event.returnValue : returned)
+            : returned;
           outcome = { ok: true, value: normalizeValue(sanitize(value)) };
         } catch (caught) {
           outcome = { ok: false, error: { name: caught?.name ?? "Error",
@@ -591,7 +667,7 @@ async function worker() {
       outcomes.push(outcome);
     }
     const body = JSON.stringify({ channels: [...handlers.keys()].sort().map(channel => ({
-      channel, arity: Math.max(0, (handlers.get(channel)?.length ?? 1) - 1) })), outcomes, io, bridge,
+      channel, arity: Math.max(0, (handlers.get(channel)?.handler.length ?? 1) - 1) })), outcomes, io, bridge,
       windows: windows.map(window => ({ url: window.url ?? null })),
       startup_error: startupError ? { name: startupError.name ?? "Error",
         message: String(startupError.message ?? startupError) } : null });

@@ -37,6 +37,8 @@ function parseArguments(argv) {
     if (!value.startsWith("--")) { positional.push(value); continue; }
     const key = value.slice(2);
     if (key === "keep-workspace") { options[key] = true; continue; }
+    /* --only is repeatable: each occurrence adds channels to the run scope. */
+    if (key === "only") { options.only = [...(options[key] ?? []), argv[++index]]; continue; }
     options[key] = argv[++index];
   }
   return { archive: positional[0], output: positional[1], options };
@@ -48,6 +50,23 @@ function log(message) {
 
 function channelInventory(analysis) {
   return (analysis.ipc?.handles ?? []).map(entry => ({ channel: entry.channel, arity: entry.arity ?? 0 }));
+}
+
+/*
+ * A run can cover a subsystem of the application instead of all of it: `--only` selects channels
+ * by name or wildcard. The scope only decides what this run specifies and verifies. Channels
+ * outside it are declared as exclusions with their own source, so nothing disappears silently and
+ * the run can never claim whole-app readiness from a partial reconstruction.
+ */
+function scopePatterns(options) {
+  return [].concat(options.only ?? []).flatMap(value => String(value).split(","))
+    .map(part => part.trim()).filter(Boolean);
+}
+
+function matchingChannels(inventory, patterns) {
+  const matchers = patterns.map(pattern => new RegExp(
+    `^${pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`));
+  return inventory.filter(entry => matchers.some(matcher => matcher.test(entry.channel)));
 }
 
 async function observe({ cases, appDir, timeout }) {
@@ -113,6 +132,13 @@ async function acceptSpecification({ spec, inventory, appDir, timeout, log }) {
   log(`${hostDependent.length} host-dependent channel(s) excluded: ` +
     hostDependent.map(item => item.channel).join(", "));
   return { excluded, required, built, hostDependent, contract };
+}
+
+/** Add this run's subsystem exclusions to the contract that will be verified and assembled. */
+function withScope(contract, exclusions) {
+  if (!exclusions.length) return contract;
+  return { ...contract,
+    channel_exclusions: [...(contract.channel_exclusions ?? []), ...exclusions] };
 }
 
 async function checkSuite({ suite, candidate, timeout }) {
@@ -243,12 +269,28 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
       detail: `${entry.channel} was found statically but never registered during startup; not treated as behavior` });
   }
   const inventory = channelInventory(analysis);
+  const patterns = scopePatterns(options);
+  const requiredInventory = patterns.length ? matchingChannels(inventory, patterns) : inventory;
+  if (patterns.length && !requiredInventory.length)
+    throw new Error(`Run scope ${patterns.join(", ")} matches no channel; the archive registers ` +
+      `${inventory.length}: ${inventory.map(entry => entry.channel).join(", ")}`);
+  const scopedNames = new Set(requiredInventory.map(entry => entry.channel));
+  const outOfScope = inventory.filter(entry => !scopedNames.has(entry.channel));
+  const scopeLabel = options["scope-label"] ?? patterns.join(", ");
+  /* Out-of-scope channels are exclusions of this run, not of the application: the contract names
+     them so the assembled project registers exactly what was verified, and the report keeps them
+     separate from exclusions the specification agent declared. */
+  const scopeExclusions = outOfScope.map(entry => ({ channel: entry.channel, source: "run-scope",
+    reason: `outside this run's subsystem scope (${scopeLabel})` }));
   const analysisFile = path.join(stateDir, "analysis.json");
   const specPublicFile = path.join(stateDir, "spec-public-cases.json");
   const handoffPublicFile = path.join(handoff, "public-cases.json");
   await fsp.writeFile(analysisFile, JSON.stringify(analysis, null, 2) + "\n");
   log(`archive ${analysis.archive.sha256.slice(0, 12)} ${analysis.archive.name ?? ""}`);
   log(`${inventory.length} channel(s); spec workspace ${specWorkspace}`);
+  if (patterns.length)
+    log(`subsystem scope "${scopeLabel}": ${requiredInventory.length} of ${inventory.length} channel(s), ` +
+      `${outOfScope.length} outside this run`);
 
   const runs = [];
   let spec = null;
@@ -263,14 +305,16 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
      is validated and observed the same way a declared one would be. */
   const suppliedSpec = options.spec ? JSON.parse(await fsp.readFile(path.resolve(options.spec), "utf8")) : null;
   if (suppliedSpec) {
-    const problems = validateSpec(suppliedSpec, inventory);
+    const problems = validateSpec(suppliedSpec, requiredInventory);
     if (problems.length) throw new Error(`Supplied specification is invalid:\n${problems.join("\n")}`);
     log(`reusing specification ${path.resolve(options.spec)}`);
   }
   for (let round = 1; round <= (suppliedSpec ? 0 : specRounds); round++) {
     const run = await agentRunner({ stage: "spec", workspace: specWorkspace, stateDir, appDir,
       archiveName: analysis.archive.name ?? "", analysisFile, publicFile: specPublicFile,
-      candidateDir: candidate, model: specModelOption, timeout: specTimeout, round, feedback, log });
+      candidateDir: candidate, model: specModelOption, timeout: specTimeout, round, feedback, log,
+      scope: { channels: requiredInventory.map(entry => entry.channel), label: scopeLabel,
+        total: inventory.length } });
     run.round = round;
     runs.push(run);
     log(describeRun(run));
@@ -293,10 +337,13 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
         "oracle_declare_spec.";
       continue;
     }
-    const problems = validateSpec(declared, inventory);
+    const problems = validateSpec(declared, requiredInventory);
     if (problems.length) { feedback = `Specification problems:\n${problems.join("\n")}`; continue; }
-    const accepted = await acceptSpecification({ spec: declared, inventory, appDir,
-      timeout: caseTimeout, log });
+    /* The run's scope becomes part of the specification for everything downstream: out-of-scope
+       channels are excluded from the expected channel inventory, from case generation and from
+       the assembled project, exactly like an exclusion the specification declared. */
+    const accepted = await acceptSpecification({ spec: withScope(declared, scopeExclusions),
+      inventory: requiredInventory, appDir, timeout: caseTimeout, log });
     if (!accepted.required.length) {
       feedback = accepted.hostDependent.length
         ? `Every channel that is not excluded is host-dependent, so nothing is left to reconstruct: ` +
@@ -359,8 +406,8 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
     break;
   }
   if (!spec && suppliedSpec) {
-    const accepted = await acceptSpecification({ spec: suppliedSpec, inventory, appDir,
-      timeout: caseTimeout, log });
+    const accepted = await acceptSpecification({ spec: withScope(suppliedSpec, scopeExclusions),
+      inventory: requiredInventory, appDir, timeout: caseTimeout, log });
     const { excluded, required, built } = accepted;
     if (!required.length) throw new Error("The supplied specification excludes every channel");
     const channelNames = required.map(item => item.channel);
@@ -445,8 +492,11 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
       "handoff alone, differential verification against the original",
     models: { spec: runs.find(run => run.stage === "spec")?.model ?? null,
       implementer: runs.find(run => run.stage === "implement")?.model ?? null },
+    scope: patterns.length ? { label: scopeLabel, patterns,
+      channels: requiredInventory.map(entry => entry.channel),
+      out_of_scope: outOfScope.map(entry => entry.channel) } : null,
     spec: { sha256: specHash(spec), channels: Object.keys(spec.channels ?? {}),
-      channel_exclusions: spec.channel_exclusions ?? [],
+      channel_exclusions: contract.channel_exclusions ?? [],
       host_dependent_exclusions: hostDependent,
       scope: spec.application?.scope ?? [], exclusions: spec.application?.exclusions ?? [],
       blockers: spec.application?.blockers ?? [], unresolved: spec.application?.unresolved ?? [] },
@@ -483,18 +533,29 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
   }
   for (const item of spec.application?.blockers ?? []) blockers.push(`specification blocker: ${item}`);
   for (const item of spec.application?.unresolved ?? []) blockers.push(`unresolved question: ${item}`);
-  const excludedList = [...(spec.channel_exclusions ?? []), ...hostDependent];
+  /* The contract already carries the specification's exclusions, the host-dependent ones the
+     driver detected and this run's subsystem exclusions; they are reported together, labelled. */
+  const excludedList = (contract.channel_exclusions ?? []).filter(item => item?.source !== "run-scope");
   finalReport.readiness = {
     ready: blockers.length === 0,
-    whole_app_ready: blockers.length === 0 && excludedList.length === 0,
+    whole_app_ready: blockers.length === 0 && !patterns.length && excludedList.length === 0,
     blockers,
-    excluded: excludedList.map(item => ({ channel: item.channel, reason: item.reason,
-      source: item.source ?? "specification" })),
-    note: excludedList.length
-      ? "Exclusions keep this run from claiming whole-app readiness. They were declared by the " +
-        "specification stage, or detected mechanically as host-dependent, and have not been " +
-        "independently reviewed."
-      : "All discovered IPC channels are in the verified scope.",
+    scoped: patterns.length
+      ? { label: scopeLabel, channels: requiredInventory.length, application_channels: inventory.length,
+        out_of_scope: outOfScope.length }
+      : null,
+    excluded: [...excludedList, ...scopeExclusions].map(item => ({ channel: item.channel,
+      reason: item.reason, source: item.source ?? "specification" })),
+    note: patterns.length
+      ? `This run reconstructs one subsystem (${scopeLabel}): ${requiredInventory.length} of ` +
+        `${inventory.length} IPC channels. The other ${outOfScope.length} were neither specified nor ` +
+        "verified, so parity here says nothing about them, and whole-app readiness stays false." +
+        (excludedList.length ? " Within the subsystem, exclusions also remain (see excluded)." : "")
+      : excludedList.length
+        ? "Exclusions keep this run from claiming whole-app readiness. They were declared by the " +
+          "specification stage, or detected mechanically as host-dependent, and have not been " +
+          "independently reviewed."
+        : "All discovered IPC channels are in the verified scope.",
   };
 
   await assembleProject({ analysis, contract, workspace: handoff, output: outputPath });
@@ -522,7 +583,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     console.error("Usage: node scripts/electron/pipeline.mjs <app.asar> <new-output-directory> " +
       "[--spec-rounds 2] [--impl-rounds 2] [--spec-timeout 1200] [--impl-timeout 1200] " +
       "[--spec-model role] [--impl-model role] [--spec <spec.json>] [--case-timeout 20000] " +
-      "[--keep-workspace] [--state dir]");
+      "[--only channel[,channel|*]] [--scope-label text] [--keep-workspace] [--state dir]");
     process.exitCode = 2;
   } else {
     reconstruct({ archive, output, options }).then(result => {

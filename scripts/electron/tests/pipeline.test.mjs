@@ -8,7 +8,41 @@ import { runCase } from "../oracle.mjs";
 import { buildCases, compareCase, runSuite, usableResults, validateContract } from "../cases.mjs";
 import { assembleProject, validateWorkspace } from "../project.mjs";
 import { findFixture } from "../fixture-search.mjs";
-import { CONTRACT, hostSurfaceArchive, syntheticArchive, syntheticWorkspace } from "./synthetic.mjs";
+import { CONTRACT, hostSurfaceArchive, launcherArchive, syntheticArchive,
+  syntheticWorkspace } from "./synthetic.mjs";
+
+test("a launcher-style archive is observed: conventional entry, exported initializer, sendSync IPC", async () => {
+  const { root, archive, extracted } = await launcherArchive();
+  try {
+    /* package.json names index.js, which the archive does not ship. The inventory resolves the
+       conventional entry and reports the substitution instead of failing. */
+    const analysis = analyzeElectronArchive(archive);
+    assert.equal(analysis.entries.main, "main.js");
+    assert.deepEqual(analysis.diagnostics.filter(item => item.code === "entry-fallback")
+      .map(item => item.file), ["main.js"]);
+    /* Static discovery sees the registration form; the driver reconciles the channels the main
+       process actually registers at run time, which is what an implementation must match. */
+    assert.deepEqual(analysis.ipc.listens.map(item => item.channel).sort(),
+      ["launcher:state", "launcher:write"]);
+    const state = await runCase({ appDir: extracted, case: { channel: "launcher:state", args: [] } });
+    assert.deepEqual(state.channels.map(item => item.channel).sort(),
+      ["launcher:state", "launcher:write"]);
+    assert.deepEqual(state.channels.map(item => [item.channel, item.arity]),
+      [["launcher:state", 0], ["launcher:write", 1]],
+      "a channel's arity is its arguments after the event");
+    /* Everything here is Electron-only: the module never registers as it loads, it requires
+       original-fs, and it reads app.name. The observation is the sendSync returnValue the app
+       assigned to event.returnValue. */
+    assert.deepEqual(state.outcomes[0].value,
+      { name: "synthetic-launcher", directory: "extracted", events: "function" });
+    const written = await runCase({ appDir: extracted, case: { channel: "launcher:write", args: ["one"] } });
+    assert.equal(written.outcomes[0].value, null,
+      "the sendSync answer is the returnValue the handler assigned, not the handler's return");
+    assert.equal(written.files["userData/state.json"], '{"value":"one"}');
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
 
 test("the mocked host answers Electron-only process properties and native bindings", async () => {
   const { root, extracted } = await hostSurfaceArchive();
