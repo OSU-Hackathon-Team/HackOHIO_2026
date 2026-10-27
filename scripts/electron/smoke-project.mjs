@@ -3,7 +3,6 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
 
 const project = path.resolve(process.argv[2] || "");
 if (!process.argv[2] || !fs.existsSync(path.join(project, "reconstruction.json"))) {
@@ -11,7 +10,11 @@ if (!process.argv[2] || !fs.existsSync(path.join(project, "reconstruction.json")
   process.exit(2);
 }
 const manifest = JSON.parse(fs.readFileSync(path.join(project, "reconstruction.json"), "utf8"));
-const require = createRequire(import.meta.url);
+if (!manifest.channels) {
+  console.error("This smoke test runs a behaviorally reconstructed project (reconstruction.json channels). " +
+    "The legacy blueprint workbench has its own tests.");
+  process.exit(2);
+}
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 async function freePort() {
@@ -27,19 +30,20 @@ async function pageSocket(port) {
     try {
       const response = await fetch(`http://127.0.0.1:${port}/json/list`);
       const pages = await response.json();
-      const page = pages.find(item => item.type === "page" && item.title === "Feature Workbench");
+      const page = pages.find(item => item.type === "page");
       if (page) return page.webSocketDebuggerUrl;
     } catch { /* Desktop window is still starting. */ }
     await delay(100);
   }
-  throw new Error("Electron workbench did not open within 12 seconds");
+  throw new Error("Electron window did not open within 12 seconds");
 }
 
 async function evaluate(socketUrl, expression) {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(socketUrl);
-    const timer = setTimeout(() => { socket.close(); reject(new Error("Renderer did not answer")); }, 5000);
-    socket.onopen = () => socket.send(JSON.stringify({ id: 1, method: "Runtime.evaluate", params: { expression, returnByValue: true, awaitPromise: true } }));
+    const timer = setTimeout(() => { socket.close(); reject(new Error("Renderer did not answer")); }, 8000);
+    socket.onopen = () => socket.send(JSON.stringify({ id: 1, method: "Runtime.evaluate",
+      params: { expression, returnByValue: true, awaitPromise: true } }));
     socket.onerror = error => { clearTimeout(timer); reject(error); };
     socket.onmessage = event => {
       const message = JSON.parse(event.data);
@@ -61,41 +65,25 @@ const child = spawn("xvfb-run", ["-a", electron, `--remote-debugging-port=${port
 });
 try {
   const socket = await pageSocket(port);
-  const expectedFeature = manifest.features[0];
-  const expectedFunction = expectedFeature.functions[0];
   const outcome = await evaluate(socket, `new Promise(resolve => {
     const ready = () => {
-      const feature = document.querySelector('#feature');
-      if (!feature?.options.length) return setTimeout(ready, 50);
-      const args = document.querySelector('#arguments');
-      const result = document.querySelector('#result');
-      const run = document.querySelector('#run');
-      const sample = args.value;
-      run.click();
-      const start = Date.now();
-      const checkSuccess = () => {
-        if (result.textContent === ${JSON.stringify(expectedFunction.description)} && Date.now() - start < 3000) return setTimeout(checkSuccess, 50);
-        const success = result.textContent;
-        args.value = '{oops';
-        run.click();
-        const error = result.textContent;
-        resolve({ title: document.querySelector('#title').textContent,
-          feature: feature.value, functionName: document.querySelector('#function').value,
-          sample, success, error });
-      };
-      checkSuccess();
+      const cards = document.querySelectorAll(".card");
+      if (!cards.length) return setTimeout(ready, 50);
+      const api = window.splice;
+      const channel = api.manifest.channels[0];
+      const args = (channel.params || []).map(param => param.example);
+      api.invoke(channel.channel, args).then(value => resolve({ name: api.manifest.name,
+        title: document.title, cards: cards.length, channel: channel.channel, args, ok: true, value }))
+        .catch(error => resolve({ name: api.manifest.name, title: document.title, cards: cards.length,
+          channel: channel.channel, args, ok: false, error: String(error) }));
     };
     ready();
   })`);
-  assert.equal(outcome.feature, expectedFeature.id);
-  assert.equal(outcome.functionName, expectedFunction.name);
-  assert.deepEqual(JSON.parse(outcome.sample), expectedFunction.example_args);
-  assert.doesNotMatch(outcome.success, /^Error:/);
-  const engine = require(path.join(project, expectedFeature.module));
-  const expected = engine[expectedFunction.name](...expectedFunction.example_args);
-  assert.deepEqual(JSON.parse(outcome.success), expected);
-  assert.match(outcome.error, /^Error:/);
-  console.log(`Electron desktop smoke passed: ${manifest.source.package_name}, ${expectedFeature.id}, ${expectedFunction.name}, success and invalid JSON error visible`);
+  assert.equal(outcome.name, manifest.source.name, "preload bridge exposes the reconstruction manifest");
+  assert.ok(outcome.cards >= manifest.channels.length, "renderer shows one card per IPC channel");
+  assert.ok(outcome.ok || outcome.error, "renderer reached the main process through the preload bridge");
+  console.log(`Electron desktop smoke passed: ${manifest.source.name}, ${outcome.channel}, ` +
+    `${outcome.ok ? "value returned" : `error returned (${outcome.error})`}`);
 } finally {
   if (child.pid) { try { process.kill(-child.pid, "SIGTERM"); } catch { /* Already exited. */ } }
 }

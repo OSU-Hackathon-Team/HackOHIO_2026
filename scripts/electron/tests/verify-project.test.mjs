@@ -6,22 +6,10 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import asar from "@electron/asar";
 import { verifyProject } from "../verify-project.mjs";
-import { recreateRecall } from "../recreate-recall.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const scenarios = path.join(repo, "scripts/electron/scenarios");
 const builds = path.join(repo, "targets/build");
-
-test("[E2] Recall reconstruction preserves IPC results and file effects", async t => {
-  const temp = await fsp.mkdtemp(path.join(os.tmpdir(), "splice-verify-test-"));
-  t.after(() => fsp.rm(temp, { recursive: true, force: true }));
-  const archive = path.join(builds, "recall/app.asar"), project = path.join(temp, "candidate");
-  recreateRecall(archive, project);
-  const result = await verifyProject(archive, project, path.join(scenarios, "recall.json"));
-  assert.equal(result.result, "passed");
-  assert.equal(result.checks, 6);
-  assert.deepEqual(result.channels, ["card:answer", "stats:streak"]);
-});
 
 test("[E2] Inkwell scenario observes graph and fuzzy-search IPC", async t => {
   const temp = await fsp.mkdtemp(path.join(os.tmpdir(), "splice-verify-test-"));

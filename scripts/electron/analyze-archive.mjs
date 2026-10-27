@@ -94,7 +94,10 @@ export function analyzeElectronArchive(archivePath) {
         warn("dynamic-ipc-channel", name, source, node, kind);
         return;
       }
-      const entry = { channel, file: name, line: lineOf(source, node) };
+      const handler = node.arguments[1];
+      const arity = handler && (ts.isArrowFunction(handler) || ts.isFunctionExpression(handler))
+        ? Math.max(0, handler.parameters.length - 1) : null;
+      const entry = { channel, file: name, line: lineOf(source, node), arity };
       module.ipc[kind].push(channel);
       ipc[kind].push(entry);
     };
