@@ -78,7 +78,10 @@ async function prepareCases(spec) {
     : ["schema_version must be 2 for a handoff specification"];
   if (problems.length) { preparedHash = null; return { problems }; }
   const excluded = excludedChannels(spec);
-  const channels = inventory().channels.filter(entry => !excluded.has(entry.channel));
+  const declared = new Set(Object.keys(spec.channels ?? {}));
+  /* Declaration is incremental, so evaluate only what is declared: a channel that has not been
+     declared yet is reported as remaining, not as a coverage gap. */
+  const channels = inventory().channels.filter(entry => !excluded.has(entry.channel) && declared.has(entry.channel));
   if (!channels.length) {
     preparedHash = null;
     return { problems: ["Every original channel is excluded, so the specification describes nothing. " +
@@ -205,19 +208,49 @@ server.registerTool("find_fixture", {
 
 server.registerTool("declare_spec", {
   title: "Declare the behavioral specification",
-  description: "Write spec.json for the workspace and validate it against the original channels. Returns validation problems, generated public case counts and coverage gaps. A specification with gaps is not accepted by the pipeline.",
-  inputSchema: { spec: specSchema },
-}, async ({ spec }) => {
-  fs.writeFileSync(path.join(workspace, "spec.json"), JSON.stringify(spec, null, 2) + "\n");
+  description: "Declare channels (and optionally application metadata, exclusions and schema_version) into spec.json. Each call merges into the current specification, so a large application can be declared in batches without one oversized tool call. Returns remaining channels, validation problems and coverage gaps for what is declared.",
+  inputSchema: {
+    spec: specSchema.partial(),
+    replace_channels: z.boolean().optional()
+      .describe("Discard previously declared channels before applying this batch"),
+  },
+}, async ({ spec, replace_channels }) => {
+  const existing = readSpec();
+  const merged = {
+    schema_version: spec.schema_version ?? existing?.schema_version ?? 2,
+    application: { ...(existing?.application ?? {}), ...(spec.application ?? {}) },
+    channels: replace_channels ? { ...(spec.channels ?? {}) }
+      : { ...(existing?.channels ?? {}), ...(spec.channels ?? {}) },
+    channel_exclusions: spec.channel_exclusions !== undefined
+      ? spec.channel_exclusions : (existing?.channel_exclusions ?? []),
+  };
+  fs.writeFileSync(path.join(workspace, "spec.json"), JSON.stringify(merged, null, 2) + "\n");
   preparedHash = null;
-  const report = await prepareCases(spec);
+  const allProblems = spec.schema_version === undefined && merged.schema_version !== 2
+    ? ["schema_version must be 2"] : [];
+  const report = merged.schema_version === 2 ? await prepareCases(merged)
+    : { problems: allProblems, cases: 0, coverage: {}, gaps: [] };
+  const problems = (report.problems ?? []).filter(problem =>
+    !problem.startsWith("Contract does not declare original channel(s)"));
+  const excluded = excludedChannels(merged);
+  const remaining = inventory().channels.map(entry => entry.channel)
+    .filter(channel => !(channel in merged.channels) && !excluded.has(channel));
   /* The driver only trusts a specification that was declared: this record binds the file to the
-     validated revision, including the cases and gaps the declaration produced. */
-  fs.writeFileSync(path.join(workspace, "spec.declared.json"), JSON.stringify({
-    sha256: specHash(spec), declared_at: new Date().toISOString(),
-    problems: report.problems ?? [], cases: report.cases ?? 0, gaps: report.gaps ?? [],
+     validated revision. It is only written once nothing is left undeclared or broken. */
+  const complete = !remaining.length && !problems.length && !(report.gaps ?? []).length;
+  if (complete) fs.writeFileSync(path.join(workspace, "spec.declared.json"), JSON.stringify({
+    sha256: specHash(merged), declared_at: new Date().toISOString(),
+    problems, cases: report.cases ?? 0, gaps: report.gaps ?? [],
   }, null, 2) + "\n");
-  return text({ saved: true, ...report });
+  return text({ saved: true, complete, remaining_channels: remaining,
+    declared_channels: Object.keys(merged.channels).length,
+    excluded_channels: [...excluded.keys()], problems,
+    cases: report.cases ?? 0, coverage: report.coverage ?? {}, gaps: report.gaps ?? [],
+    next: remaining.length
+      ? "Declare the remaining channels (send them in batches); the specification is not complete yet."
+      : problems.length ? "Fix the listed problems and declare again."
+      : report.gaps?.length ? "Close the coverage gaps before finishing."
+      : "Specification complete; stop declaring." });
 });
 
 server.registerTool("public_cases", {

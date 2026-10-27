@@ -101,6 +101,14 @@ Shape (complete, version 2):
 You have no file-write tools: \`oracle_declare_spec\` is the only way to save the specification,
 and it validates the result. A specification the driver cannot tie to a declaration is ignored.
 
+### Declaring a large application in batches
+
+Declarations merge into \`spec.json\`; they do not replace it. Describe the channels you have
+fully learned in one call (three or four at a time is a healthy batch), then declare the next
+batch. Every reply reports \`remaining_channels\`, validation problems, coverage gaps and whether
+the specification is \`complete\`. Never stop while \`remaining_channels\` is non-empty or
+\`complete\` is false.
+
 ## How to observe
 
 - \`oracle_inventory\` — channels with arity, preload bridges, renderer loads, modules, diagnostics.
