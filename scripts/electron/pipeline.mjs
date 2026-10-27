@@ -3,9 +3,17 @@
  *
  *   node scripts/electron/pipeline.mjs <app.asar> <new-output-directory> [options]
  *
- * Stages: static inventory → orchestration agent learns behavior through the oracle → generated
- * public cases → assemble a runnable project → differential check against the original on public
- * and held-out cases. There are no per-application adapters, templates, blueprints or scenarios.
+ * Stage 1 (spec): a specification agent observes the packaged app through the black-box oracle and
+ * writes a public specification: channels, fixtures, argument samples, numbered requirements and
+ * stateful sequences. The driver turns that specification into differential cases and expects the
+ * original app's answers.
+ *
+ * Stage 2 (implement): a different agent receives only the specification and the public cases. It
+ * has no oracle and no archive path, so it cannot probe the original. Its build is compared with
+ * the original on public and repair cases until it converges.
+ *
+ * Stage 3 (evaluate): the frozen candidate runs the held-out partition once, after repair is over.
+ * There are no per-application adapters, templates, blueprints or scenarios.
  */
 import fs from "node:fs";
 import fsp from "node:fs/promises";
@@ -15,10 +23,12 @@ import { fileURLToPath } from "node:url";
 import * as asar from "@electron/asar";
 import { analyzeElectronArchive } from "./analyze-archive.mjs";
 import { runCase } from "./oracle.mjs";
-import { buildCases, compareCase, coverage, coverageGaps, runSuite, usableResults, validateContract } from "./cases.mjs";
+import { buildCases, compareCase, coverage, coverageGaps, observationFailures, partitionCases,
+  runSuite, usableResults } from "./cases.mjs";
 import { runAgent } from "./agent.mjs";
-import { assembleProject, validateWorkspace } from "./project.mjs";
+import { assembleProject } from "./project.mjs";
 import { resolveModel } from "./models.mjs";
+import { excludedChannels, renderSpecMarkdown, specHash, validateSpec, writeHandoff } from "./spec.mjs";
 
 function parseArguments(argv) {
   const positional = [], options = {};
@@ -32,158 +42,313 @@ function parseArguments(argv) {
   return { archive: positional[0], output: positional[1], options };
 }
 
-function log(message) { process.stderr.write(`[electron] ${message}\n`); }
+function log(message) {
+  process.stderr.write(`[electron] ${message}\n`);
+}
 
 function channelInventory(analysis) {
   return (analysis.ipc?.handles ?? []).map(entry => ({ channel: entry.channel, arity: entry.arity ?? 0 }));
 }
 
-async function expectations({ cases, appDir }) {
-  const results = await runSuite({ runCase, appDir, cases });
-  return usableResults(results);
+async function observe({ cases, appDir, timeout }) {
+  const results = await runSuite({ runCase, appDir, cases, timeout });
+  const usable = usableResults(results);
+  return { usable, failures: observationFailures(results), total: results.length };
 }
 
-async function checkCandidate({ cases, candidate }) {
-  const results = await runSuite({ runCase, appDir: candidate, cases: cases.map(item => item.case) });
+async function checkSuite({ suite, candidate, timeout }) {
+  if (!suite) return null;
+  const results = await runSuite({ runCase, appDir: candidate, cases: suite.cases.map(item => item.case), timeout });
   const failures = [];
   let passed = 0;
-  for (let index = 0; index < cases.length; index++) {
+  for (let index = 0; index < suite.cases.length; index++) {
+    const want = suite.cases[index].result;
     const item = results[index];
-    if (item.error) { failures.push({ case: item.case.name, channel: item.case.channel, problems: [`candidate did not run: ${item.error.message}`] }); continue; }
-    const problems = compareCase(cases[index].result, item.result);
+    if (item.error) {
+      failures.push({ case: item.case.name, channel: item.case.channel,
+        problems: [`candidate did not run: ${item.error.message}`] });
+      continue;
+    }
+    const problems = compareCase(want, item.result);
     if (problems.length) failures.push({ case: item.case.name, channel: item.case.channel,
-      calls: item.case.calls, problems: problems.slice(0, 4) });
+      calls: item.case.calls, problems: problems.slice(0, 3) });
     else passed++;
   }
-  return { passed, total: cases.length, failures };
+  return { passed, total: suite.cases.length, failures, gaps: suite.gaps ?? [] };
 }
 
-function describeAgent(run) {
-  return `round ${run.round}: ${run.toolCalls.length} tool call(s), ${run.tokens} tokens, ` +
+function partitionReport(suite, check) {
+  return {
+    cases: suite?.cases?.length ?? 0,
+    passed: check?.passed ?? 0,
+    total: check?.total ?? 0,
+    coverage: suite?.coverage ?? {},
+    gaps: check?.gaps ?? [],
+    failures: (check?.failures ?? []).slice(0, 5).map(item => ({ case: item.case, channel: item.channel,
+      problems: item.problems })),
+  };
+}
+
+function describeRun(run) {
+  return `${run.stage} round ${run.round}: ${run.toolCalls.length} tool call(s), ` +
     `exit ${run.exitCode ?? "timeout"}${run.errors.length ? `, ${run.errors.length} error(s)` : ""}`;
 }
 
-export async function reconstruct({ archive, output, options = {} }) {
+function failureText(failures, limit = 6) {
+  return failures.slice(0, limit).map(item => {
+    const problems = (item.problems ?? []).map(problem =>
+      typeof problem === "string" ? problem : JSON.stringify(problem).slice(0, 700));
+    return `- ${item.case} (${item.channel})\n  ${problems.join("\n  ")}`;
+  }).join("\n");
+}
+
+export async function reconstruct({ archive, output, options = {}, agentRunner = runAgent }) {
   if (!archive || !output) throw new Error("Usage: node scripts/electron/pipeline.mjs <app.asar> <new-output-directory>");
   const archivePath = path.resolve(archive);
   const outputPath = path.resolve(output);
   if (!fs.existsSync(archivePath)) throw new Error(`Archive not found: ${archivePath}`);
-  if (fs.existsSync(outputPath) && fs.readdirSync(outputPath).length) throw new Error(`Output already exists and is not empty: ${outputPath}`);
-  const rounds = Number(options.rounds ?? 2);
-  const model = options.model ?? process.env.ELECTRON_AGENT_MODEL ?? resolveModel();
-  const timeout = Number(options.timeout ?? process.env.ELECTRON_AGENT_TIMEOUT ?? 1200);
+  if (fs.existsSync(outputPath) && fs.readdirSync(outputPath).length)
+    throw new Error(`Output already exists and is not empty: ${outputPath}`);
 
-  const stateDir = options.state ? path.resolve(options.state) : await fsp.mkdtemp(path.join(os.tmpdir(), "splice-electron-"));
+  const specRounds = Number(options["spec-rounds"] ?? 2);
+  const implRounds = Number(options["impl-rounds"] ?? Number(options.rounds ?? 2));
+  const specTimeout = Number(options["spec-timeout"] ?? options.timeout ?? process.env.ELECTRON_SPEC_TIMEOUT ?? 1200);
+  const implTimeout = Number(options["impl-timeout"] ?? options.timeout ?? process.env.ELECTRON_IMPL_TIMEOUT ?? 1200);
+  const caseTimeout = Number(options["case-timeout"] ?? 20000);
+  const specModelOption = options["spec-model"] ?? options.model;
+  const implModelOption = options["impl-model"] ?? options.model;
+
+  const stateDir = options.state ? path.resolve(options.state)
+    : await fsp.mkdtemp(path.join(process.env.ELECTRON_STATE_ROOT || os.tmpdir(), "splice-electron-"));
   const appDir = path.join(stateDir, "original");
-  const workspace = path.join(stateDir, "workspace");
+  const specWorkspace = path.join(stateDir, "spec");
+  const handoff = path.join(stateDir, "implementation");
   const candidate = path.join(stateDir, "candidate");
   await fsp.mkdir(appDir, { recursive: true });
-  await fsp.mkdir(workspace, { recursive: true });
+  await fsp.mkdir(specWorkspace, { recursive: true });
   asar.extractAll(archivePath, appDir);
   const analysis = analyzeElectronArchive(archivePath);
+  const inventory = channelInventory(analysis);
   const analysisFile = path.join(stateDir, "analysis.json");
-  const publicFile = path.join(stateDir, "public-cases.json");
+  const specPublicFile = path.join(stateDir, "spec-public-cases.json");
+  const handoffPublicFile = path.join(handoff, "public-cases.json");
   await fsp.writeFile(analysisFile, JSON.stringify(analysis, null, 2) + "\n");
-  await fsp.writeFile(path.join(workspace, "TASK.md"), "See the prompt. Work only with the oracle tools and files in this workspace.\n");
   log(`archive ${analysis.archive.sha256.slice(0, 12)} ${analysis.archive.name ?? ""}`);
-  log(`${channelInventory(analysis).length} channel(s), workspace ${workspace}`);
+  log(`${inventory.length} channel(s); spec workspace ${specWorkspace}`);
 
-  const agentRuns = [];
+  const runs = [];
+  let spec = null;
   let feedback = "";
-  let contract = null;
-  let verdict = null;
-  for (let round = 1; round <= rounds; round++) {
-    const run = await runAgent({ workspace, stateDir, appDir, archiveName: analysis.archive.name ?? "",
-      analysisFile, publicFile, candidateDir: candidate, model, timeout, round, feedback, log });
+  let suites = null;
+  let observations = null;
+
+  /* ---------------------------------------------------------------- stage 1: specification */
+  for (let round = 1; round <= specRounds; round++) {
+    const run = await agentRunner({ stage: "spec", workspace: specWorkspace, stateDir, appDir,
+      archiveName: analysis.archive.name ?? "", analysisFile, publicFile: specPublicFile,
+      candidateDir: candidate, model: specModelOption, timeout: specTimeout, round, feedback, log });
     run.round = round;
-    agentRuns.push(run);
-    log(describeAgent(run));
-    if (run.timedOut || run.error) {
-      feedback = `Round ${round} ended without a result (${run.timedOut ? "timeout" : run.error}). Continue the reconstruction.`;
+    runs.push(run);
+    log(describeRun(run));
+    const specFile = path.join(specWorkspace, "spec.json");
+    if (!fs.existsSync(specFile)) {
+      feedback = `No spec.json was declared (${run.timedOut ? "the round timed out" : "the round ended"}). ` +
+        "Declare the complete specification with oracle_declare_spec before finishing.";
       continue;
     }
-    const contractFile = path.join(workspace, "contract.json");
-    contract = fs.existsSync(contractFile) ? JSON.parse(await fsp.readFile(contractFile, "utf8")) : null;
-    if (!contract) {
-      feedback = "No contract.json was declared. Declare one with oracle_declare_contract, then verify.";
+    const declared = JSON.parse(await fsp.readFile(specFile, "utf8"));
+    const declarationFile = path.join(specWorkspace, "spec.declared.json");
+    if (!fs.existsSync(declarationFile)) {
+      feedback = "spec.json exists but was never declared. Save it with oracle_declare_spec so it is " +
+        "validated and coverage-checked before the driver uses it.";
       continue;
     }
-    const problems = [...validateContract(contract, channelInventory(analysis)),
-      ...validateWorkspace(workspace, analysis, contract)];
-    if (problems.length) { feedback = `Contract problems:\n${problems.join("\n")}`; continue; }
+    const declaration = JSON.parse(await fsp.readFile(declarationFile, "utf8"));
+    if (declaration.sha256 !== specHash(declared)) {
+      feedback = "spec.json changed after its last declaration. Declare the current revision with " +
+        "oracle_declare_spec.";
+      continue;
+    }
+    const problems = validateSpec(declared, inventory);
+    if (problems.length) { feedback = `Specification problems:\n${problems.join("\n")}`; continue; }
+    const excluded = excludedChannels(declared);
+    const required = inventory.filter(entry => !excluded.has(entry.channel));
+    if (!required.length) {
+      feedback = "Every original channel is excluded, so nothing is left to reconstruct. Exclusions are " +
+        "only for behavior the feature contract cannot express; a channel that reads or writes data can " +
+        "always be specified. Rebuild the fixtures (oracle_find_fixture repairs missing files and fields) " +
+        "and declare the channels you abandoned.";
+      continue;
+    }
+    const built = buildCases({ contract: declared, channels: required, seed: "public" });
+    const channelNames = required.map(item => item.channel);
+    const observed = [];
+    const observationProblems = [];
+    for (const cases of [built.publicCases, built.repairCases, built.finalCases]) {
+      const result = await observe({ cases, appDir, timeout: caseTimeout });
+      observed.push(...result.usable);
+      observationProblems.push(...result.failures);
+    }
+    /* Excluded channels are not part of the candidate, so they must not appear in the expected
+       channel inventory either. */
+    for (const item of observed)
+      item.result.channels = item.result.channels.filter(entry => !excluded.has(entry.channel));
+    const gaps = coverageGaps(observed, channelNames, { minDistinct: 3 });
+    log(`spec round ${round}: ${observed.length} case(s) observable against the original, ${gaps.length} gap(s)`);
+    if (!observed.length) {
+      feedback = "No generated case could observe the original app. Check fixtures and arguments; " +
+        "every channel must succeed at least once before the specification is usable.";
+      continue;
+    }
+    if (gaps.length) {
+      feedback = `Coverage gaps (a channel needs a reachable fixture, one success and three distinct outcomes):\n` +
+        `${gaps.join("\n")}`;
+      continue;
+    }
+    const partitioned = partitionCases({ items: observed, channels: channelNames });
+    const suiteFor = items => ({
+      coverage: coverage(items),
+      gaps: coverageGaps(items, channelNames),
+      cases: items.map(item => ({ case: item.case, result: item.result })),
+    });
+    suites = { public: suiteFor(partitioned.publicItems), repair: suiteFor(partitioned.repairItems),
+      final: suiteFor(partitioned.finalItems) };
+    spec = declared;
+    log(`${required.length} required channel(s), ${excluded.size} declared exclusion(s)`);
+    observations = { total: built.all.length, usable: observed.length,
+      failures: observationProblems };
+    break;
+  }
+  if (!spec) throw new Error(`No usable specification was produced after ${specRounds} round(s).\n${feedback}`);
 
-    const channelNames = channelInventory(analysis).map(item => item.channel);
-    const built = buildCases({ contract, channels: channelInventory(analysis), seed: "public" });
-    const publicExpectations = await expectations({ cases: built.publicCases, appDir });
-    const repairExpectations = await expectations({ cases: built.repairCases, appDir });
-    const finalExpectations = await expectations({ cases: built.finalCases, appDir });
-    if (!publicExpectations.length) { feedback = "No public case could observe the original app. Check fixtures and arguments."; continue; }
-    const gaps = [...new Set([...coverageGaps(repairExpectations, channelNames), ...coverageGaps(finalExpectations, channelNames)])];
-    const assembled = await assembleProject({ analysis, contract, workspace, output: candidate });
-    const publicCheck = await checkCandidate({ cases: publicExpectations, candidate: assembled.output });
-    const repairCheck = await checkCandidate({ cases: repairExpectations, candidate: assembled.output });
-    const finalCheck = await checkCandidate({ cases: finalExpectations, candidate: assembled.output });
-    verdict = {
-      public: { coverage: coverage(publicExpectations), gaps: coverageGaps(publicExpectations, channelNames), ...publicCheck },
-      repair: { coverage: coverage(repairExpectations), gaps: coverageGaps(repairExpectations, channelNames), ...repairCheck },
-      final: { coverage: coverage(finalExpectations), gaps: coverageGaps(finalExpectations, channelNames), ...finalCheck },
-    };
-    log(`round ${round}: public ${publicCheck.passed}/${publicCheck.total}, repair ` +
-      `${repairCheck.passed}/${repairCheck.total}, final ${finalCheck.passed}/${finalCheck.total}`);
-    if (!publicCheck.failures.length && !repairCheck.failures.length && !finalCheck.failures.length && !gaps.length) break;
-    feedback = `Public failures:\n${JSON.stringify(publicCheck.failures.slice(0, 8), null, 1)}\n` +
-      `Repair failures (these cases are now visible; match the original exactly):\n` +
-      `${JSON.stringify(repairCheck.failures.slice(0, 8), null, 1)}\n` +
-      `Final held-out failures: ${finalCheck.failures.length} on channel(s) ` +
-      `${[...new Set(finalCheck.failures.map(item => item.channel))].join(", ") || "none"}. ` +
-      `Coverage gaps:\n${[...gaps, ...coverageGaps(publicExpectations, channelNames)].join("\n") || "none"}`;
+  /* ---------------------------------------------------------------- stage 2: implementation */
+  await writeHandoff({ spec, analysis, publicSuite: suites.public, directory: handoff });
+  let repairVisible = false;
+  let publicCheck = null, repairCheck = null;
+  feedback = "";
+  for (let round = 1; round <= implRounds; round++) {
+    if (repairVisible) await writeHandoff({ spec, analysis, publicSuite: suites.public,
+      directory: handoff, repairSuite: suites.repair });
+    const run = await agentRunner({ stage: "implement", workspace: handoff, stateDir, appDir,
+      archiveName: analysis.archive.name ?? "", analysisFile, publicFile: handoffPublicFile,
+      candidateDir: candidate, model: implModelOption, timeout: implTimeout, round, feedback, log });
+    run.round = round;
+    runs.push(run);
+    log(describeRun(run));
+    let assembled;
+    try {
+      assembled = await assembleProject({ analysis, contract: spec, workspace: handoff, output: candidate });
+    } catch (error) {
+      feedback = `The candidate could not be assembled: ${error.message}\nFix the feature modules and run check again.`;
+      continue;
+    }
+    publicCheck = await checkSuite({ suite: suites.public, candidate: assembled.output, timeout: caseTimeout });
+    repairCheck = await checkSuite({ suite: suites.repair, candidate: assembled.output, timeout: caseTimeout });
+    log(`impl round ${round}: public ${publicCheck.passed}/${publicCheck.total}` +
+      `${repairCheck ? `, repair ${repairCheck.passed}/${repairCheck.total}` : ""}`);
+    const publicFailed = publicCheck.failures.length > 0;
+    const repairFailed = Boolean(repairCheck?.failures.length);
+    if (!publicFailed && !repairFailed) break;
+    if (!repairVisible) {
+      repairVisible = true;
+      await writeHandoff({ spec, analysis, publicSuite: suites.public, directory: handoff,
+        repairSuite: suites.repair });
+    }
+    feedback = publicFailed
+      ? `Public cases that do not match yet:\n${failureText(publicCheck.failures)}\n` +
+        (repairVisible ? "Repair cases are now visible in repair-cases.json; check runs them as well." : "")
+      : `Public cases pass. Repair cases now visible in repair-cases.json do not:\n` +
+        failureText(repairCheck?.failures ?? []);
   }
 
-  if (!contract || !verdict) throw new Error(`No reconstruction was produced.${feedback ? `\n${feedback}` : ""}`);
-  if (verdict.public.failures.length || verdict.repair.failures.length || verdict.final.failures.length ||
-    verdict.repair.gaps.length || verdict.final.gaps.length) {
-    throw new Error(`Reconstruction did not reach parity after ${agentRuns.length} round(s).\n` +
-      `public ${verdict.public.passed}/${verdict.public.total}, repair ${verdict.repair.passed}/${verdict.repair.total}, ` +
-      `final ${verdict.final.passed}/${verdict.final.total}\n` +
-      `${[...verdict.public.failures.slice(0, 5), ...verdict.repair.failures.slice(0, 5), ...verdict.final.failures.slice(0, 5)]
-        .map(item => JSON.stringify(item)).join("\n")}`);
-  }
-
-  const assembled = await assembleProject({ analysis, contract, workspace, output: outputPath });
-  const report = {
-    schema_version: 1,
+  /* ------------------------------------------------------------------ stage 3: final evaluation */
+  const finalCheck = await checkSuite({ suite: suites.final, candidate, timeout: caseTimeout });
+  const finalReport = {
+    schema_version: 2,
     archive: { path: path.relative(process.cwd(), archivePath), ...analysis.archive },
-    method: "agent reconstruction from black-box IPC observations, verified differentially",
-    model,
-    rounds: agentRuns.map(run => ({ model: run.model, tool_calls: run.toolCalls.length, tokens: run.tokens,
-      exit_code: run.exitCode, timed_out: run.timedOut, errors: run.errors })),
-    channels: channelInventory(analysis),
-    public: { cases: verdict.public.total, passed: verdict.public.passed, coverage: verdict.public.coverage },
-    repair: { cases: verdict.repair.total, passed: verdict.repair.passed, coverage: verdict.repair.coverage },
-    held_out: { cases: verdict.final.total, passed: verdict.final.passed, coverage: verdict.final.coverage },
-    final_held_out: { cases: verdict.final.total, passed: verdict.final.passed, coverage: verdict.final.coverage },
+    method: "two-stage: specification from black-box IPC observation, implementation from the public " +
+      "handoff alone, differential verification against the original",
+    models: { spec: runs.find(run => run.stage === "spec")?.model ?? null,
+      implementer: runs.find(run => run.stage === "implement")?.model ?? null },
+    spec: { sha256: specHash(spec), channels: Object.keys(spec.channels ?? {}),
+      channel_exclusions: spec.channel_exclusions ?? [],
+      scope: spec.application?.scope ?? [], exclusions: spec.application?.exclusions ?? [],
+      blockers: spec.application?.blockers ?? [], unresolved: spec.application?.unresolved ?? [] },
+    partitions: {
+      public: partitionReport(suites.public, publicCheck),
+      repair: partitionReport(suites.repair, repairCheck),
+      final: partitionReport(suites.final, finalCheck),
+    },
+    observations,
+    rounds: runs.map(run => ({ stage: run.stage, round: run.round, model: run.model,
+      tool_calls: run.toolCalls.length, tokens: run.tokens, exit_code: run.exitCode,
+      timed_out: run.timedOut, errors: run.errors })),
     limitations: [
-      "Case values do not prove equivalence for arbitrary input.",
-      "Renderer and preload behavior is generated from the contract; only main-process IPC behavior is differentially verified.",
+      "Case values are samples, not an equivalence proof for arbitrary input.",
+      "Only main-process IPC behavior, its persisted files and error results are compared; renderer " +
+        "layout, menus, tray, updater and other platform effects are outside the verified scope.",
+      "The specification agent decides what to observe; behavior it never reached is absent from the " +
+        "specification and therefore from this verdict.",
     ],
   };
-  await fsp.writeFile(path.join(outputPath, "reconstruction-report.json"), JSON.stringify(report, null, 2) + "\n");
+  const blockers = [];
+  for (const [name, check] of [["public", publicCheck], ["repair", repairCheck], ["final", finalCheck]]) {
+    if (!check) { blockers.push(`${name} partition was never evaluated`); continue; }
+    if (check.failures.length)
+      blockers.push(`${name} partition: ${check.failures.length} of ${check.total} case(s) differ`);
+    if (check.gaps.length) blockers.push(`${name} partition: ${check.gaps.join("; ")}`);
+  }
+  if (observations.failures.length) {
+    const reasons = [...new Set(observations.failures.map(item => item.reason))];
+    blockers.push(`${observations.failures.length} original observation(s) produced no usable expectation: ` +
+      reasons.slice(0, 4).join("; "));
+  }
+  for (const item of spec.application?.blockers ?? []) blockers.push(`specification blocker: ${item}`);
+  for (const item of spec.application?.unresolved ?? []) blockers.push(`unresolved question: ${item}`);
+  const excludedList = spec.channel_exclusions ?? [];
+  finalReport.readiness = {
+    ready: blockers.length === 0,
+    whole_app_ready: blockers.length === 0 && excludedList.length === 0,
+    blockers,
+    excluded: excludedList.map(item => ({ channel: item.channel, reason: item.reason })),
+    note: excludedList.length
+      ? "Declared exclusions keep this run from claiming whole-app readiness. They were declared by the " +
+        "specification stage and have not been independently reviewed."
+      : "All discovered IPC channels are in the verified scope.",
+  };
+
+  await assembleProject({ analysis, contract: spec, workspace: handoff, output: outputPath });
+  await fsp.mkdir(path.join(outputPath, "handoff"), { recursive: true });
+  await fsp.writeFile(path.join(outputPath, "handoff", "spec.json"), JSON.stringify(spec, null, 2) + "\n");
+  await fsp.writeFile(path.join(outputPath, "handoff", "SPEC.md"),
+    renderSpecMarkdown({ spec, analysis, publicSuite: suites.public }) + "\n");
+  await fsp.writeFile(path.join(outputPath, "handoff", "public-cases.json"),
+    JSON.stringify(suites.public) + "\n");
+  await fsp.writeFile(path.join(outputPath, "reconstruction-report.json"),
+    JSON.stringify(finalReport, null, 2) + "\n");
   if (!options["keep-workspace"] && !options.state) await fsp.rm(stateDir, { recursive: true, force: true });
-  log(`wrote ${outputPath}`);
-  return { output: outputPath, report, stateDir };
+  log(`wrote ${outputPath} (ready: ${finalReport.readiness.ready})`);
+  if (!finalReport.readiness.ready)
+    throw new Error(`Reconstruction did not reach parity after ${runs.length} agent round(s).\n` +
+      `public ${publicCheck?.passed ?? 0}/${publicCheck?.total ?? 0}, ` +
+      `repair ${repairCheck ? `${repairCheck.passed}/${repairCheck.total}` : "not evaluated"}, ` +
+      `final ${finalCheck?.passed ?? 0}/${finalCheck?.total ?? 0}\n${blockers.join("\n")}`);
+  return { output: outputPath, report: finalReport, stateDir };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { archive, output, options } = parseArguments(process.argv.slice(2));
   if (!archive || !output) {
     console.error("Usage: node scripts/electron/pipeline.mjs <app.asar> <new-output-directory> " +
-      "[--rounds 2] [--timeout 900] [--model opencode/...] [--keep-workspace] [--state dir]");
+      "[--spec-rounds 2] [--impl-rounds 2] [--spec-timeout 1200] [--impl-timeout 1200] " +
+      "[--spec-model role] [--impl-model role] [--case-timeout 20000] [--keep-workspace] [--state dir]");
     process.exitCode = 2;
   } else {
     reconstruct({ archive, output, options }).then(result => {
-      console.log(JSON.stringify({ output: result.output, public: result.report.public, repair: result.report.repair,
-        held_out: result.report.held_out, final_held_out: result.report.final_held_out,
-        rounds: result.report.rounds.length }, null, 2));
+      console.log(JSON.stringify({ output: result.output, ready: result.report.readiness.ready,
+        partitions: Object.fromEntries(Object.entries(result.report.partitions).map(([name, value]) =>
+          [name, { cases: value.cases, passed: value.passed }])),
+        rounds: result.report.rounds.length, state: result.stateDir }, null, 2));
     }).catch(error => { console.error(error.message); process.exitCode = 1; });
   }
 }

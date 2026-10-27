@@ -41,6 +41,40 @@ module.exports = async function (args, ctx) {
 };
 `;
 
+export const SPEC = {
+  schema_version: 2,
+  application: {
+    name: "synthetic-notes",
+    version: "9.9.9",
+    scope: ["notes:add and notes:read IPC behavior", "note files under userData/notes"],
+    exclusions: ["renderer layout"],
+    environments: { clock: "2026-10-25T12:00:00.000Z" },
+  },
+  channels: {
+    "notes:add": {
+      feature: "features/add.cjs",
+      fixtures: [],
+      args: [["alpha", " hello "], ["beta", "world"], ["", "x"]],
+      requirements: [
+        "Trims the note text and writes userData/notes/<name>.txt with the trimmed text and no newline.",
+        "Throws TypeError named TypeError with message 'name required' when name is not a nonempty string.",
+        "Returns { name, length } where length is the trimmed text length.",
+      ],
+      sequences: [{ description: "Adding the same note twice overwrites the file",
+        calls: [{ channel: "notes:add", args: ["alpha", "one"] }, { channel: "notes:add", args: ["alpha", "two"] }] }],
+    },
+    "notes:read": {
+      feature: "features/read.cjs",
+      fixtures: [{ base: "userData", path: "notes/alpha.txt", content: "hello" }],
+      args: [["alpha"], ["missing"]],
+      requirements: [
+        "Reads userData/notes/<name>.txt as UTF-8 and returns the text.",
+        "Propagates the ENOENT error (code ENOENT) when the file does not exist.",
+      ],
+    },
+  },
+};
+
 export const CONTRACT = {
   schema_version: 1,
   channels: {

@@ -10,7 +10,8 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 
-const METADATA = new Set(["contract.json", "TASK.md", "NOTES.md", "public-cases.json", "opencode.json", "events.jsonl"]);
+const METADATA = new Set(["contract.json", "spec.json", "spec.declared.json", "SPEC.md", "TASK.md",
+  "NOTES.md", "README.md", "public-cases.json", "repair-cases.json", "opencode.json", "events.jsonl"]);
 
 function within(root, relative) {
   if (typeof relative !== "string" || !relative || path.isAbsolute(relative)) throw new Error(`Invalid project path: ${relative}`);
@@ -59,8 +60,10 @@ export function validateWorkspace(workspace, analysis, contract) {
     if (!fs.existsSync(file)) problems.push(`${channel}: feature module ${feature} does not exist`);
   }
   const declared = new Set(Object.keys(contract.channels ?? {}));
+  const excluded = new Set((contract.channel_exclusions ?? []).map(entry => entry?.channel));
   for (const entry of analysis.ipc.handles ?? [])
-    if (!declared.has(entry.channel)) problems.push(`${entry.channel}: original IPC channel is not declared`);
+    if (!declared.has(entry.channel) && !excluded.has(entry.channel))
+      problems.push(`${entry.channel}: original IPC channel is neither declared nor explicitly excluded`);
   return problems;
 }
 
@@ -267,7 +270,9 @@ export async function assembleProject({ analysis, contract, workspace, output, e
   const target = path.resolve(output);
   await fsp.rm(target, { recursive: true, force: true });
   await fsp.mkdir(target, { recursive: true });
-  const channels = (analysis.ipc.handles ?? []).map(entry => channelView(entry.channel, contract.channels?.[entry.channel] ?? {}));
+  const excluded = new Set((contract.channel_exclusions ?? []).map(entry => entry?.channel));
+  const channels = (analysis.ipc.handles ?? []).filter(entry => !excluded.has(entry.channel))
+    .map(entry => channelView(entry.channel, contract.channels?.[entry.channel] ?? {}));
   const declared = new Set(channels.map(entry => entry.channel));
   for (const [channel, entry] of Object.entries(contract.channels ?? {}))
     if (!declared.has(channel)) channels.push(channelView(channel, entry));
@@ -288,8 +293,10 @@ export async function assembleProject({ analysis, contract, workspace, output, e
     source: { name: analysis.archive?.name ?? null, version: analysis.archive?.version ?? null,
       sha256: analysis.archive?.sha256 ?? null },
     channels,
+    excluded_channels: (contract.channel_exclusions ?? []).map(entry => ({ channel: entry.channel,
+      reason: entry.reason })),
     parity: {
-      level: "bounded-original-ipc",
+      level: contract.channel_exclusions?.length ? "bounded-original-ipc-with-exclusions" : "bounded-original-ipc",
       original_ipc_channels: channels.map(entry => entry.channel),
       note: "Every original IPC handler is registered and checked against the original archive on generated public and held-out cases. Storage and UI behavior is matched only where those cases exercised it.",
     },

@@ -10,7 +10,8 @@
 import crypto from "node:crypto";
 import { validateCase } from "./oracle.mjs";
 
-export const CONTRACT_VERSION = 1;
+export const CONTRACT_VERSION = 2;
+const SUPPORTED_VERSIONS = new Set([1, 2]);
 
 const STRINGS = ["", "missing", "study", "Alpha", "Beta", "al", "zz", "2026-10-25", "2026-10-20", "x"];
 const NUMBERS = [-1, 0, 1, 2, 3, 4, 5, 6, 9, 0.5];
@@ -108,16 +109,47 @@ function sampleArguments(sample, arity) {
 export function validateContract(contract, originalChannels) {
   const problems = [];
   if (!contract || typeof contract !== "object") return ["Contract must be a JSON object"];
-  if (contract.schema_version !== CONTRACT_VERSION) problems.push(`schema_version must be ${CONTRACT_VERSION}`);
+  if (!SUPPORTED_VERSIONS.has(contract.schema_version))
+    problems.push(`schema_version must be one of ${[...SUPPORTED_VERSIONS].join(", ")}`);
   if (!contract.channels || typeof contract.channels !== "object") return [...problems, "Contract needs a channels object"];
   const names = new Set(originalChannels.map(item => item.channel));
+  if (contract.application !== undefined) {
+    if (!contract.application || typeof contract.application !== "object") problems.push("application must be an object");
+    for (const key of ["scope", "exclusions", "blockers", "unresolved"])
+      if (contract.application?.[key] !== undefined && !Array.isArray(contract.application[key]))
+        problems.push(`application.${key} must be an array`);
+  }
   for (const [channel, entry] of Object.entries(contract.channels)) {
     if (!names.has(channel)) problems.push(`Unknown original channel: ${channel}`);
     if (!entry || typeof entry !== "object") { problems.push(`${channel}: entry must be an object`); continue; }
+    if (typeof entry.feature !== "string" || !/\.(cjs|js)$/.test(entry.feature))
+      problems.push(`${channel}: feature must name a workspace .cjs or .js module`);
     if (entry.fixtures !== undefined && !Array.isArray(entry.fixtures)) problems.push(`${channel}: fixtures must be an array`);
     if (entry.args !== undefined && !Array.isArray(entry.args)) problems.push(`${channel}: args must be an array of argument arrays`);
     for (const sample of entry.args ?? []) {
       if (!Array.isArray(sample)) problems.push(`${channel}: each args entry must be an array`);
+    }
+    if (entry.requirements !== undefined) {
+      if (!Array.isArray(entry.requirements) || !entry.requirements.length)
+        problems.push(`${channel}: requirements must be a nonempty array of behavior statements`);
+      for (const requirement of entry.requirements ?? [])
+        if (typeof requirement !== "string" || !requirement.trim())
+          problems.push(`${channel}: every requirement must be a nonempty string`);
+    }
+    for (const sequence of entry.sequences ?? []) {
+      if (!Array.isArray(sequence?.calls) || !sequence.calls.length) {
+        problems.push(`${channel}: every sequence needs a nonempty calls array`);
+        continue;
+      }
+      for (const call of sequence.calls) {
+        if (typeof call?.channel !== "string" || !names.has(call.channel))
+          problems.push(`${channel}: sequence calls unknown channel ${call?.channel}`);
+        if (call?.args !== undefined && !Array.isArray(call.args))
+          problems.push(`${channel}: sequence call args must be an array`);
+      }
+      try {
+        validateCase({ fixtures: sequence.fixtures ?? [], calls: sequence.calls });
+      } catch (error) { problems.push(`${channel}: sequence ${error.message}`); }
     }
     try {
       validateCase({ fixtures: entry.fixtures ?? [], calls: [{ channel, args: [] }] });
@@ -138,6 +170,7 @@ export function buildCases({ contract, channels, seed = "splice" }) {
     if (!Number.isFinite(Date.parse(fixedTime))) throw new Error(`${channel}: fixed_time must be an ISO date`);
     const baseFixtures = entry.fixtures ?? [];
     const fixtureVariants = [baseFixtures, ...mutateFixtures(baseFixtures)];
+    const shapes = fixtureVariants.map((_, index) => index === 0 ? "base" : "fixture-mutation");
     for (const sample of sampleArguments(entry.args?.[0], arity)) {
       const variants = [sample];
       for (let index = 0; index < sample.length; index++)
@@ -148,12 +181,14 @@ export function buildCases({ contract, channels, seed = "splice" }) {
         }
       let count = 0;
       for (const args of unique(variants)) {
-        for (const fixtures of fixtureVariants) {
+        for (let fixtureIndex = 0; fixtureIndex < fixtureVariants.length; fixtureIndex++) {
           if (count++ >= 24) break;
+          const fixtures = fixtureVariants[fixtureIndex];
           const testCase = { channel, fixtures, fixed_time: fixedTime, calls: [{ channel, args }] };
           const key = hash({ channel, fixtures: fixtures.map(({ base, path, content }) => ({ base, path, content })), args });
           cases.push({
             name: `${channel.replace(/[^a-z0-9]+/gi, "-")}-${key.slice(0, 10)}`,
+            shape: shapes[fixtureIndex],
             ...testCase,
           });
         }
@@ -162,12 +197,28 @@ export function buildCases({ contract, channels, seed = "splice" }) {
     for (const extra of (entry.args ?? []).slice(1)) {
       const fixtures = baseFixtures;
       const key = hash({ channel, fixtures, args: extra });
-      cases.push({ name: `${channel.replace(/[^a-z0-9]+/gi, "-")}-${key.slice(0, 10)}`, channel, fixtures, fixed_time: fixedTime, calls: [{ channel, args: extra }] });
+      cases.push({ name: `${channel.replace(/[^a-z0-9]+/gi, "-")}-${key.slice(0, 10)}`, channel,
+        shape: "args", fixtures, fixed_time: fixedTime, calls: [{ channel, args: extra }] });
     }
     if (baseFixtures.length) {
       const key = hash({ channel, cold: true });
       cases.push({ name: `${channel.replace(/[^a-z0-9]+/gi, "-")}-cold-${key.slice(0, 8)}`, channel,
-        fixtures: [], fixed_time: fixedTime, calls: [{ channel, args: sampleArguments(entry.args?.[0], arity)[0] }] });
+        shape: "cold", fixtures: [], fixed_time: fixedTime,
+        calls: [{ channel, args: sampleArguments(entry.args?.[0], arity)[0] }] });
+    }
+    /* A second identical call sees what the first call persisted. Without this, a stateless
+       implementation can pass every single-call case. */
+    const repeatArgs = sampleArguments(entry.args?.[0], arity)[0];
+    const repeatKey = hash({ channel, repeat: true, args: repeatArgs });
+    cases.push({ name: `${channel.replace(/[^a-z0-9]+/gi, "-")}-repeat-${repeatKey.slice(0, 8)}`,
+      channel, shape: "repeat", fixtures: baseFixtures, fixed_time: fixedTime,
+      calls: [{ channel, args: repeatArgs }, { channel, args: repeatArgs }] });
+    for (const [index, sequence] of (entry.sequences ?? []).entries()) {
+      const sequenceKey = hash({ channel, sequence: index, calls: sequence.calls });
+      cases.push({ name: `${channel.replace(/[^a-z0-9]+/gi, "-")}-sequence-${sequenceKey.slice(0, 8)}`,
+        channel, shape: "sequence", fixtures: sequence.fixtures ?? baseFixtures,
+        fixed_time: sequence.fixed_time ?? fixedTime,
+        description: sequence.description ?? null, calls: sequence.calls });
     }
   }
   const seen = new Set(), uniqueCases = [];
@@ -230,6 +281,15 @@ export function compareCase(expected, actual) {
     if (JSON.stringify(wantFiles[key]) !== JSON.stringify(gotFiles[key]))
       problems.push(`file ${key} differs:\n  original: ${JSON.stringify(wantFiles[key])}\n  candidate: ${JSON.stringify(gotFiles[key])}`);
   }
+  /* Per-call effects catch writes or deletions that a later call undoes or overwrites. */
+  (expected.effects ?? []).forEach((effect, index) => {
+    const got = actual.effects?.[index];
+    if (!got) return;
+    if (JSON.stringify(effect.changed) !== JSON.stringify(got.changed))
+      problems.push(`call ${index + 1} writes differ:\n  original: ${JSON.stringify(effect.changed)}\n  candidate: ${JSON.stringify(got.changed)}`);
+    if (JSON.stringify(effect.removed) !== JSON.stringify(got.removed))
+      problems.push(`call ${index + 1} deletions differ:\n  original: ${JSON.stringify(effect.removed)}\n  candidate: ${JSON.stringify(got.removed)}`);
+  });
   return problems;
 }
 
@@ -259,6 +319,28 @@ export function usableResults(results) {
   });
 }
 
+/**
+ * Every original observation that produced no usable expectation. These stay visible as readiness
+ * blockers: a crashed worker, an unregistered channel or a timeout must never look like coverage.
+ */
+export function observationFailures(results) {
+  const failures = [];
+  for (const item of results) {
+    if (item.error) {
+      failures.push({ case: item.case.name, channel: item.case.channel, reason: `worker failed: ${item.error.message}` });
+      continue;
+    }
+    const missing = item.result.outcomes.filter(outcome => outcome.error?.name === "MissingHandler");
+    if (missing.length)
+      failures.push({ case: item.case.name, channel: item.case.channel,
+        reason: "original app did not register the channel during this case" });
+    if (item.result.startup_error)
+      failures.push({ case: item.case.name, channel: item.case.channel,
+        reason: `original startup rejected: ${item.result.startup_error.message}` });
+  }
+  return failures;
+}
+
 export function coverage(results) {
   const summary = {};
   for (const item of results) {
@@ -275,15 +357,85 @@ export function coverage(results) {
     { ...entry, distinct: entry.distinct.size }]));
 }
 
-export function coverageGaps(results, expectedChannels = []) {
+export function coverageGaps(results, expectedChannels = [], { minDistinct = 1, requireSuccess = true } = {}) {
   const gaps = [];
   const summary = coverage(results);
   for (const channel of expectedChannels)
     if (!summary[channel]) gaps.push(`${channel}: no usable case in this split`);
   for (const [channel, entry] of Object.entries(summary)) {
     if (!entry.distinct) gaps.push(`${channel}: no observable outcomes`);
-    if (!entry.value) gaps.push(`${channel}: no case succeeded against the original; declare reachable fixtures and arguments`);
-    if (entry.distinct < 3) gaps.push(`${channel}: only ${entry.distinct} distinct outcome(s); declare broader sample arguments`);
+    if (requireSuccess && !entry.value)
+      gaps.push(`${channel}: no case succeeded against the original; declare reachable fixtures and arguments`);
+    if (entry.distinct < minDistinct)
+      gaps.push(`${channel}: only ${entry.distinct} distinct outcome(s); declare broader sample arguments`);
   }
   return gaps;
+}
+
+function successful(item) {
+  return (item.result?.outcomes ?? []).every(outcome => outcome.ok);
+}
+
+/**
+ * Split observed cases into public, repair and final partitions, keeping coverage intact.
+ *
+ * A plain hash split can put every successful case for a channel in one partition, which would let
+ * an error-only candidate pass the partition it is graded on and would hide the behavior from the
+ * implementer. So after the hash assignment each channel is rebalanced: the final partition keeps
+ * at least three cases, repair one, public one, and public and final each get a successful case
+ * whenever the channel has one.
+ */
+export function partitionCases({ items, seed = "public", channels = [] }) {
+  const names = [...new Set([...channels, ...items.map(item => item.case.channel)])];
+  const publicCases = [], repairCases = [], finalCases = [];
+  const publicItems = [], repairItems = [], finalItems = [];
+  for (const channel of names) {
+    const channelItems = items.filter(item => item.case.channel === channel)
+      .sort((a, b) => a.case.name.localeCompare(b.case.name));
+    const pools = { public: [], repair: [], final: [] };
+    for (const item of channelItems) {
+      const bucket = parseInt(hash({ seed, name: item.case.name, fixtures: item.case.fixtures,
+        calls: item.case.calls }).slice(0, 4), 16) % 100;
+      if (bucket < 55) pools.public.push(item);
+      else if (bucket < 75) pools.repair.push(item);
+      else pools.final.push(item);
+    }
+    const move = (from, to, predicate = () => true) => {
+      const index = pools[from].findIndex(predicate);
+      if (index < 0) return false;
+      pools[to].push(...pools[from].splice(index, 1));
+      return true;
+    };
+    const swap = (target, donor) => {
+      const targetIndex = pools[target].findIndex(item => !successful(item));
+      const donorIndex = pools[donor].findIndex(successful);
+      if (targetIndex < 0 || donorIndex < 0) return false;
+      const temporary = pools[target][targetIndex];
+      pools[target][targetIndex] = pools[donor][donorIndex];
+      pools[donor][donorIndex] = temporary;
+      return true;
+    };
+    while (pools.final.length < 3 && pools.public.length > 1) move("public", "final");
+    while (pools.repair.length < 1 && pools.public.length > 1) move("public", "repair");
+    while (pools.public.length < 1) {
+      if (!move("repair", "public") && !move("final", "public")) break;
+    }
+    /* Shape stratification: a shape family that only appears in the held-out partition is an
+       unseen rule, not a generalization test. Put one case of every observed shape in public. */
+    for (const shape of new Set(channelItems.map(item => item.case.shape ?? "args"))) {
+      if (pools.public.some(item => (item.case.shape ?? "args") === shape)) continue;
+      for (const donor of ["repair", "final"])
+        if (move(donor, "public", item => (item.case.shape ?? "args") === shape)) break;
+    }
+    for (const target of ["public", "final"]) {
+      if (!pools[target].length || pools[target].some(successful)) continue;
+      for (const donor of ["public", "repair", "final"].filter(name => name !== target))
+        if (swap(target, donor)) break;
+    }
+    for (const item of pools.public) { publicCases.push(item.case); publicItems.push(item); }
+    for (const item of pools.repair) { repairCases.push(item.case); repairItems.push(item); }
+    for (const item of pools.final) { finalCases.push(item.case); finalItems.push(item); }
+  }
+  return { publicCases, repairCases, finalCases, publicItems, repairItems, finalItems,
+    all: [...publicCases, ...repairCases, ...finalCases] };
 }

@@ -5,13 +5,13 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { analyzeElectronArchive } from "../analyze-archive.mjs";
-import { CONTRACT, syntheticArchive, syntheticWorkspace } from "./synthetic.mjs";
+import { SPEC, syntheticArchive } from "./synthetic.mjs";
 
 const TOOLS = path.resolve("scripts/electron/agent-tools.mjs");
 
-test("oracle tools prepare cases, verify a faithful candidate and reject a broken one", { timeout: 120000 }, async () => {
+test("oracle tools inventory, probe and declare a specification with coverage", { timeout: 120000 }, async () => {
   const { root, archive, extracted } = await syntheticArchive();
-  const workspace = await syntheticWorkspace();
+  const workspace = await fsp.mkdtemp(path.join(root, "workspace-"));
   const analysisFile = path.join(root, "analysis.json");
   const publicFile = path.join(root, "public-cases.json");
   await fsp.writeFile(analysisFile, JSON.stringify(analyzeElectronArchive(archive)));
@@ -22,7 +22,7 @@ test("oracle tools prepare cases, verify a faithful candidate and reject a broke
   try {
     await client.connect(transport);
     const tools = (await client.listTools()).tools.map(tool => tool.name).sort();
-    assert.deepEqual(tools, ["candidate", "declare_contract", "find_fixture", "inventory", "probe", "public_cases", "verify"]);
+    assert.deepEqual(tools, ["declare_spec", "find_fixture", "inventory", "probe", "public_cases"]);
 
     const inventory = JSON.parse((await client.callTool({ name: "inventory", arguments: {} })).content[0].text);
     assert.deepEqual(inventory.channels, [{ channel: "notes:add", arity: 2 }, { channel: "notes:read", arity: 1 }]);
@@ -32,23 +32,24 @@ test("oracle tools prepare cases, verify a faithful candidate and reject a broke
     } })).content[0].text);
     assert.deepEqual(probe.outcomes[0].value, { name: "alpha", length: 2 });
 
-    const declared = JSON.parse((await client.callTool({ name: "declare_contract",
-      arguments: { contract: CONTRACT } })).content[0].text);
+    const declared = JSON.parse((await client.callTool({ name: "declare_spec",
+      arguments: { spec: SPEC } })).content[0].text);
     assert.deepEqual(declared.problems, []);
-    assert.ok(declared.cases >= 7);
+    assert.ok(declared.cases >= 6);
     assert.deepEqual(declared.gaps, []);
+    assert.ok(await fsp.readFile(publicFile, "utf8").then(text => text.includes("notes:add")));
 
-    const verified = JSON.parse((await client.callTool({ name: "verify", arguments: {} })).content[0].text);
-    assert.equal(verified.total, declared.cases);
-    assert.equal(verified.passed, verified.total, JSON.stringify(verified.failures));
+    const cases = JSON.parse((await client.callTool({ name: "public_cases", arguments: {} })).content[0].text);
+    assert.equal(cases.cases.length, declared.cases);
+    assert.ok(cases.cases.every(item => item.case && item.result), "public cases carry original outcomes");
 
-    await fsp.writeFile(path.join(workspace, "features/add.cjs"),
-      `"use strict";\nmodule.exports = async function () { return { name: "always", length: 0 }; };\n`);
-    const broken = JSON.parse((await client.callTool({ name: "verify", arguments: {} })).content[0].text);
-    assert.ok(broken.failures.length > 0, "verify must reject a candidate that ignores its input");
+    const gapSpec = structuredClone(SPEC);
+    gapSpec.channels["notes:read"].fixtures = [];
+    const rejected = JSON.parse((await client.callTool({ name: "declare_spec",
+      arguments: { spec: gapSpec } })).content[0].text);
+    assert.ok(rejected.gaps.length > 0, "an unreachable channel must be reported as a coverage gap");
   } finally {
     await client.close();
     await fsp.rm(root, { recursive: true, force: true });
-    await fsp.rm(workspace, { recursive: true, force: true });
   }
 });

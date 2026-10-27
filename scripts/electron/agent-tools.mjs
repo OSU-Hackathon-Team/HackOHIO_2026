@@ -1,19 +1,19 @@
 /**
- * Oracle tools for the reconstruction agent.
+ * Oracle tools for the specification agent.
  *
  * The agent sees a packaged app only through behavior: channel inventory, probe results, persisted
- * files and differential checks. It never receives the archive's source files or paths. This server
- * runs over stdio and is launched by the agent runtime with one extracted app directory.
+ * files and coverage of the generated cases. It never receives the archive's source files or paths.
+ * This server runs over stdio and is launched by the agent runtime with one extracted app
+ * directory. The implementation agent is served by implement-tools.mjs instead.
  */
 import fs from "node:fs";
-import fsp from "node:fs/promises";
 import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { runCase } from "./oracle.mjs";
-import { buildCases, compareCase, coverage, coverageGaps, hash, runSuite, usableResults, validateContract } from "./cases.mjs";
-import { assembleProject, validateWorkspace } from "./project.mjs";
+import { buildCases, coverage, coverageGaps, hash, partitionCases, runSuite, usableResults } from "./cases.mjs";
+import { excludedChannels, validateSpec } from "./spec.mjs";
 import { findFixture } from "./fixture-search.mjs";
 
 function argument(name, fallback = null) {
@@ -25,17 +25,13 @@ const appDir = path.resolve(argument("app-dir"));
 const workspace = path.resolve(argument("workspace"));
 const analysisFile = argument("analysis");
 const publicFile = argument("public-cases");
-const candidateDir = path.resolve(argument("candidate", path.join(workspace, ".candidate")));
 const analysis = JSON.parse(fs.readFileSync(analysisFile, "utf8"));
-let publicSuite = publicFile && fs.existsSync(publicFile) ? JSON.parse(fs.readFileSync(publicFile, "utf8")) : { cases: [], gaps: [] };
+let publicSuite = publicFile && fs.existsSync(publicFile)
+  ? JSON.parse(fs.readFileSync(publicFile, "utf8")) : { cases: [], gaps: [] };
 let preparedHash = null;
-const contractHash = contract => (contract ? hash(contract) : null);
+const specHash = spec => (spec ? hash(spec) : null);
 
 const text = value => ({ content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value) }] });
-const clip = (value, limit = 1600) => {
-  const json = typeof value === "string" ? value : JSON.stringify(value);
-  return json.length > limit ? `${json.slice(0, limit)}… (${json.length} chars)` : json;
-};
 
 function inventory() {
   return {
@@ -72,70 +68,87 @@ async function probe(input) {
   };
 }
 
-function readContract() {
-  const file = path.join(workspace, "contract.json");
+function readSpec() {
+  const file = path.join(workspace, "spec.json");
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null;
 }
 
-async function prepareCases(contract) {
-  const problems = validateContract(contract, inventory().channels);
+async function prepareCases(spec) {
+  const problems = spec?.schema_version === 2 ? validateSpec(spec, inventory().channels)
+    : ["schema_version must be 2 for a handoff specification"];
   if (problems.length) { preparedHash = null; return { problems }; }
-  const built = buildCases({ contract, channels: inventory().channels, seed: "public" });
-  const results = await runSuite({ runCase, appDir, cases: built.publicCases });
-  const usable = usableResults(results);
+  const excluded = excludedChannels(spec);
+  const channels = inventory().channels.filter(entry => !excluded.has(entry.channel));
+  if (!channels.length) {
+    preparedHash = null;
+    return { problems: ["Every original channel is excluded, so the specification describes nothing. " +
+      "Exclusions are only for behavior the feature contract cannot express. Repair the fixtures " +
+      "(find_fixture repairs missing files and fields) and declare the channels you abandoned."] };
+  }
+  const built = buildCases({ contract: spec, channels, seed: "public" });
+  const observed = [];
+  for (const cases of [built.publicCases, built.repairCases, built.finalCases]) {
+    const results = await runSuite({ runCase, appDir, cases });
+    observed.push(...usableResults(results));
+  }
+  const channelNames = channels.map(item => item.channel);
+  for (const item of observed)
+    item.result.channels = item.result.channels.filter(entry => !excluded.has(entry.channel));
+  const partitioned = partitionCases({ items: observed, channels: channelNames });
   publicSuite = {
-    coverage: coverage(usable),
-    gaps: coverageGaps(usable, inventory().channels.map(item => item.channel)),
-    cases: usable.map(item => ({ case: item.case, result: item.result })),
+    coverage: coverage(partitioned.publicItems),
+    gaps: coverageGaps(partitioned.publicItems, channelNames),
+    cases: partitioned.publicItems.map(item => ({ case: item.case, result: item.result })),
   };
-  if (publicFile) fs.writeFileSync(publicFile, JSON.stringify(publicSuite) + "\n");
-  preparedHash = contractHash(contract);
-  return { problems: publicSuite.gaps.map(gap => `Coverage: ${gap}`), cases: publicSuite.cases.length,
-    coverage: publicSuite.coverage, gaps: publicSuite.gaps };
+  if (publicFile) {
+    fs.mkdirSync(path.dirname(path.resolve(publicFile)), { recursive: true });
+    fs.writeFileSync(publicFile, JSON.stringify(publicSuite) + "\n");
+  }
+  preparedHash = specHash(spec);
+  return { problems: [], cases: publicSuite.cases.length, coverage: publicSuite.coverage,
+    gaps: coverageGaps(observed, channelNames, { minDistinct: 3 }),
+    public_gaps: publicSuite.gaps,
+    excluded_channels: [...excluded.keys()] };
 }
 
-async function assemble(contract) {
-  const problems = validateWorkspace(workspace, analysis, contract);
-  if (problems.length) return { problems };
-  try {
-    return { ...(await assembleProject({ analysis, contract, workspace, output: candidateDir })) };
-  } catch (error) {
-    return { problems: [error.message] };
-  }
-}
+const fixtureSchema = z.looseObject({
+  base: z.enum(["userData", "documents", "logs", "temp"]),
+  path: z.string(),
+  content: z.any(),
+});
+const sequenceSchema = z.looseObject({
+  fixtures: z.array(fixtureSchema).optional(),
+  calls: z.array(z.looseObject({ channel: z.string(), args: z.array(z.any()).optional() })),
+  description: z.string().optional(),
+  fixed_time: z.string().optional(),
+});
+const channelSchema = z.looseObject({
+  feature: z.string().describe("Workspace-relative module that exports a function or { handle }"),
+  fixtures: z.array(fixtureSchema).optional(),
+  args: z.array(z.array(z.any())).optional(),
+  params: z.array(z.looseObject({ name: z.string(),
+    type: z.enum(["string", "number", "boolean", "json"]), example: z.any().optional() })).optional(),
+  requirements: z.array(z.string()).optional(),
+  sequences: z.array(sequenceSchema).optional(),
+  fixed_time: z.string().optional(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+});
+const specSchema = z.looseObject({
+  schema_version: z.number(),
+  application: z.looseObject({
+    name: z.string().optional(),
+    version: z.string().optional(),
+    scope: z.array(z.string()).optional(),
+    exclusions: z.array(z.string()).optional(),
+    blockers: z.array(z.string()).optional(),
+    unresolved: z.array(z.string()).optional(),
+    environments: z.looseObject({ clock: z.string().optional() }).optional(),
+  }).optional(),
+  channels: z.record(z.string(), channelSchema),
+});
 
-async function verify(input) {
-  const contract = input.contract ?? readContract();
-  if (!contract) return { passed: 0, total: 0, failures: [{ problem: "No contract.json declared." }] };
-  if (preparedHash !== contractHash(contract)) {
-    const report = await prepareCases(contract);
-    if (report.problems) return { passed: 0, total: 0, failures: report.problems.map(problem => ({ problem })) };
-  }
-  const buildProblems = validateWorkspace(workspace, analysis, contract);
-  if (buildProblems.length) return { passed: 0, total: publicSuite.cases.length,
-    failures: buildProblems.map(problem => ({ problem })), gaps: publicSuite.gaps ?? [] };
-  const built = await assemble(contract);
-  if (built.problems) return { passed: 0, total: 0, failures: built.problems.map(problem => ({ problem })) };
-  const cases = publicSuite.cases;
-  const results = await runSuite({ runCase, appDir: candidateDir, cases: cases.map(item => item.case) });
-  const expected = new Map(cases.map(item => [item.case.name, item.result]));
-  const failures = [];
-  let passed = 0;
-  for (const item of results) {
-    const want = expected.get(item.case.name);
-    if (!want) continue;
-    if (item.error) { failures.push({ case: item.case.name, problems: [`candidate did not run: ${item.error.message}`] }); continue; }
-    const problems = compareCase(want, item.result);
-    if (problems.length) failures.push({ case: item.case.name, channel: item.case.channel, calls: item.case.calls,
-      fixtures: item.case.fixtures, problems: problems.map(problem => clip(problem, 1200)) });
-    else passed++;
-  }
-  const gaps = publicSuite.gaps ?? [];
-  return { passed, total: cases.length,
-    failures: [...gaps.map(gap => ({ problem: `Coverage: ${gap}` })), ...failures].slice(0, 10), gaps };
-}
-
-const server = new McpServer({ name: "oracle", version: "1.0.0" });
+const server = new McpServer({ name: "oracle", version: "2.0.0" });
 
 server.registerTool("inventory", {
   title: "Archive inventory",
@@ -149,9 +162,9 @@ server.registerTool("probe", {
   inputSchema: {
     channel: z.string().optional().describe("IPC channel to invoke"),
     args: z.array(z.any()).optional().describe("Argument array for channel"),
-    calls: z.array(z.object({ channel: z.string(), args: z.array(z.any()).optional() })).optional()
+    calls: z.array(z.looseObject({ channel: z.string(), args: z.array(z.any()).optional() })).optional()
       .describe("Ordered calls for a stateful probe; overrides channel/args"),
-    fixtures: z.array(z.object({ base: z.enum(["userData", "documents", "logs", "temp"]), path: z.string(), content: z.any() })).optional(),
+    fixtures: z.array(fixtureSchema).optional(),
     fixed_time: z.string().optional().describe("Freeze Date to this ISO instant"),
     timeout_ms: z.number().optional(),
   },
@@ -163,7 +176,7 @@ server.registerTool("find_fixture", {
   inputSchema: {
     channel: z.string(),
     args: z.array(z.any()).optional(),
-    fixtures: z.array(z.object({ base: z.enum(["userData", "documents", "logs", "temp"]), path: z.string(), content: z.any() })).optional(),
+    fixtures: z.array(fixtureSchema).optional(),
     timeout_ms: z.number().optional(),
   },
 }, async input => {
@@ -174,64 +187,32 @@ server.registerTool("find_fixture", {
     outcomes: found.result.outcomes, files: found.result.files });
 });
 
-server.registerTool("public_cases", {
-  title: "Public differential cases",
-  description: "The public cases the reconstruction must pass, with the original app's observed outcomes and file effects. Fixture sets are shared by reference.",
-  inputSchema: {},
-}, async () => {
-  const contract = readContract();
-  if (!contract) return text({ cases: [], gaps: ["Declare a contract first."] });
-  if (preparedHash !== contractHash(contract)) await prepareCases(contract);
-  return text(publicSuite);
-});
-
-server.registerTool("declare_contract", {
-  title: "Declare the reconstruction contract",
-  description: "Write contract.json for the workspace. Every original channel needs a feature module, the fixtures that make it reachable, and sample arguments. Returns validation problems.",
-  inputSchema: {
-    contract: z.object({
-      schema_version: z.number(),
-      channels: z.record(z.string(), z.object({
-        feature: z.string().describe("Workspace-relative module that exports a function or { handle }"),
-        fixtures: z.array(z.object({ base: z.enum(["userData", "documents", "logs", "temp"]), path: z.string(), content: z.any() })).optional(),
-        args: z.array(z.array(z.any())).optional(),
-        params: z.array(z.object({ name: z.string(), type: z.enum(["string", "number", "boolean", "json"]), example: z.any().optional() })).optional(),
-        title: z.string().optional(),
-        description: z.string().optional(),
-      })),
-    }),
-  },
-}, async ({ contract }) => {
-  fs.writeFileSync(path.join(workspace, "contract.json"), JSON.stringify(contract, null, 2) + "\n");
+server.registerTool("declare_spec", {
+  title: "Declare the behavioral specification",
+  description: "Write spec.json for the workspace and validate it against the original channels. Returns validation problems, generated public case counts and coverage gaps. A specification with gaps is not accepted by the pipeline.",
+  inputSchema: { spec: specSchema },
+}, async ({ spec }) => {
+  fs.writeFileSync(path.join(workspace, "spec.json"), JSON.stringify(spec, null, 2) + "\n");
   preparedHash = null;
-  const report = await prepareCases(contract);
+  const report = await prepareCases(spec);
+  /* The driver only trusts a specification that was declared: this record binds the file to the
+     validated revision, including the cases and gaps the declaration produced. */
+  fs.writeFileSync(path.join(workspace, "spec.declared.json"), JSON.stringify({
+    sha256: specHash(spec), declared_at: new Date().toISOString(),
+    problems: report.problems ?? [], cases: report.cases ?? 0, gaps: report.gaps ?? [],
+  }, null, 2) + "\n");
   return text({ saved: true, ...report });
 });
 
-server.registerTool("verify", {
-  title: "Verify the candidate",
-  description: "Assemble the workspace into a runnable Electron project and compare it with the original app on every public case. Returns the count passed and compact failure details.",
-  inputSchema: { contract: z.any().optional() },
-}, async input => text(await verify(input)));
-
-server.registerTool("candidate", {
-  title: "Run the candidate",
-  description: "Assemble the current workspace and run one free-form case against the candidate, for debugging without the original comparison.",
-  inputSchema: {
-    channel: z.string().optional(),
-    args: z.array(z.any()).optional(),
-    calls: z.array(z.object({ channel: z.string(), args: z.array(z.any()).optional() })).optional(),
-    fixtures: z.array(z.object({ base: z.enum(["userData", "documents", "logs", "temp"]), path: z.string(), content: z.any() })).optional(),
-    fixed_time: z.string().optional(),
-  },
-}, async input => {
-  const contract = readContract();
-  if (!contract) return text({ error: "No contract.json declared." });
-  const built = await assemble(contract);
-  if (built.problems) return text({ problems: built.problems });
-  const result = await runCase({ appDir: candidateDir, case: input });
-  return text({ channels: result.channels, outcomes: result.outcomes, files: result.files,
-    startup_error: result.startup_error });
+server.registerTool("public_cases", {
+  title: "Public differential cases",
+  description: "After a declaration, the generated public cases with the original outcomes and per-channel coverage. Use it to confirm the requirements explain what was observed.",
+  inputSchema: {},
+}, async () => {
+  const spec = readSpec();
+  if (!spec) return text({ cases: [], gaps: ["Declare a specification first."] });
+  if (preparedHash !== specHash(spec)) await prepareCases(spec);
+  return text(publicSuite);
 });
 
 await server.connect(new StdioServerTransport());
