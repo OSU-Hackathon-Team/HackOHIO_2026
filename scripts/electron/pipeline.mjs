@@ -154,12 +154,43 @@ function describeRun(run) {
     `exit ${run.exitCode ?? "timeout"}${run.errors.length ? `, ${run.errors.length} error(s)` : ""}`;
 }
 
-function failureText(failures, limit = 6) {
+/* Failure feedback travels in an argv element, and a real application can fail hundreds of cases
+   at once (Stretchly: 132 public cases, every one of them). The prompt therefore carries a bounded
+   summary; the full list is written next to the specification for the agent to read. */
+const FEEDBACK_PROBLEMS = 3;
+const FEEDBACK_CHARS = 320;
+
+function failureLines(failures, limit) {
   return failures.slice(0, limit).map(item => {
-    const problems = (item.problems ?? []).map(problem =>
-      typeof problem === "string" ? problem : JSON.stringify(problem).slice(0, 700));
+    const problems = (item.problems ?? []).map(problem => {
+      const text = typeof problem === "string" ? problem : JSON.stringify(problem);
+      return text.length > FEEDBACK_CHARS ? `${text.slice(0, FEEDBACK_CHARS)}…` : text;
+    });
     return `- ${item.case} (${item.channel})\n  ${problems.join("\n  ")}`;
   }).join("\n");
+}
+
+function failureText(failures, limit = FEEDBACK_PROBLEMS) {
+  return failureLines(failures, limit);
+}
+
+/** Every failing case with its calls, for the agent to read instead of the prompt. */
+function failureReport(checks, limit = 40) {
+  const lines = ["# Failing cases", ""];
+  for (const [partition, check] of Object.entries(checks)) {
+    if (!check) continue;
+    lines.push(`## ${partition}: ${check.passed}/${check.total} cases match`, "");
+    if (!check.failures.length) { lines.push("Every case in this partition matches.", ""); continue; }
+    for (const item of check.failures.slice(0, limit)) {
+      lines.push(`### \`${item.case}\` (${item.channel})`, "");
+      lines.push("```json", JSON.stringify(item.calls ?? [], null, 2), "```", "");
+      for (const problem of item.problems ?? []) lines.push("- " + String(problem).replace(/\n/g, "\n  "));
+      lines.push("");
+    }
+    if (check.failures.length > limit)
+      lines.push(`… and ${check.failures.length - limit} more in this partition.`, "");
+  }
+  return lines.join("\n");
 }
 
 export async function reconstruct({ archive, output, options = {}, agentRunner = runAgent }) {
@@ -391,11 +422,17 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
       await writeHandoff({ spec: contract, analysis, publicSuite: suites.public, directory: handoff,
         repairSuite: suites.repair });
     }
-    feedback = publicFailed
-      ? `Public cases that do not match yet:\n${failureText(publicCheck.failures)}\n` +
-        (repairVisible ? "Repair cases are now visible in repair-cases.json; check runs them as well." : "")
-      : `Public cases pass. Repair cases now visible in repair-cases.json do not:\n` +
-        failureText(repairCheck?.failures ?? []);
+    const report = failureReport({ public: publicCheck, repair: repairVisible ? repairCheck : null });
+    await fsp.writeFile(path.join(handoff, "failures.md"), report);
+    const counts = `public ${publicCheck.passed}/${publicCheck.total}` +
+      (repairCheck ? `, repair ${repairCheck.passed}/${repairCheck.total}` : "");
+    feedback = (publicFailed
+      ? `Public cases that do not match yet (${counts}); the first few are below, every failing ` +
+        `case is in failures.md:\n${failureText(publicCheck.failures)}\n`
+      : `Public cases pass (${counts}). Repair cases, now visible in repair-cases.json, do not; ` +
+        `every failing case is in failures.md:\n${failureText(repairCheck?.failures ?? [])}\n`) +
+      `\nRead failures.md for the calls and the exact original-versus-candidate difference of the ` +
+      `first 40 failures, and implement_public_case for any case by name.`;
   }
 
   /* ------------------------------------------------------------------ stage 3: final evaluation */

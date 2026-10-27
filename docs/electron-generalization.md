@@ -73,7 +73,9 @@ list, tools and MCP servers instead of reusing a background service started by a
    `oracle_declare_spec` is the only way to save the specification: the stage has no write tools, and
    the driver ignores a `spec.json` that is not bound to a declaration record (`spec.declared.json`).
 5. **Public handoff** (`spec.mjs`). The implementation workspace contains only `SPEC.md`,
-   `spec.json`, `public-cases.json` and `README.md`. `SPEC.md` is a human-readable specification;
+   `spec.json`, `public-cases.json`, `README.md` and, once a round has failed, the driver's own
+   `failures.md` (the failing cases with their calls; it is derived from public and repair cases
+   only). `SPEC.md` is a human-readable specification;
    `spec.json` is the same contract in machine-readable form; `public-cases.json` carries the
    original app's answers for the public partition.
 6. **Implementation agent** (`implement-tools.mjs`). OpenCode runs with file tools and the

@@ -166,13 +166,28 @@ test("a channel whose answer depends on the mocked host is excluded, not claimed
 test("an implementation that ignores the specification is rejected", { timeout: 180000 }, async () => {
   const { root, archive } = await syntheticArchive();
   const output = path.join(root, "out");
+  const state = path.join(root, "state");
+  const feedbacks = [];
+  const agent = scriptedAgent({
+    features: {
+      "features/add.cjs": `"use strict";\nmodule.exports = async () => ({ name: "always", length: 0 });\n`,
+      "features/read.cjs": READ_FEATURE,
+    },
+  });
   try {
-    await assert.rejects(reconstruct({ archive, output, agentRunner: scriptedAgent({
-      features: {
-        "features/add.cjs": `"use strict";\nmodule.exports = async () => ({ name: "always", length: 0 });\n`,
-        "features/read.cjs": READ_FEATURE,
-      },
-    }), options: { state: path.join(root, "state"), "spec-rounds": 1, "impl-rounds": 1 } }), /did not reach parity/);
+    await assert.rejects(reconstruct({ archive, output, agentRunner: async context => {
+      if (context.stage === "implement") feedbacks.push(context.feedback ?? "");
+      return agent(context);
+    }, options: { state, "spec-rounds": 1, "impl-rounds": 2 } }), /did not reach parity/);
+    /* Failure feedback travels in an argv element: a real application can fail hundreds of cases,
+       so the prompt stays bounded and the detail is written for the agent to read. */
+    const feedback = feedbacks[1] ?? "";
+    assert.ok(feedback.length > 0, "the second implementation round gets feedback");
+    assert.ok(feedback.length < 12000, `feedback stayed inside an argv element (${feedback.length} characters)`);
+    assert.match(feedback, /failures\.md/);
+    const detail = await fsp.readFile(path.join(state, "implementation", "failures.md"), "utf8");
+    assert.match(detail, /## public/);
+    assert.match(detail, /notes:add/);
     const report = JSON.parse(await fsp.readFile(path.join(output, "reconstruction-report.json"), "utf8"));
     assert.equal(report.readiness.ready, false);
     assert.ok(report.partitions.public.failures.length > 0);
