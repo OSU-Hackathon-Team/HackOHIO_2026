@@ -3,7 +3,7 @@
 # System dependencies for REA (reverse engineering), binutils, and pre-warmed npx cache
 # ==============================================================================
 # rea-agents 6.7.0 requires Node ^22.19.0
-FROM node:22-bookworm-slim AS base
+FROM node:26-bookworm-slim AS base
 
 WORKDIR /app
 
