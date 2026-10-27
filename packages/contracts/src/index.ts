@@ -12,3 +12,7 @@ export * from "./blueprint.js";
 export * from "./events.js";
 export * from "./synthesis.js";
 export * from "./builder.js";
+export * from "./wire.js";
+export * from "./canonical.js";
+export * from "./capability.js";
+export * from "./composition.js";

@@ -806,3 +806,63 @@ Schemas: `nativeLibrary.ts`, `nativeExtraction.ts`, `decompTarget.ts`, `decompRu
 
 The native adapter (Engineer 2) now turns each example into a `deepEqual` assertion on the single
 engine export instead of `assert.ok(true)`. Draft refusal is unchanged.
+
+---
+
+## Downstream recombination contracts (additive, 2026-10-27)
+
+Schemas: `packages/contracts/src/{wire,canonical,capability,composition}.ts`. These do not change
+`FeatureSpec`, `NativeSubsystemSpec`, the Electron handoff, or any existing endpoint. They add the
+downstream capability/composition layer described in
+[`docs/RECOMBINATION_PLAN.md`](../docs/RECOMBINATION_PLAN.md). When this section and the zod schemas
+disagree, the zod schemas are normative for field names; both change in the same commit.
+
+**Wire schemas (`wire.ts`).** `WireType` is a closed, machine-readable type: null, bool,
+sized/signed integers (8/16/32/64), floats (32/64), bounded strings, bytes, unix timestamps,
+arrays/maps, strict objects (`additional: false`), enums, tagged unions, blob references and scoped
+handles. There is deliberately no `any`/unknown/`additionalProperties: true` branch: an ambiguous
+boundary is an intake blocker. `encodeWireValue`/`decodeWireValue` preserve int64 (always
+`{"$int":"…"}`), NaN/±Infinity (`{"$float":…}`), bytes (`{"$bytes":base64}`), blob refs
+(`{"$blob":id,"size":n}`) and handles (`{"$handle":id}`). `wireSchemaProblems` rejects empty
+objects, duplicate/reserved (`$…`) field names and unbounded strings. `canonicalJson` sorts keys and
+rejects undefined/non-finite numbers for content hashing.
+
+**`CapabilityDefinition`.** Stable id/version, origin artifact hash and stage, selected behavior and
+exclusions, `OperationSpec[]` (request/result/error wire objects, idempotent/cancellable/timeout,
+optional ordered event stream, declared host effects), provided/required ports with a `Meaning`
+(units, id domain, timezone, ordering, null semantics, cardinality, value scale), package or
+composition state ownership, lifecycle, host-effect declarations, assumptions, preferred runtime and
+public test metadata. Intake rejects definitions whose operations use an undeclared host effect or
+an empty/composition-owned state without a schema.
+
+**`Readiness` / `VerificationReport`.** Five independent dimensions (`upstream_review`,
+`implementation_checks`, `independent_behavior_checks`, `composition_checks`, `packaging_checks`)
+each `passed | failed | not_run | unknown | not_applicable`. A report records per-test
+`assertions`/`calls` counts, mutation kills and survivors, purity/type/boundary results, blockers and
+its own hash. `CapabilityPackage` pins definition/implementation/build hashes, entrypoints, protocol,
+platforms, toolchain, artifact hashes, dependency lock and readiness. `package_id` is derived
+server-side (`pkg_<32 hex>`), never uploaded.
+
+**Intake.** `CapabilityIntakeRequest` couples a definition to its origin artifact, optional review
+attestation, implementation source (TypeScript files, C files + compiler flags, or a legacy
+blueprint), executable public test cases and an optional independent verdict.
+`CapabilityIntakeRecord` stores the outcome plus `IntakeBlocker[]` with an owner and precise question.
+Drafts, unapproved native/Electron review, no-op test bodies, missing identity, tampered artifact
+hashes and `any` interfaces cannot be accepted.
+
+**`CompositionPlan`.** Pinned package instances, explicit bindings (provided → required port with
+field mappings and an optional declared unit bridge), composition-owned documents with revisions,
+workflows (DAG of operations with input mappings, timeouts, retries, idempotency, cancellation,
+failure propagation and stale guards), UI surfaces/actions, permissions, provider configuration and
+machine-executable acceptance scenarios. Structural and meaning compatibility are checked by the
+server; two same-named fields are not automatically compatible.
+
+**`ApplicationBundle`.** Plan hash, app hash, revision, package lock with artifact hashes,
+renderer/host/worker/migration files (binary files by hash), launch command and provider env
+placeholders, platform matrix, three verification reports, and the previous revision. A failed
+build never replaces the last verified revision.
+
+**Jobs.** `JobRecord` persists queued/running/succeeded/failed/cancelled work with a checkpoint and
+request hash; `JobEvent` reports `stage`, `log`, `result`, `error` and terminal `done` over POST-SSE
+or polling. `PreviewRequest/Response` execute a workflow against real stored documents and list
+explicitly unsupported operations instead of simulating them.
