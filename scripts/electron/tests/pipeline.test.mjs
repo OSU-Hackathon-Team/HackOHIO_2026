@@ -8,7 +8,28 @@ import { runCase } from "../oracle.mjs";
 import { buildCases, compareCase, runSuite, usableResults, validateContract } from "../cases.mjs";
 import { assembleProject, validateWorkspace } from "../project.mjs";
 import { findFixture } from "../fixture-search.mjs";
-import { CONTRACT, syntheticArchive, syntheticWorkspace } from "./synthetic.mjs";
+import { CONTRACT, hostSurfaceArchive, syntheticArchive, syntheticWorkspace } from "./synthetic.mjs";
+
+test("the mocked host answers Electron-only process properties and native bindings", async () => {
+  const { root, extracted } = await hostSurfaceArchive();
+  try {
+    const result = await runCase({ appDir: extracted, case: { channel: "host:surface" } });
+    const surface = result.outcomes[0].value;
+    /* A large application loads @electron/remote and registers a privileged scheme before the
+       first window; neither exists in Node, so the host answers both instead of letting the main
+       process die at import time. */
+    assert.equal(surface.scheme, "function");
+    assert.equal(surface.dark, false);
+    assert.equal(surface.resources, true, "process.resourcesPath names the directory that holds the app");
+    assert.equal(surface.defaultApp, false);
+    assert.equal(surface.linked, "function");
+    /* The stub never invents a value: the observation reports the sanitized undefined. */
+    assert.deepEqual(surface.hidden, { $undefined: true });
+    assert.deepEqual(surface.flag, { $undefined: true });
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
 
 test("oracle observes a never-seen archive without any target-specific code", async () => {
   const { root, archive, extracted } = await syntheticArchive();

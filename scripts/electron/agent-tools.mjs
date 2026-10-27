@@ -12,8 +12,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { runCase } from "./oracle.mjs";
-import { buildCases, coverage, coverageGaps, hash, narrowChannels, partitionCases,
-  usableResults } from "./cases.mjs";
+import { buildCases, coverage, coverageGaps, filesWithoutDescribedContent, hash, narrowChannels,
+  partitionCases, usableResults } from "./cases.mjs";
 import { excludedChannels, validateSpec } from "./spec.mjs";
 import { findFixture } from "./fixture-search.mjs";
 
@@ -235,6 +235,7 @@ async function prepareCases(spec) {
     coverage: publicSuite.coverage,
     gaps: coverageGaps(observed, channelNames),
     narrow: narrowChannels(observed, channelNames),
+    undescribed_files: filesWithoutDescribedContent(spec, observed),
     public_gaps: publicSuite.gaps,
     excluded_channels: [...excluded.keys()] };
 }
@@ -375,14 +376,17 @@ server.registerTool("declare_spec", {
     excluded_channels: [...excluded.keys()], problems,
     cases: report.cases ?? 0, coverage: report.coverage ?? {}, gaps: report.gaps ?? [],
     narrow_channels: report.narrow ?? [],
+    undescribed_files: report.undescribed_files ?? [],
     next: remaining.length
       ? "Declare the remaining channels (send them in batches); the specification is not complete yet."
       : problems.length ? "Fix the listed problems and declare again."
       : report.gaps?.length ? "Close the coverage gaps before finishing."
-      : report.narrow?.length
-        ? "The specification is complete. Channels listed in narrow_channels answered with a " +
-          "single outcome; keep them only if their result genuinely does not depend on their " +
-          "arguments, otherwise add argument samples and declare again."
+      : report.narrow?.length || report.undescribed_files?.length
+        ? "The specification is complete. Channels listed in narrow_channels answered with a single " +
+          "outcome; keep them only if their result genuinely does not depend on their arguments. " +
+          "Files listed in undescribed_files are written by cases but their content appears nowhere " +
+          "in the specification: if an implementer cannot derive them, read them with oracle_file " +
+          "and state them."
         : "Specification complete; stop declaring." });
 });
 

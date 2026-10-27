@@ -459,6 +459,31 @@ export function narrowChannels(results, expectedChannels = [], { minDistinct = 3
   return narrow;
 }
 
+/**
+ * Files whose content the specification never states. A channel that writes a file whose bytes the
+ * implementer cannot derive — a migrated defaults blob, a generated index — is only specified if
+ * the specification carries enough of that content to rebuild it. This is reported, not enforced:
+ * derived files are legitimate, and only a reader can tell them from missing evidence.
+ */
+export function filesWithoutDescribedContent(spec, results, { prefix = 120 } = {}) {
+  const text = JSON.stringify(spec ?? {});
+  const files = new Map();
+  for (const item of results) {
+    for (const effect of item.result?.effects ?? []) {
+      for (const [file, content] of Object.entries(effect.changed ?? {})) {
+        if (isDiagnosticFile(file) || typeof content !== "string") continue;
+        if (content.length < prefix) continue;
+        if (text.includes(content.slice(0, prefix).replace(/\\n/g, "\n"))) continue;
+        if (text.includes(content.slice(0, prefix).replace(/\\n/g, "\\n"))) continue;
+        const entry = files.get(file) ?? new Set();
+        entry.add(item.case.channel);
+        files.set(file, entry);
+      }
+    }
+  }
+  return [...files.entries()].map(([file, channels]) => ({ file, channels: [...channels].sort() }));
+}
+
 function successful(item) {
   return (item.result?.outcomes ?? []).every(outcome => outcome.ok);
 }

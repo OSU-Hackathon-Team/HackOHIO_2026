@@ -240,11 +240,28 @@ async function worker() {
   /* Libraries branch on process.type. Without it, packages such as electron-log load their
      renderer preload inside the main process and crash on renderer-only globals. */
   if (!process.type) process.type = "browser";
+  /* Electron-only process properties and native bindings do not exist in Node, and packages read
+     them while loading: @electron/remote calls process._linkedBinding('electron_common_v8_util')
+     and reads feature flags from it. An unknown binding answers with a stub whose members return
+     undefined, which is the conservative answer for the checks they are used for, and the paths
+     match Electron's layout (resourcesPath is the directory that holds the app). */
+  const stubBinding = () => new Proxy({}, { get: (_, key) => key === Symbol.toPrimitive ? undefined : () => undefined });
+  const nativeBinding = process._linkedBinding?.bind(process);
+  if (nativeBinding) {
+    try {
+      process._linkedBinding = name => { try { return nativeBinding(name); } catch { return stubBinding(); } };
+    } catch { /* the property may be read-only */ }
+  }
+
   try { process.versions.electron ??= "45.0.0"; } catch { /* versions may be frozen */ }
 
   const require = createRequire(import.meta.url);
   const Module = require("node:module");
   const pathModule = require("node:path");
+  /* Electron's own process properties, which applications read to locate their resources. */
+  process.resourcesPath = pathModule.dirname(payload.appDir);
+  process.defaultApp = false;
+  process.isMainFrame = true;
   const io = [];
   recordIo(io, payload.bases);
 
@@ -441,6 +458,38 @@ async function worker() {
         screenToDipRect: rect => rect, dipToScreenRect: rect => rect };
     })(),
     powerMonitor: noopEmitter,
+    /* protocol and the smaller modules are part of the main-process surface real applications
+       touch during startup (registerSchemesAsPrivileged, systemPreferences lookups). */
+    protocol: {
+      registerSchemesAsPrivileged: () => {}, isProtocolHandled: async () => false,
+      handle: () => {}, unhandle: () => {},
+      registerFileProtocol: () => {}, registerBufferProtocol: () => {}, registerStringProtocol: () => {},
+      registerStreamProtocol: () => {}, registerHttpProtocol: () => {},
+      unregisterProtocol: () => {}, unregisterFileProtocol: () => {}, unregisterBufferProtocol: () => {},
+      unregisterStringProtocol: () => {}, unregisterStreamProtocol: () => {}, unregisterHttpProtocol: () => {},
+      interceptFileProtocol: () => true, interceptBufferProtocol: () => true,
+      interceptStringProtocol: () => true, interceptStreamProtocol: () => true,
+      interceptHttpProtocol: () => true, uninterceptProtocol: () => true,
+    },
+    systemPreferences: { isDarkMode: () => false, getMediaAccessStatus: () => "granted",
+      askForMediaAccess: async () => true, getAccentColor: () => "", getColor: () => "#000000",
+      isAeroGlassEnabled: () => false, isInvertedColorScheme: () => false, isHighContrastColorScheme: () => false,
+      getAnimationSettings: () => ({ shouldRenderRichAnimation: false, scrollAnimationsEnabledBySystem: false,
+        prefersReducedMotion: false }), isSwipeTrackingFromScrollEventsEnabled: () => false,
+      subscribeNotification: () => {}, unsubscribeNotification: () => {}, subscribeWorkspaceNotification: () => {},
+      unsubscribeWorkspaceNotification: () => {}, on: () => {}, once: () => {}, removeListener: () => {} },
+    contentTracing: { startRecording: async () => {}, stopRecording: async () => "",
+      getCategories: async () => [], getTraceBufferUsage: async () => ({ value: 0, percentage: 0 }) },
+    crashReporter: { start: () => {}, getLastCrashReport: () => null, getUploadedReports: () => [],
+      getUploadToServer: () => false, setUploadToServer: () => {}, addExtraParameter: () => {},
+      removeExtraParameter: () => {}, getParameters: () => ({}), addASARHeaderInfo: () => {} },
+    desktopCapturer: { getSources: async () => [] },
+    MessageChannelMain: class { constructor() { const { port1, port2 } = (() => { const port = { postMessage: () => {},
+      close: () => {}, start: () => {}, on: () => {}, once: () => {}, addListener: () => {}, removeListener: () => {},
+      onmessage: null, onmessageerror: null }; return { port1: { ...port }, port2: { ...port } }; })();
+      this.port1 = port1; this.port2 = port2; } },
+    TouchBar: class { constructor() {} },
+    webFrameMain: { fromId: () => null, fromWebContents: () => null },
     globalShortcut: { register: () => true, isRegistered: () => false, unregister: () => {},
       unregisterAll: () => {} },
     safeStorage: { isEncryptionAvailable: () => false, encryptString: value => Buffer.from(String(value)),

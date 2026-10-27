@@ -103,6 +103,44 @@ module.exports = async function (args, ctx) {
 };
 `;
 
+/* A main process that touches the Electron-only process properties and native bindings large apps
+   use at import time (protocol schemes, systemPreferences, process._linkedBinding). */
+export const HOST_SURFACE_SOURCE = `"use strict";
+const { app, ipcMain, protocol, systemPreferences } = require("electron");
+
+protocol.registerSchemesAsPrivileged([{ scheme: "app", privileges: { standard: true } }]);
+const v8Util = process._linkedBinding ? process._linkedBinding("electron_common_v8_util") : null;
+const features = process._linkedBinding ? process._linkedBinding("electron_common_features") : null;
+
+app.whenReady().then(() => {
+  ipcMain.handle("host:surface", () => ({
+    scheme: typeof protocol.registerSchemesAsPrivileged,
+    dark: systemPreferences.isDarkMode(),
+    resources: Boolean(process.resourcesPath),
+    defaultApp: process.defaultApp,
+    linked: v8Util && typeof v8Util.getHiddenValue,
+    hidden: v8Util && v8Util.getHiddenValue({}, "anything"),
+    flag: features && features.isViewApiEnabled && features.isViewApiEnabled(),
+  }));
+});
+`;
+
+export async function hostSurfaceArchive() {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "splice-synthetic-surface-"));
+  const source = path.join(root, "source");
+  await fsp.mkdir(source);
+  await fsp.writeFile(path.join(source, "package.json"), JSON.stringify({
+    name: "synthetic-surface", version: "1.0.0", main: "main.js",
+  }));
+  await fsp.writeFile(path.join(source, "main.js"), HOST_SURFACE_SOURCE);
+  const archive = path.join(root, "app.asar");
+  await asar.createPackage(source, archive);
+  const extracted = path.join(root, "extracted");
+  await fsp.mkdir(extracted);
+  asar.extractAll(archive, extracted);
+  return { root, archive, extracted };
+}
+
 export const ADD_FEATURE = `"use strict";
 module.exports = async function (args, ctx) {
   const [name, text] = args;
