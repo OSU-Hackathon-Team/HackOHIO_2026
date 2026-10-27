@@ -841,7 +841,10 @@ each `passed | failed | not_run | unknown | not_applicable`. A report records pe
 `assertions`/`calls` counts, mutation kills and survivors, purity/type/boundary results, blockers and
 its own hash. `CapabilityPackage` pins definition/implementation/build hashes, entrypoints, protocol,
 platforms, toolchain, artifact hashes, dependency lock and readiness. `package_id` is derived
-server-side (`pkg_<32 hex>`), never uploaded.
+server-side (`pkg_<32 hex>`), never uploaded. On the current Linux runtime, both
+`ts_worker`/`node_worker` and `native_sidecar` packages execute in supervised bubblewrap
+processes with read-only package mounts and no network access. The runtime-kind names remain
+contract identifiers; they do not promise an in-process Node worker thread.
 
 **Intake.** `CapabilityIntakeRequest` couples a definition to its origin artifact, optional review
 attestation, implementation source (TypeScript files, C files + compiler flags, or a legacy
@@ -853,16 +856,29 @@ hashes and `any` interfaces cannot be accepted.
 **`CompositionPlan`.** Pinned package instances, explicit bindings (provided → required port with
 field mappings and an optional declared unit bridge), composition-owned documents with revisions,
 workflows (DAG of operations with input mappings, timeouts, retries, idempotency, cancellation,
-failure propagation and stale guards), UI surfaces/actions, permissions, provider configuration and
-machine-executable acceptance scenarios. Structural and meaning compatibility are checked by the
-server; two same-named fields are not automatically compatible.
+failure propagation, stale guards and transactional `writes` projections into revisioned documents),
+UI surfaces/actions, permissions, provider configuration and machine-executable acceptance
+scenarios. Structural and meaning compatibility are checked by the server; two same-named fields
+are not automatically compatible. A step input may read an explicit binding output through
+`$bindings.<binding_id>.<field>` after its source step completes. Each `writes` entry identifies
+a document, a field path and a source path such as `$steps.<step_id>.<field>` or `$input.<field>`;
+the workflow engine applies them with optimistic document revisions.
 
 **`ApplicationBundle`.** Plan hash, app hash, revision, package lock with artifact hashes,
 renderer/host/worker/migration files (binary files by hash), launch command and provider env
 placeholders, platform matrix, three verification reports, and the previous revision. A failed
-build never replaces the last verified revision.
+build never replaces the active verified revision. `ApplicationRevisionListResponse` lists stored
+revisions and the durable active revision. Activation returns an `ApplicationRecord`; data schema
+and migration compatibility are checked before switching.
 
 **Jobs.** `JobRecord` persists queued/running/succeeded/failed/cancelled work with a checkpoint and
 request hash; `JobEvent` reports `stage`, `log`, `result`, `error` and terminal `done` over POST-SSE
 or polling. `PreviewRequest/Response` execute a workflow against real stored documents and list
 explicitly unsupported operations instead of simulating them.
+
+**Live transcription.** `TranscriptionAvailabilityResponse` reports whether the optional AWS
+Transcribe Streaming adapter is configured. `TranscriptionEvent` is a POST-SSE stream with
+`started` (provider, hash-addressed uploaded audio and sample rate), timestamped partial/final
+`segment` updates keyed by stable index, terminal `done` and typed `error`. This is a
+downstream provider substitution, not recovered Notion transcription behavior.
+The opt-in provider requires a separate workspace access token before accepting billable uploads.

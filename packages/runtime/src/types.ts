@@ -1,4 +1,5 @@
 import type {
+  CapabilityDefinition,
   CapabilityPackage,
   HostEffect,
   OperationSpec,
@@ -12,7 +13,7 @@ export interface CallOptions {
   onEvent?(event: unknown): void;
 }
 
-/** One call surface for native sidecars and JS workers. Inputs/outputs are host values. */
+/** One call surface for native sidecars and isolated JS processes. Inputs/outputs are host values. */
 export interface CapabilityClient {
   readonly package: CapabilityPackage;
   readonly alive: boolean;
@@ -21,13 +22,16 @@ export interface CapabilityClient {
 }
 
 export interface RuntimeOptions {
+  /** Definition schemas are stored as a separate, hash-pinned registry artifact. */
+  definition: CapabilityDefinition;
   /** Directory that contains the package's verified artifacts, by relative path. */
   artifactRoot: string;
   platform?: PlatformSupport;
   /** Granted host effects. A call that needs an ungranted effect fails before transport. */
   grantedEffects?: HostEffect[];
   env?: Record<string, string>;
-  cwd?: string;
+  /** Hard ceiling for every call. Never lengthens an operation's declared `timeout_ms`. */
+  timeoutMs?: number;
   onLog?(line: string): void;
   /** Test seam; production leaves this undefined. */
   spawnImpl?: typeof import("node:child_process").spawn;
@@ -69,9 +73,9 @@ export interface AudioCapture {
 
 export interface ProviderAdapter {
   readonly id: string;
-  /** Streams ordered segments; disconnecting throws a typed provider error. */
+  /** Streams ordered segments from an explicitly described audio blob; disconnecting throws a typed provider error. */
   transcribe(
-    input: { audio: BlobRef; language: string | null },
+    input: { audio: BlobRef; language: string | null; format: "pcm_s16le"; sampleRateHz: number; channels: 1 },
     options: { signal?: AbortSignal },
   ): AsyncIterable<{ index: number; startMs: number; endMs: number; text: string; final: boolean }>;
 }

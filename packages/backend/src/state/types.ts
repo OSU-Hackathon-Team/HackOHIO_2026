@@ -15,6 +15,7 @@ export interface AppRevisionRecord {
   app_hash: string;
   bundle: unknown;
   created_at: string;
+  build_job_id?: string | null;
 }
 
 export interface OutboxItem {
@@ -42,9 +43,12 @@ export interface StateStore {
   /** `expectedRevision` null means "create or replace only if absent". */
   putDocument(document: string, data: JsonValue, expectedRevision: number | null): DocumentRecord;
   listDocuments(): DocumentRecord[];
-  saveApp(record: AppRevisionRecord): void;
+  saveApp(record: AppRevisionRecord, expectedActiveRevision?: number | null): void;
   getApp(app_id: string, revision: number): AppRevisionRecord | null;
+  getAppByBuildJob(job_id: string): AppRevisionRecord | null;
   latestApp(app_id: string): AppRevisionRecord | null;
+  activeApp(app_id: string): AppRevisionRecord | null;
+  activateApp(app_id: string, revision: number, expectedActiveRevision?: number | null): AppRevisionRecord;
   listApps(): AppRevisionRecord[];
   enqueue(item: Omit<OutboxItem, "id" | "created_at" | "status" | "attempts">): OutboxItem;
   pendingOutbox(limit?: number): OutboxItem[];

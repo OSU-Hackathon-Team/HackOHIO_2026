@@ -3,13 +3,87 @@
 Companion to [`RECOMBINATION_PLAN.md`](RECOMBINATION_PLAN.md). The plan is the design; this file is
 the execution board. It exists so agents can pick up independent work without re-deriving context.
 
+## Current evidence and remaining gates (2026-10-27)
+
+The downstream implementation now has intake and artifact integrity checks, TS and C package
+builders, a shared runtime client, SQLite state, explicit bindings/workflows, a Studio route and
+view, and an Electron source export. Package reuse now includes source files, compiler settings,
+and the public test suite in its hash-checked build input identity. The authored meeting notebook
+passes service and HTTP integration, live Studio build/preview/export after a browser reload, and
+a real Electron renderer run and restart on Linux x64. Run `npm run test:recombination:desktop`
+for the opt-in display smoke; it requires Xvfb and Electron installed locally. The existing
+`npm run test:studio -- --grep-invert "Sandpack boots"` browser suite also passes (12 checks).
+This Ubuntu 26.04 host needs `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64` and a browser
+installed on the scratch drive; the CI Ubuntu runner uses its supported Chromium build.
+
+This is **development evidence, not full M0–M7 acceptance**. The notebook uses authored formula,
+Markdown and recorded-segment fixtures. It does not consume an approved upstream native or
+Electron-origin package or recover Notion's transcription behavior. An optional AWS Transcribe
+Streaming adapter now recognizes an imported mono PCM16 WAV through the backend and streams
+partial/final segments to Studio. A short synthetic speech sample completed the live AWS call;
+the final result was imperfect ("A 320 and the total is 60."). The same stream populated the
+notebook workflow input and its preview persisted the transcript with formula value 60. This
+proves external transport and downstream wiring, not quality on human audio, microphone capture,
+provider recovery after a server crash, or live transcription in the exported app. The
+native-origin intake test uses a synthetic artifact and approval solely to exercise the gate;
+it is not an upstream review result. On Linux, JS and native packages now run as separate
+processes inside bubblewrap user, PID, mount and network namespaces. Tests confirm package
+files are visible while host scratch files and a host TCP listener are unavailable. Host-effect
+brokering and equivalent isolation on other operating systems remain open. A separate two-package
+budget board recipe now validates, executes, persists, previews and exports with a replacement
+formula package and an authored budget renderer. Its explicit binding, different workflow and
+document shape need no compiler changes. Its own export launches under Electron, computes 60
+then 108, and reads both the total and report after restart. Workflow
+writes now merge from the exact revision they compare; concurrency tests cover intervening edits
+and a multi-document rollback on a stale result. Two source exports have launched on Linux x64.
+Build jobs persist typed, hash-checked requests and replay from a safe build boundary after a
+server restart under the original job ID; Studio reconnects to an active job after reload. A
+SQLite migration ties each saved app revision to its build job, so replay after the app commit
+returns that revision without creating another. Checkpoints are diagnostic, not resumable compiler
+state. The app commit and job-result file are still separate writes; recovery replays the request
+to reconcile them. A durable active revision now supports same-schema rollback through Studio;
+the previous revision and shared documents remain stored. A schema or durable package-state change
+needs an explicit data migration before activation. Builds and switches compare the active revision
+again inside the SQLite transaction, so a concurrent change returns a conflict. Activation also
+revalidates package availability, file hashes, the application hash and bundled migrations.
+Platform builds, delivery updates, and realistic
+performance budgets remain open. The `verified` application status means its current package, scenario and export checks passed; it
+does not assert any of those open acceptance gates passed.
+The CI workflow is configured to run the live Studio and exported Electron smokes on its Linux runner.
+The production Docker image builds locally, starts, serves the frontend, and returns healthy API
+responses. Its runner includes the runtime package and the TypeScript templates needed to compile
+Electron exports. A diagnostic `--privileged` container seeded four authored packages, built the
+notebook app, and previewed value 60. Docker's default security profile blocks bubblewrap's nested
+namespaces, so package build and preview do **not** work in a normal container. Broad container
+privileges are not a production deployment solution; a separately reviewed sandbox deployment
+design is still required for container-hosted recombination. The CI container smoke checks startup,
+the capabilities API, and compiler template bundling, not nested sandbox execution.
+
+### Optional live transcription
+
+Set `SPLICE_TRANSCRIPTION_PROVIDER=aws` with AWS credentials, a supported `AWS_REGION`, and a
+separate random `SPLICE_TRANSCRIPTION_ACCESS_TOKEN` of at least 32 characters. Give that workspace
+access key to authorized Studio users; it is distinct from AWS credentials and is not persisted in
+browser storage. Then
+open the active notebook in Studio and import a mono signed 16-bit PCM WAV (8–48 kHz, up to 10 MB).
+The POST-SSE route `/api/recombination/transcription` stores the uploaded PCM in the workspace blob
+store and emits `started`, timestamped partial/final `segment`, and terminal `done`/`error` events.
+The route requires `X-Splice-Transcription-Token` before it accepts the upload; serve Studio over
+HTTPS when users connect remotely so the workspace key stays private in transit.
+Studio inserts finalized segments into the workflow input; run preview to save them in the meeting
+document. `npm run test:recombination:transcription:live -- <mono-pcm16.wav>` checks the actual
+provider without Studio. The synthetic sample above is a plumbing check; a labeled human-audio
+latency/quality test remains required. AWS Transcribe needs permission to start a streaming
+transcription and is an external provider substitution, not a Notion implementation.
+
 ## Ground rules
 
 - Contracts are already written in `packages/contracts/src/{wire,canonical,capability,composition}.ts`.
   They are the build interface. Do not change them without updating this file and
   `agents/CONTRACTS.md` in the same commit.
 - New backend code lives under `packages/backend/src/{capabilities,composition,state,verification,example,recombination}/`.
-  Do not edit `server.ts`, `routes/step3/*`, `synthesis/*`, `native/*`, or frozen decompilation code.
+  The recombination router is mounted in `server.ts`; keep `routes/step3/*`, `synthesis/*`,
+  `native/*`, and frozen decompilation code untouched.
 - New workspace packages: `packages/runtime/` (host runtime) and `packages/desktop-host/` (Electron shell).
 - Everything downstream is additive. Legacy Step 3 endpoints keep working.
 - Tests use `node:test` + `node --import tsx --test`. They must not need network, AWS, Docker, or a
@@ -43,7 +117,7 @@ Deliver:
 - `sidecarClient.ts`: spawn a package's sidecar executable, newline-delimited JSON protocol
   (`PROTOCOL.md`), request ids, deadlines, abort -> kill, pending rejection, bounded line size,
   stderr cap, restart policy, no shell interpolation.
-- `jsWorker.ts` + `jsPackageWorker.mjs`: load a built ESM package in a worker thread, dispatch
+- `jsWorker.ts` + `jsSidecarRunner.mjs`: load a built ESM package in an isolated process, dispatch
   `operations[name](input, ctx)`, stream events, terminate on timeout/cancel, restart on demand.
 - `client.ts`: one `CapabilityClient` for both runtime kinds, validating calls and results against
   `OperationSpec` wire schemas before/after transport.
@@ -51,7 +125,7 @@ Deliver:
   size limits), clock, env secrets (allowlist), audio capture availability (not simulated),
   provider registry. Permission checks live here, not in generated UI.
 - Tests: protocol round-trip, int64/NaN/bytes, timeout kills, abort, child crash containment,
-  restart, malformed line, oversized frame, permission denial, worker memory isolation.
+  restart, malformed line, oversized frame, permission denial, process filesystem/network isolation.
 
 ### W2 · Capabilities — `packages/backend/src/capabilities/`
 
@@ -66,7 +140,7 @@ Deliver:
   intakes and packages; never trusts an uploaded `verification` field (recomputes reference hash).
 - `clientGen.ts`: schema-derived TypeScript client + host wrapper + README from a definition.
 - `tsBuilder.ts`: esbuild bundle of implementation files (reject imports outside the package),
-  run public tests in an isolated worker, mutation smoke check, produce `CapabilityPackage`.
+  run public tests in an isolated process, mutation smoke check, produce `CapabilityPackage`.
 - `nativeBuilder.ts`: generate the C shim from operation wire schemas, compile with pinned gcc
   flags, run public C cases through the real sidecar, run boundary cases (int64 min/max, division
   by zero), produce a native package.
@@ -113,6 +187,30 @@ Integration test drives the real registry, runtime, store, workflows, compiler a
 
 ### W5 · API, Studio and export
 
+Route surface (all JSON unless noted; SSE is POST-friendly via `fetch` anywhere a job runs):
+
+| Method/path | Body/result |
+|---|---|
+| `GET /api/capabilities` | `CapabilityListResponse` |
+| `POST /api/capabilities/intake` | `CapabilityIntakeRequest` → `CapabilityIntakeRecord` |
+| `POST /api/capabilities/build` | `CapabilityBuildRequest` → `JobRecord` |
+| `GET /api/capabilities/:packageId` | `CapabilityPackage` |
+| `POST /api/recombination/seed` | idempotently install authored development packages → `CapabilityListResponse` |
+| `GET /api/recombination/transcription` | `TranscriptionAvailabilityResponse` for optional external provider |
+| `POST /api/recombination/transcription` | mono PCM16 WAV upload → POST-SSE `TranscriptionEvent` stream |
+| `POST /api/compositions/validate` | `CompositionValidateRequest` → `CompositionValidateResponse` |
+| `POST /api/apps` | `ApplicationBuildRequest` → `JobRecord` |
+| `GET /api/apps` | `ApplicationListResponse` |
+| `GET /api/apps/:appId/revisions` | `ApplicationRevisionListResponse` with active revision |
+| `GET /api/apps/:appId/revisions/latest` | `ApplicationRecord` |
+| `GET /api/apps/:appId/revisions/:revision` | `ApplicationRecord` |
+| `POST /api/apps/:appId/revisions/:revision/activate` | `ApplicationRecord`; rejects incompatible state |
+| `POST /api/apps/:appId/preview` | `PreviewRequest` → `PreviewResponse` |
+| `GET /api/apps/:appId/export` | `ApplicationExportResponse` |
+| `GET /api/jobs/:jobId` | `JobRecord` |
+| `GET /api/jobs/:jobId/events` | `text/event-stream` of `JobEvent` |
+| `POST /api/jobs/:jobId/cancel` | `JobRecord` |
+
 - `routes/recombination.ts`: intake, build job, package list, composition validate, app build,
   revisions, export, preview, job SSE/poll. Mount in `server.ts` (owner: orchestrator).
 - Frontend `RecombinationView` + store: real registry after reload, plan builder, blockers,
@@ -129,9 +227,28 @@ Integration test drives the real registry, runtime, store, workflows, compiler a
   compile and run), distribution (export completeness), generality (second recipe + replacement).
 - Wire these gates into build/compile results; `not_run`/`unknown` stay distinct from `passed`.
 
+## Public test harness formats
+
+`PublicTestCase.code` is executable, not prose. Intake rejects tests that do not exercise the
+capability.
+
+- **TypeScript (`harness: "ts"`)** — the body of an async function receiving `ctx`:
+  `const { sum } = await ctx.call("add", { a: 1, b: 2 }); ctx.assert.equal(sum, 3);`
+  `ctx.call` validates against the operation's wire schemas and counts as a real call.
+  `ctx.assert` is the Node `assert/strict` surface and counts assertions. Imports are not allowed;
+  the builder wraps the body in `new AsyncFunction("ctx", code)` inside a bubblewrap process.
+- **C (`harness: "c"`)** — a JSON document:
+  `[{"op":"add_i64","args":{"a":{"$int":"1"},"b":{"$int":"2"}},"expect":{"sum":{"$int":"3"}}}]`
+  or `[{"op":"divide","args":{"a":1,"b":0},"expect_error":{"code":"division_by_zero"}}]`.
+  The builder drives the real sidecar and compares decoded values, so int64 and error fidelity are
+  tested through transport rather than by inspecting source.
+
+A test with zero `ctx.call`/`ctx.assert` (or an empty C case list, or only `assert.ok(true)`) is a
+no-op and blocks intake.
+
 ## Known environment facts
 
-- Node 22.22, gcc 15, no Docker required for these tests.
+- Node 22.22, gcc 15, bubblewrap and prlimit; no Docker required for these tests.
 - `node:sqlite` is available but prints an experimental warning; tests may silence it.
 - `npm ci` installs into a bind-mounted scratch disk. Contracts tests now use `tsx`.
 - The repo has no `data/` runtime dir; use `SPLICE_STATE_DIR`.

@@ -109,6 +109,18 @@ export const WorkflowStep = z
       .strict()
       .nullable()
       .default(null),
+    /** Transactional projections of this step's output into composition-owned documents. */
+    writes: z
+      .array(
+        z
+          .object({
+            document: DocumentId,
+            path: z.string().min(1).max(200),
+            from: z.string().min(1).max(300),
+          })
+          .strict(),
+      )
+      .default([]),
   })
   .strict();
 export type WorkflowStep = z.infer<typeof WorkflowStep>;
@@ -305,6 +317,11 @@ export const CompositionPlan = z
         if (step.stale_guard && !documents.has(step.stale_guard.document)) {
           ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Step ${step.id} stale guard references unknown document` });
         }
+        for (const write of step.writes) {
+          if (!documents.has(write.document)) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Step ${step.id} writes to unknown document ${write.document}` });
+          }
+        }
       }
     }
     for (const binding of plan.bindings) {
@@ -463,6 +480,19 @@ export const ApplicationListResponse = z
     ),
   })
   .strict();
+export type ApplicationListResponse = z.infer<typeof ApplicationListResponse>;
+
+export const ApplicationRevisionListResponse = z.object({
+  app_id: z.string().regex(/^app_[a-f0-9]{32}$/),
+  active_revision: z.number().int().nonnegative().nullable(),
+  revisions: z.array(z.object({
+    revision: z.number().int().nonnegative(),
+    status: z.enum(["verified", "failed"]),
+    app_hash: Hash,
+    created_at: z.string().datetime({ offset: true }),
+  }).strict()),
+}).strict();
+export type ApplicationRevisionListResponse = z.infer<typeof ApplicationRevisionListResponse>;
 
 export const ApplicationExportResponse = z
   .object({
@@ -489,6 +519,7 @@ export const JobProgress = z
     checkpoint: z.string().nullable(),
   })
   .strict();
+export type JobProgress = z.infer<typeof JobProgress>;
 
 export const JobRecord = z
   .object({
@@ -536,5 +567,21 @@ export const PreviewResponse = z
   })
   .strict();
 export type PreviewResponse = z.infer<typeof PreviewResponse>;
+
+/** Opt-in external provider stream. Audio is an uploaded, hash-addressed workspace blob. */
+export const TranscriptionAvailabilityResponse = z.object({
+  configured: z.boolean(),
+  provider: z.literal("aws_transcribe_streaming").nullable(),
+  detail: z.string(),
+}).strict();
+export type TranscriptionAvailabilityResponse = z.infer<typeof TranscriptionAvailabilityResponse>;
+
+export const TranscriptionEvent = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("started"), provider: z.literal("aws_transcribe_streaming"), audio: z.object({ id: Hash, size: z.number().int().positive() }).strict(), sample_rate_hz: z.number().int().positive() }).strict(),
+  z.object({ type: z.literal("segment"), index: z.number().int().nonnegative(), start_ms: z.number().int().nonnegative(), end_ms: z.number().int().nonnegative(), text: z.string(), final: z.boolean() }).strict(),
+  z.object({ type: z.literal("done"), final_segments: z.number().int().nonnegative() }).strict(),
+  z.object({ type: z.literal("error"), code: z.string(), message: z.string(), retryable: z.boolean() }).strict(),
+]);
+export type TranscriptionEvent = z.infer<typeof TranscriptionEvent>;
 
 export const CompositionRequest = z.object({ plan: CompositionPlan }).strict();

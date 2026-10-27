@@ -82,6 +82,15 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.sandpack }}
         run: npm run test:studio
 
+      - name: Install capability runtime isolation
+        run: sudo apt-get install -y bubblewrap util-linux xvfb
+
+      - name: Test live recombination through Studio
+        run: npm run test:recombination:studio
+
+      - name: Test exported recombination apps in Electron
+        run: npm run test:recombination:desktop
+
       - name: Upload browser failure diagnostics
         if: ${{ failure() }}
         uses: actions/upload-artifact@v4
@@ -145,7 +154,8 @@ jobs:
 
           docker exec -i splice-smoke-test node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
-          import { HealthResponse, Pantry, FeatureBlueprint } from './packages/contracts/dist/index.js';
+          import { HealthResponse, Pantry, FeatureBlueprint, CapabilityListResponse } from './packages/contracts/dist/index.js';
+          import { build } from 'esbuild';
           const base = 'http://127.0.0.1:3001';
           // Verify the actual image serves the chat/library entry point, not merely any SPA HTML.
           const page = await fetch(base + '/');
@@ -166,11 +176,15 @@ jobs:
           }
           Pantry.parse(await (await fetch(base + '/api/pantry')).json());
           FeatureBlueprint.array().parse(await (await fetch(base + '/api/blueprints')).json());
+          CapabilityListResponse.parse(await (await fetch(base + '/api/capabilities')).json());
+          await build({ entryPoints: ['packages/desktop-host/src/main.ts'], bundle: true, write: false, platform: 'node', format: 'esm', target: 'node24', external: ['electron'], logLevel: 'silent' });
+          await build({ entryPoints: ['packages/desktop-host/src/preload.ts'], bundle: true, write: false, platform: 'node', format: 'cjs', target: 'node24', external: ['electron'], logLevel: 'silent' });
+          await build({ entryPoints: ['packages/runtime/src/jsSidecarRunner.mjs'], bundle: true, write: false, platform: 'node', format: 'esm', target: 'node24', logLevel: 'silent' });
           const invalid = await fetch(base + '/api/implement', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
           });
           assert.equal(invalid.status, 400, 'Malformed implement request must fail before SSE');
-          console.log('Production health, model routing, pantry, blueprint and request-validation checks passed');
+          console.log('Production health, API, app compiler templates and request-validation checks passed');
           NODE
 
       - name: Container teardown

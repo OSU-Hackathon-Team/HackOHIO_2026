@@ -1,0 +1,10 @@
+{
+  "name": "@splice/desktop-host",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Source entry points bundled into downstream Electron application exports",
+  "devDependencies": {
+    "electron": "45.0.0"
+  }
+}
