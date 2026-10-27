@@ -202,6 +202,7 @@ export const ProviderConfig = z
     config_schema: WireObjectSchema,
     replacement_for: z.string().nullable(),
     document_projection: z.object({ document: DocumentId, path: z.string().regex(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/), id_prefix: z.string().regex(/^[a-z][a-z0-9_-]{0,39}$/) }).strict().optional(),
+    workflow_input: z.object({ workflow: WorkflowId, path: z.string().regex(/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/) }).strict().optional(),
   })
   .strict();
 export type ProviderConfig = z.infer<typeof ProviderConfig>;

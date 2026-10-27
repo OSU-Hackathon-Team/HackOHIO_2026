@@ -15,6 +15,7 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), "splice-electron-export-test-
 const stateDir = path.join(root, "builder-state");
 const appDir = path.join(root, "app");
 const configDir = path.join(root, "config");
+const liveTranscriptionWav = process.env.SPLICE_TEST_EXPORTED_TRANSCRIPTION_WAV;
 fs.mkdirSync(appDir, { recursive: true });
 const service = new FilesystemRecombinationService(stateDir);
 async function writeExport(appId, directory) {
@@ -33,7 +34,7 @@ try {
   const built = await service.buildApp(plan, { signal: new AbortController().signal, stage() {}, log() {} });
   await writeExport(built.app_id, appDir);
 
-  const options = { executablePath: binary, args: [appDir], env: { ...process.env, XDG_CONFIG_HOME: configDir }, timeout: 30_000 };
+  const options = { executablePath: binary, args: [appDir], env: { ...process.env, XDG_CONFIG_HOME: configDir, ...(liveTranscriptionWav ? { SPLICE_TRANSCRIPTION_PROVIDER: "aws" } : {}) }, timeout: 30_000 };
   let desktop = await _electron.launch(options);
   try {
     const page = await desktop.firstWindow();
@@ -47,6 +48,18 @@ try {
     await page.getByRole("button", { name: "Run workflow" }).click();
     await page.waitForFunction(() => document.querySelector("pre")?.textContent?.includes('"value": 80'));
     assert.equal((await page.evaluate(() => window.splice.getDocument("meeting"))).data.value, 80);
+    if (liveTranscriptionWav) {
+      await page.getByLabel("Audio WAV file").setInputFiles(liveTranscriptionWav);
+      await page.getByRole("button", { name: "Transcribe WAV" }).click();
+      await expect.poll(async () => (await page.evaluate(() => window.splice.listTranscriptions()))[0]?.status, { timeout: 90_000 }).toBe("succeeded");
+      const sessions = await page.evaluate(() => window.splice.listTranscriptions());
+      assert.ok(sessions[0].segments.length > 0, "live provider must yield a final transcript");
+      const transcript = (await page.evaluate(() => window.splice.getDocument("meeting"))).data.transcript;
+      assert.equal(transcript[0].text, sessions[0].segments[0].text);
+      await expect(page.getByText(/Transcription succeeded/)).toBeVisible();
+      const workflowInput = JSON.parse(await page.getByRole("textbox", { name: "Update meeting notebook input JSON" }).inputValue());
+      assert.equal(workflowInput.segments[0].text, transcript[0].text);
+    }
   } finally {
     await desktop.close();
   }
@@ -57,6 +70,7 @@ try {
     await page.getByRole("button", { name: "Run workflow" }).waitFor();
     const saved = await page.evaluate(() => window.splice.getDocument("meeting"));
     assert.equal(saved.data.value, 80);
+    if (liveTranscriptionWav) assert.ok(saved.data.transcript.length > 0, "transcript survives exported app restart");
     assert.ok(saved.revision >= 2);
     console.log(`Electron export launched; revision ${saved.revision} and value 80 survived restart.`);
   } finally {

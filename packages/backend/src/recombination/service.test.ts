@@ -44,6 +44,9 @@ test("recombination builds, executes, persists, exports and replaces pinned pack
     const invalidProjection = structuredClone(plan);
     invalidProjection.providers[0].document_projection!.path = "formula";
     assert.ok((await service.validatePlan(invalidProjection)).errors.some((item) => item.code === "provider_projection_path"));
+    const invalidProviderWorkflow = structuredClone(plan);
+    invalidProviderWorkflow.providers[0].workflow_input!.path = "formula";
+    assert.ok((await service.validatePlan(invalidProviderWorkflow)).errors.some((item) => item.code === "provider_workflow_input"));
     const invalidInitial = structuredClone(plan);
     invalidInitial.documents[0].initial = { transcript: [] };
     assert.ok((await service.validatePlan(invalidInitial)).errors.some((item) => item.code === "document_initial_invalid"));

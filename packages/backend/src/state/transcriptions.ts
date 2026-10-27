@@ -64,6 +64,12 @@ export class TranscriptionStore {
     });
   }
 
+  unfinished(): Session[] {
+    const rows = this.state.dbHandle.prepare("SELECT session_id FROM transcription_sessions WHERE status IN ('queued', 'running') ORDER BY created_at, session_id")
+      .all() as Array<{ session_id: string }>;
+    return rows.map((row) => this.get(row.session_id)!);
+  }
+
   attachJob(sessionId: string, jobId: string): Session {
     if (!/^job_[a-f0-9]{32}$/.test(jobId)) throw new TranscriptionStateError("Invalid transcription job id");
     return this.state.transaction(() => {

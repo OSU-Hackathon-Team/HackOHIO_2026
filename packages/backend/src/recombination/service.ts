@@ -35,6 +35,7 @@ import { ApplicationStore, NamespacedStateStore, nextApplicationRevision } from 
 import { compileApplication } from "../composition/compiler.js";
 import { readPath, writePath } from "../composition/bindings.js";
 import { WorkflowEngine, type WorkflowCapabilityClient } from "../composition/workflows.js";
+import { projectTranscript } from "../composition/transcriptProjection.js";
 import { openStateStore, type SqliteStateStore } from "../state/store.js";
 import { MIGRATIONS } from "../state/migrations.js";
 import { applicationGate, exportGate } from "../verification/gates.js";
@@ -306,23 +307,7 @@ export class FilesystemRecombinationService implements RecombinationService {
     if (!projection) return;
     const app = this.apps.get(projection.app_id, "latest");
     if (!app || app.status !== "verified") throw error(409, `Application ${projection.app_id} is unavailable during transcription`);
-    const plan = this.storedPlan(app);
-    const declared = plan.providers.find((item) => item.id === projection.provider_id)?.document_projection;
-    if (!declared || declared.document !== projection.document || declared.path !== projection.path || declared.id_prefix !== projection.id_prefix) {
-      throw error(409, "Provider document projection changed during transcription");
-    }
-    const definition = plan.documents.find((item) => item.id === projection.document);
-    if (!definition) throw error(409, `Document ${projection.document} is unavailable during transcription`);
-    const state = new NamespacedStateStore(this.state, projection.app_id);
-    const current = state.getDocument(projection.document);
-    if (!current || current.revision !== projection.revision) throw error(409, `Document ${projection.document} changed during transcription`);
-    const data = asObject(structuredClone(current.data), `document ${projection.document}`);
-    writePath(data, projection.path, segments.map((item) => ({
-      id: `${projection.id_prefix}-${item.index}`, start_ms: item.start_ms, end_ms: item.end_ms, text: item.text,
-    })));
-    const validated = encodeWireValue(definition.schema, data);
-    const saved = state.putDocument(projection.document, validated, projection.revision);
-    this.transcriptions.setProjectionRevision(session.session_id, session.attempt, saved.revision);
+    projectTranscript(new NamespacedStateStore(this.state, projection.app_id), this.transcriptions, this.storedPlan(app), session, segments);
   }
 
   private async clients(plan: CompositionPlan): Promise<{ definitions: Map<string, CapabilityDefinition>; clients: Map<string, CapabilityClient>; dispose(): Promise<void> }> {

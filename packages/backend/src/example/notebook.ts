@@ -263,7 +263,7 @@ export function notebookPlan(packages: ReadonlyMap<string, string>) {
       ],
     }],
     ui: [{ id: "notebook", kind: "document" as const, title: "Meeting notebook", bindings: [{ name: "transcript", source: "$doc.meeting.transcript", operation: null }, { name: "formula", source: "$doc.meeting.formula", operation: null }, { name: "value", source: "$doc.meeting.value", operation: null }, { name: "html", source: "$doc.meeting.html", operation: null }], actions: [{ id: "update", label: "Update notebook", workflow: "update_notebook" }] }],
-    permissions: [], providers: [{ id: "recorded_provider", capability: "splice.example.transcription", transport: "user" as const, required: false, config_schema: { kind: "object" as const, additional: false as const, fields: [{ name: "description", type: text(400), optional: false }] }, replacement_for: "live speech recognition", document_projection: { document: "meeting", path: "transcript", id_prefix: "aws" } }],
+    permissions: [], providers: [{ id: "recorded_provider", capability: "splice.example.transcription", transport: "env" as const, required: false, config_schema: { kind: "object" as const, additional: false as const, fields: [{ name: "region", type: text(100), optional: true }] }, replacement_for: "Notion speech recognition", document_projection: { document: "meeting", path: "transcript", id_prefix: "aws" }, workflow_input: { workflow: "update_notebook", path: "segments" } }],
     acceptance_scenarios: [{ id: "formula_60_to_80", name: "Notebook updates formula result", steps: [
       { kind: "invoke" as const, workflow: "update_notebook", input: { segments: [{ id: "seg-1", start_ms: 0, end_ms: 500, text: "Budget line" }], formula: "=B2*C2", cells: { B2: 3, C2: 20 }, markdown: "# Meeting\nBudget is **{{value}}**" }, expect_status: "succeeded" as const },
       { kind: "assert_document" as const, document: "meeting", path: "value", equals: 60 },
@@ -287,7 +287,7 @@ export function notebookPlan(packages: ReadonlyMap<string, string>) {
         { kind: "assert_document" as const, document: "meeting", path: "transcript", equals: [{ id: "seg-1", start_ms: 0, end_ms: 500, text: "One" }] },
       ],
     }],
-    notes: ["All three packages are authored development fixtures, not recovered application behavior.", "Transcription accepts supplied segments and does not capture audio or perform recognition."],
+    notes: ["All three packages are authored development fixtures, not recovered application behavior.", "The authored transcription package accepts supplied segments; optional AWS speech recognition runs in the host as an external provider."],
   };
 }
 

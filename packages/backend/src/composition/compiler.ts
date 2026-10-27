@@ -66,6 +66,7 @@ function rendererScript(plan: CompositionPlan): string {
     description: plan.app.description,
     surfaces: plan.ui,
     workflows: plan.workflows.map((workflow) => ({ id: workflow.id, name: workflow.name, sample: initialInput(plan, workflow.id) })),
+    providers: plan.providers.flatMap((provider) => provider.document_projection ? [{ id: provider.id, document: provider.document_projection.document, workflow_input: provider.workflow_input ?? null }] : []),
   };
   return `
 const descriptor = ${JSON.stringify(descriptor)};
@@ -73,10 +74,12 @@ const root = document.getElementById("app");
 root.replaceChildren();
 const title = document.createElement("h1"); title.textContent = descriptor.title; root.append(title);
 const description = document.createElement("p"); description.textContent = descriptor.description; root.append(description);
+const workflowInputs = new Map();
 for (const workflow of descriptor.workflows) {
   const section = document.createElement("section");
   const heading = document.createElement("h2"); heading.textContent = workflow.name; section.append(heading);
   const input = document.createElement("textarea"); input.setAttribute("aria-label", workflow.name + " input JSON"); input.value = JSON.stringify(workflow.sample, null, 2); section.append(input);
+  workflowInputs.set(workflow.id, input);
   const button = document.createElement("button"); button.type = "button"; button.textContent = "Run workflow"; section.append(button);
   const output = document.createElement("pre"); output.setAttribute("aria-live", "polite"); section.append(output);
   button.addEventListener("click", async () => {
@@ -86,6 +89,70 @@ for (const workflow of descriptor.workflows) {
     finally { button.disabled = false; }
   });
   root.append(section);
+}
+for (const provider of descriptor.providers) {
+  const section = document.createElement("section");
+  const heading = document.createElement("h2"); heading.textContent = "Transcription"; section.append(heading);
+  const explanation = document.createElement("p"); explanation.textContent = "Import a mono PCM16 WAV to transcribe it into " + provider.document + ". The external provider needs credentials in the application environment."; section.append(explanation);
+  const file = document.createElement("input"); file.type = "file"; file.accept = ".wav,audio/wav"; file.setAttribute("aria-label", "Audio WAV file"); section.append(file);
+  const language = document.createElement("input"); language.type = "text"; language.value = "en-US"; language.setAttribute("aria-label", "Transcription language"); section.append(language);
+  const start = document.createElement("button"); start.type = "button"; start.textContent = "Transcribe WAV"; section.append(start);
+  const cancel = document.createElement("button"); cancel.type = "button"; cancel.textContent = "Cancel transcription"; cancel.disabled = true; section.append(cancel);
+  const status = document.createElement("pre"); status.setAttribute("aria-live", "polite"); section.append(status);
+  root.append(section);
+  let currentSession = null;
+  let appliedSession = null;
+  let configured = false;
+  function display(session) {
+    if (session?.projection?.provider_id !== provider.id) return;
+    currentSession = session;
+    cancel.disabled = session.status !== "queued" && session.status !== "running";
+    start.disabled = !configured || !cancel.disabled;
+    status.textContent = "Transcription " + session.status + " (attempt " + session.attempt + ")" +
+      (session.error ? "\\n" + session.error : "") +
+      "\\n" + session.segments.map((item) => "[" + item.start_ms + "-" + item.end_ms + " ms] " + item.text + (item.final ? "" : " …")).join("\\n");
+    if (session.status === "succeeded" && provider.workflow_input && appliedSession !== session.session_id) {
+      const workflowInput = workflowInputs.get(provider.workflow_input.workflow);
+      if (workflowInput) {
+        try {
+          const value = JSON.parse(workflowInput.value);
+          const parts = provider.workflow_input.path.split(".");
+          let target = value;
+          for (const part of parts.slice(0, -1)) target = target[part] ??= {};
+          target[parts.at(-1)] = session.segments.map((item) => ({ id: session.projection.id_prefix + "-" + item.index, start_ms: item.start_ms, end_ms: item.end_ms, text: item.text }));
+          workflowInput.value = JSON.stringify(value, null, 2);
+          appliedSession = session.session_id;
+        } catch (error) { status.textContent += "\\nCould not update workflow input: " + String(error); }
+      }
+    }
+  }
+  window.splice.onTranscription(display);
+  void (async () => {
+    try {
+      const availability = await window.splice.transcriptionAvailability();
+      configured = availability.configured;
+      start.disabled = !configured;
+      if (!configured) status.textContent = availability.detail;
+      const sessions = await window.splice.listTranscriptions();
+      const recent = sessions.find((item) => item.projection?.provider_id === provider.id);
+      if (recent) display(recent);
+    } catch (error) { status.textContent = String(error); }
+  })();
+  start.addEventListener("click", async () => {
+    const selected = file.files?.[0];
+    if (!selected) { status.textContent = "Choose a WAV file first"; return; }
+    start.disabled = true; status.textContent = "Saving audio…";
+    try {
+      const session = await window.splice.startTranscription(new Uint8Array(await selected.arrayBuffer()), provider.id, language.value);
+      display(session);
+    } catch (error) { status.textContent = error instanceof Error ? error.message : String(error); }
+    finally { start.disabled = !configured || (currentSession && (currentSession.status === "queued" || currentSession.status === "running")); }
+  });
+  cancel.addEventListener("click", async () => {
+    if (!currentSession) return;
+    try { display(await window.splice.cancelTranscription(currentSession.session_id)); }
+    catch (error) { status.textContent = error instanceof Error ? error.message : String(error); }
+  });
 }
 `;
 }
@@ -98,7 +165,7 @@ function rendererHtml(title: string): string {
 <body><main id="app"><p>Loading application…</p></main><script src="./app.js"></script></body></html>`;
 }
 
-const rendererCss = `:root{font-family:system-ui,sans-serif;color:#172033;background:#f4f6fa}body{margin:0}main{max-width:900px;margin:0 auto;padding:32px}section{background:white;border:1px solid #dce2ec;border-radius:12px;padding:20px;margin:18px 0}textarea{box-sizing:border-box;width:100%;min-height:220px;font:14px ui-monospace,monospace;padding:12px;border:1px solid #c5cedd;border-radius:8px}button{margin-top:12px;padding:10px 16px;border:0;border-radius:7px;background:#345bd6;color:white;font-weight:600}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f8fc;padding:12px;border-radius:8px}`;
+const rendererCss = `:root{font-family:system-ui,sans-serif;color:#172033;background:#f4f6fa}body{margin:0}main{max-width:900px;margin:0 auto;padding:32px}section{background:white;border:1px solid #dce2ec;border-radius:12px;padding:20px;margin:18px 0}textarea{box-sizing:border-box;width:100%;min-height:220px;font:14px ui-monospace,monospace;padding:12px;border:1px solid #c5cedd;border-radius:8px}input[type=text]{margin:12px;padding:8px}button{margin-top:12px;margin-right:8px;padding:10px 16px;border:0;border-radius:7px;background:#345bd6;color:white;font-weight:600}button:disabled{opacity:.5}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f8fc;padding:12px;border-radius:8px}`;
 
 export interface CompileApplicationInput {
   plan: CompositionPlan;
@@ -151,7 +218,7 @@ export async function compileApplication(input: CompileApplicationInput): Promis
   const preloadEntry = path.join(desktopHostRoot, "preload.ts");
   const runnerEntry = path.resolve(here, "../../../runtime/src/jsSidecarRunner.mjs");
   const [mainBuild, preloadBuild, runnerBuild] = await Promise.all([
-    build({ entryPoints: [mainEntry], bundle: true, write: false, platform: "node", format: "esm", target: "node24", external: ["electron"], packages: "bundle", logLevel: "silent" }),
+    build({ entryPoints: [mainEntry], bundle: true, write: false, platform: "node", format: "esm", target: "node24", external: ["electron"], packages: "bundle", banner: { js: "import { createRequire as __spliceCreateRequire } from 'node:module'; const require = __spliceCreateRequire(import.meta.url);" }, logLevel: "silent" }),
     build({ entryPoints: [preloadEntry], bundle: true, write: false, platform: "node", format: "cjs", target: "node24", external: ["electron"], packages: "bundle", logLevel: "silent" }),
     build({ entryPoints: [runnerEntry], bundle: true, write: false, platform: "node", format: "esm", target: "node24", packages: "bundle", logLevel: "silent" }),
   ]);
@@ -183,7 +250,7 @@ export async function compileApplication(input: CompileApplicationInput): Promis
   };
   files.push(applicationFile("package.json", Buffer.from(canonicalJson(packageJson))));
   files.push(applicationFile("splice.lock.json", Buffer.from(canonicalJson({ schema_version: 1, app_id: appId, plan_hash: hashJson(input.plan), package_lock: packageLock }))));
-  files.push(applicationFile("README.md", Buffer.from(`# ${input.plan.app.title}\n\nLinux x64 source export. Requires Node 22+, bubblewrap, prlimit and Electron ${electronVersion}.\nRun \`npm install\` followed by \`npm start\`. Capability processes run with read-only package mounts and no network namespace access.\n`)));
+  files.push(applicationFile("README.md", Buffer.from(`# ${input.plan.app.title}\n\nLinux x64 source export. Requires Node 22+, bubblewrap, prlimit and Electron ${electronVersion}.\nRun \`npm install\` followed by \`npm start\`. Capability processes run with read-only package mounts and no network namespace access.\n${input.plan.providers.some((provider) => provider.document_projection) ? "\nOptional transcription: set SPLICE_TRANSCRIPTION_PROVIDER=aws, AWS_REGION, and AWS credentials in the host environment before starting the app. Import a mono PCM16 WAV (8–48 kHz, at most 10 MB). The audio blob, job status, and transcript stay in this app's userData directory. The provider is external and requires network access.\n" : ""}`)));
 
   const applicationReport = makeReport("splice.application.electron-source@1", [
     { name: "host and renderer bundle", kind: "boundary", passed: true, requirement_ids: [], duration_ms: 0, assertions: 1, calls: 0, detail: "Electron main, preload, isolated JS runner and renderer sources compiled or parsed" },
@@ -207,7 +274,11 @@ export async function compileApplication(input: CompileApplicationInput): Promis
     package_lock: packageLock,
     files,
     storage_migrations: MIGRATIONS.map((migration) => ({ version: migration.version, name: migration.name, sql: migration.sql, hash: sha256Hex(migration.sql) })),
-    launch: { command: "npm install && npm start", env: [], platforms },
+    launch: { command: "npm install && npm start", env: input.plan.providers.some((provider) => provider.document_projection)
+      ? [
+        { name: "SPLICE_TRANSCRIPTION_PROVIDER", required: false, description: "Set to aws to enable the optional external speech provider" },
+        { name: "AWS_REGION", required: false, description: "AWS region for Transcribe Streaming" },
+      ] : [], platforms },
     verification: { composition: input.compositionReport, application: applicationReport, packaging: packagingReport },
     previous_revision: input.previousRevision,
     status: "verified" as const,

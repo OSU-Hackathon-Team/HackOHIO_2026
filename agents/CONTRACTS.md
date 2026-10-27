@@ -907,3 +907,12 @@ session snapshot and composition document in one SQLite transaction. An interven
 revision fails the provider job without replacing the edit. A restarted attempt clears the old
 segments and document projection under the same revision guard. Uploads without an app binding
 retain session-only behavior.
+
+**Exported application transcription.** `ProviderConfig.workflow_input` names a declared
+workflow and transcript-array input path; the generated renderer fills that path with finalized
+segments from the same provider session. The exported Electron host keeps AWS credentials in its
+process environment and accepts only bounded WAV bytes through a context-isolated preload API.
+It exposes provider availability, session snapshots, start, cancel and event notifications to
+the renderer. `DesktopTranscription` uses the same `TranscriptionStore` and document projection
+rule as Studio, resumes unfinished sessions from saved audio on launch, and leaves interrupted
+work replayable when the app closes. The Studio access key is not part of an exported app.

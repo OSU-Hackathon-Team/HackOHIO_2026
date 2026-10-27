@@ -290,6 +290,17 @@ export async function validateCompositionPlan(
         }
       }
     }
+    if (provider.workflow_input) {
+      const input = provider.workflow_input;
+      const workflow = plan.workflows.find((item) => item.id === input.workflow);
+      const target = workflow ? fieldType(workflow.input, input.path) : null;
+      if (!provider.document_projection || !target || target.kind !== "array") {
+        addError(errors, "provider_workflow_input", `providers.${provider.id}.workflow_input`, "Provider workflow input needs a declared document projection and transcript array target");
+      } else {
+        try { encodeWireValue(target, [{ id: `${provider.document_projection.id_prefix}-0`, start_ms: 0, end_ms: 1, text: "sample" }]); }
+        catch (cause) { addError(errors, "provider_workflow_type", `providers.${provider.id}.workflow_input`, cause instanceof Error ? cause.message : String(cause)); }
+      }
+    }
   }
   const workflowIds = new Set<string>();
   for (const workflow of plan.workflows) {

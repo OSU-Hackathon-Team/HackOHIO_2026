@@ -25,8 +25,12 @@ permission, limits recording to five minutes, and converts it to a bounded uploa
 smoke covers capture and denied permission. A short synthetic speech sample completed the live AWS call;
 the final result was imperfect ("A 320 and the total is 60."). The same stream populated the
 notebook workflow input and its preview persisted the transcript with formula value 60. This
-proves external transport and downstream wiring, not quality on human audio, streaming during
-microphone capture, or live transcription in the exported app. The Studio path now creates a
+proves external transport and downstream wiring, not quality on human audio or streaming during
+microphone capture. The exported Electron source app now imports bounded WAV files through a
+narrow preload API and runs the optional AWS provider in its host process. A live synthetic WAV
+completed in the exported renderer, populated the meeting document and workflow input, and
+persisted after a full Electron restart. The host test exercises interrupted-job replay,
+cancellation and a concurrent edit conflict with a deterministic provider. The Studio path now creates a
 durable transcription job before connecting to SSE. Its latest segments and status survive reload;
 the browser reconnects with the workspace key. A simulated provider interruption replays the
 saved audio under the original job ID and replaces old partials. A real AWS stream also finished
@@ -97,6 +101,14 @@ uploads without app/provider IDs still produce a durable session without a docum
 provider without Studio. The synthetic sample above is a plumbing check; a labeled human-audio
 latency/quality test remains required. AWS Transcribe needs permission to start a streaming
 transcription and is an external provider substitution, not a Notion implementation.
+
+The exported Electron source app needs `SPLICE_TRANSCRIPTION_PROVIDER=aws`, `AWS_REGION`, and
+AWS credentials in its host environment; it does not use the Studio access key. Its renderer
+imports a WAV through the preload bridge and sees partial/final snapshots while the host stores
+the audio and session under Electron `userData`. The plan's `workflow_input` declaration maps
+final transcript segments into the notebook workflow input. Closing the app leaves an unfinished
+job for replay on the next launch. To repeat the live exported-app check, run
+`SPLICE_TEST_EXPORTED_TRANSCRIPTION_WAV=<mono-pcm16.wav> AWS_REGION=<region> npm run test:recombination:desktop`.
 
 ## Ground rules
 

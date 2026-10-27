@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "description": "Source entry points bundled into downstream Electron application exports",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"src/**/*.test.ts\""
+  },
   "devDependencies": {
     "electron": "45.0.0"
   }
