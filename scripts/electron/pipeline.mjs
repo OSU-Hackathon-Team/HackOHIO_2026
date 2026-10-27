@@ -23,8 +23,8 @@ import { fileURLToPath } from "node:url";
 import * as asar from "@electron/asar";
 import { analyzeElectronArchive } from "./analyze-archive.mjs";
 import { DEFAULT_HOST, VARIANT_HOST, runCase } from "./oracle.mjs";
-import { buildCases, compareCase, coverage, coverageGaps, narrowChannels, observationFailures,
-  partitionCases, runSuite, usableResults } from "./cases.mjs";
+import { buildCases, comparableShape, compareCase, coverage, coverageGaps, narrowChannels,
+  observationFailures, partitionCases, runSuite, usableResults } from "./cases.mjs";
 import { runAgent } from "./agent.mjs";
 import { assembleProject } from "./project.mjs";
 import { resolveModel } from "./models.mjs";
@@ -80,7 +80,7 @@ async function hostDependentChannels({ cases, appDir, timeout, concurrency = 4 }
         first = await runCase({ appDir, case: testCase, timeout, host: DEFAULT_HOST });
         second = await runCase({ appDir, case: testCase, timeout, host: VARIANT_HOST });
       } catch { continue; /* an unrunnable case says nothing about host dependence */ }
-      const shape = result => JSON.stringify({ outcomes: result.outcomes, effects: result.effects });
+      const shape = result => JSON.stringify(comparableShape(result));
       if (shape(first) !== shape(second))
         dependent.push({ channel: testCase.channel, source: "host-variation",
           reason: `the observed result changes when the mocked host changes (window bounds ` +
@@ -423,6 +423,8 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
       timed_out: run.timedOut, errors: run.errors })),
     limitations: [
       "Case values are samples, not an equivalence proof for arbitrary input.",
+      "Log files (*.log under a storage root) are read and written by the case but not compared:" +
+        " their lines carry the harness wall clock, so their bytes are not reproducible behavior.",
       "Only main-process IPC behavior, its persisted files and error results are compared; renderer " +
         "layout, menus, tray, updater and other platform effects are outside the verified scope.",
       "The specification agent decides what to observe; behavior it never reached is absent from the " +

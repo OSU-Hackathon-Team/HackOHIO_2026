@@ -137,7 +137,9 @@ export function renderSpecMarkdown({ spec, analysis, publicSuite }) {
   lines.push("The module may also export `{ handle }`. Throw the error the original throws (same name",
     "and code). Return the same JSON value, including undefined results (`{\"$undefined\":true}` in",
     "observations means the handler returned nothing). Files must match in path and exact bytes —",
-    "including indentation, key order and trailing newlines.", "");
+    "including indentation, key order and trailing newlines. Log files (`*.log`) are the one",
+    "exception: their lines carry the harness's wall clock, so whether you write them is up to you",
+    "and their contents are not compared.", "");
   lines.push("## Channels", "");
   for (const [channel, entry] of Object.entries(spec.channels ?? {})) {
     const summary = publicSuite?.coverage?.[channel];

@@ -74,7 +74,14 @@ async function snapshot(root) {
       if (entry.isDirectory()) await walk(path.join(directory, entry.name), next);
       else if (entry.isFile()) {
         const file = path.join(directory, entry.name);
-        const bytes = await fsp.readFile(file);
+        let bytes;
+        try { bytes = await fsp.readFile(file); }
+        catch (error) {
+          /* An application may replace a file while it is read (electron-store writes a temporary
+             file and renames it). A file that is gone by the time it is opened is not an effect. */
+          if (error.code === "ENOENT") continue;
+          throw error;
+        }
         files[next] = bytes.length > 262144
           ? { sha256: crypto.createHash("sha256").update(bytes).digest("hex"), size: bytes.length }
           : bytes.toString("utf8");
@@ -386,7 +393,10 @@ async function worker() {
     /* (fromWebContents is defined on BrowserWindow below.) */
     session: {
       defaultSession: { setPermissionRequestHandler: () => {}, setPermissionCheckHandler: () => {},
-        protocol: { handle: () => {}, registerFileProtocol: () => {} }, webRequest: noopEmitter },
+        protocol: { handle: () => {}, registerFileProtocol: () => {} }, webRequest: noopEmitter,
+        getPreloads: () => [], setPreloads: () => {}, getStoragePath: () => payload.bases.userData,
+        clearStorageData: async () => {}, flushStorageData: async () => {},
+        cookies: { get: async () => [], set: async () => {}, remove: async () => {} } },
       fromPartition: () => electron.session.defaultSession,
     },
     Menu: { setApplicationMenu: () => {}, buildFromTemplate: () => ({}), getApplicationMenu: () => null,

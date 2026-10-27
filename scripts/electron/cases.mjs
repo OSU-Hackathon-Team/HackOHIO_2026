@@ -254,11 +254,47 @@ function normalizeOutcome(outcome) {
   return { ok: false, error: { name: outcome.error?.name ?? "Error", code: outcome.error?.code ?? null } };
 }
 
+/**
+ * Log files are diagnostic output, not behavior: their content carries the harness's own wall
+ * clock (electron-log timestamps every line with the real time, not the frozen `Date`), so it can
+ * never be reproduced and comparing it would fail a faithful implementation. They are reported as
+ * reads and writes and excluded from every byte comparison; the report states the limit.
+ */
+export function isDiagnosticFile(key) {
+  return /\.log(\.\d+)?$/i.test(String(key));
+}
+
 export function behaviorFiles(result) {
   const files = {};
   for (const [key, value] of Object.entries(result.files ?? {}))
-    if (key.startsWith("userData/") || key.startsWith("documents/")) files[key] = value;
+    if (key.startsWith("userData/") || key.startsWith("documents/")) {
+      if (isDiagnosticFile(key)) continue;
+      files[key] = value;
+    }
   return files;
+}
+
+/** Per-call file effects without diagnostic output: whether an implementation logs is its own
+    choice, and whether the original logged cannot be reproduced. */
+export function behaviorEffects(result) {
+  return (result.effects ?? []).map(effect => ({
+    changed: Object.fromEntries(Object.entries(effect.changed ?? {})
+      .filter(([key]) => !isDiagnosticFile(key))),
+    removed: (effect.removed ?? []).filter(key => !isDiagnosticFile(key)),
+  }));
+}
+
+/** The part of an observation a candidate is expected to reproduce. */
+export function comparableShape(result) {
+  return {
+    channels: (result.channels ?? []).map(entry => entry.channel).sort(),
+    outcomes: (result.outcomes ?? []).map(outcome => outcome.ok
+      ? { ok: true, value: outcome.value }
+      : { ok: false, error: { name: outcome.error?.name ?? "Error", message: outcome.error?.message ?? null,
+        code: outcome.error?.code ?? null } }),
+    files: behaviorFiles(result),
+    effects: behaviorEffects(result),
+  };
 }
 
 /** Differences that make a candidate fail one case. */
@@ -283,8 +319,9 @@ export function compareCase(expected, actual) {
       problems.push(`file ${key} differs:\n  original: ${JSON.stringify(wantFiles[key])}\n  candidate: ${JSON.stringify(gotFiles[key])}`);
   }
   /* Per-call effects catch writes or deletions that a later call undoes or overwrites. */
-  (expected.effects ?? []).forEach((effect, index) => {
-    const got = actual.effects?.[index];
+  const wantEffects = behaviorEffects(expected), gotEffects = behaviorEffects(actual);
+  wantEffects.forEach((effect, index) => {
+    const got = gotEffects[index];
     if (!got) return;
     if (JSON.stringify(effect.changed) !== JSON.stringify(got.changed))
       problems.push(`call ${index + 1} writes differ:\n  original: ${JSON.stringify(effect.changed)}\n  candidate: ${JSON.stringify(got.changed)}`);
