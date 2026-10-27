@@ -14,6 +14,7 @@ import type {
   PreviewResponse,
   TranscriptionAvailabilityResponse,
   TranscriptionEvent,
+  TranscriptionSession,
   VerificationReport,
   JsonValue,
   CapabilityDefinition,
@@ -22,7 +23,7 @@ import { ApplicationBundle, CompositionPlan as CompositionPlanSchema, canonicalJ
 import path from "node:path";
 import os from "node:os";
 import fs from "node:fs";
-import { createCapabilityClient, FsBlobStore, type CapabilityClient } from "@splice/runtime";
+import { createCapabilityClient, FsBlobStore, type CapabilityClient, type ProviderAdapter } from "@splice/runtime";
 import type { JobContext } from "./jobs.js";
 import { assessCapabilityIntake } from "../capabilities/intake.js";
 import { FilesystemCapabilityRegistry } from "../capabilities/registry.js";
@@ -40,6 +41,7 @@ import { applicationGate, exportGate } from "../verification/gates.js";
 import { getAuthoredNotebookIntakes, notebookPlan } from "../example/notebook.js";
 import { getAuthoredBudgetReportIntake } from "../example/budget.js";
 import { AwsTranscribeProvider } from "../example/awsTranscribe.js";
+import { TranscriptionStore } from "../state/transcriptions.js";
 
 /**
  * Service seam used by the HTTP routes. It is implemented in service.ts with the real registry,
@@ -62,6 +64,10 @@ export interface RecombinationService {
   notebookPlan(): Promise<unknown>;
   transcriptionAvailability(): Promise<TranscriptionAvailabilityResponse>;
   transcribePcm(input: { pcm: Uint8Array; sampleRateHz: number; language: string | null }, signal?: AbortSignal): AsyncIterable<TranscriptionEvent>;
+  prepareTranscription(input: { pcm: Uint8Array; sampleRateHz: number; language: string | null }): Promise<TranscriptionSession>;
+  runTranscription(sessionId: string, job: JobContext): Promise<{ session_id: string }>;
+  getTranscriptionSession(sessionId: string): Promise<TranscriptionSession | null>;
+  reconcileTranscriptionSession(sessionId: string, status: "failed" | "cancelled", message: string): Promise<TranscriptionSession>;
 }
 
 function error(status: number, message: string, errors?: unknown): Error {
@@ -95,11 +101,13 @@ export class FilesystemRecombinationService implements RecombinationService {
   readonly registry: FilesystemCapabilityRegistry;
   readonly state: SqliteStateStore;
   private readonly apps: ApplicationStore;
+  private readonly transcriptions: TranscriptionStore;
 
-  constructor(readonly stateDir: string) {
+  constructor(readonly stateDir: string, private readonly options: { transcriptionProvider?: (blobs: FsBlobStore) => ProviderAdapter } = {}) {
     this.registry = new FilesystemCapabilityRegistry(path.join(stateDir, "capabilities"));
     this.state = openStateStore(stateDir);
     this.apps = new ApplicationStore(this.state);
+    this.transcriptions = new TranscriptionStore(this.state);
   }
 
   close(): void { this.state.close(); }
@@ -134,7 +142,7 @@ export class FilesystemRecombinationService implements RecombinationService {
     for (const item of [...getAuthoredNotebookIntakes(), getAuthoredBudgetReportIntake()]) {
       const record = await this.intake(item.request);
       if (!record.accepted) throw error(422, `Authored fixture ${item.definition.id} was rejected`, record.blockers);
-      await this.buildCapability(record.intake_id, { signal: new AbortController().signal, stage() {}, log() {} });
+      await this.buildCapability(record.intake_id, { signal: new AbortController().signal, stage() {}, log() {}, transcriptionReset() {}, transcriptionSegment() {} });
     }
     return this.listCapabilities();
   }
@@ -214,6 +222,49 @@ export class FilesystemRecombinationService implements RecombinationService {
       yield { type: "segment", index: segment.index, start_ms: segment.startMs, end_ms: segment.endMs, text: segment.text, final: segment.final };
     }
     yield { type: "done", final_segments: final.size };
+  }
+
+  async prepareTranscription(input: { pcm: Uint8Array; sampleRateHz: number; language: string | null }): Promise<TranscriptionSession> {
+    if (!(await this.transcriptionAvailability()).configured) throw error(503, "Live transcription provider is not configured");
+    const blobs = new FsBlobStore(path.join(this.stateDir, "audio"), { maxBytes: 10 * 1024 * 1024 });
+    const audio = await blobs.put(input.pcm, { contentType: "audio/L16" });
+    return this.transcriptions.create({ audio, sample_rate_hz: input.sampleRateHz, language: input.language });
+  }
+
+  async getTranscriptionSession(sessionId: string): Promise<TranscriptionSession | null> {
+    return this.transcriptions.get(sessionId);
+  }
+
+  async reconcileTranscriptionSession(sessionId: string, status: "failed" | "cancelled", message: string): Promise<TranscriptionSession> {
+    return this.transcriptions.reconcileTerminal(sessionId, status, message);
+  }
+
+  async runTranscription(sessionId: string, job: JobContext): Promise<{ session_id: string }> {
+    if (!job.job_id) throw new Error("Transcription requires a durable job id");
+    const started = this.transcriptions.beginAttempt(sessionId, job.job_id);
+    if (started.session.status === "succeeded") return { session_id: sessionId };
+    const attempt = started.session.attempt;
+    job.transcriptionReset(attempt);
+    job.stage("transcribing", started.replay ? "Restarting transcription from saved audio" : "Transcribing saved audio", 5);
+    try {
+      if (!(await this.transcriptionAvailability()).configured) throw error(503, "Live transcription provider is not configured");
+      if (job.signal.aborted) throw new Error("Transcription cancelled");
+      const blobs = new FsBlobStore(path.join(this.stateDir, "audio"), { maxBytes: 10 * 1024 * 1024 });
+      const provider = this.options.transcriptionProvider?.(blobs) ?? new AwsTranscribeProvider({ blobs, region: process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION });
+      const session = started.session;
+      for await (const raw of provider.transcribe({ audio: session.audio, language: session.language, format: "pcm_s16le", sampleRateHz: session.sample_rate_hz, channels: 1 }, { signal: job.signal })) {
+        const segment = { index: raw.index, start_ms: raw.startMs, end_ms: raw.endMs, text: raw.text, final: raw.final };
+        this.transcriptions.putSegment(sessionId, attempt, segment);
+        job.transcriptionSegment(attempt, segment);
+      }
+      if (job.signal.aborted) throw new Error("Transcription cancelled");
+      this.transcriptions.succeed(sessionId, attempt);
+      return { session_id: sessionId };
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      this.transcriptions.fail(sessionId, attempt, job.signal.aborted ? "cancelled" : "failed", message);
+      throw cause;
+    }
   }
 
   private async clients(plan: CompositionPlan): Promise<{ definitions: Map<string, CapabilityDefinition>; clients: Map<string, CapabilityClient>; dispose(): Promise<void> }> {

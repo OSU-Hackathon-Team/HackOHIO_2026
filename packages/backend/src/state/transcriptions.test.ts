@@ -51,6 +51,19 @@ test("a completed segment cannot be revised or assigned to another job", () => {
   } finally { state.close(); }
 });
 
+test("a failed replay request can leave an interrupted session terminal", () => {
+  const state = openMemoryStateStore();
+  try {
+    const transcripts = new TranscriptionStore(state);
+    const created = transcripts.create({ audio, sample_rate_hz: 16_000, language: "en-US" });
+    transcripts.beginAttempt(created.session_id, jobId);
+    const failed = transcripts.reconcileTerminal(created.session_id, "failed", "Saved request hash did not match");
+    assert.equal(failed.status, "failed");
+    assert.match(failed.error ?? "", /hash did not match/);
+    assert.throws(() => transcripts.putSegment(created.session_id, 1, segment), /Stale transcription attempt/);
+  } finally { state.close(); }
+});
+
 test("migration adds transcription sessions without changing existing documents", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "splice-transcription-migrate-"));
   try {

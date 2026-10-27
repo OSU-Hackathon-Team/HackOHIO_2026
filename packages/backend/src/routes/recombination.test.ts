@@ -83,6 +83,10 @@ function fakeService(overrides: Partial<RecombinationService> = {}): Recombinati
     notebookPlan: async () => ({ plan }),
     transcriptionAvailability: async () => ({ configured: false, provider: null, detail: "not configured" }),
     transcribePcm: async function* () { yield { type: "done", final_segments: 0 }; },
+    prepareTranscription: async () => { throw new Error("not configured"); },
+    runTranscription: async () => { throw new Error("not configured"); },
+    getTranscriptionSession: async () => null,
+    reconcileTranscriptionSession: async () => { throw new Error("not configured"); },
   };
   return { ...base, ...overrides };
 }

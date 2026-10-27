@@ -505,7 +505,7 @@ export const ApplicationExportResponse = z
   .strict();
 export type ApplicationExportResponse = z.infer<typeof ApplicationExportResponse>;
 
-export const JobKind = z.enum(["capability_build", "composition_validate", "application_build", "export"]);
+export const JobKind = z.enum(["capability_build", "composition_validate", "application_build", "export", "transcription"]);
 export type JobKind = z.infer<typeof JobKind>;
 
 export const JobStatus = z.enum(["queued", "running", "succeeded", "failed", "cancelled"]);
@@ -542,6 +542,8 @@ export const JobEvent = z.discriminatedUnion("type", [
   z.object({ type: z.literal("result"), job_id: z.string(), ts: z.number(), result_ref: z.string() }),
   z.object({ type: z.literal("error"), job_id: z.string(), ts: z.number(), message: z.string(), fatal: z.boolean() }),
   z.object({ type: z.literal("done"), job_id: z.string(), ts: z.number(), ok: z.boolean() }),
+  z.object({ type: z.literal("transcription_reset"), job_id: z.string(), ts: z.number(), attempt: z.number().int().positive() }),
+  z.object({ type: z.literal("transcription_segment"), job_id: z.string(), ts: z.number(), attempt: z.number().int().positive(), index: z.number().int().nonnegative(), start_ms: z.number().int().nonnegative(), end_ms: z.number().int().nonnegative(), text: z.string().max(10_000), final: z.boolean() }),
 ]);
 export type JobEvent = z.infer<typeof JobEvent>;
 
@@ -609,5 +611,8 @@ export const TranscriptionSession = z.object({
   updated_at: z.string().datetime({ offset: true }),
 }).strict();
 export type TranscriptionSession = z.infer<typeof TranscriptionSession>;
+
+export const TranscriptionStartResponse = z.object({ session: TranscriptionSession, job: JobRecord }).strict();
+export type TranscriptionStartResponse = z.infer<typeof TranscriptionStartResponse>;
 
 export const CompositionRequest = z.object({ plan: CompositionPlan }).strict();

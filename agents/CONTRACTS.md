@@ -888,3 +888,11 @@ an index, millisecond bounds and text. `TranscriptionSession` pins the hash-addr
 provider, sample rate, language, job ID, attempt, status and latest segments. A restarted
 provider attempt replaces the preceding attempt's segments; stale attempts cannot update it.
 The session record is independent of an SSE observer and is stored by SQLite migration 6.
+
+**Durable transcription jobs.** `JobKind` includes `transcription`. `JobEvent` adds
+`transcription_reset` (attempt boundary) and `transcription_segment` (partial or final update)
+to the existing stage/result/error/done events. `TranscriptionStartResponse` returns the
+persisted `TranscriptionSession` and its `JobRecord`. The authenticated session routes provide
+snapshots, replayable events and cancellation; generic job routes do not expose transcription
+jobs. A disconnected SSE observer does not cancel the provider job. The older direct
+`TranscriptionEvent` POST-SSE route remains ephemeral for compatibility.

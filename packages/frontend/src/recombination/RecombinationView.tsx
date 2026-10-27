@@ -1,30 +1,34 @@
 import { useEffect, useRef, useState } from "react";
 import JSZip from "jszip";
-import { CompositionPlan, type ApplicationRecord, type ApplicationRevisionListResponse, type CapabilityListResponse, type CompositionValidateResponse, type JobRecord, type PreviewResponse, type TranscriptionAvailabilityResponse, type TranscriptionEvent } from "@splice/contracts";
+import { CompositionPlan, type ApplicationRecord, type ApplicationRevisionListResponse, type CapabilityListResponse, type CompositionValidateResponse, type JobRecord, type PreviewResponse, type TranscriptionAvailabilityResponse, type TranscriptionSegment } from "@splice/contracts";
 import {
   activateApplicationRevision,
   buildApplication,
   cancelJob,
+  cancelTranscriptionSession,
   exportApplication,
   getJob,
   getLatestRevision,
   getRevision,
   getNotebookExample,
   getTranscriptionAvailability,
+  getTranscriptionSession,
   listApplications,
   listApplicationRevisions,
   listCapabilities,
   previewApplication,
   seedDevelopmentPackages,
   streamJob,
-  transcribeWav,
+  startTranscriptionJob,
+  streamTranscriptionSession,
   validateComposition,
 } from "../api/recombination";
 import { startMicrophoneCapture, type MicrophoneCapture } from "./microphone";
 
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 const ACTIVE_BUILD_KEY = "splice.recombination.activeBuildJob";
-type LiveSegment = Extract<TranscriptionEvent, { type: "segment" }>;
+const ACTIVE_TRANSCRIPTION_KEY = "splice.recombination.activeTranscriptionSession";
+type LiveSegment = TranscriptionSegment;
 
 function embeddedPlan(record: ApplicationRecord): CompositionPlan | null {
   const artifact = record.bundle.files.find((file) => file.path === "splice.plan.json");
@@ -62,6 +66,7 @@ export function RecombinationView() {
   const [liveSegments, setLiveSegments] = useState<LiveSegment[]>([]);
   const [transcribing, setTranscribing] = useState(false);
   const [transcriptionNotice, setTranscriptionNotice] = useState("");
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const transcriptionAbort = useRef<AbortController | null>(null);
   const microphone = useRef<MicrophoneCapture | null>(null);
   const microphoneGeneration = useRef(0);
@@ -78,6 +83,8 @@ export function RecombinationView() {
     }).catch((cause) => { if (mounted) setError(message(cause)); });
     return () => { mounted = false; };
   }, []);
+
+  useEffect(() => { setActiveSessionId(localStorage.getItem(ACTIVE_TRANSCRIPTION_KEY)); }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -208,26 +215,67 @@ export function RecombinationView() {
     const controller = new AbortController();
     transcriptionAbort.current = controller;
     setTranscribing(true); setError(null); setAudioId(null); setLiveSegments([]); setTranscriptionNotice("Transcribing through external AWS provider…");
-    const final = new Map<number, LiveSegment>();
     try {
-      await transcribeWav(audioFile, transcriptionToken, (event) => {
-        if (event.type === "started") setAudioId(event.audio.id);
-        if (event.type === "segment") {
-          setLiveSegments((previous) => [...previous.filter((item) => item.index !== event.index), event].sort((a, b) => a.index - b.index));
-          if (event.final) final.set(event.index, event);
-        }
-      }, controller.signal);
-      const segments = [...final.values()].sort((a, b) => a.index - b.index).map((item) => ({ id: `aws-${item.index}`, start_ms: item.start_ms, end_ms: item.end_ms, text: item.text }));
-      if (!segments.length) throw new Error("Provider returned no final speech segments");
-      setInputText(JSON.stringify({ ...currentInput, segments }, null, 2));
-      setTranscriptionNotice(`${segments.length} final segment(s) added to workflow input. Run preview to save them in the document.`);
+      const started = await startTranscriptionJob(audioFile, transcriptionToken, controller.signal);
+      localStorage.setItem(ACTIVE_TRANSCRIPTION_KEY, started.session.session_id);
+      setActiveSessionId(started.session.session_id);
+      await observeTranscription(started.session.session_id, currentInput, controller);
     } catch (cause) {
-      setTranscriptionNotice(controller.signal.aborted ? "Transcription cancelled" : "Transcription failed");
+      setTranscriptionNotice(controller.signal.aborted ? "Transcription observation stopped; the job continues" : message(cause));
       if (!controller.signal.aborted) setError(message(cause));
     } finally {
       transcriptionAbort.current = null;
       setTranscribing(false);
     }
+  }
+
+  async function observeTranscription(sessionId: string, currentInput: Record<string, unknown>, controller: AbortController) {
+    let session = await getTranscriptionSession(sessionId, transcriptionToken, controller.signal);
+    setAudioId(session.audio.id); setLiveSegments(session.segments);
+    if (session.status === "queued" || session.status === "running") {
+      let currentAttempt = session.attempt;
+      await streamTranscriptionSession(sessionId, transcriptionToken, (event) => {
+        if (event.type === "transcription_reset" && event.attempt > currentAttempt) {
+          currentAttempt = event.attempt; setLiveSegments([]);
+        }
+        if (event.type === "transcription_segment" && event.attempt === currentAttempt) {
+          const { index, start_ms, end_ms, text, final } = event;
+          setLiveSegments((previous) => [...previous.filter((item) => item.index !== index), { index, start_ms, end_ms, text, final }].sort((a, b) => a.index - b.index));
+        }
+      }, controller.signal);
+      session = await getTranscriptionSession(sessionId, transcriptionToken, controller.signal);
+    }
+    setLiveSegments(session.segments);
+    localStorage.removeItem(ACTIVE_TRANSCRIPTION_KEY); setActiveSessionId(null);
+    if (session.status !== "succeeded") throw new Error(session.error ?? `Transcription ${session.status}`);
+    const segments = session.segments.filter((item) => item.final).map((item) => ({ id: `aws-${item.index}`, start_ms: item.start_ms, end_ms: item.end_ms, text: item.text }));
+    if (!segments.length) throw new Error("Provider returned no final speech segments");
+    setInputText(JSON.stringify({ ...currentInput, segments }, null, 2));
+    setTranscriptionNotice(`${segments.length} final segment(s) added to workflow input. Run preview to save them in the document.`);
+  }
+
+  async function reconnectTranscription() {
+    if (!activeSessionId) return;
+    let currentInput: Record<string, unknown>;
+    try {
+      const value: unknown = JSON.parse(inputText);
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Workflow input must be a JSON object");
+      currentInput = value as Record<string, unknown>;
+    } catch (cause) { setError(message(cause)); return; }
+    const controller = new AbortController();
+    transcriptionAbort.current = controller; setTranscribing(true); setError(null);
+    setTranscriptionNotice("Reconnecting to saved transcription…");
+    try { await observeTranscription(activeSessionId, currentInput, controller); }
+    catch (cause) {
+      if (!controller.signal.aborted) setError(message(cause));
+      setTranscriptionNotice(message(cause));
+    } finally { transcriptionAbort.current = null; setTranscribing(false); }
+  }
+
+  async function cancelTranscription() {
+    if (!activeSessionId) return;
+    try { await cancelTranscriptionSession(activeSessionId, transcriptionToken); }
+    catch (cause) { setError(message(cause)); }
   }
 
   async function recordMicrophone() {
@@ -316,9 +364,11 @@ export function RecombinationView() {
                 {recording && <><button onClick={() => microphone.current?.stop()} className="rounded border border-stone-600 px-3 py-2">Stop recording</button><button onClick={() => microphone.current?.discard()} className="text-stone-400">Discard recording</button></>}
                 <input ref={audioInput} aria-label="Speech WAV file" type="file" accept=".wav,audio/wav" disabled={transcribing || recording || capturing} onChange={(event) => setAudioFile(event.target.files?.[0] ?? null)} className="text-xs" />
                 <input aria-label="Transcription access key" type="password" autoComplete="off" value={transcriptionToken} disabled={transcribing} onChange={(event) => setTranscriptionToken(event.target.value)} placeholder="Workspace access key" className="rounded border border-stone-600 bg-[#141210] px-3 py-2 text-xs" />
-                <button disabled={!transcription?.configured || !audioFile || transcriptionToken.length < 32 || transcribing || recording || capturing || busy} onClick={() => void startTranscription()} className="rounded border border-stone-600 px-3 py-2 disabled:opacity-50">Transcribe WAV</button>
-                {transcribing && <button onClick={() => transcriptionAbort.current?.abort()} className="text-amber-300">Cancel transcription</button>}
+                <button disabled={!transcription?.configured || !audioFile || transcriptionToken.length < 32 || activeSessionId !== null || transcribing || recording || capturing || busy} onClick={() => void startTranscription()} className="rounded border border-stone-600 px-3 py-2 disabled:opacity-50">Transcribe WAV</button>
+                {activeSessionId && !transcribing && <button disabled={transcriptionToken.length < 32} onClick={() => void reconnectTranscription()} className="rounded border border-stone-600 px-3 py-2 disabled:opacity-50">Reconnect saved transcription</button>}
+                {activeSessionId && <button disabled={transcriptionToken.length < 32} onClick={() => void cancelTranscription()} className="text-amber-300">Cancel transcription job</button>}
               </div>
+              {activeSessionId && <p className="mt-1 font-mono text-xs text-stone-400">Saved transcription: {activeSessionId}. Enter the workspace key to reconnect after a reload.</p>}
               {audioFile && <p className="mt-1 text-xs text-stone-400">Selected audio: {audioFile.name} ({Math.ceil(audioFile.size / 1024)} KiB)</p>}
               {transcriptionNotice && <p role="status" className="mt-2 text-xs text-stone-300">{transcriptionNotice}</p>}
               {audioId && <p className="mt-1 break-all font-mono text-xs text-stone-500">Stored audio: {audioId}</p>}

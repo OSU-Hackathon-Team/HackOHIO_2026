@@ -34,16 +34,45 @@ const asHttp = (error: unknown): HttpError => {
   return new HttpError(500, candidate?.message ?? String(error));
 };
 
+const requireTranscriptionToken = (req: Request, _res: Response, next: NextFunction) => {
+  const expected = process.env.SPLICE_TRANSCRIPTION_ACCESS_TOKEN;
+  if (!expected || expected.length < 32) return next(new HttpError(503, "Live transcription access token is not configured"));
+  const provided = req.get("X-Splice-Transcription-Token") ?? "";
+  const expectedBytes = Buffer.from(expected);
+  const providedBytes = Buffer.from(provided);
+  if (providedBytes.length !== expectedBytes.length || !timingSafeEqual(providedBytes, expectedBytes)) {
+    return next(new HttpError(401, "Invalid transcription access token"));
+  }
+  next();
+};
+
 export function createRecombinationRouter(service: RecombinationService, jobs: JobManager): Router {
   const router = Router();
+  const transcriptionSession = async (sessionId: string) => {
+    const session = await service.getTranscriptionSession(sessionId);
+    if (!session || session.status === "succeeded" || session.status === "failed" || session.status === "cancelled") return session;
+    const job = session.job_id ? jobs.get(session.job_id) : null;
+    if (!job) return service.reconcileTranscriptionSession(sessionId, "failed", "Transcription job record is missing after restart");
+    if (job.status === "failed" || job.status === "cancelled") {
+      return service.reconcileTranscriptionSession(sessionId, job.status, job.error ?? "Transcription job ended without updating its session");
+    }
+    if (job.status === "succeeded") {
+      return service.reconcileTranscriptionSession(sessionId, "failed", "Transcription job completed without a finalized session");
+    }
+    return session;
+  };
 
   jobs.resumePending(async (saved, _job, context) => {
     if (saved.kind === "capability_build") {
       const result = await service.buildCapability(saved.request.intake_id, context);
       return { result_ref: `package:${result.package_id}` };
     }
-    const result = await service.buildApp(saved.request.plan, context);
-    return { result_ref: `app:${result.app_id}:${result.revision}` };
+    if (saved.kind === "application_build") {
+      const result = await service.buildApp(saved.request.plan, context);
+      return { result_ref: `app:${result.app_id}:${result.revision}` };
+    }
+    const result = await service.runTranscription(saved.request.session_id, context);
+    return { result_ref: `transcription:${result.session_id}` };
   });
 
   router.get("/api/capabilities", wrap(async (_req, res) => {
@@ -84,17 +113,7 @@ export function createRecombinationRouter(service: RecombinationService, jobs: J
     res.json(await service.transcriptionAvailability());
   }));
 
-  router.post("/api/recombination/transcription", (req, _res, next) => {
-    const expected = process.env.SPLICE_TRANSCRIPTION_ACCESS_TOKEN;
-    if (!expected || expected.length < 32) return next(new HttpError(503, "Live transcription access token is not configured"));
-    const provided = req.get("X-Splice-Transcription-Token") ?? "";
-    const expectedBytes = Buffer.from(expected);
-    const providedBytes = Buffer.from(provided);
-    if (providedBytes.length !== expectedBytes.length || !timingSafeEqual(providedBytes, expectedBytes)) {
-      return next(new HttpError(401, "Invalid transcription access token"));
-    }
-    next();
-  }, raw({ type: ["audio/wav", "audio/x-wav"], limit: "10mb" }), wrap(async (req, res) => {
+  router.post("/api/recombination/transcription", requireTranscriptionToken, raw({ type: ["audio/wav", "audio/x-wav"], limit: "10mb" }), wrap(async (req, res) => {
     if (!(await service.transcriptionAvailability()).configured) throw new HttpError(503, "Live transcription provider is not configured");
     if (!Buffer.isBuffer(req.body)) throw new HttpError(415, "Upload a mono PCM16 WAV with Content-Type: audio/wav");
     let parsed: ReturnType<typeof parseMonoPcm16Wav>;
@@ -115,6 +134,57 @@ export function createRecombinationRouter(service: RecombinationService, jobs: J
     } finally {
       sse.close();
     }
+  }));
+
+  router.post("/api/recombination/transcription/jobs", requireTranscriptionToken, raw({ type: ["audio/wav", "audio/x-wav"], limit: "10mb" }), wrap(async (req, res) => {
+    if (!(await service.transcriptionAvailability()).configured) throw new HttpError(503, "Live transcription provider is not configured");
+    if (!Buffer.isBuffer(req.body)) throw new HttpError(415, "Upload a mono PCM16 WAV with Content-Type: audio/wav");
+    let parsed: ReturnType<typeof parseMonoPcm16Wav>;
+    try { parsed = parseMonoPcm16Wav(req.body); }
+    catch (cause) { throw new HttpError(400, cause instanceof Error ? cause.message : String(cause)); }
+    const language = req.get("X-Splice-Language") ?? "en-US";
+    if (!/^[a-z]{2,3}-[A-Z]{2}$/.test(language)) throw new HttpError(400, "X-Splice-Language must be a language code such as en-US");
+    const session = await service.prepareTranscription({ ...parsed, language });
+    const request = { session_id: session.session_id };
+    let job: ReturnType<JobManager["start"]>;
+    try {
+      job = jobs.start("transcription", hashJson(request), async (context) => {
+        const result = await service.runTranscription(session.session_id, context);
+        return { result_ref: `transcription:${result.session_id}` };
+      }, { kind: "transcription", request });
+    } catch (cause) {
+      await service.reconcileTranscriptionSession(session.session_id, "failed", cause instanceof Error ? cause.message : String(cause));
+      throw cause;
+    }
+    res.status(202).json({ session: await service.getTranscriptionSession(session.session_id) ?? session, job });
+  }));
+
+  router.get("/api/recombination/transcription/jobs/:sessionId", requireTranscriptionToken, wrap(async (req, res) => {
+    const session = await transcriptionSession(req.params.sessionId);
+    if (!session) throw new HttpError(404, `Unknown transcription ${req.params.sessionId}`);
+    res.json(session);
+  }));
+
+  router.get("/api/recombination/transcription/jobs/:sessionId/events", requireTranscriptionToken, wrap(async (req, res) => {
+    const session = await transcriptionSession(req.params.sessionId);
+    if (!session?.job_id) throw new HttpError(404, `Unknown transcription job ${req.params.sessionId}`);
+    const job = jobs.get(session.job_id);
+    if (!job) throw new HttpError(404, `Unknown transcription job ${req.params.sessionId}`);
+    const sse = openSse(req, res);
+    let unsubscribe = () => {};
+    unsubscribe = jobs.subscribe(job.job_id, (event) => {
+      sse.send(event);
+      if (event.type === "done") queueMicrotask(() => { unsubscribe(); sse.close(); });
+    });
+    sse.signal.addEventListener("abort", () => { unsubscribe(); sse.close(); });
+  }));
+
+  router.post("/api/recombination/transcription/jobs/:sessionId/cancel", requireTranscriptionToken, wrap(async (req, res) => {
+    const session = await transcriptionSession(req.params.sessionId);
+    if (!session?.job_id) throw new HttpError(404, `Unknown transcription job ${req.params.sessionId}`);
+    const job = session.status === "succeeded" ? jobs.get(session.job_id) : jobs.cancel(session.job_id);
+    if (!job) throw new HttpError(404, `Unknown transcription job ${req.params.sessionId}`);
+    res.json(job);
   }));
 
   router.post("/api/compositions/validate", wrap(async (req, res) => {
@@ -178,12 +248,13 @@ export function createRecombinationRouter(service: RecombinationService, jobs: J
   router.get("/api/jobs/:jobId", wrap(async (req, res) => {
     const job = jobs.get(req.params.jobId);
     if (!job) throw new HttpError(404, `Unknown job ${req.params.jobId}`);
+    if (job.kind === "transcription") throw new HttpError(404, `Unknown job ${req.params.jobId}`);
     res.json(job);
   }));
 
   router.get("/api/jobs/:jobId/events", (req, res) => {
     const job = jobs.get(req.params.jobId);
-    if (!job) {
+    if (!job || job.kind === "transcription") {
       res.status(404).json({ error: `Unknown job ${req.params.jobId}` });
       return;
     }
@@ -220,6 +291,8 @@ export function createRecombinationRouter(service: RecombinationService, jobs: J
   });
 
   router.post("/api/jobs/:jobId/cancel", wrap(async (req, res) => {
+    const existing = jobs.get(req.params.jobId);
+    if (existing?.kind === "transcription") throw new HttpError(404, `Unknown job ${req.params.jobId}`);
     const job = jobs.cancel(req.params.jobId);
     if (!job) throw new HttpError(404, `Unknown job ${req.params.jobId}`);
     res.json(job);

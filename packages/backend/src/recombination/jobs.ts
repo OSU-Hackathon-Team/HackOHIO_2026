@@ -12,6 +12,7 @@ import {
   type JobKind,
   type JobProgress,
   type JobRecord,
+  type TranscriptionSegment,
 } from "@splice/contracts";
 import { hashJson } from "../capabilities/identity.js";
 
@@ -20,6 +21,8 @@ export interface JobContext {
   signal: AbortSignal;
   stage(stage: string, message: string, pct: number, checkpoint?: string): void;
   log(message: string): void;
+  transcriptionReset(attempt: number): void;
+  transcriptionSegment(attempt: number, segment: TranscriptionSegment): void;
 }
 
 export interface JobOutcome {
@@ -30,7 +33,8 @@ type Runner = (context: JobContext) => Promise<JobOutcome>;
 
 export type JobResumeRequest =
   | { kind: "capability_build"; request: CapabilityBuildRequest }
-  | { kind: "application_build"; request: ApplicationBuildRequest };
+  | { kind: "application_build"; request: ApplicationBuildRequest }
+  | { kind: "transcription"; request: { session_id: string } };
 
 interface StoredJob extends JobRecord {
   events: JobEvent[];
@@ -50,6 +54,12 @@ function validatedResumeRequest(raw: unknown, kind: JobKind, requestHash: string
   if (kind === "application_build") {
     const parsed = ApplicationBuildRequest.safeParse(candidate.request);
     return parsed.success && hashJson(parsed.data) === requestHash ? { kind, request: parsed.data } : null;
+  }
+  if (kind === "transcription") {
+    const request = candidate.request as { session_id?: unknown } | null;
+    if (!request || typeof request.session_id !== "string" || !/^tr_[a-f0-9]{32}$/.test(request.session_id)) return null;
+    const normalized = { session_id: request.session_id };
+    return hashJson(normalized) === requestHash ? { kind, request: normalized } : null;
   }
   return null;
 }
@@ -85,11 +95,11 @@ export class JobManager {
             job.resume_request = resume;
             job.status = "queued";
             job.error = null;
-            job.progress = { ...job.progress, stage: "resume_pending", message: "Server restarted; replaying from a safe build boundary" };
+            job.progress = { ...job.progress, stage: "resume_pending", message: "Server restarted; replaying the saved request" };
             this.append(job, { type: "stage", job_id: job.job_id, ts: Date.now(), stage: "resume_pending", pct: job.progress.pct, message: job.progress.message });
           } else {
             job.status = "failed";
-            job.error = "Interrupted by a server restart. No valid saved build request is available for replay.";
+            job.error = "Interrupted by a server restart. No valid saved request is available for replay.";
             job.progress = { ...job.progress, stage: "interrupted", message: job.error, checkpoint: job.progress.checkpoint };
             this.append(job, { type: "error", job_id: job.job_id, ts: Date.now(), message: job.error, fatal: true });
             this.append(job, { type: "done", job_id: job.job_id, ts: Date.now(), ok: false });
@@ -137,7 +147,7 @@ export class JobManager {
     return this.get(job.job_id)!;
   }
 
-  /** Replays interrupted durable builds after the service has registered its handlers. */
+  /** Replays interrupted durable work after the service has registered its handlers. */
   resumePending(handler: (request: JobResumeRequest, job: JobRecord, context: JobContext) => Promise<JobOutcome>): JobRecord[] {
     const resumed: JobRecord[] = [];
     for (const job of this.jobs.values()) {
@@ -154,7 +164,7 @@ export class JobManager {
   private async run(job: StoredJob, runner: Runner, controller: AbortController, resumed = false) {
     job.status = "running";
     job.progress = resumed
-      ? { ...job.progress, stage: "resuming", message: "Replaying saved build request" }
+      ? { ...job.progress, stage: "resuming", message: "Replaying saved request" }
       : { stage: "starting", pct: 1, message: "Starting", checkpoint: null };
     job.updated_at = new Date().toISOString();
     this.append(job, { type: "stage", job_id: job.job_id, ts: Date.now(), stage: job.progress.stage, pct: job.progress.pct, message: job.progress.message });
@@ -168,6 +178,14 @@ export class JobManager {
         },
         log: (message) => {
           this.append(job, { type: "log", job_id: job.job_id, ts: Date.now(), message });
+        },
+        transcriptionReset: (attempt) => {
+          this.append(job, { type: "transcription_reset", job_id: job.job_id, ts: Date.now(), attempt });
+          this.persist(job);
+        },
+        transcriptionSegment: (attempt, segment) => {
+          this.append(job, { type: "transcription_segment", job_id: job.job_id, ts: Date.now(), attempt, ...segment });
+          this.persist(job);
         },
       });
       if (controller.signal.aborted) throw new Error("cancelled");

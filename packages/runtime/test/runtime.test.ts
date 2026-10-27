@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { createServer } from "node:net";
 import { canonicalJson, type CapabilityDefinition, type CapabilityPackage, type WireObjectType } from "@splice/contracts";
 import { createCapabilityClient } from "../src/client.js";
+import { FsBlobStore } from "../src/host.js";
 
 const sha256 = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 const object = (fields: WireObjectType["fields"]): WireObjectType => ({ kind: "object", fields, additional: false });
@@ -195,4 +196,15 @@ test("native sidecar sees its read-only package but not a host scratch file", as
     fs.rmSync(outside, { force: true });
     f.cleanup();
   }
+});
+
+test("a saved audio blob is rejected if its bytes change before provider replay", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "splice-blob-integrity-"));
+  try {
+    const blobs = new FsBlobStore(root);
+    const ref = await blobs.put(new Uint8Array([1, 2, 3, 4]));
+    assert.deepEqual(await blobs.get(ref), new Uint8Array([1, 2, 3, 4]));
+    fs.writeFileSync(path.join(root, ref.id.slice(0, 2), ref.id), Buffer.from([4, 3, 2, 1]));
+    await assert.rejects(() => blobs.get(ref), (error: { code?: string }) => error.code === "blob_corrupt");
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

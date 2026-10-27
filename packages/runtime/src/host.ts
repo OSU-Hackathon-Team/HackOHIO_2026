@@ -32,7 +32,7 @@ export class HostPermissionError extends Error {
 
 export class BlobStoreError extends Error {
   constructor(
-    readonly code: "blob_too_large" | "invalid_blob_id" | "blob_not_found" | "blob_write_failed",
+    readonly code: "blob_too_large" | "invalid_blob_id" | "blob_not_found" | "blob_corrupt" | "blob_write_failed",
     message: string,
   ) {
     super(message);
@@ -134,11 +134,16 @@ export class FsBlobStore implements BlobStore {
 
   async get(ref: BlobRef): Promise<Uint8Array> {
     const target = this.resolve(ref);
+    let bytes: Uint8Array;
     try {
-      return new Uint8Array(await readFile(target));
+      bytes = new Uint8Array(await readFile(target));
     } catch {
       throw new BlobStoreError("blob_not_found", `blob ${ref.id} does not exist`);
     }
+    if (bytes.byteLength !== ref.size || blobId(bytes) !== ref.id) {
+      throw new BlobStoreError("blob_corrupt", `blob ${ref.id} no longer matches its content address and size`);
+    }
+    return bytes;
   }
 
   async delete(ref: BlobRef): Promise<void> {

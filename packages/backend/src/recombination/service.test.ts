@@ -10,7 +10,7 @@ import { createRecombinationRouter } from "../routes/recombination.js";
 import { JobManager } from "./jobs.js";
 import { FilesystemRecombinationService } from "./service.js";
 
-const context = { signal: new AbortController().signal, stage() {}, log() {} };
+const context = { signal: new AbortController().signal, stage() {}, log() {}, transcriptionReset() {}, transcriptionSegment() {} };
 
 test("recombination builds, executes, persists, exports and replaces pinned packages", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "splice-recombination-test-"));

@@ -26,7 +26,14 @@ smoke covers capture and denied permission. A short synthetic speech sample comp
 the final result was imperfect ("A 320 and the total is 60."). The same stream populated the
 notebook workflow input and its preview persisted the transcript with formula value 60. This
 proves external transport and downstream wiring, not quality on human audio, streaming during
-microphone capture, provider recovery after a server crash, or live transcription in the exported app. The
+microphone capture, or live transcription in the exported app. The Studio path now creates a
+durable transcription job before connecting to SSE. Its latest segments and status survive reload;
+the browser reconnects with the workspace key. A simulated provider interruption replays the
+saved audio under the original job ID and replaces old partials. A real AWS stream also finished
+on attempt 2 after the backend process was stopped with a partial segment and restarted using
+the same state directory. Crash timing during SQLite/blob writes remains untested. Transcript
+segments enter the meeting document when preview runs, not on every
+provider event. The
 native-origin intake test uses a synthetic artifact and approval solely to exercise the gate;
 it is not an upstream review result. On Linux, JS and native packages now run as separate
 processes inside bubblewrap user, PID, mount and network namespaces. Tests confirm package
@@ -70,10 +77,15 @@ browser storage. Then
 open the active notebook in Studio and record a microphone clip or import a mono signed 16-bit PCM
 WAV (8–48 kHz, up to 10 MB). Browser capture requires microphone permission and a secure context
 (HTTPS or localhost); it creates a 16 kHz WAV after recording stops.
-The POST-SSE route `/api/recombination/transcription` stores the uploaded PCM in the workspace blob
-store and emits `started`, timestamped partial/final `segment`, and terminal `done`/`error` events.
-The route requires `X-Splice-Transcription-Token` before it accepts the upload; serve Studio over
-HTTPS when users connect remotely so the workspace key stays private in transit.
+`POST /api/recombination/transcription/jobs` stores the uploaded PCM and starts a durable job.
+The response identifies a `TranscriptionSession` and its `JobRecord`; authenticated session and
+event routes expose the latest ordered segments and replayable job events. Closing Studio detaches
+observation without cancelling the provider. Studio saves the session ID locally for reconnect,
+but keeps the access key in memory only. Blob reads verify their saved content hash and size before
+a provider replay. The earlier POST-SSE route
+`/api/recombination/transcription` remains an ephemeral compatibility path. Both POST routes
+require `X-Splice-Transcription-Token` before accepting an upload; serve Studio over HTTPS when
+users connect remotely so the workspace key stays private in transit.
 Studio inserts finalized segments into the workflow input; run preview to save them in the meeting
 document. `npm run test:recombination:transcription:live -- <mono-pcm16.wav>` checks the actual
 provider without Studio. The synthetic sample above is a plumbing check; a labeled human-audio
@@ -202,6 +214,10 @@ Route surface (all JSON unless noted; SSE is POST-friendly via `fetch` anywhere 
 | `POST /api/recombination/seed` | idempotently install authored development packages → `CapabilityListResponse` |
 | `GET /api/recombination/transcription` | `TranscriptionAvailabilityResponse` for optional external provider |
 | `POST /api/recombination/transcription` | mono PCM16 WAV upload → POST-SSE `TranscriptionEvent` stream |
+| `POST /api/recombination/transcription/jobs` | mono PCM16 WAV upload → `TranscriptionStartResponse` and durable provider job |
+| `GET /api/recombination/transcription/jobs/:sessionId` | authenticated `TranscriptionSession` snapshot |
+| `GET /api/recombination/transcription/jobs/:sessionId/events` | authenticated replayable `JobEvent` SSE |
+| `POST /api/recombination/transcription/jobs/:sessionId/cancel` | cancel provider job; return `JobRecord` |
 | `POST /api/compositions/validate` | `CompositionValidateRequest` → `CompositionValidateResponse` |
 | `POST /api/apps` | `ApplicationBuildRequest` → `JobRecord` |
 | `GET /api/apps` | `ApplicationListResponse` |

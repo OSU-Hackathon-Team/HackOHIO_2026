@@ -126,6 +126,17 @@ export class TranscriptionStore {
     });
   }
 
+  /** Reconcile a terminal job after restart when no provider runner can update its session. */
+  reconcileTerminal(sessionId: string, status: "failed" | "cancelled", message: string): Session {
+    return this.state.transaction(() => {
+      const session = this.required(sessionId);
+      if (session.status === "succeeded" || session.status === "failed" || session.status === "cancelled") return session;
+      this.state.dbHandle.prepare("UPDATE transcription_sessions SET status = ?, error = ?, updated_at = ? WHERE session_id = ?")
+        .run(status, message.slice(0, 2_000), new Date().toISOString(), sessionId);
+      return this.required(sessionId);
+    });
+  }
+
   private running(sessionId: string, attempt: number): Session {
     const session = this.required(sessionId);
     if (session.status !== "running" || session.attempt !== attempt) {

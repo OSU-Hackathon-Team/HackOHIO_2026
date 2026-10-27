@@ -16,12 +16,15 @@ import {
   PreviewResponse,
   TranscriptionAvailabilityResponse,
   TranscriptionEvent,
+  TranscriptionSession,
+  TranscriptionStartResponse,
   type ApplicationBuildRequest,
   type CapabilityBuildRequest,
   type CapabilityIntakeRequest,
   type CompositionValidateRequest,
   type PreviewRequest,
   type TranscriptionEvent as TranscriptionEventType,
+  type TranscriptionSession as TranscriptionSessionType,
 } from "@splice/contracts";
 import { z } from "zod";
 
@@ -194,6 +197,49 @@ export async function transcribeWav(
     await reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
+}
+
+const transcriptionJobBase = (sessionId: string) => `/api/recombination/transcription/jobs/${encodeURIComponent(sessionId)}`;
+
+/** Start a durable provider job; disconnecting from its event stream leaves it running. */
+export async function startTranscriptionJob(file: File, accessToken: string, signal?: AbortSignal): Promise<TranscriptionStartResponse> {
+  const url = "/api/recombination/transcription/jobs";
+  if (file.size > 10 * 1024 * 1024) throw new RecombinationApiError("WAV file exceeds the 10 MB upload limit", { url });
+  return readJson(TranscriptionStartResponse, "TranscriptionStartResponse", url, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "audio/wav", "X-Splice-Transcription-Token": accessToken },
+    body: file,
+    signal,
+  });
+}
+
+export function getTranscriptionSession(sessionId: string, accessToken: string, signal?: AbortSignal): Promise<TranscriptionSessionType> {
+  const url = transcriptionJobBase(sessionId);
+  return readJson(TranscriptionSession, "TranscriptionSession", url, {
+    headers: { Accept: "application/json", "X-Splice-Transcription-Token": accessToken }, signal,
+  });
+}
+
+export function cancelTranscriptionSession(sessionId: string, accessToken: string, signal?: AbortSignal): Promise<JobRecord> {
+  const url = `${transcriptionJobBase(sessionId)}/cancel`;
+  return readJson(JobRecord, "JobRecord", url, {
+    method: "POST", headers: { Accept: "application/json", "X-Splice-Transcription-Token": accessToken }, signal,
+  });
+}
+
+export async function streamTranscriptionSession(
+  sessionId: string,
+  accessToken: string,
+  onEvent: (event: JobEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const url = `${transcriptionJobBase(sessionId)}/events`;
+  const response = await fetch(url, { headers: { Accept: "text/event-stream", "X-Splice-Transcription-Token": accessToken }, signal });
+  if (!response.ok || !response.body || !(response.headers.get("content-type") ?? "").includes("text/event-stream")) {
+    throw new RecombinationApiError(`Transcription stream unavailable: ${response.status}`, { url, status: response.status });
+  }
+  const done = await consumeJobStream(response, onEvent, signal);
+  if (!done) throw new RecombinationApiError("Transcription event stream closed before the job completed; reconnect to resume", { url });
 }
 
 /** `POST /api/compositions/validate` */
