@@ -102,12 +102,13 @@ async function hostDependentChannels({ cases, appDir, timeout, concurrency = 4 }
       const shape = result => JSON.stringify(comparableShape(result));
       if (shape(first) !== shape(second))
         dependent.push({ channel: testCase.channel, source: "host-variation",
-          reason: `the observed result changes when the mocked host changes (window bounds ` +
-            `${DEFAULT_HOST.bounds.width}x${DEFAULT_HOST.bounds.height} to ` +
-            `${VARIANT_HOST.bounds.width}x${VARIANT_HOST.bounds.height}, display ` +
-            `${DEFAULT_HOST.display.width}x${DEFAULT_HOST.display.height} to ` +
-            `${VARIANT_HOST.display.width}x${VARIANT_HOST.display.height}), so it depends on a host ` +
-            "object the feature contract does not expose" });
+          reason: "the observed result is not stable between two observations of the original " +
+            `(different run directory, window bounds ${DEFAULT_HOST.bounds.width}x${DEFAULT_HOST.bounds.height} ` +
+            `versus ${VARIANT_HOST.bounds.width}x${VARIANT_HOST.bounds.height}, display ` +
+            `${DEFAULT_HOST.display.width}x${DEFAULT_HOST.display.height} versus ` +
+            `${VARIANT_HOST.display.width}x${VARIANT_HOST.display.height}), so it depends on host or ` +
+            "run state — a path outside the storage roots, the invoking window, or its own clock " +
+            "and randomness — that the feature contract does not expose" });
     }
   }
   await Promise.all(Array.from({ length: Math.min(concurrency, entries.length) }, worker));

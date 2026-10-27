@@ -306,7 +306,11 @@ async function worker() {
      returnValue. */
   const callEvent = () => ({ get sender() { return senderWindow().webContents; },
     senderFrame: { url: `file://${payload.appDir}/index.html` }, frameId: 1, processId: 1,
-    returnValue: undefined });
+    returnValue: undefined,
+    /* The asynchronous answer form: an application that answers ipcRenderer.send with
+       event.reply(...) instead of sendSync. The reply is accepted and cannot be awaited by the
+       harness, so a channel that only replies is observed as returning nothing. */
+    reply: () => {}, replyOn: () => {}, });
   const fakeEvent = callEvent();
   const webContents = () => ({
     send: () => {}, postMessage: () => {}, on: () => {}, once: () => {}, removeListener: () => {},
@@ -462,14 +466,46 @@ async function worker() {
         getPreloads: () => [], setPreloads: () => {}, getStoragePath: () => payload.bases.userData,
         clearStorageData: async () => {}, flushStorageData: async () => {}, clearCache: async () => {},
         setCertificateVerifyProc: () => {}, setProxy: async () => {}, resolveProxy: async () => "",
+        getUserAgent: () => "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+          `Electron/${process.versions.electron} Safari/537.36`,
+        setUserAgent: () => {}, setDisplayMediaRequestHandler: () => {},
+        setDevicePermissionHandler: () => {}, setPermissionCheckHandler: () => {},
+        setBluetoothPairingHandler: () => {}, setSpellCheckerDictionaryDownloadURL: () => {},
+        getCacheSize: async () => 0, clearHostResolverCache: () => {}, closeAllConnections: async () => {},
+        setCodeCachePath: () => {}, getPreloads: () => [], setSSLConfig: () => {},
+        loadExtension: async () => ({}), getAllExtensions: () => [], removeExtension: () => {},
+        downloadURL: () => {}, createInterruptedDownload: () => {},
         setSpellCheckerLanguages: () => {}, getSpellCheckerLanguages: () => [],
         spellCheckerDictionaryDownloadURL: "",
         cookies: { get: async () => [], set: async () => {}, remove: async () => {}, flushStore: async () => {},
           on: () => {}, once: () => {}, removeListener: () => {} } },
       fromPartition: () => electron.session.defaultSession,
     },
-    Menu: { setApplicationMenu: () => {}, buildFromTemplate: () => ({}), getApplicationMenu: () => null,
-      sendActionToFirstResponder: () => {} },
+    /* A main process builds a menu template and shows it as the application menu or as a popup
+       from an IPC channel, so the menu object has to be one. */
+    Menu: (() => {
+      let applicationMenu = null;
+      class Menu {
+        constructor() { this.items = []; }
+        static buildFromTemplate(template) {
+          const menu = new Menu();
+          menu.template = Array.isArray(template) ? template : [];
+          menu.items = menu.template.map((item, index) => ({ id: item?.id ?? `item-${index}`,
+            label: item?.label ?? "", type: item?.type ?? "normal", enabled: item?.enabled !== false,
+            visible: item?.visible !== false, checked: Boolean(item?.checked), submenu: null,
+            click: () => {}, }));
+          return menu;
+        }
+        static setApplicationMenu(menu) { applicationMenu = menu ?? null; }
+        static getApplicationMenu() { return applicationMenu; }
+        static getMenuItemById(id) { return applicationMenu?.getMenuItemById(id) ?? null; }
+        static setApplicationMenuOnLinux() {}
+        static sendActionToFirstResponder() {}
+        append(item) { this.items.push(item); } insert(position, item) { this.items.splice(position, 0, item); }
+        popup() {} closePopup() {} getMenuItemById(id) { return this.items.find(item => item.id === id) ?? null; }
+      }
+      return Menu;
+    })(),
     Tray: class {
       constructor() {} setImage() {} setPressedImage() {} setToolTip() {} setTitle() {} getTitle() { return ""; }
       setContextMenu() {} getBounds() { return { x: 0, y: 0, width: 0, height: 0 }; } popUpContextMenu() {}

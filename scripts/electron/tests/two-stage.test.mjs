@@ -148,7 +148,7 @@ test("a channel whose answer depends on the mocked host is excluded, not claimed
     assert.equal(result.report.partitions.final.coverage["app:version"].distinct, 1);
     assert.ok(result.report.readiness.blockers.every(item => !/app:version/.test(item)));
     assert.deepEqual(result.report.spec.host_dependent_exclusions.map(item => item.channel), ["window:bounds"]);
-    assert.match(result.report.spec.host_dependent_exclusions[0].reason, /window bounds/);
+    assert.match(result.report.spec.host_dependent_exclusions[0].reason, /not stable between two observations/);
     assert.deepEqual(result.report.readiness.excluded.map(item => item.channel), ["window:bounds"]);
     assert.equal(result.report.readiness.excluded[0].source, "host-variation");
     assert.equal(result.report.readiness.whole_app_ready, false);
