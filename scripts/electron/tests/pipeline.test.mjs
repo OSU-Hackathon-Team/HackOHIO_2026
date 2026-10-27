@@ -8,8 +8,25 @@ import { runCase } from "../oracle.mjs";
 import { buildCases, compareCase, runSuite, usableResults, validateContract } from "../cases.mjs";
 import { assembleProject, validateWorkspace } from "../project.mjs";
 import { findFixture } from "../fixture-search.mjs";
-import { CONTRACT, hostSurfaceArchive, launcherArchive, syntheticArchive,
+import { CONTRACT, asyncFailureArchive, hostSurfaceArchive, launcherArchive, syntheticArchive,
   syntheticWorkspace } from "./synthetic.mjs";
+
+test("an asynchronous failure while answering a call is observed, not lost", async () => {
+  const { root, extracted } = await asyncFailureArchive();
+  try {
+    const result = await runCase({ appDir: extracted, case: { calls: [
+      { channel: "job:start", args: [] }, { channel: "job:status", args: [] }] } });
+    /* Real Electron would end the process here. An observation that instead disappears makes the
+       case unobservable, which hides an app behavior an implementation has to match. */
+    assert.equal(result.outcomes[0].ok, false);
+    assert.equal(result.outcomes[0].error.name, "TypeError");
+    assert.equal(result.outcomes[0].error.message, "late failure");
+    assert.equal(result.outcomes[1].ok, true, "the worker survives the failure and answers the next call");
+    assert.equal(result.outcomes[1].value, "idle");
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
 
 test("a launcher-style archive is observed: conventional entry, exported initializer, sendSync IPC", async () => {
   const { root, archive, extracted } = await launcherArchive();

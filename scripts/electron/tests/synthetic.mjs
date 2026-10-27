@@ -186,6 +186,36 @@ module.exports = function (appDir, events) {
 };
 `;
 
+/* A main process that fails asynchronously while answering: the handler starts work it never
+   awaits, and the rejection surfaces after the call has returned. */
+export const ASYNC_FAILURE_SOURCE = `"use strict";
+const { app, ipcMain } = require("electron");
+
+app.whenReady().then(() => {
+  ipcMain.on("job:start", event => {
+    Promise.reject(new TypeError("late failure"));
+    event.returnValue = "started";
+  });
+  ipcMain.on("job:status", event => { event.returnValue = "idle"; });
+});
+`;
+
+export async function asyncFailureArchive() {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "splice-synthetic-async-"));
+  const source = path.join(root, "source");
+  await fsp.mkdir(source);
+  await fsp.writeFile(path.join(source, "package.json"), JSON.stringify({
+    name: "synthetic-async", version: "1.0.0", main: "main.js",
+  }));
+  await fsp.writeFile(path.join(source, "main.js"), ASYNC_FAILURE_SOURCE);
+  const archive = path.join(root, "app.asar");
+  await asar.createPackage(source, archive);
+  const extracted = path.join(root, "extracted");
+  await fsp.mkdir(extracted);
+  asar.extractAll(archive, extracted);
+  return { root, archive, extracted };
+}
+
 export async function launcherArchive() {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "splice-synthetic-launcher-"));
   const source = path.join(root, "source");

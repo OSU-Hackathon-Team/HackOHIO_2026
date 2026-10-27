@@ -317,6 +317,16 @@ async function worker() {
     executeJavaScript: async () => undefined, setWindowOpenHandler: () => {}, openDevTools: () => {},
     loadURL: async () => {}, loadFile: async () => {}, session: null, id: windows.length + 1,
     isDestroyed: () => false, getURL: () => "about:blank",
+    /* Printing and page capture are documented interface with a byte-shaped result; a channel that
+       renders a PDF writes the file it is given, and the host must not look broken there. */
+    printToPDF: async () => Buffer.from("%PDF-1.4\n"), print: async () => {},
+    capturePage: async () => ({ isEmpty: () => true, toPNG: () => Buffer.alloc(0),
+      getSize: () => ({ width: 0, height: 0 }) }),
+    savePage: async () => false, findInPage: () => 0, stopFindInPage: () => {},
+    insertCSS: async () => "", removeInsertedCSS: async () => {}, setZoomFactor: () => {},
+    getZoomFactor: () => 1, setZoomLevel: () => {}, getZoomLevel: () => 0,
+    getProcessId: () => 1, getOSProcessId: () => 1, getTitle: () => "", isLoading: () => false,
+    setAudioMuted: () => {}, isAudioMuted: () => false, focus: () => {}, blur: () => {},
   });
   class BrowserWindow {
     constructor(options = {}) {
@@ -658,6 +668,20 @@ async function worker() {
   const normalizeFiles = files => Object.fromEntries(Object.entries(files)
     .map(([file, value]) => [file, typeof value === "string" ? normalizeText(value) : value]));
 
+  /* An application can fail asynchronously while answering a call: a handler starts work it never
+     awaits and the rejection surfaces on a later tick. Without a listener that kills the worker
+     and the observation is lost, so the case is unobservable rather than the app's error being
+     recorded. The first error raised while a call is being answered is attributed to that call;
+     anything later is attributed to the call it interrupted. */
+  let callError = null;
+  const capture = value => { if (!callError) callError = value; };
+  process.on("unhandledRejection", capture);
+  process.on("uncaughtException", capture);
+  const drainTicks = async () => {
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setTimeout(resolve, 0));
+  };
+
   const outcomes = [];
   let startupError = null;
   const exports = [];
@@ -685,8 +709,13 @@ async function worker() {
       if (!entry) outcome = { ok: false, error: { name: "MissingHandler", message: "No handler registered", code: null } };
       else {
         const event = callEvent();
+        callError = null;
         try {
           const returned = await entry.handler(event, ...call.args);
+          /* Give work the handler started without awaiting it a chance to fail here rather than in
+             the next call's window. */
+          await drainTicks();
+          if (callError) throw callError;
           /* A sendSync handler answers through returnValue; a handler that only does work leaves it
              undefined, which is the honest observation of a fire-and-forget channel. */
           const value = entry.sync
