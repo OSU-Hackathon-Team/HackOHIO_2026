@@ -25,14 +25,20 @@ from engine.workbench import (build_image, build_prompt, materialize_workspace,
 from model_config import get_model
 
 
-def extract_c(text: str) -> str:
+def extract_c(text: str, *, executable: bool = False) -> str:
+    """The C translation unit in a model answer.
+
+    executable=True for a candidate that is built into its own program: it reads the input
+    file it is given and writes its own stdout, so file I/O is its interface rather than an
+    escape. Both forms refuse to start another program.
+    """
     match = re.search(r"```(?:c)?\s*\n(.*?)\n```", text, re.S | re.I)
     source = match.group(1) if match else text.strip()
     if not source.startswith("#include") and not source.startswith("/*"):
         raise ValueError("model did not return a C translation unit")
     if re.search(r"\b(?:dlopen|dlsym|system|popen|execve|fork)\s*\(", source):
         raise ValueError("candidate tries to invoke an external implementation")
-    return validate_candidate_source(source)
+    return validate_candidate_source(source, executable=executable)
 
 
 def ready_dossier(state: Path, store: LocalArtifactStore, spec_artifact: str) -> dict:

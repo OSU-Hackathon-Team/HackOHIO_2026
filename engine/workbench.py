@@ -33,13 +33,21 @@ PRIVATE_KEYS = {
     "source_artifact", "audit_artifact", "dossier_artifact", "campaign",
     "prompt_artifact", "hidden_result_artifacts", "result_artifacts",
 }
-UNSAFE_C_CALL = re.compile(
-    r"\b(?:system|popen|dlopen|dlsym|fork|vfork|exec[a-z]*|posix_spawn|socket|connect|"
-    r"bind|listen|accept|fopen|freopen|open|openat|read|write|remove|rename|unlink|"
-    r"mkdir|rmdir|getenv|setenv|putenv|chdir|getcwd|syscall|ptrace|mount|umount|"
-    r"chroot|setuid|setgid|unshare|clone)\s*\(",
-    re.I,
+# Process creation, dynamic loading, the network, and privilege or namespace changes are
+# refused for every candidate, in-process or executable.
+PROCESS_ESCAPE = (
+    r"system|popen|dlopen|dlsym|fork|vfork|exec[a-z]*|posix_spawn|socket|connect|"
+    r"bind|listen|accept|syscall|ptrace|mount|umount|chroot|setuid|setgid|unshare|clone"
 )
+# A shared-library candidate runs inside the probe process, so the harness's own files, the
+# environment and the process working directory are off limits as well. An executable
+# candidate is its own process: reading its input and writing its output is its interface.
+LIBRARY_ESCAPE = (
+    r"fopen|freopen|open|openat|read|write|remove|rename|unlink|mkdir|rmdir|"
+    r"getenv|setenv|putenv|chdir|getcwd"
+)
+UNSAFE_C_CALL = re.compile(rf"\b(?:{PROCESS_ESCAPE}|{LIBRARY_ESCAPE})\s*\(", re.I)
+EXECUTABLE_UNSAFE_C_CALL = re.compile(rf"\b(?:{PROCESS_ESCAPE})\s*\(", re.I)
 UNSAFE_C_ATTRIBUTE = re.compile(
     r"__attribute__\s*\(\s*\(\s*constructor|__asm__|\basm\s*\(", re.I)
 FORBIDDEN_WORKSPACE = re.compile(
@@ -187,15 +195,17 @@ def canonical_cases(rows: Iterable[dict]) -> list[dict]:
     return cases
 
 
-def validate_candidate_source(source: object) -> str:
+def validate_candidate_source(source: object, *, executable: bool = False) -> str:
     """Reject a candidate that could reach outside the probe process on the host."""
     if not isinstance(source, str) or not source.strip():
         raise ValueError("candidate source is empty")
     if len(source) > 262144:
         raise ValueError("candidate source exceeds 256 KiB")
-    call = UNSAFE_C_CALL.search(source)
+    call = (EXECUTABLE_UNSAFE_C_CALL if executable else UNSAFE_C_CALL).search(source)
     if call:
-        raise ValueError(f"candidate tries to invoke an external or I/O function: {call.group(0)}")
+        reason = ("reach outside the candidate process" if executable
+                  else "invoke an external or I/O function")
+        raise ValueError(f"candidate tries to {reason}: {call.group(0)}")
     attribute = UNSAFE_C_ATTRIBUTE.search(source)
     if attribute:
         raise ValueError(f"candidate uses a constructor or inline assembly: {attribute.group(0)}")

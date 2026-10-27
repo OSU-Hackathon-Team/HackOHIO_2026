@@ -7,9 +7,15 @@ import os
 from pathlib import Path
 import subprocess
 
+# Evidence-only calls answer with one schema-shaped JSON object and stay small. Callers that
+# need a whole program or patch (the executable implementer) ask for the Converse ceiling.
+# Requests above the ceiling are refused by Bedrock, so the bound is checked here.
+CONVERSE_DEFAULT_TOKENS, CONVERSE_MAX_TOKENS = 4096, 16_384
+
 
 def _invoke_bedrock(folder: Path, prompt: str, *, model: str, timeout: int,
-                    env_file: Path, agent_instruction: str) -> dict:
+                    env_file: Path, agent_instruction: str,
+                    max_tokens: int = CONVERSE_DEFAULT_TOKENS) -> dict:
     import boto3
     from botocore.config import Config
 
@@ -35,7 +41,7 @@ def _invoke_bedrock(folder: Path, prompt: str, *, model: str, timeout: int,
     response = client.converse(
         modelId=model.removeprefix("amazon-bedrock/"),
         messages=[{"role": "user", "content": [{"text": agent_instruction + "\n" + prompt}]}],
-        inferenceConfig={"maxTokens": 4096})
+        inferenceConfig={"maxTokens": max_tokens})
     pieces = [part["text"] for part in response["output"]["message"]["content"]
               if "text" in part]
     if not pieces:
@@ -76,11 +82,15 @@ def add_aws_env(env: dict[str, str], env_file: Path) -> None:
 def invoke_opencode(opencode: Path, folder: Path, prompt: str, *, model: str,
                     timeout: int, env_file: Path, agent_name: str,
                     agent_instruction: str, mcp: dict | None = None,
-                    allow_tools: tuple[str, ...] = ()) -> dict:
+                    allow_tools: tuple[str, ...] = (),
+                    max_tokens: int = CONVERSE_DEFAULT_TOKENS) -> dict:
+    if not 1 <= max_tokens <= CONVERSE_MAX_TOKENS:
+        raise ValueError(f"max_tokens must be between 1 and {CONVERSE_MAX_TOKENS}")
     # Direct Converse has no tools; tool-using agents (the investigator) need OpenCode.
     if model.startswith("amazon-bedrock/") and not mcp and not allow_tools:
         return _invoke_bedrock(folder, prompt, model=model, timeout=timeout,
-                               env_file=env_file, agent_instruction=agent_instruction)
+                               env_file=env_file, agent_instruction=agent_instruction,
+                               max_tokens=max_tokens)
     version = subprocess.run([str(opencode), "--version"], capture_output=True,
                              text=True, check=True, timeout=10).stdout.strip()
     ambient = model == "opencode/ambient"
@@ -117,7 +127,7 @@ def invoke_opencode(opencode: Path, folder: Path, prompt: str, *, model: str,
             config["provider"] = {provider: {"models": {model_id: {
                 "name": model_id, "id": model_id, "status": "active",
                 "provider": {"npm": "@ai-sdk/amazon-bedrock"},
-                "limit": {"context": 32768, "output": 4000},
+                "limit": {"context": 32768, "output": max_tokens},
             }}}}
         if mcp:
             config["mcp"] = mcp
