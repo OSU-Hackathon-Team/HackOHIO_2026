@@ -78,7 +78,6 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   plus a Converse path for `splice_compatible` non-Claude models). **Splice defaults:** all four roles use Qwen3 Coder 480B over Converse. All three primary role smoke tests returned 391 in 0.5–0.6 seconds on this account. Claude overrides remain available but account access is blocked (see `gotchas.md`).
 - **Studio core:** typed POST-SSE client, Zustand orchestration, development adapter, pantry, activity terminal, cards/X-Ray, evidence drawer, fusion, and Sandpack preview/code are implemented. Use `?mode=development` or `VITE_API_MODE=mock`. Authored `_seed` fixtures have real local engine checks and unrun original-code oracle; simulated activity is labeled development data. Electron source export is available; original-app platform parity remains outside the pure-engine pipeline.
 - **Electron project export:** A ready synthesis bundle can be downloaded as a runnable Electron source ZIP, with the checked engine files preserved byte-for-byte and a locally built React renderer. See `docs/electron-export.md` for the run command and the platform-behavior boundary.
-- **Bounded Electron reconstruction:** `scripts/electron/recreate-recall.mjs` inspects the committed Recall `app.asar` and creates a runnable app with its original IPC channels and JSON deck effects. `npm run test:electron-recreation` compares the reconstructed behavior to the packaged original; see `docs/electron-recreation.md` for scope and evidence.
 - **Eng 1 helpers landed:** configuration, SSE, archive/REA bridge and collector, record/replay, pantry and schema-shaped health are implemented. Existing Step 1 tests cover these modules; live REA acceptance is separate.
 - **Remaining stubs:** Eng 2 sandbox and requirements extraction. No live pipeline end to end yet; Step 3 deps remain null until the sandbox is available. Its 503 diagnostic now names only the missing sandbox.
 - **Decompilation engine:** the `engine/` package runs native evidence export, scopes,
@@ -146,6 +145,15 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   blocks** (`spec/discovery.ts`) proposes up to five capabilities from supported claims and writes
   one draft spec per capability with Engineer 2's native writer. Drafts stay draft-only, and
   adding one to App library is an explicit user action. See `docs/native-library.md`.
+- **Electron reconstruction workflow (behavioral, target-neutral):** `npm run electron:reconstruct --
+  <app.asar> <out>` analyzes the archive, then an OpenCode agent with a black-box IPC oracle learns
+  channels, fixtures, errors and file effects, writes feature modules and declares a contract. The
+  driver generates public, held-out and final-held-out cases from that contract, assembles a runnable
+  Electron project (`main`, sandboxed preload, renderer, manifest) and verifies values, error
+  names/codes and persisted bytes against the original. Coverage gates reject contracts that only
+  reach error paths. There are no per-app adapters, templates, blueprints or scenarios in the
+  reconstruction path. The model role is `electron_reconstructor` in `models.json`. See
+  `docs/electron-generalization.md`.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
   `trace_application_feature` and `binary_session` (live probe; catalog and samples in `fixtures/rea/`),

@@ -55,6 +55,16 @@ Each script runs one module alone. "Done" for a module means its script passes.
 | `test:synthesis` | Eng 3 | The demo recipes → validated bundles |
 | `test:unit` | all | `node:test` files `src/**/*.test.ts` |
 
+### Electron reconstruction scripts (repo root)
+
+| Script | Checks |
+|---|---|
+| `npm run electron:analyze -- <app.asar>` | Static archive inventory (entries, IPC arity, bridges, assets) |
+| `npm run electron:reconstruct -- <app.asar> <out>` | Full behavior pipeline: oracle, agent, public/held-out verification, project assembly. Needs Bedrock credentials; model comes from the `electron_reconstructor` role |
+| `npm run electron:verify -- <app.asar> <project> <scenario.json>` | Differential comparison for an explicit scenario |
+| `npm run electron:workbench -- <app.asar> <out>` | Offline function workbench from a verified blueprint (not app reconstruction) |
+| `npm run test:electron-general` | Oracle, case generation, fixture search, assembly, differential verification and MCP tool tests. No credentials needed |
+
 ## Runtime modes (backend `.env`)
 
 | Var | Values | Effect |

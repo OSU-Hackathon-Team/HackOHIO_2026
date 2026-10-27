@@ -3,6 +3,7 @@
   "default": "amazon-bedrock/deepseek.v3.2",
   "roles": {
     "decomp_worker": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "electron_reconstructor": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
     "decomp_reviewer": "amazon-bedrock/qwen.qwen3-32b-v1:0",
     "decomp_adjudicator": "amazon-bedrock/deepseek.v3.2",
     "decomp_watchdog": "amazon-bedrock/zai.glm-5",
@@ -15,6 +16,7 @@
   },
   "role_notes": {
     "decomp_worker": "Python OpenCode/Ghidra worker (launch.py). Any OpenCode-supported model.",
+    "electron_reconstructor": "OpenCode agent that rebuilds an Electron app from IPC observations (scripts/electron). Override with MODEL_ELECTRON_RECONSTRUCTOR.",
     "spec_writer": "Splice spec_writer: Qwen3 Coder 480B via Bedrock Converse. Environment overrides remain supported.",
     "engine_writer": "Splice engine_writer: Qwen3 Coder 480B via Bedrock Converse. Environment overrides remain supported.",
     "ui_synthesizer": "Splice ui_synthesizer: Qwen3 Coder 480B via Bedrock Converse. Environment overrides remain supported.",

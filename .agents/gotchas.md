@@ -1,5 +1,13 @@
 # Gotchas (read before writing code in these areas)
 
+## Electron reconstruction oracle and agent
+- `scripts/electron/oracle.mjs` runs an archive's main process under a fake Electron host. `app.whenReady()` chains are tracked, not just the returned promise: a handler registered after an `await` must be settled before a probe runs, or every channel looks missing.
+- Fixtures are real files under `userData`, `documents`, `logs` or `temp`; `app.getPath` must answer all four. File effects are compared byte for byte, including JSON indentation.
+- Channel arity comes from static analysis (`handler.parameters.length - 1`). Dynamic channels are diagnostics, not invented calls.
+- Coverage is a gate, not a score. A contract whose cases all fail is rejected even if the candidate reproduces every error exactly. Use `find_fixture` for missing-field/ENOENT shapes, and `history`-style fields may live on a different object than the one the agent guessed.
+- The agent never receives archive source, only the oracle tools and its workspace. Do not add a tool that returns source text or archive paths.
+- The agent model is the `electron_reconstructor` role (Qwen over Bedrock). Free OpenCode models hit daily usage limits mid-run; `opencode/beam-free` wrote two files and then failed for hours. Refresh `.env` from the AWS CLI when the session token expires.
+
 ## Native decompilation S3 cache
 - `results/<run-id>/results.tgz` is a private run archive and `library/analyses/<run-id>/` is
   the Studio catalog. Neither is a reusable engine cache key. See `docs/decomp-s3-cache.md`.

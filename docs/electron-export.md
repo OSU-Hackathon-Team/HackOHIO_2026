@@ -8,6 +8,6 @@ The project opens only its local built renderer. The window has Node integration
 
 This output reimplements the **selected, verified feature engines and generated UI** inside Electron. Existing feature specifications may explicitly exclude source-app IPC, persistence, menus, dialogs, networking, or window lifecycle behavior as `stripped_glue`. The exporter cannot infer or verify those behaviors from a pure engine bundle, so the generated project does not claim full source-app equivalence. A bundle in replay mode retains that mode in its README; replay is not live original-code verification.
 
-For a concrete reconstruction that also covers Electron IPC and storage behavior, see [the bounded Recall reconstruction](electron-recreation.md).
+For a reconstruction that covers the archive's Electron IPC and storage behavior, see [the behavioral Electron reconstruction pipeline](electron-generalization.md).
 
 The export test compares every `src/engines/*` byte for byte with the input bundle and checks the desktop main-process settings. A generated study-room project was installed, type-checked, built, and launched under Electron 45. Its window loaded the local `dist/index.html`, and the renderer displayed the study-room UI. This checks that the source ZIP runs, while source-app platform parity remains outside the current feature contract.

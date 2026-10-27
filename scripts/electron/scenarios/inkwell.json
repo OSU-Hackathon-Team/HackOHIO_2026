@@ -1,0 +1,14 @@
+{
+  "fixtures": [
+    { "base": "documents", "path": "Inkwell/Alpha.md", "content": "# Alpha\nSee [[Beta]] and [[Missing]].\n" },
+    { "base": "documents", "path": "Inkwell/Beta.md", "content": "# Beta\nA note about graphs. See [[Alpha]].\n" },
+    { "base": "documents", "path": "Inkwell/Gamma.md", "content": "# Gamma\nAn unrelated note.\n" }
+  ],
+  "calls": [
+    { "channel": "graph:get", "args": [] },
+    { "channel": "search:query", "args": ["al"] },
+    { "channel": "search:query", "args": ["bt"] },
+    { "channel": "search:query", "args": ["zz"] },
+    { "channel": "search:query", "args": [""] }
+  ]
+}
