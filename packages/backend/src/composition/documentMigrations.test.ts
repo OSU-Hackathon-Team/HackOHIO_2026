@@ -4,7 +4,7 @@ import { CompositionPlan } from "@splice/contracts";
 import { notebookPlan } from "../example/notebook.js";
 import { openMemoryStateStore } from "../state/store.js";
 import { NamespacedStateStore } from "./appStore.js";
-import { applyDocumentMigration, documentSignature, documentTransition } from "./documentMigrations.js";
+import { applyDocumentMigration, documentSignature, documentTransition, initializeDocuments, validateStoredDocuments } from "./documentMigrations.js";
 
 function plans() {
   const packages = new Map([
@@ -59,5 +59,26 @@ test("document migration rejects silent schema changes and rolls back partial cr
     state.putDocument("settings", { invalid: true }, null);
     assert.throws(() => applyDocumentMigration(state, target, target.document_migrations![0]), /unexpected field invalid/);
     assert.equal(state.getDocument("workbook"), null, "all document creations roll back on a later invalid document");
+  } finally { state.close(); }
+});
+
+test("installed revisions reject incompatible saved documents before initialization", () => {
+  const { old, next } = plans();
+  const state = openMemoryStateStore();
+  try {
+    state.putDocument("meeting", { transcript: [], formula: "=1", value: 1, html: "<p>saved</p>", newer_field: true }, null);
+    assert.throws(() => validateStoredDocuments(state, old), /Saved document meeting is incompatible/);
+    assert.equal(state.getDocument("workbook"), null);
+    assert.equal(state.getDocument("meeting")?.revision, 1);
+
+    const compatible = openMemoryStateStore();
+    try {
+      compatible.putDocument("meeting", { transcript: [], formula: "=1", value: 1, html: "<p>saved</p>" }, null);
+      compatible.putDocument("workbook", { cells: { B2: 3 } }, null);
+      validateStoredDocuments(compatible, old);
+      initializeDocuments(compatible, old);
+      assert.deepEqual(compatible.getDocument("workbook")?.data, { cells: { B2: 3 } }, "retired documents remain hidden and intact");
+      validateStoredDocuments(compatible, next);
+    } finally { compatible.close(); }
   } finally { state.close(); }
 });

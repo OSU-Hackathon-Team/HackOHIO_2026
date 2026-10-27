@@ -1,4 +1,4 @@
-import { encodeWireValue, type CompositionPlan, type DocumentDef, type DocumentMigration } from "@splice/contracts";
+import { decodeWireValue, encodeWireValue, type CompositionPlan, type DocumentDef, type DocumentMigration } from "@splice/contracts";
 import type { StateStore } from "../state/types.js";
 import { hashJson } from "../capabilities/identity.js";
 
@@ -65,4 +65,17 @@ export function initializeDocuments(state: StateStore, plan: DocumentSet): void 
       }
     }
   });
+}
+
+/** Check persisted wire data before an installed revision starts or creates missing documents. */
+export function validateStoredDocuments(state: StateStore, plan: DocumentSet): void {
+  for (const definition of plan.documents) {
+    const stored = state.getDocument(definition.id);
+    if (!stored) continue;
+    try {
+      decodeWireValue(definition.schema, stored.data);
+    } catch (cause) {
+      throw new Error(`Saved document ${definition.id} is incompatible with this application revision; a data migration is required`, { cause });
+    }
+  }
 }

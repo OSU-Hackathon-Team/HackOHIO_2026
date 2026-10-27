@@ -8,7 +8,7 @@ import type { ApplicationPlanManifest } from "./manifest.js";
 import { openStateStore } from "../../backend/src/state/store.js";
 import { WorkflowEngine } from "../../backend/src/composition/workflows.js";
 import { DesktopTranscription } from "./transcription.js";
-import { initializeDocuments } from "../../backend/src/composition/documentMigrations.js";
+import { initializeDocuments, validateStoredDocuments } from "../../backend/src/composition/documentMigrations.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 let window: BrowserWindow | null = null;
@@ -46,6 +46,7 @@ async function startRuntime(): Promise<void> {
   }
   const userData = app.getPath("userData");
   store = openStateStore(path.join(userData, "splice-state"));
+  validateStoredDocuments(store, manifest.plan);
   initializeDocuments(store, manifest.plan);
   engine = new WorkflowEngine(store, definitions, runtimeClients);
   transcription = new DesktopTranscription(store, manifest.app_id, manifest.plan, path.join(userData, "splice-audio"), (session) => {

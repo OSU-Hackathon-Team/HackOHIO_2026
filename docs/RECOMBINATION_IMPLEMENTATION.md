@@ -65,6 +65,11 @@ to reconcile them. A durable active revision now supports same-schema rollback t
 the previous revision and shared documents remain stored. An additive, declared document migration
 can initialize a new composition-owned document atomically with build or activation and preserve it
 through rollback. Other schema and durable package-state changes still require a data migration.
+The exported Electron host validates saved documents against the installed plan before it creates
+initial documents or opens a window. An incompatible saved document stops startup with a migration
+diagnostic, including after a package downgrade; additive documents absent from an older plan stay
+stored and hidden. This guard checks saved values, so a schema change that remains compatible with
+those values still needs an explicit migration policy before package rollout.
 Builds and switches compare the active revision
 again inside the SQLite transaction, so a concurrent change returns a conflict. Activation also
 revalidates package availability, file hashes, the application hash and bundled migrations.
