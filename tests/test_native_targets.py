@@ -66,6 +66,17 @@ class CliDriverTests(unittest.TestCase):
         self.assertFalse(cli_matches({"value": 1.609344}, observed))
         self.assertFalse(cli_matches({"stdout": "x", "stderr": "warning"}, {"stdout": "x", "stderr": "", "exit_code": 0}))
 
+    def test_integer_results_are_compared_exactly(self):
+        from engine.cli_target import cli_matches
+        observed = {"stdout": "299999999999999999997\n", "stderr": "", "exit_code": 0}
+        self.assertTrue(cli_matches({"stdout": "299999999999999999997"}, observed))
+        self.assertFalse(cli_matches({"stdout": "300000000000000000000"}, observed))
+        self.assertFalse(cli_matches({"stdout": "299999999999999999997.0"}, observed))
+        self.assertTrue(cli_matches({"stdout": "1.41421\n"},
+                                    {"stdout": "1.41421", "stderr": "", "exit_code": 0}))
+        self.assertTrue(cli_matches({"stdout": ".5000\n"},
+                                    {"stdout": "0.5000", "stderr": "", "exit_code": 0}))
+
     def test_install_describes_the_binary_and_installs_only_when_missing(self):
         from engine.cli_target import ensure_cli_install
         calls = []

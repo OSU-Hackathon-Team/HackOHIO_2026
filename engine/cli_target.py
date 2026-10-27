@@ -145,7 +145,18 @@ def cli_display(program: str, case: dict) -> str:
     return invocation
 
 
-def _number(text: str) -> float | None:
+DECIMAL = re.compile(r"^[+-]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?$")
+
+
+def _decimal(text: str) -> float | None:
+    """A floating-point result, which may be compared with a tolerance.
+
+    A plain integer is exact: the calculator's whole point is arbitrary-precision results,
+    so 299999999999999999997 and 300000000000000000000 are different answers however
+    close their floating-point approximations are.
+    """
+    if not DECIMAL.match(text) or not any(marker in text for marker in ".eE"):
+        return None
     try:
         return float(text)
     except ValueError:
@@ -165,7 +176,7 @@ def cli_matches(predicted: dict, observed: dict | None) -> bool:
     want, got = str(predicted["stdout"]).strip(), str(observed.get("stdout", "")).strip()
     if want == got:
         return True
-    a, b = _number(want), _number(got)
+    a, b = _decimal(want), _decimal(got)
     return a is not None and b is not None and math.isclose(a, b, rel_tol=1e-12, abs_tol=1e-12)
 
 
