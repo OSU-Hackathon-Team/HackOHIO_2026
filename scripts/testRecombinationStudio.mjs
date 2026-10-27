@@ -30,7 +30,7 @@ try {
   });
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Studio smoke server has no TCP address");
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] });
   const page = await browser.newPage({ acceptDownloads: true, viewport: { width: 1440, height: 960 } });
   const pageErrors = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -49,6 +49,20 @@ try {
   await openRecombine();
   await expect(page.getByText("Build job: succeeded")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("Meeting notebook · revision 0 · verified")).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Record microphone" }).click();
+  await expect(page.getByRole("status")).toContainText("Recording microphone", { timeout: 10_000 });
+  await page.waitForTimeout(800);
+  await page.getByRole("button", { name: "Stop recording" }).click();
+  await expect(page.getByRole("status")).toContainText("ready for transcription", { timeout: 10_000 });
+  await expect(page.getByText(/Selected audio: meeting-\d+\.wav/)).toBeVisible();
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+      configurable: true,
+      value: () => Promise.reject(new DOMException("denied", "NotAllowedError")),
+    });
+  });
+  await page.getByRole("button", { name: "Record microphone" }).click();
+  await expect(page.getByText("Microphone permission was denied. Allow microphone access in the browser and try again.")).toBeVisible();
   await page.getByRole("button", { name: "Run preview" }).click();
   const preview = page.locator("pre").filter({ hasText: '"documents"' });
   await expect(preview).toContainText('"value": 60', { timeout: 20_000 });

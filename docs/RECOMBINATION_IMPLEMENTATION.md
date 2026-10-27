@@ -19,12 +19,14 @@ installed on the scratch drive; the CI Ubuntu runner uses its supported Chromium
 This is **development evidence, not full M0–M7 acceptance**. The notebook uses authored formula,
 Markdown and recorded-segment fixtures. It does not consume an approved upstream native or
 Electron-origin package or recover Notion's transcription behavior. An optional AWS Transcribe
-Streaming adapter now recognizes an imported mono PCM16 WAV through the backend and streams
-partial/final segments to Studio. A short synthetic speech sample completed the live AWS call;
+Streaming adapter now recognizes an imported or Studio-recorded mono PCM16 WAV through the backend
+and streams partial/final segments after capture ends. Studio asks the browser for microphone
+permission, limits recording to five minutes, and converts it to a bounded upload; its browser
+smoke covers capture and denied permission. A short synthetic speech sample completed the live AWS call;
 the final result was imperfect ("A 320 and the total is 60."). The same stream populated the
 notebook workflow input and its preview persisted the transcript with formula value 60. This
-proves external transport and downstream wiring, not quality on human audio, microphone capture,
-provider recovery after a server crash, or live transcription in the exported app. The
+proves external transport and downstream wiring, not quality on human audio, streaming during
+microphone capture, provider recovery after a server crash, or live transcription in the exported app. The
 native-origin intake test uses a synthetic artifact and approval solely to exercise the gate;
 it is not an upstream review result. On Linux, JS and native packages now run as separate
 processes inside bubblewrap user, PID, mount and network namespaces. Tests confirm package
@@ -65,7 +67,9 @@ Set `SPLICE_TRANSCRIPTION_PROVIDER=aws` with AWS credentials, a supported `AWS_R
 separate random `SPLICE_TRANSCRIPTION_ACCESS_TOKEN` of at least 32 characters. Give that workspace
 access key to authorized Studio users; it is distinct from AWS credentials and is not persisted in
 browser storage. Then
-open the active notebook in Studio and import a mono signed 16-bit PCM WAV (8–48 kHz, up to 10 MB).
+open the active notebook in Studio and record a microphone clip or import a mono signed 16-bit PCM
+WAV (8–48 kHz, up to 10 MB). Browser capture requires microphone permission and a secure context
+(HTTPS or localhost); it creates a 16 kHz WAV after recording stops.
 The POST-SSE route `/api/recombination/transcription` stores the uploaded PCM in the workspace blob
 store and emits `started`, timestamped partial/final `segment`, and terminal `done`/`error` events.
 The route requires `X-Splice-Transcription-Token` before it accepts the upload; serve Studio over

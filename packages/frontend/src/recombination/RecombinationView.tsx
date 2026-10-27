@@ -20,6 +20,7 @@ import {
   transcribeWav,
   validateComposition,
 } from "../api/recombination";
+import { startMicrophoneCapture, type MicrophoneCapture } from "./microphone";
 
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 const ACTIVE_BUILD_KEY = "splice.recombination.activeBuildJob";
@@ -62,6 +63,11 @@ export function RecombinationView() {
   const [transcribing, setTranscribing] = useState(false);
   const [transcriptionNotice, setTranscriptionNotice] = useState("");
   const transcriptionAbort = useRef<AbortController | null>(null);
+  const microphone = useRef<MicrophoneCapture | null>(null);
+  const microphoneGeneration = useRef(0);
+  const audioInput = useRef<HTMLInputElement | null>(null);
+  const [capturing, setCapturing] = useState(false);
+  const [recording, setRecording] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -78,7 +84,7 @@ export function RecombinationView() {
     getTranscriptionAvailability(controller.signal).then(setTranscription).catch((cause) => {
       if (!controller.signal.aborted) setError(message(cause));
     });
-    return () => { controller.abort(); transcriptionAbort.current?.abort(); };
+    return () => { controller.abort(); transcriptionAbort.current?.abort(); microphoneGeneration.current += 1; microphone.current?.discard(); };
   }, []);
 
   useEffect(() => {
@@ -224,6 +230,34 @@ export function RecombinationView() {
     }
   }
 
+  async function recordMicrophone() {
+    const generation = ++microphoneGeneration.current;
+    if (audioInput.current) audioInput.current.value = "";
+    setCapturing(true); setAudioFile(null); setError(null); setTranscriptionNotice("Requesting microphone permission…");
+    try {
+      const capture = await startMicrophoneCapture();
+      if (generation !== microphoneGeneration.current) { capture.discard(); return; }
+      microphone.current = capture;
+      setCapturing(false);
+      setRecording(true);
+      setTranscriptionNotice("Recording microphone. Stop when ready; recording ends automatically after five minutes.");
+      void capture.finished.then((file) => {
+        if (generation !== microphoneGeneration.current) return;
+        microphone.current = null; setRecording(false);
+        if (file) { setAudioFile(file); setTranscriptionNotice(`${file.name} is ready for transcription.`); }
+        else setTranscriptionNotice("Microphone recording discarded.");
+      }).catch((cause) => {
+        if (generation !== microphoneGeneration.current) return;
+        microphone.current = null; setRecording(false); setError(message(cause));
+        setTranscriptionNotice("Microphone recording failed.");
+      });
+    } catch (cause) {
+      if (generation !== microphoneGeneration.current) return;
+      setCapturing(false);
+      setError(message(cause)); setTranscriptionNotice("Microphone capture unavailable.");
+    }
+  }
+
   const selectedPlan = record ? embeddedPlan(record) : null;
   const selectedActive = Boolean(record && history?.app_id === record.app_id && history.active_revision === record.revision);
   const acceptsTranscript = Boolean(selectedPlan?.workflows.find((item) => item.id === workflow)?.input.fields.some((field) => field.name === "segments"));
@@ -275,13 +309,17 @@ export function RecombinationView() {
             <textarea aria-label="Workflow input JSON" spellCheck={false} disabled={transcribing} value={inputText} onChange={(event) => setInputText(event.target.value)} className="h-40 w-full resize-y rounded border border-stone-600 bg-[#141210] p-3 font-mono text-xs" />
             {selectedActive && acceptsTranscript && <div className="rounded border border-stone-700 p-3 text-sm">
               <p className="font-medium">Import speech with AWS Transcribe</p>
-              <p className="mt-1 text-xs text-stone-400">External provider substitution. Upload mono 16-bit PCM WAV; finalized speech segments fill the workflow input.</p>
+              <p className="mt-1 text-xs text-stone-400">External provider substitution. Record a microphone or upload mono 16-bit PCM WAV; finalized speech segments fill the workflow input.</p>
               <p className="mt-1 text-xs text-stone-400">{transcription?.detail ?? "Checking provider configuration…"}</p>
-              <div className="mt-2 flex flex-wrap items-center gap-2"><input aria-label="Speech WAV file" type="file" accept=".wav,audio/wav" disabled={transcribing} onChange={(event) => setAudioFile(event.target.files?.[0] ?? null)} className="text-xs" />
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button disabled={transcribing || recording || capturing} onClick={() => void recordMicrophone()} className="rounded border border-stone-600 px-3 py-2 disabled:opacity-50">Record microphone</button>
+                {recording && <><button onClick={() => microphone.current?.stop()} className="rounded border border-stone-600 px-3 py-2">Stop recording</button><button onClick={() => microphone.current?.discard()} className="text-stone-400">Discard recording</button></>}
+                <input ref={audioInput} aria-label="Speech WAV file" type="file" accept=".wav,audio/wav" disabled={transcribing || recording || capturing} onChange={(event) => setAudioFile(event.target.files?.[0] ?? null)} className="text-xs" />
                 <input aria-label="Transcription access key" type="password" autoComplete="off" value={transcriptionToken} disabled={transcribing} onChange={(event) => setTranscriptionToken(event.target.value)} placeholder="Workspace access key" className="rounded border border-stone-600 bg-[#141210] px-3 py-2 text-xs" />
-                <button disabled={!transcription?.configured || !audioFile || transcriptionToken.length < 32 || transcribing || busy} onClick={() => void startTranscription()} className="rounded border border-stone-600 px-3 py-2 disabled:opacity-50">Transcribe WAV</button>
+                <button disabled={!transcription?.configured || !audioFile || transcriptionToken.length < 32 || transcribing || recording || capturing || busy} onClick={() => void startTranscription()} className="rounded border border-stone-600 px-3 py-2 disabled:opacity-50">Transcribe WAV</button>
                 {transcribing && <button onClick={() => transcriptionAbort.current?.abort()} className="text-amber-300">Cancel transcription</button>}
               </div>
+              {audioFile && <p className="mt-1 text-xs text-stone-400">Selected audio: {audioFile.name} ({Math.ceil(audioFile.size / 1024)} KiB)</p>}
               {transcriptionNotice && <p role="status" className="mt-2 text-xs text-stone-300">{transcriptionNotice}</p>}
               {audioId && <p className="mt-1 break-all font-mono text-xs text-stone-500">Stored audio: {audioId}</p>}
               {liveSegments.length > 0 && <ol className="mt-2 space-y-1 text-xs text-stone-300">{liveSegments.map((item) => <li key={item.index}>{(item.start_ms / 1000).toFixed(1)}s · {item.text}{item.final ? "" : " …"}</li>)}</ol>}
