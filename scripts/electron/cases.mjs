@@ -357,7 +357,8 @@ export function coverage(results) {
     { ...entry, distinct: entry.distinct.size }]));
 }
 
-export function coverageGaps(results, expectedChannels = [], { minDistinct = 1, requireSuccess = true } = {}) {
+export function coverageGaps(results, expectedChannels = [], { minDistinct = 1, requireSuccess = true,
+  minCasesForConstant = 6 } = {}) {
   const gaps = [];
   const summary = coverage(results);
   for (const channel of expectedChannels)
@@ -366,8 +367,11 @@ export function coverageGaps(results, expectedChannels = [], { minDistinct = 1, 
     if (!entry.distinct) gaps.push(`${channel}: no observable outcomes`);
     if (requireSuccess && !entry.value)
       gaps.push(`${channel}: no case succeeded against the original; declare reachable fixtures and arguments`);
-    if (entry.distinct < minDistinct)
-      gaps.push(`${channel}: only ${entry.distinct} distinct outcome(s); declare broader sample arguments`);
+    /* Constant-result operations (version strings, locale direction) cannot produce three
+       outcomes. They still need breadth, so observable cases count when the result is stable. */
+    if (entry.distinct < minDistinct && entry.cases < minCasesForConstant)
+      gaps.push(`${channel}: only ${entry.distinct} distinct outcome(s) from ${entry.cases} case(s); ` +
+        "declare broader sample arguments or reachable fixtures");
   }
   return gaps;
 }

@@ -60,7 +60,9 @@ every IPC channel without ever observing the original:
   across several interactions.
 
 The driver generates differential cases from these declarations, runs them against the original,
-and only hands your specification to the implementation agent if every channel is reachable.
+and only hands your specification to the implementation agent if every channel is reachable: one
+successful observation plus either three distinct outcomes or six observable cases (constant
+results such as a version string cannot produce three outcomes).
 
 Shape (complete, version 2):
 

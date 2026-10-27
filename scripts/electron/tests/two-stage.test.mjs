@@ -109,6 +109,29 @@ test("a declared channel exclusion is reported instead of silently dropped", { t
   }
 });
 
+test("a supplied specification skips discovery but keeps verification", { timeout: 180000 }, async () => {
+  const { root, archive } = await syntheticArchive();
+  const specFile = path.join(root, "reviewed-spec.json");
+  await fsp.writeFile(specFile, JSON.stringify(SPEC, null, 2));
+  const stages = [];
+  try {
+    const result = await reconstruct({ archive, output: path.join(root, "out"),
+      agentRunner: async ({ stage, round, workspace }) => {
+        stages.push(stage);
+        await fsp.mkdir(path.join(workspace, "features"), { recursive: true });
+        await fsp.writeFile(path.join(workspace, "features/add.cjs"), ADD_FEATURE);
+        await fsp.writeFile(path.join(workspace, "features/read.cjs"), READ_FEATURE);
+        return agentRun(stage, round);
+      },
+      options: { state: path.join(root, "state"), spec: specFile, "impl-rounds": 1 } });
+    assert.deepEqual(stages, ["implement"], "the specification stage must not run");
+    assert.equal(result.report.readiness.ready, true, JSON.stringify(result.report.readiness.blockers));
+    assert.ok(result.report.partitions.final.total >= 3);
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("an implementation that ignores the specification is rejected", { timeout: 180000 }, async () => {
   const { root, archive } = await syntheticArchive();
   const output = path.join(root, "out");

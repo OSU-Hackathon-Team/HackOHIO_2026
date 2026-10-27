@@ -47,9 +47,10 @@ list, tools and MCP servers instead of reusing a background service started by a
    call. No target-specific fake exists in the host.
 3. **Specification agent** (`agent-tools.mjs`). OpenCode runs with file tools limited to its
    workspace and the `oracle` MCP server: inventory, probe, fixture search, declare specification,
-   public cases. `oracle_declare_spec` validates the specification and reports coverage gaps: a
-   channel needs a fixture that reaches it, at least one successful observation and at least three
-   distinct outcomes. A specification with gaps is not accepted.
+   public cases.   `oracle_declare_spec` validates the specification and reports coverage gaps: a
+   channel needs a fixture that reaches it, at least one successful observation, and either three
+   distinct outcomes or six observable cases (constant-result operations cannot produce three
+   outcomes). A specification with gaps is not accepted.
 4. **Case generation and partitioning** (`cases.mjs`). The specification expands into mutated
    fixtures, boundary arguments, repeated calls and declared sequences. The driver observes every
    case against the original, then partitions the usable observations into public (~55%), repair
@@ -121,7 +122,8 @@ outside the verified scope. The renderer and preload are generated from the spec
 - `npm run electron:analyze -- <app.asar>` — static inventory only.
 - `npm run electron:reconstruct -- <app.asar> <out>` — both stages, verification and assembly.
   Options: `--spec-rounds`, `--impl-rounds`, `--spec-timeout`, `--impl-timeout`, `--case-timeout`,
-  `--spec-model`, `--impl-model`, `--state <dir>`, `--keep-workspace`.
+  `--spec-model`, `--impl-model`, `--spec <spec.json>` (reuse a reviewed specification and skip
+  discovery), `--state <dir>`, `--keep-workspace`.
 - `npm run electron:verify -- <app.asar> <project> <scenario.json>` — differential comparison for
   an explicit scenario you supply.
 - `npm run electron:workbench -- <app.asar> <out>` — offline function workbench from a verified

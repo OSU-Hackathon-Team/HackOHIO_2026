@@ -128,6 +128,28 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
   await fsp.mkdir(specWorkspace, { recursive: true });
   asar.extractAll(archivePath, appDir);
   const analysis = analyzeElectronArchive(archivePath);
+  /* Static discovery sees direct call shapes only. The app's own registration is authoritative:
+     run it once with no calls and reconcile. A runtime-only channel is a real behavior, not an
+     invention, and must be specified like any other. */
+  const runtime = await runCase({ appDir, case: { calls: [] }, timeout: Number(options["startup-timeout"] ?? 60000) });
+  analysis.ipc.runtime = runtime.channels;
+  const staticChannels = new Map(analysis.ipc.handles.map(entry => [entry.channel, entry]));
+  const runtimeNames = new Set(runtime.channels.map(entry => entry.channel));
+  for (const entry of runtime.channels) {
+    const known = staticChannels.get(entry.channel);
+    if (known) { known.arity = entry.arity; known.runtime_arity = entry.arity; continue; }
+    analysis.ipc.handles.push({ channel: entry.channel, arity: entry.arity, file: null, line: null,
+      source: "runtime" });
+    analysis.diagnostics.push({ severity: "warning", code: "runtime-only-channel", file: null, line: null,
+      detail: `${entry.channel} is registered at runtime but was not found statically` });
+  }
+  for (const entry of [...analysis.ipc.handles]) {
+    if (runtimeNames.has(entry.channel)) continue;
+    analysis.ipc.handles = analysis.ipc.handles.filter(item => item !== entry);
+    analysis.diagnostics.push({ severity: "warning", code: "unregistered-channel", file: entry.file ?? null,
+      line: entry.line ?? null,
+      detail: `${entry.channel} was found statically but never registered during startup; not treated as behavior` });
+  }
   const inventory = channelInventory(analysis);
   const analysisFile = path.join(stateDir, "analysis.json");
   const specPublicFile = path.join(stateDir, "spec-public-cases.json");
@@ -143,7 +165,15 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
   let observations = null;
 
   /* ---------------------------------------------------------------- stage 1: specification */
-  for (let round = 1; round <= specRounds; round++) {
+  /* An explicit --spec reuses a reviewed specification: discovery is skipped and the given file
+     is validated and observed the same way a declared one would be. */
+  const suppliedSpec = options.spec ? JSON.parse(await fsp.readFile(path.resolve(options.spec), "utf8")) : null;
+  if (suppliedSpec) {
+    const problems = validateSpec(suppliedSpec, inventory);
+    if (problems.length) throw new Error(`Supplied specification is invalid:\n${problems.join("\n")}`);
+    log(`reusing specification ${path.resolve(options.spec)}`);
+  }
+  for (let round = 1; round <= (suppliedSpec ? 0 : specRounds); round++) {
     const run = await agentRunner({ stage: "spec", workspace: specWorkspace, stateDir, appDir,
       archiveName: analysis.archive.name ?? "", analysisFile, publicFile: specPublicFile,
       candidateDir: candidate, model: specModelOption, timeout: specTimeout, round, feedback, log });
@@ -218,6 +248,31 @@ export async function reconstruct({ archive, output, options = {}, agentRunner =
     observations = { total: built.all.length, usable: observed.length,
       failures: observationProblems };
     break;
+  }
+  if (!spec && suppliedSpec) {
+    const excluded = excludedChannels(suppliedSpec);
+    const required = inventory.filter(entry => !excluded.has(entry.channel));
+    if (!required.length) throw new Error("The supplied specification excludes every channel");
+    const built = buildCases({ contract: suppliedSpec, channels: required, seed: "public" });
+    const channelNames = required.map(item => item.channel);
+    const observed = [];
+    const observationProblems = [];
+    for (const cases of [built.publicCases, built.repairCases, built.finalCases]) {
+      const result = await observe({ cases, appDir, timeout: caseTimeout });
+      observed.push(...result.usable);
+      observationProblems.push(...result.failures);
+    }
+    const gaps = coverageGaps(observed, channelNames, { minDistinct: 3 });
+    if (gaps.length) throw new Error(`The supplied specification cannot observe the app:\n${gaps.join("\n")}`);
+    for (const item of observed)
+      item.result.channels = item.result.channels.filter(entry => !excluded.has(entry.channel));
+    const partitioned = partitionCases({ items: observed, channels: channelNames });
+    const suiteFor = items => ({ coverage: coverage(items), gaps: coverageGaps(items, channelNames),
+      cases: items.map(item => ({ case: item.case, result: item.result })) });
+    suites = { public: suiteFor(partitioned.publicItems), repair: suiteFor(partitioned.repairItems),
+      final: suiteFor(partitioned.finalItems) };
+    spec = suppliedSpec;
+    observations = { total: built.all.length, usable: observed.length, failures: observationProblems };
   }
   if (!spec) throw new Error(`No usable specification was produced after ${specRounds} round(s).\n${feedback}`);
 
@@ -341,7 +396,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (!archive || !output) {
     console.error("Usage: node scripts/electron/pipeline.mjs <app.asar> <new-output-directory> " +
       "[--spec-rounds 2] [--impl-rounds 2] [--spec-timeout 1200] [--impl-timeout 1200] " +
-      "[--spec-model role] [--impl-model role] [--case-timeout 20000] [--keep-workspace] [--state dir]");
+      "[--spec-model role] [--impl-model role] [--spec <spec.json>] [--case-timeout 20000] " +
+      "[--keep-workspace] [--state dir]");
     process.exitCode = 2;
   } else {
     reconstruct({ archive, output, options }).then(result => {
