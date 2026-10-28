@@ -16,10 +16,17 @@ export function compactRendererResult(value: unknown): unknown {
   })).slice(0, 40) : [];
   const compact = { title: String(result.title ?? "").slice(0, 160),
     editable_controls: Array.isArray(result.controls) ? result.controls.filter((c: Record<string, unknown>) => c.editable === true)
-      .slice(0, 4).map((c: Record<string, unknown>) => ({ ref: c.ref, tag: c.tag, role: c.role })) : [],
+      .slice(0, 4).map((c: Record<string, unknown>) => ({ ref: c.ref, tag: c.tag, role: String(c.role ?? "").slice(0, 80) })) : [],
+    view_controls: Array.isArray(result.controls) ? result.controls
+      .filter((c: Record<string, unknown>) => /\b(read(?:ing)?|edit(?:ing)?|preview|source)\b/i.test(String(c.label || c.text || "")))
+      .slice(0, 4).map((c: Record<string, unknown>) => ({ ref: c.ref, name: String(c.label || c.text || "").slice(0, 80) })) : [],
+    rendered_documents: Array.isArray(result.rendered_documents) ? result.rendered_documents.slice(0, 6)
+      .map((r: Record<string, unknown>) => ({ ref: r.ref, class: String(r.class ?? "").slice(0, 90), elements: r.elements })) : [],
     windows: Array.isArray(result.windows) ? result.windows.slice(0, 8).map((item: Record<string, unknown>) => ({ index: item.index, title: String(item.title ?? "").slice(0, 100) })) : [], text: result.text.slice(0, 1000),
     rendered_excerpt: String(result.rendered ?? "").slice(0, 400), controls,
     note: "Snapshot excerpts may be truncated. Use observation tool fields or UI inspect for exact evidence and remaining controls." };
   while (JSON.stringify(compact).length > MAX_REPLY_CHARS && compact.controls.length) compact.controls.pop();
+  while (JSON.stringify(compact).length > MAX_REPLY_CHARS && compact.rendered_documents.length > 1) compact.rendered_documents.pop();
+  while (JSON.stringify(compact).length > MAX_REPLY_CHARS && compact.view_controls.length > 1) compact.view_controls.pop();
   return compact;
 }

@@ -90,6 +90,10 @@ original note relative to the fixture workspace. The host then verifies exact sa
 bytes on two reads after editing. Only bounded Markdown files inside that workspace are readable;
 absolute paths, source files and escaping symlinks are rejected. The public case records whether
 input was checked using the editor DOM or the saved document, while omitting the fixture path.
+Snapshots also expose observed rendered-document refs (`@r0`, etc.). Capture resolves these to
+structural DOM paths recorded when the original reading view was visible, preserving them while
+the agent switches back to editing. This supplies output-container evidence without requiring a
+model to guess application class names.
 
 This opt-in path currently requires Linux, Xvfb, xdotool, and Electron with a correctly configured
 sandbox helper. `SPLICE_RENDERER_ORIGINAL_EXECUTABLE` selects an installed source-app executable;

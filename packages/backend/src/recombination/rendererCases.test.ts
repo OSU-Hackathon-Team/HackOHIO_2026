@@ -4,7 +4,7 @@ import { chromium } from "playwright";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { captureRendererCase, readCapturedDocument, rendererControlMetadata } from "./rendererCases.js";
+import { captureRendererCase, observedRenderedDocuments, readCapturedDocument, rendererControlMetadata } from "./rendererCases.js";
 import { rendererDraftProblems } from "./rendererDiscovery.js";
 import { buildRendererPublicHandoff } from "./rendererPublicHandoff.js";
 
@@ -12,7 +12,7 @@ test("fixture browser case capture verifies exact input and records settled DOM 
   const browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
   try {
     const page = await browser.newPage();
-    await page.setContent(`<textarea id="editor"></textarea><button id="read">Read</button><div id="output" hidden></div>
+    await page.setContent(`<div class="preview"><p>Editor decoration</p><textarea id="editor"></textarea></div><button id="read">Read</button><div id="output" role="document" hidden></div>
       <script>document.querySelector('#read').onclick=()=>{const output=document.querySelector('#output');output.hidden=false;
       output.innerHTML='<h1 onclick="void 0" style="color:red"></h1><svg><path></path></svg><style>h1{color:red}</style>';
       output.querySelector('h1').textContent=document.querySelector('#editor').value;};</script>`);
@@ -23,6 +23,9 @@ test("fixture browser case capture verifies exact input and records settled DOM 
     const captured = await captureRendererCase(page, input);
     assert.equal(captured.input_verified, true);
     assert.equal(captured.rendered, "<h1>Recorded fixture text</h1>");
+    const roots = await observedRenderedDocuments(page);
+    assert.equal(roots.length, 1);
+    assert.equal(await page.locator(roots[0].selector).getAttribute("id"), "output");
     assert.equal((await captureRendererCase(page, { ...input, input_selector: "body" })).rendered, "<h1>Recorded fixture text</h1>");
     assert.equal((await captureRendererCase(page, { ...input, input_method: "keyboard" })).rendered, "<h1>Recorded fixture text</h1>");
     assert.equal((await captureRendererCase(page, { ...input, markdown: "" })).rendered, "<h1></h1>");

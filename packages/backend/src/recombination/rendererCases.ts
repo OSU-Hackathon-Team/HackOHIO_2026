@@ -41,6 +41,22 @@ export function rendererControlMetadata(node: any) {
     editable: node.matches("input,textarea,[contenteditable=true]"), selector: segments.join(" > ") };
 }
 
+export async function observedRenderedDocuments(page: Page) {
+  const candidates = await page.locator("article,main,[role=document],[class*=preview],[class*=render],[class*=reading]").elementHandles();
+  const roots = await Promise.all(candidates.map(async node => {
+    try {
+      const state = await node.evaluate((n: any) => ({
+        visible: n.getClientRects().length > 0 && n.ownerDocument.defaultView.getComputedStyle(n).visibility !== "hidden",
+        editable: !!n.closest("[contenteditable=true]") || !!n.querySelector("[contenteditable=true],textarea,input"),
+        elements: n.querySelectorAll("h1,h2,h3,h4,h5,h6,p,pre,table,li,blockquote").length,
+      }));
+      return state.visible && !state.editable && state.elements > 0
+        ? { ...await node.evaluate(rendererControlMetadata), elements: state.elements } : null;
+    } finally { await node.dispose(); }
+  }));
+  return roots.filter((root): root is NonNullable<typeof root> => root !== null).slice(0, 12);
+}
+
 /** Execute the original UI interaction; expectations always come from the resulting DOM. */
 export async function captureRendererCase(page: Page, raw: unknown, options: { readDocument?: () => Promise<string> } = {}) {
   const input = RendererCaseInput.parse(raw);

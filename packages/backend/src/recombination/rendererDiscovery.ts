@@ -10,7 +10,7 @@ import { z } from "zod";
 import { continueWith, structuredCall, type AssistTool, type StructuredCallOpts } from "../llm/llm.js";
 import { RendererReplaySource, replayRendererTrace } from "./rendererReplay.js";
 import { compactRendererResult } from "./rendererContext.js";
-import { captureRendererCase, readCapturedDocument, RendererCaseInput, rendererControlMetadata } from "./rendererCases.js";
+import { captureRendererCase, observedRenderedDocuments, readCapturedDocument, RendererCaseInput, rendererControlMetadata } from "./rendererCases.js";
 
 const Answer = z.object({
   summary: z.string(), requirements: z.array(z.object({ id: z.string(), statement: z.string(), observation_ids: z.array(z.number().int()) })),
@@ -183,6 +183,8 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
     page.setDefaultTimeout(8_000);
     const observations: Array<{ id: number; action: unknown; result: unknown }> = [];
     let controls: ElementHandle[] = [];
+    let renderSelectors: string[] = [];
+    let renderRoots: Array<Record<string, unknown>> = [];
     const readControls = async () => {
       await Promise.all(controls.map(control => control.dispose().catch(() => {})));
       const candidates = await page.locator("input,textarea,button,[contenteditable=true],[role=button],[role=link],[role=treeitem],a[href],[class*=button],[aria-label],.nav-file-title,.tree-item-self,.workspace-tab-header,.view-action,.clickable-icon").elementHandles();
@@ -208,10 +210,15 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
     if (browser) for (const context of browser.contexts()) context.on("page", () => emit({ type: "diagnostic", message: "Original opened a renderer window" }));
     const readSnapshot = async () => {
       await ensurePage();
+      const roots = await observedRenderedDocuments(page);
+      if (roots.length) {
+        renderSelectors = roots.map(root => root.selector);
+        renderRoots = roots.map((root, index) => ({ ref: `@r${index}`, tag: root.tag, class: root.class, elements: root.elements }));
+      }
       return { title: await page.title(), windows: await Promise.all(windows().map(async (window, index) => ({ index, title: await window.title().catch(() => "[window closed]") }))),
       text: (await page.locator("body").innerText()).slice(0, 8000),
       rendered: (await page.locator("h1,h2,h3,h4,h5,h6,p,blockquote,pre,code,a,table,li").evaluateAll((nodes: any[]) => nodes.slice(0, 60).map(n => n.outerHTML.slice(0, 600)).join("\n"))).slice(0, 6000),
-      controls: await readControls() };
+      controls: await readControls(), rendered_documents: renderRoots };
     };
     const settledSnapshot = async () => {
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -267,7 +274,7 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
           return await record(action, await snapshot());
         } catch (error) { return record(action, { error: (error as Error).message }); }
       },
-    }, { name: "render_case", description: "Capture an executable public Markdown case on the original app. First open a note in EDITING mode; do NOT switch to reading before calling this tool. Supply a unique case_id, complete Markdown, the editable control ref (such as @12) from a fresh snapshot, a view-toggle control ref (such as @26), and a CSS selector scoped to the rendered document body. Input/view selectors may also be exact CSS. Control refs are converted to structural CSS paths for frozen replay. Choose input_method fill for ordinary editable controls or keyboard for custom editors: keyboard focuses the control, selects all, deletes and inserts the full text using keyboard input. If fill reports a mismatch on a custom editor, try keyboard. Set document_path to the actual Markdown note path relative to the fixture root when live preview hides syntax markers. The host verifies exact saved document bytes when document_path is provided, otherwise settled editor text, then clicks the view control and records settled DOM output. After capture the note is in rendered mode; switch back to editing before another capture. The result is original evidence, never an authored expectation. Use observation to read full HTML when excerpts are truncated.",
+    }, { name: "render_case", description: "Capture an executable public Markdown case on the original app. First open a note in EDITING mode; do NOT switch to reading before calling this tool. Supply a unique case_id, complete Markdown, the editable control ref (such as @12) from a fresh snapshot, a view-toggle control ref (such as @26), and a rendered_documents ref such as @r0 learned from a reading-mode snapshot as output_selector. The last observed rendered-document refs stay available after switching back to editing. All selectors may also be exact CSS. Control refs are converted to structural CSS paths for frozen replay. Choose input_method fill for ordinary editable controls or keyboard for custom editors: keyboard focuses the control, selects all, deletes and inserts the full text using keyboard input. If fill reports a mismatch on a custom editor, try keyboard. Set document_path to the actual Markdown note path relative to the fixture root when live preview hides syntax markers. The host verifies exact saved document bytes when document_path is provided, otherwise settled editor text, then clicks the view control and records settled DOM output. After capture the note is in rendered mode; switch back to editing before another capture. The result is original evidence, never an authored expectation. Use observation to read full HTML when excerpts are truncated.",
       inputSchema: { type: "object", additionalProperties: false, required: ["case_id", "markdown", "input_selector", "render_selector", "output_selector", "input_method", "document_path"], properties: {
         case_id: { type: "string" }, markdown: { type: "string" }, input_selector: { type: "string" }, render_selector: { type: "string" }, output_selector: { type: "string" },
         input_method: { type: "string", enum: ["fill", "keyboard"] },
@@ -276,6 +283,12 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
       async run(value) {
         signal.throwIfAborted();
         const item = RendererCaseInput.parse(value);
+        const renderRef = /^@r(\d+)$/.exec(item.output_selector);
+        if (renderRef) {
+          const selector = renderSelectors[Number(renderRef[1])];
+          if (!selector) throw new Error("Inspect a snapshot in reading mode to discover rendered_documents refs, then return to editing before capture");
+          item.output_selector = selector;
+        }
         for (const field of ["input_selector", "render_selector"] as const) {
           const ref = /^@(\d+)$/.exec(item[field]);
           if (ref) {
