@@ -11,6 +11,7 @@ import { z } from "zod";
 import { REPO_ROOT, config } from "../config.js";
 import { openSse } from "../http/sse.js";
 import { RendererReplaySource } from "../recombination/rendererReplay.js";
+import { buildRendererPublicHandoff } from "../recombination/rendererPublicHandoff.js";
 
 const StartRequest = z.object({
   archive_id: z.string().regex(/^[a-f0-9]{64}$/),
@@ -223,6 +224,28 @@ export function electronRunsRouter(stateDir = path.resolve(process.env.SPLICE_ST
     if (!/^renderer-[a-f0-9-]{36}$/.test(req.params.id)) return res.status(400).json({ error: "Invalid discovery ID" });
     try { return res.json(JSON.parse(await fsp.readFile(path.join(root, "renderer-discoveries", req.params.id, "replay", "replay-report.json"), "utf8"))); }
     catch { return res.status(404).json({ error: "No completed original replay report" }); }
+  });
+  router.get("/api/electron/renderer-discoveries/:id/public-handoff", async (req, res) => {
+    if (!/^renderer-[a-f0-9-]{36}$/.test(req.params.id)) return res.status(400).json({ error: "Invalid discovery ID" });
+    const directory = path.join(root, "renderer-discoveries", req.params.id);
+    let draft: unknown;
+    let replay: unknown;
+    try {
+      [draft, replay] = await Promise.all([
+        fsp.readFile(path.join(directory, "draft.json"), "utf8").then(JSON.parse),
+        fsp.readFile(path.join(directory, "replay", "replay-report.json"), "utf8").then(JSON.parse),
+      ]);
+    } catch {
+      return res.status(404).json({ error: "A saved draft and completed original replay are required" });
+    }
+    try {
+      const handoff = buildRendererPublicHandoff(req.params.id, draft, replay);
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${req.params.id}-public-handoff.json"`);
+      return res.send(`${JSON.stringify(handoff, null, 2)}\n`);
+    } catch (error) {
+      return res.status(409).json({ error: (error as Error).message });
+    }
   });
 
   router.get("/api/electron/runs", async (_req, res) => { await ready; res.json({ runs: [...runs.values()] }); });

@@ -94,6 +94,24 @@ export function ElectronRunsPanel() {
     finally { setBusy(false); }
   }
 
+  async function downloadRendererHandoff() {
+    if (!replayDiscovery) return;
+    setBusy(true); setError("");
+    try {
+      const response = await fetch(`/api/electron/renderer-discoveries/${encodeURIComponent(replayDiscovery)}/public-handoff`);
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? `Public handoff: ${response.status}`);
+      const blob = new Blob([`${JSON.stringify(body, null, 2)}\n`], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${replayDiscovery}-public-handoff.json`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (cause) { setError(String(cause)); }
+    finally { setBusy(false); }
+  }
+
   return <section className="rounded-xl border border-stone-700 bg-[#211e1b] p-5">
     <h2 className="text-lg font-medium">Electron source-app reconstruction</h2>
     <p className="mt-1 text-sm text-stone-400">Upload an application archive, inspect its IPC channels, and run a scoped specification and implementation job. A scoped ready result does not prove whole-app parity.</p>
@@ -121,10 +139,15 @@ export function ElectronRunsPanel() {
           ...(replayDiscovery ? { replay_discovery_id: replayDiscovery } : {}),
           recapture: Boolean(replayDiscovery && recapture),
           resource_archives: JSON.parse(resourceText), ...(entryResource ? { entry_resource: entryResource } : {}) },
-          event => setRendererActivity(previous => [...previous, JSON.stringify(event)].slice(-100)),
+          event => {
+            setRendererActivity(previous => [...previous, JSON.stringify(event)].slice(-100));
+            if (typeof event.discovery_id === "string") setReplayDiscovery(event.discovery_id);
+          },
           { schema: z.object({ type: z.string() }).passthrough() }); })()
           .catch(cause => setError(String(cause))).finally(() => setBusy(false));
       }}>{replayDiscovery ? recapture ? "Recapture and replay frozen actions" : "Replay saved trace" : "Discover and replay renderer (uses model)"}</button>
+      <button disabled={busy || !replayDiscovery} className="ml-2 mt-2 rounded border border-amber-500 px-3 py-2 text-sm disabled:opacity-50" onClick={() => void downloadRendererHandoff()}>Download public draft handoff</button>
+      <p className="mt-1 text-xs text-stone-500">The handoff is available only after a saved draft passes original replay. It includes cited UI evidence with local paths removed; it remains draft material and is not implementation approval.</p>
       {rendererActivity.length > 0 && <pre aria-live="polite" className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap bg-[#141210] p-2 text-xs">{rendererActivity.join("\n")}</pre>}
     </div>}
     {channels.length > 0 && <div className="mt-3">
