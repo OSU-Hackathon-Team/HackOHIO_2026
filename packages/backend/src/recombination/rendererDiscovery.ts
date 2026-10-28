@@ -161,7 +161,18 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
       rendered: (await page.locator("h1,h2,h3,h4,h5,h6,p,blockquote,pre,code,a,table,li").evaluateAll((nodes: any[]) => nodes.slice(0, 60).map(n => n.outerHTML.slice(0, 600)).join("\n"))).slice(0, 6000),
       controls: await readControls() };
     };
-    const snapshot = () => Promise.race([readSnapshot(), new Promise<never>((_resolve, reject) => {
+    const settledSnapshot = async () => {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      let previous = await readSnapshot();
+      for (let attempt = 0; attempt < 6; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+        const next = await readSnapshot();
+        if (JSON.stringify([previous.title, previous.text, previous.rendered]) === JSON.stringify([next.title, next.text, next.rendered])) return next;
+        previous = next;
+      }
+      throw new Error("Original renderer did not settle to a consistent title/text/rendered snapshot");
+    };
+    const snapshot = () => Promise.race([settledSnapshot(), new Promise<never>((_resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("Renderer snapshot blocked for 8 seconds; inspect and finish any native dialog before retrying")), 8000); timer.unref();
     })]);
     const record = async (action: unknown, result: unknown) => {
@@ -172,6 +183,7 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
       return JSON.stringify(observation);
     };
     const input = z.object({ action: z.enum(["snapshot", "inspect", "select_window", "click", "fill", "press", "type", "wait"]), selector: z.string(), value: z.string() });
+    let pickerWindow: string | null = null;
     const tools: AssistTool[] = [{ name: "ui", description: "Operate the original renderer. Prefer the exact control ref from the latest snapshot, such as selector @12, for click/fill/press. Refs avoid guessing element tags or escaping multiline aria labels; request a new snapshot if stale. CSS, text= and [aria-label=] selectors also work but must be precise. inspect returns visible elements' HTML for a selector. snapshot returns visible text, controls, rendered HTML and available windows. select_window switches to the window index in value. fill replaces input/contenteditable content; type inserts text; press sends a keyboard key. wait waits up to 3 seconds. Every action returns a new snapshot and observation ID.",
       inputSchema: { type: "object", additionalProperties: false, required: ["action", "selector", "value"], properties: {
         action: { type: "string", enum: ["snapshot", "inspect", "select_window", "click", "fill", "press", "type", "wait"] }, selector: { type: "string" }, value: { type: "string" },
@@ -222,12 +234,18 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
         if (item.action === "choose_folder") {
           const target = path.resolve(workspace, item.path);
           if (!target.startsWith(`${workspace}${path.sep}`) || !(await fs.stat(target)).isDirectory()) throw new Error("Choose a fixture folder inside the workspace");
+          pickerWindow = (await command("getwindowfocus")).stdout.trim();
           await command("key", "ctrl+l"); await page.waitForTimeout(150);
           await command("type", "--clearmodifiers", "--", target); await command("key", "Return");
+          await new Promise(resolve => setTimeout(resolve, 600));
+          if ((await command("getwindowfocus")).stdout.trim() === pickerWindow) await command("key", "alt+o");
+          for (let attempt = 0; attempt < 10 && (await command("getwindowfocus")).stdout.trim() === pickerWindow; attempt++)
+            await new Promise(resolve => setTimeout(resolve, 200));
         }
-        if (item.action === "confirm") await command("key", "alt+o");
-        if (item.action === "cancel") await command("key", "Escape");
-        await page.waitForTimeout(300);
+        const pickerStillOpen = !pickerWindow || (await command("getwindowfocus")).stdout.trim() === pickerWindow;
+        if (item.action === "confirm" && pickerStillOpen) await command("key", "alt+o");
+        if (item.action === "cancel" && pickerStillOpen) await command("key", "Escape");
+        await new Promise(resolve => setTimeout(resolve, 300));
         const focused = (await command("getwindowfocus", "getwindowname")).stdout.trim();
         return record({ host_input: item }, { focused_window: focused,
           note: "Native dialogs can block renderer JavaScript. Confirm or cancel the picker before requesting a browser snapshot." });

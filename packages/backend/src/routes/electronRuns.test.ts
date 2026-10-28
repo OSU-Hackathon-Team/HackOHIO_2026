@@ -51,6 +51,11 @@ process.stderr.write("scoped pipeline finished\\n");
     assert.equal(upload.status, 201);
     const archive = await upload.json() as { archive_id: string };
     assert.match(archive.archive_id, /^[a-f0-9]{64}$/);
+    const missingReplay = await fetch(`${base}/api/electron/archives/${archive.archive_id}/renderer-discovery`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task: "Replay original observations", confirm_cost: true, replay_discovery_id: "renderer-00000000-0000-0000-0000-000000000000" }),
+    });
+    assert.equal(missingReplay.status, 422, "unbound or missing source traces cannot be replayed");
     const renderer = await fetch(`${base}/api/electron/archives/${archive.archive_id}/renderer-discovery`, {
       method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
       body: JSON.stringify({ task: "Discover editing behavior", confirm_cost: true }),

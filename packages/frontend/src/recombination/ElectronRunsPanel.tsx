@@ -30,6 +30,7 @@ export function ElectronRunsPanel() {
   const [rendererActivity, setRendererActivity] = useState<string[]>([]);
   const [resourceText, setResourceText] = useState("[]");
   const [entryResource, setEntryResource] = useState("");
+  const [replayDiscovery, setReplayDiscovery] = useState("");
 
   async function refresh() {
     const [catalog, history] = await Promise.all([
@@ -106,19 +107,21 @@ export function ElectronRunsPanel() {
     {archive && <div className="mt-4 rounded border border-stone-700 p-3">
       <label className="block text-sm">Renderer behavior to discover<textarea aria-label="Renderer discovery task" value={rendererTask} onChange={event => setRendererTask(event.target.value)} placeholder="Describe the editing and rendering behavior to recover from the original app" className="mt-2 h-24 w-full rounded border border-stone-600 bg-[#141210] p-2 text-sm" /></label>
       <p className="mt-1 text-xs text-stone-400">The specification model operates the original app, then the host replays its recorded actions in a fresh workspace. Drafts and replay reports remain separate from implementation approval.</p>
+      <label className="mt-2 block text-xs text-stone-400">Saved discovery ID to replay without model calls (optional)<input aria-label="Renderer replay discovery ID" value={replayDiscovery} onChange={event => setReplayDiscovery(event.target.value)} placeholder="renderer-…" className="mt-1 w-full rounded border border-stone-600 bg-[#141210] p-2" /></label>
       <details className="mt-2 text-xs text-stone-400"><summary>Companion archives for packaged applications</summary>
         <p className="mt-2">Upload each companion archive above, then map its archive ID to the filename used in the original resources folder. Example: [{'{"archive_id":"…","name":"app.asar"}'}].</p>
         <textarea aria-label="Renderer resource archive map" value={resourceText} onChange={event => setResourceText(event.target.value)} className="mt-2 h-20 w-full rounded border border-stone-600 bg-[#141210] p-2 font-mono" />
         <input aria-label="Renderer entry resource filename" value={entryResource} onChange={event => setEntryResource(event.target.value)} placeholder="Entry resource filename, e.g. app.asar" className="mt-2 w-full rounded border border-stone-600 bg-[#141210] p-2" />
       </details>
-      <button disabled={busy || rendererTask.trim().length < 5} className="mt-2 rounded border border-stone-600 px-3 py-2 text-sm disabled:opacity-50" onClick={() => {
+      <button disabled={busy || (!replayDiscovery && rendererTask.trim().length < 5)} className="mt-2 rounded border border-stone-600 px-3 py-2 text-sm disabled:opacity-50" onClick={() => {
         setBusy(true); setError(""); setRendererActivity([]);
-        void (async () => { await streamPost(`/api/electron/archives/${archive}/renderer-discovery`, { task: rendererTask, confirm_cost: true,
+        void (async () => { await streamPost(`/api/electron/archives/${archive}/renderer-discovery`, { task: rendererTask || "Replay saved original observations", confirm_cost: true,
+          ...(replayDiscovery ? { replay_discovery_id: replayDiscovery } : {}),
           resource_archives: JSON.parse(resourceText), ...(entryResource ? { entry_resource: entryResource } : {}) },
           event => setRendererActivity(previous => [...previous, JSON.stringify(event)].slice(-100)),
           { schema: z.object({ type: z.string() }).passthrough() }); })()
           .catch(cause => setError(String(cause))).finally(() => setBusy(false));
-      }}>Discover and replay renderer (uses model)</button>
+      }}>{replayDiscovery ? "Replay saved trace" : "Discover and replay renderer (uses model)"}</button>
       {rendererActivity.length > 0 && <pre aria-live="polite" className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap bg-[#141210] p-2 text-xs">{rendererActivity.join("\n")}</pre>}
     </div>}
     {channels.length > 0 && <div className="mt-3">

@@ -48,6 +48,11 @@ elements are compared without rewriting expectations. Errors and uncovered requi
 gate. A replay pass is still not implementation approval or held-out candidate verification.
 Fetch a draft with `GET /api/electron/renderer-discoveries/:id` and its replay report with the
 same path plus `/replay`. Disconnect or the twenty-minute deadline stops the child process group.
+To retry a frozen trace without model calls, send `replay_discovery_id` in the same discovery POST;
+Studio has a saved-discovery ID field for this action. The source must have archive identity and
+complete observation metadata, and its archive must match the selected upload. Retries create a
+new report and preserve the source and earlier failures. Snapshots wait for a consistent title,
+visible text and rendered HTML rather than sampling a partially updated frame.
 
 This opt-in path currently requires Linux, Xvfb, xdotool, and Electron with a correctly configured
 sandbox helper. `SPLICE_RENDERER_ORIGINAL_EXECUTABLE` selects an installed source-app executable;
