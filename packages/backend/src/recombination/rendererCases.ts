@@ -41,6 +41,8 @@ export function rendererControlMetadata(node: any) {
   return { tag: node.tagName, id: node.id, class: node.getAttribute("class"), role: node.getAttribute("role"),
     label: node.getAttribute("aria-label"), placeholder: node.getAttribute("placeholder"),
     text: (node.innerText || "").slice(0, 120), type: node.getAttribute("type"),
+    multiline: node.tagName === "TEXTAREA" || node.getAttribute("aria-multiline") === "true" ||
+      (node.getAttribute("role") === "textbox" && node.isContentEditable),
     editable: node.matches("input,textarea,[contenteditable=true]"), selector: segments.join(" > ") };
 }
 
@@ -50,10 +52,11 @@ export async function observedRenderedDocuments(page: Page) {
     try {
       const state = await node.evaluate((n: any) => ({
         visible: n.getClientRects().length > 0 && n.ownerDocument.defaultView.getComputedStyle(n).visibility !== "hidden",
-        editable: !!n.closest("[contenteditable=true]") || !!n.querySelector("[contenteditable=true],textarea,input"),
+        documentEditor: !!n.closest("[contenteditable=true]") || [...n.querySelectorAll("textarea,[contenteditable=true][role=textbox],[contenteditable=true][aria-multiline=true]")]
+          .some((editor: any) => editor.getClientRects().length > 0 && editor.ownerDocument.defaultView.getComputedStyle(editor).visibility !== "hidden"),
         elements: n.querySelectorAll("h1,h2,h3,h4,h5,h6,p,pre,table,li,blockquote").length,
       }));
-      return state.visible && !state.editable && state.elements > 0
+      return state.visible && !state.documentEditor && state.elements > 0
         ? { ...await node.evaluate(rendererControlMetadata), elements: state.elements } : null;
     } finally { await node.dispose(); }
   }));

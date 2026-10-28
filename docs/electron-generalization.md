@@ -95,6 +95,12 @@ Snapshots also expose observed rendered-document choices with numeric indices. T
 structural DOM paths recorded when the original reading view was visible, preserving them while
 the agent switches back to editing. This supplies output-container evidence without requiring a
 model to guess application class names.
+Rendered documents may contain editable titles and controls; the inventory excludes document
+editors rather than every editable descendant. Compact editor choices rank multiline/textbox
+controls ahead of inline titles. Pre-execution capture-request rejections are recorded in the
+client trace alongside executed capture actions.
+Rejected model drafts and their validation problems are also emitted through the client stream;
+they remain rejected evidence and never replace an accepted handoff.
 
 This opt-in path currently requires Linux, Xvfb, xdotool, and Electron with a correctly configured
 sandbox helper. `SPLICE_RENDERER_ORIGINAL_EXECUTABLE` selects an installed source-app executable;

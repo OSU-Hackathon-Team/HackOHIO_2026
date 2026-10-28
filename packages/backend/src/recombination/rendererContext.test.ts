@@ -17,10 +17,11 @@ test("compact model replies bound context without changing the stored evidence",
 test("editable refs remain available when the ordinary control list is compacted", () => {
   const controls = Array.from({ length: 80 }, (_, i) => ({ ref: `@${i}`, tag: "BUTTON", text: `Control ${i}` }));
   const reply = compactRendererResult({ text: "fixture", controls: [...controls,
+    { ref: "@82", tag: "DIV", editable: true, class: "editable-title" },
     { ref: "@80", tag: "DIV", role: "textbox", editable: true }, { ref: "@81", tag: "BUTTON", label: "Read document" }],
-    rendered_documents: [{ ref: "@r0", class: "preview", elements: 3 }] }) as {
-      editable_controls: Array<{ ref: string }>; view_controls: Array<{ ref: string }>; rendered_documents: Array<{ ref: string }> };
-  assert.deepEqual(reply.editable_controls.map(c => c.ref), ["@80"]);
+    rendered_documents: [{ index: 0, class: "preview", elements: 3 }] }) as {
+      editable_controls: Array<{ ref: string }>; view_controls: Array<{ ref: string }>; rendered_documents: Array<{ index: number }> };
+  assert.deepEqual(reply.editable_controls.map(c => c.ref), ["@80", "@82"]);
   assert.deepEqual(reply.view_controls.map(c => c.ref), ["@81"]);
-  assert.deepEqual(reply.rendered_documents.map(c => c.ref), ["@r0"]);
+  assert.deepEqual(reply.rendered_documents.map(c => c.index), [0]);
 });

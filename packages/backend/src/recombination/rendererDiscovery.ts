@@ -213,7 +213,7 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
       const roots = await observedRenderedDocuments(page);
       if (roots.length) {
         renderSelectors = roots.map(root => root.selector);
-        renderRoots = roots.map((root, index) => ({ index, ref: `@r${index}`, tag: root.tag, class: root.class, elements: root.elements }));
+        renderRoots = roots.map((root, index) => ({ index, tag: root.tag, class: root.class, elements: root.elements }));
       }
       return { title: await page.title(), windows: await Promise.all(windows().map(async (window, index) => ({ index, title: await window.title().catch(() => "[window closed]") }))),
       text: (await page.locator("body").innerText()).slice(0, 8000),
@@ -294,19 +294,23 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
       } },
       async run(value) {
         signal.throwIfAborted();
-        const { output_document, ...fields } = RendererAgentCaseInput.parse(value);
-        const output_selector = renderSelectors[output_document];
-        if (!output_selector) throw new Error("Inspect a snapshot in reading mode to discover rendered_documents indices, then return to editing before capture");
-        const item = RendererCaseInput.parse({ ...fields, output_selector });
-        for (const field of ["input_selector", "render_selector"] as const) {
-          const ref = /^@(\d+)$/.exec(item[field]);
-          if (ref) {
-            const control = controls[Number(ref[1])];
-            if (!control) throw new Error("Case control ref is unavailable; request a fresh snapshot");
-            item[field] = (await control.evaluate(rendererControlMetadata)).selector;
+        try {
+          const { output_document, ...fields } = RendererAgentCaseInput.parse(value);
+          const output_selector = renderSelectors[output_document];
+          if (!output_selector) throw new Error("Inspect a snapshot in reading mode to discover rendered_documents indices, then return to editing before capture");
+          const item = RendererCaseInput.parse({ ...fields, output_selector });
+          for (const field of ["input_selector", "render_selector"] as const) {
+            const ref = /^@(\d+)$/.exec(item[field]);
+            if (ref) {
+              const control = controls[Number(ref[1])];
+              if (!control) throw new Error("Case control ref is unavailable; request a fresh snapshot");
+              item[field] = (await control.evaluate(rendererControlMetadata)).selector;
+            }
           }
+          return executeCapture(item);
+        } catch (error) {
+          return record({ action: "capture_case_request", request: value }, { error: (error as Error).message });
         }
-        return executeCapture(item);
       },
     }, { name: "fixture", description: "Create a UTF-8 test note or folder under the isolated workspace. An empty content creates an empty file; directory=true creates a folder. Returned paths can be typed into the app's folder picker. Never access source or host files.",
       inputSchema: { type: "object", additionalProperties: false, required: ["path", "content", "directory"], properties: { path: { type: "string" }, content: { type: "string" }, directory: { type: "boolean" } } },
@@ -371,6 +375,8 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
             input_selector: action.input_selector, render_selector: action.render_selector, output_selector: action.output_selector,
             input_method: action.input_method ?? "fill", document_path: action.document_path ?? "" }));
           return observations[observations.length - 1].result;
+        } else if (action.action === "capture_case_request") {
+          name = "render_case"; input = action.request;
         } else if (action.host_input) { name = "native_dialog"; input = action.host_input; }
         else { name = "ui"; input = action; }
         await tools.find(tool => tool.name === name)!.run(input);
@@ -406,6 +412,7 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
       const invalid = rendererDraftProblems(response.value, observations, { requireRenderedMarkdownOutput: true, requireCases: options.capture_cases });
       if (!invalid.length) break;
       await fs.writeFile(path.join(directory, `rejected-draft-${attempt + 1}.json`), JSON.stringify(response.value, null, 2));
+      emit({ type: "draft_rejected", draft: response.value, problems: invalid });
       if (attempt === 2) throw new Error(invalid.join("; "));
       emit({ type: "stage", message: "Repairing invalid observation citations" });
       messages = continueWith(messages, response.assistantContent, `Draft problems: ${invalid.join("; ")}. For every listed requirement ID, either rewrite it as a concrete input/action/output claim with supporting citations or remove it and add an accurate blocker. Drop broad duplicate claims such as 'the fixture renders correctly'; do not preserve them by repeating the syntax names. You may continue observing the original UI to gather missing rendered evidence. Never invent observation IDs. For each Markdown syntax claim, cite an action or fixture containing the syntax and a successful reading-mode UI snapshot whose rendered HTML shows the matching element. Use the observation tool for exact earlier evidence. Recorded index: ${JSON.stringify(observations.map(item => ({ id: item.id, action: JSON.stringify(item.action).slice(0, 180), error: (item.result as { error?: unknown })?.error ? String((item.result as { error: unknown }).error).slice(0, 160) : null })))}`);

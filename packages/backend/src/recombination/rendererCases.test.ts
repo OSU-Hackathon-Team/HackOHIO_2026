@@ -23,10 +23,15 @@ test("fixture browser case capture verifies exact input and records settled DOM 
     const captured = await captureRendererCase(page, input);
     assert.equal(captured.input_verified, true);
     assert.equal(captured.rendered, "<h1>Recorded fixture text</h1>");
+    assert.equal((await captureRendererCase(page, { ...input, input_selector: "body" })).rendered, "<h1>Recorded fixture text</h1>");
+    await page.locator("#output").evaluate((node: any) => {
+      const title = node.ownerDocument.createElement("div"); title.contentEditable = "true"; title.textContent = "Inline title"; node.append(title);
+      const inactive = node.ownerDocument.createElement("textarea"); inactive.hidden = true; node.append(inactive);
+    });
     const roots = await observedRenderedDocuments(page);
     assert.equal(roots.length, 1);
     assert.equal(await page.locator(roots[0].selector).getAttribute("id"), "output");
-    assert.equal((await captureRendererCase(page, { ...input, input_selector: "body" })).rendered, "<h1>Recorded fixture text</h1>");
+    await assert.rejects(captureRendererCase(page, { ...input, input_selector: "body" }), /no unique editable descendant/);
     assert.equal((await captureRendererCase(page, { ...input, input_method: "keyboard" })).rendered, "<h1>Recorded fixture text</h1>");
     assert.equal((await captureRendererCase(page, { ...input, markdown: "" })).rendered, "<h1></h1>");
     await assert.rejects(captureRendererCase(page, { ...input, markdown: "" }, { readDocument: async () => {
