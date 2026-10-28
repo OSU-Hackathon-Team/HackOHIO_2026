@@ -72,9 +72,11 @@ try {
     steps: [{ id: "multiply", operation: { instance: "native", port: "multiply" }, input: [
       { from: "$input.a", to: "a", transform: "identity", factor: null },
       { from: "$input.b", to: "b", transform: "identity", factor: null },
-    ], depends_on: [], timeout_ms: 2_000, retries: 0, retry_on_codes: [], idempotency: "none", on_error: "fail", cancellation: "propagate", stale_guard: null, writes: [] }] });
+    ], depends_on: [], timeout_ms: 2_000, retries: 0, retry_on_codes: [], idempotency: "none", on_error: "fail", cancellation: "propagate", stale_guard: null,
+      writes: [{ document: "meeting", path: "value", from: "$steps.multiply.product" }] }] });
   plan.acceptance_scenarios.push({ id: "native_multiply", name: "Native sidecar multiplies in the composition", steps: [
     { kind: "invoke", workflow: "native_multiply", input: { a: 3, b: 20 }, expect_status: "succeeded" },
+    { kind: "assert_document", document: "meeting", path: "value", equals: 60 },
   ] });
   plan.notes.push("The native multiplication capability is an authored packaging fixture, not recovered application behavior.");
   const built = await service.buildApp(plan, job);
