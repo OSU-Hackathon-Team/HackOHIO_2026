@@ -22,7 +22,25 @@ const schema = { type: "object", additionalProperties: false, required: ["summar
   blockers: { type: "array", items: { type: "string" } },
 } };
 
-export function rendererDraftProblems(draft: z.infer<typeof Answer>, observations: Array<{ id: number; action: unknown; result: unknown }>): string[] {
+type RenderedMarkdownExpectation = { capability: RegExp; label: string; output: RegExp; input: RegExp; allLevels?: RegExp; allInputs?: RegExp };
+
+const RENDERED_MARKDOWN_EXPECTATIONS: RenderedMarkdownExpectation[] = [
+  { capability: /\bheadings?\b/i, label: "HTML heading elements", output: /<h[1-6]\b/i,
+    input: /(?:^|\n)#{1,6}\s+\S/m, allLevels: /\b(?:1\s*[-–]\s*6|one through six|all six)\b/i,
+    allInputs: /(?:^|\n)#{1}\s+\S[\s\S]*(?:^|\n)#{2}\s+\S[\s\S]*(?:^|\n)#{3}\s+\S[\s\S]*(?:^|\n)#{4}\s+\S[\s\S]*(?:^|\n)#{5}\s+\S[\s\S]*(?:^|\n)#{6}\s+\S/m },
+  { capability: /\b(?:italic|emphasis)\b/i, label: "italic elements", output: /<(?:em|i)\b/i, input: /(?<!\*)\*[^*\s][^*]*\*(?!\*)/ },
+  { capability: /\bbold\b/i, label: "bold elements", output: /<(?:strong|b)\b/i, input: /\*\*[^*\s][^*]*\*\*/ },
+  { capability: /\bstrikethrough\b/i, label: "strikethrough elements", output: /<(?:del|s)\b/i, input: /~~[^~\s][^~]*~~/ },
+  { capability: /\bnested lists?\b/i, label: "nested list elements", output: /<ul\b[^>]*>[\s\S]*?<li\b[^>]*>[\s\S]*?<ul\b/i, input: /(?:^|\n)(?: {2,}|\t)[*-+]\s+\S/m },
+  { capability: /\bfenced code(?: blocks?)?\b|\bcode blocks?\b/i, label: "fenced code elements", output: /<pre\b[\s\S]*<code\b/i, input: /(?:^|\n)```[\w-]*\s*\n[\s\S]+?\n```/m },
+  { capability: /\bexternal links?\b/i, label: "external link elements", output: /<a\b[^>]*href=["']https?:\/\//i, input: /\[[^\]]+\]\(https?:\/\/[^)]+\)/i },
+  { capability: /\binternal links?\b/i, label: "internal link elements", output: /<a\b[^>]*(?:internal-link|data-href|href=)/i, input: /\[\[[^\]]+\]\]/ },
+  { capability: /\bcallouts?\b/i, label: "callout elements", output: /(?:callout|admonition|data-callout)/i, input: /(?:^|\n)>\s*\[![\w-]+\]/m },
+  { capability: /\bmarkdown tables?\b|\btables? with headers\b/i, label: "table elements", output: /<table\b/i, input: /(?:^|\n)\|[^\n]+\|\s*\n\|[\s:|-]+\|/m },
+];
+
+export function rendererDraftProblems(draft: z.infer<typeof Answer>, observations: Array<{ id: number; action: unknown; result: unknown }>,
+  options: { requireRenderedMarkdownOutput?: boolean } = {}): string[] {
   const problems: string[] = [];
   const ids = new Set<string>();
   for (const requirement of draft.requirements) {
@@ -35,6 +53,25 @@ export function rendererDraftProblems(draft: z.infer<typeof Answer>, observation
       const result = item!.result as { error?: unknown };
       return typeof action.action === "string" && !result.error;
     })) problems.push(`${requirement.id} has no successful UI observation (fixture and host inputs alone are insufficient)`);
+    if (/\buser can\b|\b(?:correctly|proper structure|works? as expected)\b/i.test(requirement.statement))
+      problems.push(`${requirement.id} is vague or generalized. Replace it with a concrete input, UI action, and visible output; remove it when another requirement already describes the same behavior precisely`);
+    if (options.requireRenderedMarkdownOutput && cited.length && cited.every(Boolean)) {
+      const successfulUi = cited.filter(item => typeof (item!.action as { action?: unknown }).action === "string" && !(item!.result as { error?: unknown }).error);
+      const rendered = successfulUi.map(item => String((item!.result as { rendered?: unknown }).rendered ?? "")).join("\n");
+      const entered = cited.map(item => {
+        const action = item!.action as { value?: unknown; content?: unknown };
+        return [action.value, action.content].filter((value): value is string => typeof value === "string").join("\n");
+      }).join("\n");
+      for (const expected of RENDERED_MARKDOWN_EXPECTATIONS) {
+        if (!expected.capability.test(requirement.statement)) continue;
+        const hasOutput = expected.allLevels?.test(requirement.statement)
+          ? [1, 2, 3, 4, 5, 6].every(level => new RegExp(`<h${level}\\b`, "i").test(rendered))
+          : expected.output.test(rendered);
+        const hasInput = expected.allInputs?.test(entered) ?? expected.input.test(entered);
+        if (!hasInput) problems.push(`${requirement.id} claims ${expected.label}, but the cited actions do not include the corresponding Markdown syntax input. Cite the editor fill or fixture containing the syntax, or remove the claim`);
+        if (!hasOutput) problems.push(`${requirement.id} claims ${expected.label}, but cited UI snapshots contain no matching rendered HTML. Enter the syntax, switch to reading mode, inspect the rendered output, and cite that snapshot; otherwise remove the claim and record a blocker`);
+      }
+    }
   }
   return problems;
 }
@@ -138,7 +175,13 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
     let controls: ElementHandle[] = [];
     const readControls = async () => {
       await Promise.all(controls.map(control => control.dispose().catch(() => {})));
-      controls = (await page.locator("input,textarea,button,[contenteditable=true],[role=button],[class*=button],[aria-label]").elementHandles()).slice(0, 80);
+      const candidates = await page.locator("input,textarea,button,[contenteditable=true],[role=button],[role=link],[role=treeitem],a[href],[class*=button],[aria-label],.nav-file-title,.tree-item-self,.workspace-tab-header,.view-action,.clickable-icon").elementHandles();
+      const visible = (await Promise.all(candidates.map(async control => ({ control, state: await control.evaluate((n: any) => ({
+        visible: n.getClientRects().length > 0 && n.ownerDocument.defaultView.getComputedStyle(n).visibility !== "hidden" && n.ownerDocument.defaultView.getComputedStyle(n).display !== "none",
+        priority: /nav-file-title|tree-item-self|workspace-tab-header|view-action|clickable-icon/.test(n.className?.baseVal ?? n.className ?? "")
+          ? 0 : n.matches("input,textarea,button,[contenteditable=true],[role=button],[role=link],[role=treeitem],a[href]") ? 1 : 2,
+      })) })))).filter(item => item.state.visible);
+      controls = visible.sort((a, b) => a.state.priority - b.state.priority).slice(0, 100).map(item => item.control);
       return Promise.all(controls.map(async (control, ref) => ({ ref: `@${ref}`, ...await control.evaluate((n: any) => ({
         tag: n.tagName, id: n.id, class: n.getAttribute("class"), role: n.getAttribute("role"), label: n.getAttribute("aria-label"),
         placeholder: n.getAttribute("placeholder"), text: (n.innerText || "").slice(0, 120), type: n.getAttribute("type"),
@@ -263,7 +306,7 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
         const result = observation.result as Record<string, unknown>;
         const selected = query.field === "action" ? observation.action : query.field === "summary" ? compactRendererResult(result) : result[query.field];
         const text = typeof selected === "string" ? selected : JSON.stringify(selected) ?? "";
-        return JSON.stringify({ id: query.id, field: query.field, offset: query.offset, total_characters: text.length, text: text.slice(query.offset, query.offset + 5000) });
+        return JSON.stringify({ id: query.id, field: query.field, offset: query.offset, total_characters: text.length, text: text.slice(query.offset, query.offset + 1800) });
       },
     }];
     const initial = await record({ action: "startup" }, await snapshot());
@@ -300,19 +343,19 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
       return report;
     }
     let messages: StructuredCallOpts<z.infer<typeof Answer>>["messages"] = [{ role: "user", content: `Task: ${task}\nIsolated fixture root: ${workspace}\nStartup observation: ${initial}` }];
-    const call = () => structuredCall({ role: "spec_writer", signal, tools, maxToolTurns: 40, maxTokens: 12_000,
-      system: "You are a behavioral specification agent. Observe the original app only through UI and fixture tools. Write precise requirements only for behavior you actually reached; cite observation IDs. A requirement must describe concrete inputs, user actions and observable outputs (including HTML tags where relevant), never merely say that something works correctly. Use ui inspect on specific rendered elements and on [aria-label] controls to obtain exact outputs and available actions. Explore varied inputs, syntax boundaries and edit/read transitions. Verify each UI transition before assuming it succeeded; fixture creation and native-dialog typing do not prove a vault opened. If a click leaves the same screen, target an actual interactive control precisely rather than its heading. Do not invent behavior from product familiarity. Do not implement anything. Record unreachable task requirements as blockers. Your output is a draft, never an approval. No original source is available.",
+    const call = () => structuredCall({ role: "spec_writer", signal, tools, maxToolTurns: 40, maxTokens: 4_000,
+      system: "You are a behavioral specification agent. Observe the original app only through UI and fixture tools. Write precise requirements only for behavior you actually reached; cite observation IDs. Each requirement must state a concrete input, action and visible result directly, never use generalized 'user can' phrasing or merely say that something works correctly. For claims about Markdown syntax, raw text in an editor is not rendered output: enter the syntax, switch to reading mode, inspect the resulting DOM, and cite a successful snapshot containing the corresponding HTML element. If fill replaces content, use one complete note or separate reading-mode snapshots so every claimed syntax has rendered evidence. Use ui inspect on specific rendered elements and on [aria-label] controls to obtain exact outputs and available actions. Explore varied inputs, syntax boundaries and edit/read transitions. Verify each UI transition before assuming it succeeded; fixture creation and native-dialog typing do not prove a vault opened. If a click leaves the same screen, target an actual interactive control precisely rather than its heading. Do not invent behavior from product familiarity. Do not implement anything. Record unreachable task requirements as blockers. Your output is a draft, never an approval. No original source is available.",
       messages,
       schema, parse: value => Answer.parse(value), onProgress: output_chars => emit({ type: "progress", output_chars }),
     });
     let response = await call();
     for (let attempt = 0; ; attempt++) {
-      const invalid = rendererDraftProblems(response.value, observations);
+      const invalid = rendererDraftProblems(response.value, observations, { requireRenderedMarkdownOutput: true });
       if (!invalid.length) break;
       await fs.writeFile(path.join(directory, `rejected-draft-${attempt + 1}.json`), JSON.stringify(response.value, null, 2));
       if (attempt === 2) throw new Error(invalid.join("; "));
       emit({ type: "stage", message: "Repairing invalid observation citations" });
-      messages = continueWith(messages, response.assistantContent, `Draft problems: ${invalid.join("; ")}. Rewrite only from recorded evidence or remove unsupported requirements and state blockers. Never invent observation IDs. Use the observation tool for exact earlier evidence. Recorded index: ${JSON.stringify(observations.map(item => ({ id: item.id, action: JSON.stringify(item.action).slice(0, 180), error: (item.result as { error?: unknown })?.error ? String((item.result as { error: unknown }).error).slice(0, 160) : null })))}`);
+      messages = continueWith(messages, response.assistantContent, `Draft problems: ${invalid.join("; ")}. For every listed requirement ID, either rewrite it as a concrete input/action/output claim with supporting citations or remove it and add an accurate blocker. Drop broad duplicate claims such as 'the fixture renders correctly'; do not preserve them by repeating the syntax names. You may continue observing the original UI to gather missing rendered evidence. Never invent observation IDs. For each Markdown syntax claim, cite an action or fixture containing the syntax and a successful reading-mode UI snapshot whose rendered HTML shows the matching element. Use the observation tool for exact earlier evidence. Recorded index: ${JSON.stringify(observations.map(item => ({ id: item.id, action: JSON.stringify(item.action).slice(0, 180), error: (item.result as { error?: unknown })?.error ? String((item.result as { error: unknown }).error).slice(0, 160) : null })))}`);
       response = await call();
     }
     const draft = { schema: 1, status: "draft", archive_sha256: archiveHash, workspace_root: workspace, task, ...response.value, model: response.model,
