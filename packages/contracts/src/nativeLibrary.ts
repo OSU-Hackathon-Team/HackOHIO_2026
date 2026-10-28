@@ -18,9 +18,14 @@ export const SavedFunction = z.object({
 });
 export const SavedAnalysis = SavedAnalysisSummary.extend({
   schema: z.literal(1), functions: z.array(SavedFunction),
-  // formula: the readable invocation (a formula, or a command line); input: exactly what the oracle ran.
-  observed_cases: z.array(z.object({ id: z.string(), formula: z.string(), cells: z.record(z.string(), z.unknown()).optional(),
-    input: z.unknown().optional(), observed: z.unknown() })),
+  // formula/operation are readable labels; input is exactly what the original oracle ran.
+  observed_cases: z.array(z.object({ id: z.string(), formula: z.string().optional(), operation: z.string().optional(),
+    cells: z.record(z.string(), z.unknown()).optional(), input: z.unknown().optional(), observed: z.unknown() })
+    .superRefine((item, ctx) => {
+      if (!item.formula && !item.operation && item.input === undefined) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "an observed case needs its formula, operation, or exact input" });
+      }
+    })),
   spec: NativeSubsystemSpec.nullable(),
 });
 export type SavedAnalysis = z.infer<typeof SavedAnalysis>;

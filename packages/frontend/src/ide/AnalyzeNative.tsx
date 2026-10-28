@@ -173,6 +173,13 @@ export function AnalyzeNative() {
             </p>
           )}
           {run.error && <p className="mt-2 text-rose-400">{run.error}</p>}
+          {run.finished && !run.ok && !run.result && api.reimportDecompRun && (
+            <WorkspaceButton className="mt-2 border border-amber-700 text-amber-200"
+              onPress={() => void useIdeStore.getState().reimportDecompRun(run.runId)
+                .catch((error) => setStartError(error instanceof Error ? error.message : String(error)))}>
+              Re-import saved results (no new analysis run)
+            </WorkspaceButton>
+          )}
           {run.result && (
             <div className="mt-3 space-y-1 text-stone-300">
               <p>

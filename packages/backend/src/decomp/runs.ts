@@ -111,6 +111,40 @@ export class DecompRunService {
     return run;
   }
 
+  /** Re-import an already-finished worker result after a local publication/schema repair. */
+  async reimport(id: string): Promise<DecompRun> {
+    const record = this.runs.get(id);
+    if (!record) throw new HttpError(404, "run not found");
+    if (!this.deps.worker) throw new HttpError(503, "the decomp worker is not configured");
+    if (record.run.stage !== "failed" || record.run.result !== null) {
+      throw new HttpError(409, "only a failed run with no imported result can be re-imported");
+    }
+    if (this.active) throw new HttpError(409, `run ${this.active} is still in progress`);
+    const target = this.registry.find((item) => item.id === record.run.target_id);
+    if (!target) throw new HttpError(409, `target ${record.run.target_id} is no longer registered`);
+    const archive = await this.deps.worker.readObject(id, "results.tgz");
+    if (!archive) throw new HttpError(409, "the worker did not save a result archive for this run");
+
+    this.active = id;
+    try {
+      await this.emit(record, { type: "stage", stage: "importing", message: "Re-importing saved worker results" });
+      const progress = await this.deps.worker.readObject(id, "progress.jsonl");
+      const result = await importRunResults(archive, {
+        stateDir: this.deps.stateDir, repoRoot: this.deps.repoRoot,
+        handoffDir: path.join(this.deps.repoRoot, "docs", "handoffs", target.handoff),
+      });
+      await this.deps.publishAnalysis?.(record.run, result, progress?.toString("utf8") ?? "", target);
+      await this.emit(record, { type: "result", result });
+      await this.emit(record, { type: "stage", stage: "complete", message: "Saved worker results imported" });
+      await this.emit(record, { type: "done", ok: true });
+      return record.run;
+    } catch (error) {
+      const message = `Saved result import failed: ${(error as Error).message}`;
+      await this.fail(record, message);
+      throw new HttpError(422, message);
+    } finally { this.active = null; }
+  }
+
   private async emit(record: Record_, event: DistributiveOmit<DecompRunEvent, "run_id" | "ts">): Promise<void> {
     const full = DecompRunEvent.parse({ ...event, run_id: record.run.run_id, ts: this.now() });
     record.events.push(full);

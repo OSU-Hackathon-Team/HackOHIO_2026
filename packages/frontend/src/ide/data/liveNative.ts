@@ -85,7 +85,7 @@ export function initialRunView(runId: string): DecompRunView {
 /** Folds one streamed event into the run view (pure, so it is unit-tested). */
 export function applyDecompEvent(view: DecompRunView, event: DecompRunEvent): DecompRunView {
   switch (event.type) {
-    case "stage": return { ...view, stage: event.stage, message: event.message };
+    case "stage": return { ...view, stage: event.stage, message: event.message, error: null };
     case "progress": {
       const value = { done: event.done, total: event.total };
       return event.label === "reviewed" ? { ...view, reviewed: value } : { ...view, drafted: value };
