@@ -289,7 +289,7 @@ export function notebookPlan(packages: ReadonlyMap<string, string>) {
       name: "Invalid formula fails with an explicit error",
       steps: [
         { kind: "set_document" as const, document: "workbook", path: "cells", value: { B2: 3 } },
-        { kind: "invoke" as const, workflow: "update_notebook", input: { segments: [], formula: "=B2/0", markdown: "Error {{value}}" }, expect_status: "failed" as const },
+        { kind: "invoke" as const, workflow: "update_notebook", input: { segments: [], formula: "=B2/0", markdown: "Error {{value}}" }, expect_status: "failed" as const, expect_error: "Formula divides by zero" },
       ],
     }, {
       id: "duplicate_transcript_event",

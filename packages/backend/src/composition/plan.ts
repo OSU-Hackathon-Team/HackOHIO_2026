@@ -413,6 +413,8 @@ export async function validateCompositionPlan(
     for (const [index, step] of scenario.steps.entries()) {
       const at = `acceptance_scenarios.${scenario.id}.steps.${index}`;
       if ((step.kind === "invoke" || step.kind === "assert_workflow" || step.kind === "cancel") && !workflowIds.has(step.workflow)) addError(errors, "scenario_workflow_missing", at, `Unknown workflow ${step.workflow}`);
+      if (step.kind === "invoke" && step.expect_status === "failed" && !step.expect_error) addError(errors, "scenario_error_missing", at, "Failed workflow scenarios must declare the expected error");
+      if (step.kind === "invoke" && step.expect_status === "succeeded" && step.expect_error) addError(errors, "scenario_error_unexpected", at, "Successful workflow scenarios cannot expect an error");
       if ((step.kind === "set_document" || step.kind === "assert_document") && !documents.has(step.document)) addError(errors, "scenario_document_missing", at, `Unknown document ${step.document}`);
       if (step.kind === "deny_permission" && !instancesById.has(step.instance)) addError(errors, "scenario_instance_missing", at, `Unknown instance ${step.instance}`);
       if (step.kind === "replace_package" && !(await registry.getPackage(step.package_id))) addError(errors, "scenario_package_missing", at, `Replacement package ${step.package_id} is not installed`);

@@ -154,6 +154,14 @@ test("recombination builds, executes, persists, exports and replaces pinned pack
     await assert.rejects(() => service!.buildApp(statusOnlyScenario, context), /acceptance scenarios failed/);
     assert.equal((await service.getApp(built.app_id, "latest"))?.revision, 0, "checking only setup state and workflow status cannot verify composed behavior");
 
+    const wrongFailure = structuredClone(plan);
+    const failureStep = wrongFailure.acceptance_scenarios.find((scenario) => scenario.id === "formula_error")?.steps.find((step) => step.kind === "invoke");
+    assert.ok(failureStep?.kind === "invoke");
+    failureStep.expect_error = "Formula contains an unsupported token";
+    await assert.rejects(() => service!.buildApp(wrongFailure, context), /acceptance scenarios failed/);
+    delete failureStep.expect_error;
+    assert.ok((await service.validatePlan(wrongFailure)).errors.some((item) => item.code === "scenario_error_missing"));
+
     const refined = structuredClone(plan);
     refined.app.description += " Refined UI copy.";
     const next = await service.buildApp(refined, context);

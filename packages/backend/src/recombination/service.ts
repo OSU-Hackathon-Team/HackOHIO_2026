@@ -359,6 +359,9 @@ export class FilesystemRecombinationService implements RecombinationService {
               const outcome = await engine.run(plan, step.workflow, asObject(step.input, `scenario ${scenario.id} input`), { signal });
               assertions += 1;
               if (outcome.status !== step.expect_status) throw new Error(`Workflow ${step.workflow} ended ${outcome.status}; expected ${step.expect_status}: ${canonicalJson(outcome.errors)}`);
+              if (step.expect_error && !Object.values(outcome.errors).some((message) => message.includes(step.expect_error!))) {
+                throw new Error(`Workflow ${step.workflow} did not report expected error ${step.expect_error}: ${canonicalJson(outcome.errors)}`);
+              }
               if (step.expect_status === "succeeded") successfulInvocations += 1;
             } else if (step.kind === "set_document") {
               const definition = plan.documents.find((document) => document.id === step.document && document.owner_instance === null);

@@ -223,6 +223,7 @@ export const ScenarioStep = z.discriminatedUnion("kind", [
       workflow: WorkflowId,
       input: JsonValueSchema,
       expect_status: z.enum(["succeeded", "failed"]).default("succeeded"),
+      expect_error: z.string().min(1).max(500).optional(),
     })
     .strict(),
   z
