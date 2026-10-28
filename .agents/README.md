@@ -168,7 +168,11 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   seven UI snapshots matched, with citation coverage for ten draft requirements. This does not
   approve requirement semantics or candidate parity. Model context is bounded with compact replies
   and chunked evidence reads; complete audit/replay evidence is preserved. Renderer implementation
-  and Calc integration remain open. See `docs/obsidian-calc-demo-gap-log.md`.
+  and Calc integration remain open. Studio can also record public original Calc cases without
+  model calls through `POST /api/decomp/runs` in `public_oracle` mode. A live client job recorded
+  six public table outputs, including working range sorts after the UNO struct-sequence repair.
+  These are observations, not approved specifications or candidate parity.
+  See `docs/obsidian-calc-demo-gap-log.md`.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
   `trace_application_feature` and `binary_session` (live probe; catalog and samples in `fixtures/rea/`),

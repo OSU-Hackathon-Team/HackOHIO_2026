@@ -1,0 +1,357 @@
+{
+  "schema": 1,
+  "target_id": "libreoffice-calc-tables",
+  "application_version": "LibreOffice 24.2.7.2",
+  "driver_sha256": "cfd781790c10ed9260b598d6f0b266e2bcf2f6b288f562fc9cf5f9c96f1f92e7",
+  "binary_sha256": "c5af49a66872a24fff540ae334e90ba9f2608d9ad2ddb5b7c197e044d26efd40",
+  "cases": [
+    {
+      "id": "table_sort_text_ascending",
+      "input": {
+        "operation": {
+          "type": "sort_range",
+          "range": "A1:B4",
+          "keys": [
+            {
+              "column": 0,
+              "ascending": true
+            }
+          ],
+          "contains_header": true
+        },
+        "cells": {
+          "A1": "Product",
+          "B1": "Units",
+          "A2": "Pear",
+          "B2": 3,
+          "A3": "Apple",
+          "B3": 2,
+          "A4": "Peach",
+          "B4": 5
+        }
+      },
+      "observed": {
+        "cells": [
+          [
+            "Product",
+            "Units"
+          ],
+          [
+            "Apple",
+            2
+          ],
+          [
+            "Peach",
+            5
+          ],
+          [
+            "Pear",
+            3
+          ]
+        ]
+      },
+      "error": null,
+      "outcome": "observed",
+      "diagnostics": {
+        "sort_descriptor": [
+          {
+            "name": "IsSortColumns",
+            "value": "False"
+          },
+          {
+            "name": "ContainsHeader",
+            "value": "True"
+          },
+          {
+            "name": "MaxFieldCount",
+            "value": "3"
+          },
+          {
+            "name": "SortFields",
+            "value": "((com.sun.star.table.TableSortField){ Field = (long)0x0, IsAscending = (boolean)true, IsCaseSensitive = (boolean)false, FieldType = (com.sun.star.table.TableSortFieldType)AUTOMATIC, CollatorLocale = (com.sun.star.lang.Locale){ Language = (string)\"\", Country = (string)\"\", Variant = (string)\"\" }, CollatorAlgorithm = (string)\"\" },)"
+          },
+          {
+            "name": "BindFormatsToContent",
+            "value": "True"
+          },
+          {
+            "name": "CopyOutputData",
+            "value": "False"
+          },
+          {
+            "name": "OutputPosition",
+            "value": "(com.sun.star.table.CellAddress){ Sheet = (short)0x0, Column = (long)0x0, Row = (long)0x0 }"
+          },
+          {
+            "name": "IsUserListEnabled",
+            "value": "False"
+          },
+          {
+            "name": "UserListIndex",
+            "value": "0"
+          }
+        ]
+      }
+    },
+    {
+      "id": "table_sort_multikey_descending",
+      "input": {
+        "operation": {
+          "type": "sort_range",
+          "range": "A1:C5",
+          "keys": [
+            {
+              "column": 2,
+              "ascending": false
+            },
+            {
+              "column": 0,
+              "ascending": true
+            }
+          ],
+          "contains_header": true
+        },
+        "cells": {
+          "A1": "Item",
+          "B1": "Zone",
+          "C1": "Count",
+          "A2": "Bolt",
+          "B2": "East",
+          "C2": 4,
+          "A3": "Nut",
+          "B3": "West",
+          "C3": 7,
+          "A4": "Clip",
+          "B4": "East",
+          "C4": 7,
+          "A5": "Washer",
+          "B5": "North",
+          "C5": 2
+        }
+      },
+      "observed": {
+        "cells": [
+          [
+            "Item",
+            "Zone",
+            "Count"
+          ],
+          [
+            "Clip",
+            "East",
+            7
+          ],
+          [
+            "Nut",
+            "West",
+            7
+          ],
+          [
+            "Bolt",
+            "East",
+            4
+          ],
+          [
+            "Washer",
+            "North",
+            2
+          ]
+        ]
+      },
+      "error": null,
+      "outcome": "observed",
+      "diagnostics": {
+        "sort_descriptor": [
+          {
+            "name": "IsSortColumns",
+            "value": "False"
+          },
+          {
+            "name": "ContainsHeader",
+            "value": "True"
+          },
+          {
+            "name": "MaxFieldCount",
+            "value": "3"
+          },
+          {
+            "name": "SortFields",
+            "value": "((com.sun.star.table.TableSortField){ Field = (long)0x2, IsAscending = (boolean)false, IsCaseSensitive = (boolean)false, FieldType = (com.sun.star.table.TableSortFieldType)AUTOMATIC, CollatorLocale = (com.sun.star.lang.Locale){ Language = (string)\"\", Country = (string)\"\", Variant = (string)\"\" }, CollatorAlgorithm = (string)\"\" }, (com.sun.star.table.TableSortField){ Field = (long)0x0, IsAscending = (boolean)true, IsCaseSensitive = (boolean)false, FieldType = (com.sun.star.table.TableSortFieldType)AUTOMATIC, CollatorLocale = (com.sun.star.lang.Locale){ Language = (string)\"\", Country = (string)\"\", Variant = (string)\"\" }, CollatorAlgorithm = (string)\"\" })"
+          },
+          {
+            "name": "BindFormatsToContent",
+            "value": "True"
+          },
+          {
+            "name": "CopyOutputData",
+            "value": "False"
+          },
+          {
+            "name": "OutputPosition",
+            "value": "(com.sun.star.table.CellAddress){ Sheet = (short)0x0, Column = (long)0x0, Row = (long)0x0 }"
+          },
+          {
+            "name": "IsUserListEnabled",
+            "value": "False"
+          },
+          {
+            "name": "UserListIndex",
+            "value": "0"
+          }
+        ]
+      }
+    },
+    {
+      "id": "table_insert_row_middle",
+      "input": {
+        "operation": {
+          "type": "insert_rows",
+          "index": 2,
+          "count": 1,
+          "output_range": "A1:B4"
+        },
+        "cells": {
+          "A1": "Name",
+          "B1": "Score",
+          "A2": "Ada",
+          "B2": 8,
+          "A3": "Sam",
+          "B3": 5
+        }
+      },
+      "observed": {
+        "cells": [
+          [
+            "Name",
+            "Score"
+          ],
+          [
+            "Ada",
+            8
+          ],
+          [
+            "",
+            ""
+          ],
+          [
+            "Sam",
+            5
+          ]
+        ]
+      },
+      "error": null,
+      "outcome": "observed"
+    },
+    {
+      "id": "table_delete_row_middle",
+      "input": {
+        "operation": {
+          "type": "delete_rows",
+          "index": 2,
+          "count": 1,
+          "output_range": "A1:B3"
+        },
+        "cells": {
+          "A1": "Name",
+          "B1": "Score",
+          "A2": "Ada",
+          "B2": 8,
+          "A3": "Sam",
+          "B3": 5,
+          "A4": "Lee",
+          "B4": 9
+        }
+      },
+      "observed": {
+        "cells": [
+          [
+            "Name",
+            "Score"
+          ],
+          [
+            "Ada",
+            8
+          ],
+          [
+            "Lee",
+            9
+          ]
+        ]
+      },
+      "error": null,
+      "outcome": "observed"
+    },
+    {
+      "id": "table_insert_column_middle",
+      "input": {
+        "operation": {
+          "type": "insert_columns",
+          "index": 1,
+          "count": 1,
+          "output_range": "A1:D2"
+        },
+        "cells": {
+          "A1": "Name",
+          "B1": "Score",
+          "C1": "Group",
+          "A2": "Ada",
+          "B2": 8,
+          "C2": "A"
+        }
+      },
+      "observed": {
+        "cells": [
+          [
+            "Name",
+            "",
+            "Score",
+            "Group"
+          ],
+          [
+            "Ada",
+            "",
+            8,
+            "A"
+          ]
+        ]
+      },
+      "error": null,
+      "outcome": "observed"
+    },
+    {
+      "id": "table_delete_column_middle",
+      "input": {
+        "operation": {
+          "type": "delete_columns",
+          "index": 1,
+          "count": 1,
+          "output_range": "A1:C2"
+        },
+        "cells": {
+          "A1": "Name",
+          "B1": "Score",
+          "C1": "Group",
+          "A2": "Ada",
+          "B2": 8,
+          "C2": "A"
+        }
+      },
+      "observed": {
+        "cells": [
+          [
+            "Name",
+            "Group",
+            ""
+          ],
+          [
+            "Ada",
+            "A",
+            ""
+          ]
+        ]
+      },
+      "error": null,
+      "outcome": "observed"
+    }
+  ]
+}

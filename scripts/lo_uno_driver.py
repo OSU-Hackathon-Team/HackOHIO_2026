@@ -107,7 +107,7 @@ def read_matrix(sheet, range_name):
     return [list(row) for row in sheet.getCellRangeByName(range_name).getDataArray()]
 
 
-def operate(doc, sheet, operation, cells):
+def operate(doc, sheet, operation, cells, diagnostics=None):
     sheet.getCellRangeByName("A1:Z200").clearContents(CLEAR_ALL)
     for name, value in cells.items():
         cell = sheet.getCellRangeByName(name)
@@ -120,17 +120,39 @@ def operate(doc, sheet, operation, cells):
 
     kind = operation["type"]
     if kind == "sort_range":
+        target = sheet.getCellRangeByName(operation["range"])
+        descriptor = list(target.createSortDescriptor())
+        properties = {item.Name: item for item in descriptor}
+        if "SortFields" not in properties or "ContainsHeader" not in properties:
+            raise RuntimeError("Calc range returned an incomplete sort descriptor")
+
+        # Calc exposes either the current descriptor (TableSortField / IsSortColumns) or
+        # the deprecated one (util.SortField / SortColumns). Keep the complete descriptor
+        # returned by this range and only replace its operation-specific properties.
+        if "IsSortColumns" in properties:
+            struct_name = "com.sun.star.table.TableSortField"
+            ascending_name = "IsAscending"
+            columns_name = "IsSortColumns"
+        elif "SortColumns" in properties:
+            struct_name = "com.sun.star.util.SortField"
+            ascending_name = "SortAscending"
+            columns_name = "SortColumns"
+        else:
+            raise RuntimeError("Calc range returned an unsupported sort descriptor")
+
         fields = []
         for key in operation["keys"]:
-            field = uno.createUnoStruct("com.sun.star.table.TableSortField")
+            field = uno.createUnoStruct(struct_name)
             field.Field = key["column"]
-            field.IsAscending = key["ascending"]
+            setattr(field, ascending_name, key["ascending"])
             fields.append(field)
-        props = (
-            PropertyValue("SortFields", 0, tuple(fields), 0),
-            PropertyValue("ContainsHeader", 0, operation["contains_header"], 0),
-        )
-        sheet.getCellRangeByName(operation["range"]).sort(props)
+        # Preserve the declared struct sequence type inside PropertyValue's Any.
+        properties["SortFields"].Value = uno.Any("[]" + struct_name, tuple(fields))
+        properties["ContainsHeader"].Value = operation["contains_header"]
+        properties[columns_name].Value = False  # sort rows using the selected columns as keys
+        if diagnostics is not None:
+            diagnostics["sort_descriptor"] = [{"name": p.Name, "value": str(p.Value)} for p in descriptor]
+        target.sort(tuple(descriptor))
         output_range = operation.get("output_range", operation["range"])
     elif kind == "insert_rows":
         sheet.Rows.insertByIndex(operation["index"], operation["count"])
@@ -177,15 +199,17 @@ def main():
             if request.get("op") == "quit":
                 break
             try:
+                diagnostics = {} if request.get("diagnostics") else None
                 if request.get("op") == "operation":
                     # Structural edits persist across Calc requests; isolate each operation case.
                     doc.close(True)
                     doc = new_document(desktop)
                     sheet = doc.Sheets.getByIndex(0)
-                    observed = operate(doc, sheet, request["operation"], request.get("cells") or {})
+                    observed = operate(doc, sheet, request["operation"], request.get("cells") or {}, diagnostics)
                 else:
                     observed = evaluate(doc, sheet, request["formula"], request.get("cells") or {})
-                emit({"id": request["id"], "observed": observed})
+                emit({"id": request["id"], "observed": observed,
+                      **({"diagnostics": diagnostics} if diagnostics else {})})
             except Exception as error:  # report per case; LibreOffice keeps running
                 emit({"id": request["id"], "observed": None, "error": str(error)})
     except Exception as error:

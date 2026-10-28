@@ -231,11 +231,13 @@ class UnoDriver:
     def pid(self) -> int:
         return int(self.ready["pid"])
 
-    def evaluate(self, case: dict) -> dict:
+    def evaluate(self, case: dict, *, diagnostics: bool = False) -> dict:
         assert self.process and self.process.stdin
         request = {"op": "operation", "id": case["id"], "operation": case["operation"],
                    "cells": case.get("cells", {})} if "operation" in case else {
             "op": "eval", "id": case["id"], "formula": case["formula"], "cells": case.get("cells", {})}
+        if diagnostics:
+            request["diagnostics"] = True
         self.process.stdin.write(json.dumps(request) + "\n")
         self.process.stdin.flush()
         reply = self._read()

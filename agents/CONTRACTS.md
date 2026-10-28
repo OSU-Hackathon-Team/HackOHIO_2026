@@ -314,6 +314,13 @@ backend persists runs under `decomp-state/runs/` so the stream replays after a r
 The TypeScript contract in `packages/contracts/src/decompRun.ts` is authoritative.
 `POST /api/decomp/runs/:id/reimport` retries local import/publication from an already-finished
 worker archive after a local schema or publication repair; it never starts another analysis run.
+`DecompRunRequest.mode?: "analysis" | "public_oracle"` defaults to analysis. Public oracle mode
+requires `max_functions: 0`, a UNO target and `confirm_cost: true` for worker compute. It records
+only registered public cases without model calls, static analysis, or library publication.
+`DecompRunResult.public_oracle?` carries the application version, binary/driver hashes, exact
+public inputs, observed outputs, per-case execution errors and bounded sort descriptor metadata.
+The backend rechecks case membership and exact inputs against the public partition before exposing
+the report. This recording does not declare expectation agreement or implementation readiness.
 
 ---
 

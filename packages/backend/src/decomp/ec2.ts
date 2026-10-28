@@ -11,7 +11,7 @@ export interface DecompWorker {
   instanceState(): Promise<string>;
   uploadPayload(file: string): Promise<void>;
   /** Starts the instance and launches the runner; resolves once the runner is running. */
-  start(runId: string, args: { maxFunctions: number; maxDepth: number; targetId: string }, runnerScript: string): Promise<void>;
+  start(runId: string, args: { maxFunctions: number; maxDepth: number; targetId: string; mode?: "analysis" | "public_oracle" }, runnerScript: string): Promise<void>;
   /** results/<runId>/<name> from S3, or null while it does not exist yet. */
   readObject(runId: string, name: string): Promise<Buffer | null>;
 }
@@ -69,9 +69,10 @@ export function ec2Worker(config: Ec2WorkerConfig): DecompWorker {
       await clientSend(s3, new PutObjectCommand({ Bucket: config.bucket, Key: "inputs/payload.tgz", Body: await fs.readFile(file) }));
     },
 
-    async start(runId, { maxFunctions, maxDepth, targetId }, runnerScript) {
+    async start(runId, { maxFunctions, maxDepth, targetId, mode = "analysis" }, runnerScript) {
       if (!/^[a-z0-9-]{8,64}$/.test(runId)) throw new Error("invalid run id");
       if (!/^[a-z0-9][a-z0-9-]{2,39}$/.test(targetId)) throw new Error("invalid target id");
+      if (!["analysis", "public_oracle"].includes(mode)) throw new Error("invalid run mode");
       if (isMock) return; // Skip actual start in mock mode.
       const ec2 = realClients?.ec2;
       const ssm = realClients?.ssm;
@@ -93,7 +94,7 @@ export function ec2Worker(config: Ec2WorkerConfig): DecompWorker {
         `systemd-run --unit=${unit} --property=RuntimeMaxSec=${config.runtimeMaxSeconds ?? 3600} ` +
           `--setenv=TRIAL_BUCKET=${config.bucket} --setenv=AWS_DEFAULT_REGION=${config.region} ` +
           (config.cacheEnabled ? "--setenv=DECOMP_CACHE_ENABLED=1 " : "") +
-          `/bin/bash /opt/${unit}.sh ${runId} ${Math.trunc(maxFunctions)} ${Math.trunc(maxDepth)} ${targetId}`,
+          `/bin/bash /opt/${unit}.sh ${runId} ${Math.trunc(maxFunctions)} ${Math.trunc(maxDepth)} ${targetId} ${mode}`,
       ];
       await clientSend(ssm, new SendCommandCommand({ InstanceIds: [config.instanceId], DocumentName: "AWS-RunShellScript",
         Parameters: { commands, executionTimeout: ["60"] } }));
