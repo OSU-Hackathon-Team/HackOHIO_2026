@@ -410,8 +410,16 @@ export async function validateCompositionPlan(
   }
 
   for (const scenario of plan.acceptance_scenarios) {
+    let precedingWorkflow: string | null = null;
     for (const [index, step] of scenario.steps.entries()) {
       const at = `acceptance_scenarios.${scenario.id}.steps.${index}`;
+      if (!["invoke", "set_document", "assert_document", "assert_workflow", "restart"].includes(step.kind)) {
+        addError(errors, "scenario_step_unsupported", at, `Acceptance scenario step ${step.kind} is not executable by this runtime`);
+      }
+      if (step.kind === "invoke") precedingWorkflow = step.workflow;
+      if (step.kind === "assert_workflow" && precedingWorkflow !== step.workflow) {
+        addError(errors, "scenario_workflow_result_missing", at, `Scenario must invoke workflow ${step.workflow} before asserting its status`);
+      }
       if ((step.kind === "invoke" || step.kind === "assert_workflow" || step.kind === "cancel") && !workflowIds.has(step.workflow)) addError(errors, "scenario_workflow_missing", at, `Unknown workflow ${step.workflow}`);
       if (step.kind === "invoke" && step.expect_status === "failed" && !step.expect_error) addError(errors, "scenario_error_missing", at, "Failed workflow scenarios must declare the expected error");
       if (step.kind === "invoke" && step.expect_status === "succeeded" && step.expect_error) addError(errors, "scenario_error_unexpected", at, "Successful workflow scenarios cannot expect an error");

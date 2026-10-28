@@ -346,6 +346,7 @@ export class FilesystemRecombinationService implements RecombinationService {
         let assertions = 0;
         let successfulInvocations = 0;
         let observedOutput = false;
+        let lastWorkflowOutcome: { workflow: string; status: "succeeded" | "failed" | "cancelled" } | null = null;
         let passed = true;
         let detail = "Acceptance scenario passed";
         const counted = new Map<string, WorkflowCapabilityClient>([...runtime.clients].map(([id, client]) => [id, {
@@ -362,7 +363,16 @@ export class FilesystemRecombinationService implements RecombinationService {
               if (step.expect_error && !Object.values(outcome.errors).some((message) => message.includes(step.expect_error!))) {
                 throw new Error(`Workflow ${step.workflow} did not report expected error ${step.expect_error}: ${canonicalJson(outcome.errors)}`);
               }
+              lastWorkflowOutcome = { workflow: step.workflow, status: outcome.status };
               if (step.expect_status === "succeeded") successfulInvocations += 1;
+            } else if (step.kind === "assert_workflow") {
+              assertions += 1;
+              if (!lastWorkflowOutcome || lastWorkflowOutcome.workflow !== step.workflow) {
+                throw new Error(`Scenario ${scenario.id} has no preceding result for workflow ${step.workflow}`);
+              }
+              if (lastWorkflowOutcome.status !== step.status) {
+                throw new Error(`Workflow ${step.workflow} was ${lastWorkflowOutcome.status}; expected ${step.status}`);
+              }
             } else if (step.kind === "set_document") {
               const definition = plan.documents.find((document) => document.id === step.document && document.owner_instance === null);
               if (!definition) throw new Error(`Scenario ${scenario.id} cannot edit document ${step.document}`);
