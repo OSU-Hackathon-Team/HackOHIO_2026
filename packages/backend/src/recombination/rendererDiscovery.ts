@@ -5,9 +5,9 @@ import { once } from "node:events";
 import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 import * as asar from "@electron/asar";
-import { _electron, chromium, type Browser, type Page, type ElectronApplication } from "playwright";
+import { _electron, chromium, type Browser, type ElementHandle, type Page, type ElectronApplication } from "playwright";
 import { z } from "zod";
-import { structuredCall, type AssistTool } from "../llm/llm.js";
+import { continueWith, structuredCall, type AssistTool, type StructuredCallOpts } from "../llm/llm.js";
 
 const Answer = z.object({
   summary: z.string(), requirements: z.array(z.object({ id: z.string(), statement: z.string(), observation_ids: z.array(z.number().int()) })),
@@ -19,6 +19,23 @@ const schema = { type: "object", additionalProperties: false, required: ["summar
     required: ["id", "statement", "observation_ids"], properties: { id: { type: "string" }, statement: { type: "string" }, observation_ids: { type: "array", items: { type: "integer" } } } } },
   blockers: { type: "array", items: { type: "string" } },
 } };
+
+export function rendererDraftProblems(draft: z.infer<typeof Answer>, observations: Array<{ id: number; action: unknown; result: unknown }>): string[] {
+  const problems: string[] = [];
+  const ids = new Set<string>();
+  for (const requirement of draft.requirements) {
+    if (ids.has(requirement.id)) problems.push(`${requirement.id} is duplicated`);
+    ids.add(requirement.id);
+    const cited = requirement.observation_ids.map(id => observations.find(item => item.id === id));
+    if (!cited.length || cited.some(item => !item)) problems.push(`${requirement.id} cites missing observations`);
+    else if (!cited.some(item => {
+      const action = item!.action as { action?: unknown };
+      const result = item!.result as { error?: unknown };
+      return typeof action.action === "string" && !result.error;
+    })) problems.push(`${requirement.id} has no successful UI observation (fixture and host inputs alone are insufficient)`);
+  }
+  return problems;
+}
 
 /** Observe renderer behavior through UI actions only. No source-reading tool reaches the model. */
 export async function discoverRenderer(options: { archive: string; directory: string; task: string; signal: AbortSignal;
@@ -85,6 +102,8 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
     if (installed) {
       originalProcess = spawn(installed, ["--remote-debugging-port=0", `--user-data-dir=${path.join(workspace, "userData")}`],
         { env: environment, stdio: ["ignore", "pipe", "pipe"] });
+      originalProcess.stdout!.on("data", value => emit({ type: "diagnostic", message: String(value).slice(0, 2000) }));
+      originalProcess.on("exit", (code, exitSignal) => emit({ type: "diagnostic", message: `Original process exited: code=${code}, signal=${exitSignal}` }));
       const endpoint = await new Promise<string>((resolve, reject) => {
         let diagnostic = "";
         const timer = setTimeout(() => reject(new Error(`Original renderer did not expose a debugging endpoint: ${diagnostic}`)), 45_000);
@@ -92,6 +111,7 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
         originalProcess!.once("exit", code => { clearTimeout(timer); reject(new Error(`Original exited ${code}: ${diagnostic}`)); });
         originalProcess!.stderr!.on("data", value => {
           diagnostic = (diagnostic + String(value)).slice(-8000);
+          emit({ type: "diagnostic", message: String(value).slice(0, 2000) });
           const match = /DevTools listening on (ws:\/\/[^\s]+)/.exec(diagnostic);
           if (match) { clearTimeout(timer); resolve(match[1]); }
         });
@@ -109,14 +129,34 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
     page.on("console", message => emit({ type: "diagnostic", message: message.text().slice(0, 2000) }));
     page.setDefaultTimeout(8_000);
     const observations: Array<{ id: number; action: unknown; result: unknown }> = [];
-    const windows = () => browser ? browser.contexts().flatMap(context => context.pages()) : electron!.windows();
-    const readSnapshot = async () => ({ title: await page.title(), windows: await Promise.all(windows().map(async (window, index) => ({ index, title: await window.title() }))),
-      text: (await page.locator("body").innerText()).slice(0, 8000),
-      rendered: (await page.locator("h1,h2,h3,h4,h5,h6,p,blockquote,pre,code,a,table,li").evaluateAll((nodes: any[]) => nodes.slice(0, 60).map(n => n.outerHTML.slice(0, 600)).join("\n"))).slice(0, 6000),
-      controls: await page.locator("input,textarea,button,[contenteditable=true],[role=button],[class*=button]").evaluateAll((nodes: any[]) => nodes.slice(0, 60).map(n => ({
+    let controls: ElementHandle[] = [];
+    const readControls = async () => {
+      await Promise.all(controls.map(control => control.dispose().catch(() => {})));
+      controls = (await page.locator("input,textarea,button,[contenteditable=true],[role=button],[class*=button],[aria-label]").elementHandles()).slice(0, 80);
+      return Promise.all(controls.map(async (control, ref) => ({ ref: `@${ref}`, ...await control.evaluate((n: any) => ({
         tag: n.tagName, id: n.id, class: n.getAttribute("class"), role: n.getAttribute("role"), label: n.getAttribute("aria-label"),
         placeholder: n.getAttribute("placeholder"), text: (n.innerText || "").slice(0, 120), type: n.getAttribute("type"),
-      }))) });
+      })) })));
+    };
+    const windows = () => (browser ? browser.contexts().flatMap(context => context.pages()) : electron!.windows()).filter(window => !window.isClosed());
+    const ensurePage = async () => {
+      if (!page.isClosed()) return;
+      const available = windows();
+      if (available.length) page = available[available.length - 1];
+      else if (browser?.isConnected() && browser.contexts()[0]) page = await browser.contexts()[0].waitForEvent("page", { timeout: 15_000 });
+      else if (electron) page = await electron.waitForEvent("window", { timeout: 15_000 });
+      else throw new Error("Original browser disconnected; no live renderer window remains");
+      page.setDefaultTimeout(8000);
+      emit({ type: "diagnostic", message: "Attached to a replacement renderer window" });
+    };
+    if (browser) for (const context of browser.contexts()) context.on("page", () => emit({ type: "diagnostic", message: "Original opened a renderer window" }));
+    const readSnapshot = async () => {
+      await ensurePage();
+      return { title: await page.title(), windows: await Promise.all(windows().map(async (window, index) => ({ index, title: await window.title().catch(() => "[window closed]") }))),
+      text: (await page.locator("body").innerText()).slice(0, 8000),
+      rendered: (await page.locator("h1,h2,h3,h4,h5,h6,p,blockquote,pre,code,a,table,li").evaluateAll((nodes: any[]) => nodes.slice(0, 60).map(n => n.outerHTML.slice(0, 600)).join("\n"))).slice(0, 6000),
+      controls: await readControls() };
+    };
     const snapshot = () => Promise.race([readSnapshot(), new Promise<never>((_resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("Renderer snapshot blocked for 8 seconds; inspect and finish any native dialog before retrying")), 8000); timer.unref();
     })]);
@@ -127,10 +167,10 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
       emit({ type: "observation", observation });
       return JSON.stringify(observation);
     };
-    const input = z.object({ action: z.enum(["snapshot", "select_window", "click", "fill", "press", "type", "wait"]), selector: z.string(), value: z.string() });
-    const tools: AssistTool[] = [{ name: "ui", description: "Operate the original renderer. Use precise Playwright selectors: button:text-is(\"Open\") targets the Open button; text=Open can match a noninteractive heading and has no effect. CSS and [aria-label=] selectors work. Ambiguous selectors fail rather than silently choosing the first. snapshot returns visible text, controls, rendered HTML and available windows. select_window switches to the window index in value (important when opening a vault creates a new window). fill replaces input/contenteditable content; type inserts text; press sends a keyboard key. wait waits up to 3 seconds. Every action returns a new snapshot and observation ID.",
+    const input = z.object({ action: z.enum(["snapshot", "inspect", "select_window", "click", "fill", "press", "type", "wait"]), selector: z.string(), value: z.string() });
+    const tools: AssistTool[] = [{ name: "ui", description: "Operate the original renderer. Prefer the exact control ref from the latest snapshot, such as selector @12, for click/fill/press. Refs avoid guessing element tags or escaping multiline aria labels; request a new snapshot if stale. CSS, text= and [aria-label=] selectors also work but must be precise. inspect returns visible elements' HTML for a selector. snapshot returns visible text, controls, rendered HTML and available windows. select_window switches to the window index in value. fill replaces input/contenteditable content; type inserts text; press sends a keyboard key. wait waits up to 3 seconds. Every action returns a new snapshot and observation ID.",
       inputSchema: { type: "object", additionalProperties: false, required: ["action", "selector", "value"], properties: {
-        action: { type: "string", enum: ["snapshot", "select_window", "click", "fill", "press", "type", "wait"] }, selector: { type: "string" }, value: { type: "string" },
+        action: { type: "string", enum: ["snapshot", "inspect", "select_window", "click", "fill", "press", "type", "wait"] }, selector: { type: "string" }, value: { type: "string" },
       } },
       async run(value) {
         signal.throwIfAborted(); const action = input.parse(value);
@@ -139,8 +179,18 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
             const selected = windows()[Number(action.value)];
             if (!selected) throw new Error("Select an available window index");
             page = selected; page.setDefaultTimeout(8_000);
+          } else await ensurePage();
+          const reference = /^@(\d+)$/.exec(action.selector);
+          const target = reference ? controls[Number(reference[1])] : action.selector ? page.locator(action.selector) : page.locator("body");
+          if (!target) throw new Error("Control ref is unavailable; request a fresh snapshot");
+          if (action.action === "inspect") {
+            const elements = await page.locator(action.selector).evaluateAll((nodes: any[]) => nodes.slice(0, 80).filter(node => node.getClientRects().length && !["SCRIPT", "STYLE", "LINK", "META"].includes(node.tagName)).map(node => {
+              const clone = node.cloneNode(true);
+              clone.querySelectorAll("script,style,link,meta,svg").forEach((child: any) => child.remove());
+              return clone.outerHTML.slice(0, 1500);
+            }));
+            return record(action, { elements: elements.join("\n").slice(0, 20_000) });
           }
-          const target = action.selector ? page.locator(action.selector) : page.locator("body");
           if (action.action === "click") await target.click();
           if (action.action === "fill") await target.fill(action.value);
           if (action.action === "press") await target.press(action.value);
@@ -157,7 +207,7 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
         if (!target.startsWith(`${workspace}${path.sep}`)) throw new Error("Fixture path must stay inside the workspace");
         await fs.mkdir(item.directory ? target : path.dirname(target), { recursive: true });
         if (!item.directory) await fs.writeFile(target, item.content);
-        return record({ fixture: item.path }, { path: target, directory: item.directory });
+        return record({ fixture: item.path, content: item.content, directory: item.directory }, { path: target, directory: item.directory });
       },
     }, { name: "native_dialog", description: "Operate a native folder picker opened by the app, outside the browser DOM. inspect returns the focused window name. choose_folder types a fixture folder's absolute path into the picker location bar and navigates there. confirm activates Open with Alt+O (Return can merely navigate the location bar); cancel presses Escape. These are recorded host inputs, not evidence of application behavior by themselves.",
       inputSchema: { type: "object", additionalProperties: false, required: ["action", "path"], properties: { action: { type: "string", enum: ["inspect", "choose_folder", "confirm", "cancel"] }, path: { type: "string" } } },
@@ -180,14 +230,21 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
       },
     }];
     const initial = await record({ action: "startup" }, await snapshot());
-    const response = await structuredCall({ role: "spec_writer", signal, tools, maxToolTurns: 40, maxTokens: 12_000,
-      system: "You are a behavioral specification agent. Observe the original app only through UI and fixture tools. Write requirements only for behavior you actually reached; cite observation IDs. Explore varied inputs and edit/read transitions. Verify each UI transition before assuming it succeeded; fixture creation and native-dialog typing do not prove a vault opened. If a click leaves the same screen, target an actual interactive control precisely rather than its heading. Do not invent behavior from product familiarity. Do not implement anything. Record unreachable task requirements as blockers. Your output is a draft, never an approval. No original source is available.",
-      messages: [{ role: "user", content: `Task: ${task}\nIsolated fixture root: ${workspace}\nStartup observation: ${initial}` }],
+    let messages: StructuredCallOpts<z.infer<typeof Answer>>["messages"] = [{ role: "user", content: `Task: ${task}\nIsolated fixture root: ${workspace}\nStartup observation: ${initial}` }];
+    const call = () => structuredCall({ role: "spec_writer", signal, tools, maxToolTurns: 40, maxTokens: 12_000,
+      system: "You are a behavioral specification agent. Observe the original app only through UI and fixture tools. Write precise requirements only for behavior you actually reached; cite observation IDs. A requirement must describe concrete inputs, user actions and observable outputs (including HTML tags where relevant), never merely say that something works correctly. Use ui inspect on specific rendered elements and on [aria-label] controls to obtain exact outputs and available actions. Explore varied inputs, syntax boundaries and edit/read transitions. Verify each UI transition before assuming it succeeded; fixture creation and native-dialog typing do not prove a vault opened. If a click leaves the same screen, target an actual interactive control precisely rather than its heading. Do not invent behavior from product familiarity. Do not implement anything. Record unreachable task requirements as blockers. Your output is a draft, never an approval. No original source is available.",
+      messages,
       schema, parse: value => Answer.parse(value), onProgress: output_chars => emit({ type: "progress", output_chars }),
     });
-    for (const requirement of response.value.requirements) {
-      if (!requirement.observation_ids.length || requirement.observation_ids.some(id => !observations.some(item => item.id === id)))
-        throw new Error(`Requirement ${requirement.id} cites missing observations`);
+    let response = await call();
+    for (let attempt = 0; ; attempt++) {
+      const invalid = rendererDraftProblems(response.value, observations);
+      if (!invalid.length) break;
+      await fs.writeFile(path.join(directory, `rejected-draft-${attempt + 1}.json`), JSON.stringify(response.value, null, 2));
+      if (attempt === 2) throw new Error(invalid.join("; "));
+      emit({ type: "stage", message: "Repairing invalid observation citations" });
+      messages = continueWith(messages, response.assistantContent, `Draft problems: ${invalid.join("; ")}. Rewrite only from actual observations below, or remove unsupported requirements and state blockers. Never invent observation IDs. Actual recorded observations: ${JSON.stringify(observations)}`);
+      response = await call();
     }
     const draft = { schema: 1, status: "draft", task, ...response.value, model: response.model,
       observations, limitations: ["Interactive observations have not been replayed independently", "No implementation or held-out renderer checks have run"] };
