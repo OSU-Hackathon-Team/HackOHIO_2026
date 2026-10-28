@@ -154,7 +154,7 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
     let page: Page;
     if (installed) {
       originalProcess = spawn(installed, ["--remote-debugging-port=0", `--user-data-dir=${path.join(workspace, "userData")}`],
-        { env: environment, stdio: ["ignore", "pipe", "pipe"] });
+        { env: environment, cwd: workspace, stdio: ["ignore", "pipe", "pipe"] });
       originalProcess.stdout!.on("data", value => emit({ type: "diagnostic", message: String(value).slice(0, 2000) }));
       originalProcess.on("exit", (code, exitSignal) => emit({ type: "diagnostic", message: `Original process exited: code=${code}, signal=${exitSignal}` }));
       const endpoint = await new Promise<string>((resolve, reject) => {
@@ -322,11 +322,13 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
         if (!item.directory) await fs.writeFile(target, item.content);
         return record({ fixture: item.path, content: item.content, directory: item.directory }, { path: target, directory: item.directory });
       },
-    }, { name: "native_dialog", description: "Operate a native folder picker opened by the app, outside the browser DOM. inspect returns the focused window name. choose_folder types a fixture folder's absolute path into the picker location bar and navigates there. confirm activates Open with Alt+O (Return can merely navigate the location bar); cancel presses Escape. These are recorded host inputs, not evidence of application behavior by themselves.",
+    }, { name: "native_dialog", description: "Operate a native folder picker opened by the app, outside the browser DOM. inspect returns the focused window name. choose_folder types a fixture folder's absolute path into the picker location bar and navigates there. confirm requires a prior choose_folder and activates Open with Alt+O (Return can merely navigate the location bar); cancel presses Escape. These are recorded host inputs, not evidence of application behavior by themselves.",
       inputSchema: { type: "object", additionalProperties: false, required: ["action", "path"], properties: { action: { type: "string", enum: ["inspect", "choose_folder", "confirm", "cancel"] }, path: { type: "string" } } },
       async run(value) {
         signal.throwIfAborted();
         const item = z.object({ action: z.enum(["inspect", "choose_folder", "confirm", "cancel"]), path: z.string() }).parse(value);
+        if (item.action === "confirm" && !pickerWindow)
+          return record({ host_input: item }, { error: "Choose a fixture folder with choose_folder before confirming the native picker. Confirming its default directory does not open your fixture note." });
         const command = (...args: string[]) => execFileAsync("xdotool", args, { env: environment, timeout: 5000 });
         if (item.action === "choose_folder") {
           const target = path.resolve(workspace, item.path);
