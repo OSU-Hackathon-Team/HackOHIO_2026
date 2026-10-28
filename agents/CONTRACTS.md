@@ -716,7 +716,7 @@ sync is blocked. Only the two sample implementations can be reused. Reviews depe
 
 - `BuilderBlock`: unique `id`, `kind` (`notes`, `backlinks`, `reviews`, `text`), `title`,
   `description`, `visible`, and `width` (`full` / `half`). A layout has at most 24 sections.
-- `BuilderEditRequest`: nonnegative `revision`, 1�2000 character `instruction`, nullable
+- `BuilderEditRequest`: nonnegative `revision`, 1�2000 character `instruction`, nullable
   `selectedBlockId`, enabled `featureIds`, and current `layout`. All objects are strict.
 - `BuilderOperation`: `type` (`add`, `update`, `remove`, `move`), `blockId`, zero-based `index`,
   and nullable complete `block`. Updates preserve ID and kind. Moves use the destination index
@@ -801,7 +801,8 @@ Schemas: `nativeLibrary.ts`, `nativeExtraction.ts`, `decompTarget.ts`, `decompRu
   is one of those cases; otherwise it must stay `draft`. Extractions saved earlier are unchanged.
 - `DecompTargetSpec`: registry entry `fixtures/decomp/targets/<id>.json` with driver `uno` or `cli`,
   install recipe (cli: apt package and `/usr/{bin,sbin,lib}` binary), case suite path, trace patterns,
-  budgets with cost and depth per budget, handoff folder. Strict; a malformed entry fails startup.
+  optional `scoped_analysis` analysis profile, budgets with cost and depth per budget, handoff folder.
+  Strict; a malformed entry fails startup.
 - `DecompTarget.driver?`: public view of the registry entry for the Studio selector.
 
 The native adapter (Engineer 2) now turns each example into a `deepEqual` assertion on the single
@@ -851,7 +852,12 @@ attestation, implementation source (TypeScript files, C files + compiler flags, 
 blueprint), executable public test cases and an optional independent verdict.
 `CapabilityIntakeRecord` stores the outcome plus `IntakeBlocker[]` with an owner and precise question.
 Drafts, unapproved native/Electron review, no-op test bodies, missing identity, tampered artifact
-hashes and `any` interfaces cannot be accepted.
+hashes and `any` interfaces cannot be accepted. `electronSpec.ts` reads the frozen behavioral
+handoff (`spec.json`, schema 2: application scope/exclusions/blockers, per-channel requirements,
+declared channel exclusions) so intake can verify it without importing the reconstruction pipeline.
+An Electron contract therefore needs an artifact-bound approval as well, and a handoff that still
+declares blockers or unresolved questions stays blocked; `capabilities/fromElectronContract.ts`
+requires an explicit channel → operation mapping instead of deriving one from IPC names.
 
 **`CompositionPlan`.** Pinned package instances, explicit bindings (provided → required port with
 field mappings and an optional declared unit bridge), composition-owned documents with revisions,

@@ -2,6 +2,7 @@ import ts from "typescript";
 import {
   CapabilityDefinition,
   CapabilityIntakeRequest,
+  ElectronContractSpec,
   FeatureSpec,
   NativeSubsystemSpec,
   WireObjectSchema,
@@ -194,9 +195,26 @@ function validateOrigin(
       }
       return "passed";
     }
-    case "electron_contract":
-      blockers.push(blocker("electron_adapter_unavailable", "No approved frozen Electron contract adapter is available for this artifact shape", "upstream", "Provide the public contract and an explicit downstream wire mapping; do not include the original application archive."));
-      return "unknown";
+    case "electron_contract": {
+      const parsed = ElectronContractSpec.safeParse(artifact);
+      if (!parsed.success) {
+        blockers.push(blocker("electron_spec_invalid", "The origin artifact is not a valid schema 2 Electron behavioral handoff", "upstream", "Supply the immutable public spec.json from a completed reconstruction run."));
+        return "unknown";
+      }
+      if (origin.stage !== "electron_reconstruction") blockers.push(blocker("origin_stage_mismatch", "Electron contracts must use electron_reconstruction stage", "upstream", null));
+      if (origin.source_app !== parsed.data.application.name) {
+        blockers.push(blocker("origin_metadata_mismatch", "Electron contract origin names a different application", "upstream", "Align the origin source application with the handoff's application name."));
+      }
+      if ((parsed.data.application.blockers ?? []).length > 0 || (parsed.data.application.unresolved ?? []).length > 0) {
+        blockers.push(blocker("electron_spec_blocked", "The handoff still declares readiness blockers or unresolved questions", "upstream", "Resolve the spec blockers and publish a complete handoff revision."));
+        return "unknown";
+      }
+      if (!attestation || attestation.status !== "approved" || attestation.artifact_hash !== artifactHash) {
+        blockers.push(blocker("electron_review_required", "A reconstructed contract needs an artifact-bound approval before implementation", "upstream", "Record an approved human review for this exact handoff hash before implementation."));
+        return "unknown";
+      }
+      return "passed";
+    }
   }
 }
 
