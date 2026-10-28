@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { _electron, expect } from "@playwright/test";
 import { FilesystemRecombinationService } from "../packages/backend/src/recombination/service.ts";
 import { budgetBoardPlan } from "../packages/backend/src/example/budget.ts";
+import { MIGRATIONS } from "../packages/backend/src/state/migrations.ts";
+import { checkSqliteIntegrity, openStateStore, restoreStateStore } from "../packages/backend/src/state/store.ts";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const binary = path.join(repo, "node_modules", "electron", "dist", "electron");
@@ -36,6 +38,7 @@ try {
 
   const options = { executablePath: binary, args: [appDir], env: { ...process.env, XDG_CONFIG_HOME: configDir, ...(liveTranscriptionWav ? { SPLICE_TRANSCRIPTION_PROVIDER: "aws" } : {}) }, timeout: 30_000 };
   let desktop = await _electron.launch(options);
+  const userData = await desktop.evaluate(({ app }) => app.getPath("userData"));
   try {
     const page = await desktop.firstWindow();
     await expect(page).toHaveTitle("Meeting notebook");
@@ -84,6 +87,42 @@ try {
     console.log(`Electron export launched; revision ${saved.revision} and value 80 survived restart.`);
   } finally {
     await desktop.close();
+  }
+
+  if (!liveTranscriptionWav) {
+    const appStateDir = path.join(userData, "splice-state");
+    const current = openStateStore(appStateDir);
+    const savedDocuments = current.listDocuments();
+    current.close();
+    assert.ok(savedDocuments.some((record) => record.document === "meeting"));
+    assert.ok(savedDocuments.some((record) => record.document === "workbook"));
+    fs.rmSync(appStateDir, { recursive: true, force: true });
+    const legacy = openStateStore(appStateDir, { migrations: MIGRATIONS.slice(0, 3) });
+    try {
+      const insert = legacy.dbHandle.prepare("INSERT INTO documents (document, revision, data, updated_at) VALUES (?, ?, ?, ?)");
+      for (const record of savedDocuments) insert.run(record.document, record.revision, JSON.stringify(record.data), record.updated_at);
+    } finally { legacy.close(); }
+    desktop = await _electron.launch(options);
+    try {
+      const page = await desktop.firstWindow();
+      await page.getByRole("button", { name: "Run workflow" }).waitFor();
+      assert.deepEqual(await page.evaluate(() => window.splice.getDocument("meeting")), savedDocuments.find((record) => record.document === "meeting"));
+      assert.deepEqual(await page.evaluate(() => window.splice.getDocument("workbook")), savedDocuments.find((record) => record.document === "workbook"));
+    } finally { await desktop.close(); }
+    const backups = fs.readdirSync(appStateDir).filter((name) => name.startsWith("state.db.before-migration-") && name.endsWith(".db"));
+    assert.equal(backups.length, 1, "the exported app takes one snapshot before upgrading older state");
+    assert.equal(checkSqliteIntegrity(path.join(appStateDir, backups[0])).ok, true);
+    const migrated = openStateStore(appStateDir);
+    try {
+      assert.deepEqual(migrated.appliedMigrations(), MIGRATIONS.map((migration) => migration.version));
+      assert.equal(migrated.migrationBackupPath, null, "reopening migrated state does not take another snapshot");
+    } finally { migrated.close(); }
+    const snapshot = restoreStateStore(path.join(appStateDir, backups[0]), path.join(root, "restored-desktop-snapshot"), { migrations: MIGRATIONS.slice(0, 3) });
+    try {
+      assert.deepEqual(snapshot.appliedMigrations(), [1, 2, 3]);
+      assert.deepEqual(snapshot.listDocuments(), savedDocuments);
+    } finally { snapshot.close(); }
+    console.log("Electron export migrated older SQLite state and preserved its pre-migration snapshot.");
   }
 
   const formulaPackage = plan.instances.find((instance) => instance.instance === "formula")?.package_id;

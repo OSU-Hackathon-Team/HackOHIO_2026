@@ -3,7 +3,7 @@
 Companion to [`RECOMBINATION_PLAN.md`](RECOMBINATION_PLAN.md). The plan is the design; this file is
 the execution board. It exists so agents can pick up independent work without re-deriving context.
 
-## Current evidence and remaining gates (2026-10-27)
+## Current evidence and remaining gates (2026-10-28)
 
 The downstream implementation now has intake and artifact integrity checks, TS and C package
 builders, a shared runtime client, SQLite state, explicit bindings/workflows, a Studio route and
@@ -70,6 +70,9 @@ Opening an existing SQLite store with pending storage migrations now writes an i
 snapshot stops the migration. The backup can be restored into a new state directory with the
 matching older migration set. It covers the SQLite database, not the separate audio blob store,
 and old snapshots need an operator retention policy.
+The exported Electron smoke also starts against a synthetic older SQLite schema with the saved
+notebook documents, confirms they remain readable after startup migration, and restores the
+pre-migration snapshot to check its earlier schema and document rows.
 The exported Electron host validates saved documents against the installed plan before it creates
 initial documents or opens a window. An incompatible saved document stops startup with a migration
 diagnostic, including after a package downgrade; additive documents absent from an older plan stay
