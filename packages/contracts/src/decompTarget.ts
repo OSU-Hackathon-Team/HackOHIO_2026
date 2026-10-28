@@ -20,6 +20,8 @@ export const DecompTargetSpec = z.object({
   }).strict().optional(),
   cases: z.string().regex(/^fixtures\/decomp\/[a-z0-9_/.-]+\.json$/),
   trace_patterns: z.array(z.string().min(1)).min(1),
+  /** Analysis profile `scripts/native_pipeline.py` runs; absent means scoped analysis. */
+  scoped_analysis: z.boolean().optional(),
   function_budgets: z.array(z.number().int().positive().max(200)).min(1),
   estimated_cost_usd: budgetKeyed,
   depth_by_budget: z.record(z.string().regex(/^\d+$/), z.number().int().min(1).max(9)),
