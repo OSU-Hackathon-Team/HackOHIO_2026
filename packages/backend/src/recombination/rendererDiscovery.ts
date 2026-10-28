@@ -110,13 +110,16 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
     page.setDefaultTimeout(8_000);
     const observations: Array<{ id: number; action: unknown; result: unknown }> = [];
     const windows = () => browser ? browser.contexts().flatMap(context => context.pages()) : electron!.windows();
-    const snapshot = async () => ({ title: await page.title(), windows: await Promise.all(windows().map(async (window, index) => ({ index, title: await window.title() }))),
+    const readSnapshot = async () => ({ title: await page.title(), windows: await Promise.all(windows().map(async (window, index) => ({ index, title: await window.title() }))),
       text: (await page.locator("body").innerText()).slice(0, 8000),
       rendered: (await page.locator("h1,h2,h3,h4,h5,h6,p,blockquote,pre,code,a,table,li").evaluateAll((nodes: any[]) => nodes.slice(0, 60).map(n => n.outerHTML.slice(0, 600)).join("\n"))).slice(0, 6000),
       controls: await page.locator("input,textarea,button,[contenteditable=true],[role=button],[class*=button]").evaluateAll((nodes: any[]) => nodes.slice(0, 60).map(n => ({
         tag: n.tagName, id: n.id, class: n.getAttribute("class"), role: n.getAttribute("role"), label: n.getAttribute("aria-label"),
         placeholder: n.getAttribute("placeholder"), text: (n.innerText || "").slice(0, 120), type: n.getAttribute("type"),
       }))) });
+    const snapshot = () => Promise.race([readSnapshot(), new Promise<never>((_resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Renderer snapshot blocked for 8 seconds; inspect and finish any native dialog before retrying")), 8000); timer.unref();
+    })]);
     const record = async (action: unknown, result: unknown) => {
       const observation = { id: observations.length + 1, action, result };
       observations.push(observation);
@@ -156,7 +159,7 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
         if (!item.directory) await fs.writeFile(target, item.content);
         return record({ fixture: item.path }, { path: target, directory: item.directory });
       },
-    }, { name: "native_dialog", description: "Operate a native folder picker opened by the app, outside the browser DOM. inspect returns the focused window name. choose_folder types a fixture folder's absolute path into the picker location bar and navigates there. confirm presses Return; cancel presses Escape. These are recorded host inputs, not evidence of application behavior by themselves.",
+    }, { name: "native_dialog", description: "Operate a native folder picker opened by the app, outside the browser DOM. inspect returns the focused window name. choose_folder types a fixture folder's absolute path into the picker location bar and navigates there. confirm activates Open with Alt+O (Return can merely navigate the location bar); cancel presses Escape. These are recorded host inputs, not evidence of application behavior by themselves.",
       inputSchema: { type: "object", additionalProperties: false, required: ["action", "path"], properties: { action: { type: "string", enum: ["inspect", "choose_folder", "confirm", "cancel"] }, path: { type: "string" } } },
       async run(value) {
         signal.throwIfAborted();
@@ -168,7 +171,7 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
           await command("key", "ctrl+l"); await page.waitForTimeout(150);
           await command("type", "--clearmodifiers", "--", target); await command("key", "Return");
         }
-        if (item.action === "confirm") await command("key", "Return");
+        if (item.action === "confirm") await command("key", "alt+o");
         if (item.action === "cancel") await command("key", "Escape");
         await page.waitForTimeout(300);
         const focused = (await command("getwindowfocus", "getwindowname")).stdout.trim();
