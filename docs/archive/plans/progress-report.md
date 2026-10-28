@@ -110,7 +110,7 @@ The contract schemas in [`packages/contracts/src`](file:///Users/kgozon/HackOHIO
 
 ### 4.4 Discrepancy: `spec/` LibreOffice Hierarchy vs. Repository Scope
 - **Finding:** The `spec/` folder contains ~130KB of documentation detailing LibreOffice architecture, modules (`writer`, `calc`, `impress-draw`), and UNO runtime.
-- **Evidence:** [`spec/README.md#L3-L6`](file:///Users/kgozon/HackOHIO_2026/spec/README.md#L3-L6) explicitly documents:
+- **Evidence:** [`docs/libreoffice-spec/README.md`](../../libreoffice-spec/README.md) explicitly documents:
   > *"Verification Status (2026-10-24): UNVERIFIED against this repository. This repository (HackOHIO_2026 / Splice, 197 tracked files) contains no LibreOffice source code."*
 - **Impact:** The `spec/` files are abstract specifications written for judging/evaluation purposes, but they do not correspond to any active source code in `packages/`.
 

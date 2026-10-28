@@ -37,7 +37,7 @@ output as evidence.
 | `engine/investigator.py` | Optional OpenCode agent with REA + Ghidra MCP servers and read-only tools. Answers open review questions and feeds a `revision_context` back to `SemanticWorker` |
 | `engine/analysis/scripts/LightAnalysisOptions.java` | Ghidra pre-script that turns off expensive analyzers for huge libraries |
 | `fixtures/decomp/libreoffice/formula_cases.json` | 32 formula cases; 10 `held_out`; 7 `confidence: "unverified"` |
-| `scripts/lo_paths.py`, `lo_oracle.py`, `lo_triage.py`, `lo_pipeline.py`, `score_against_source.py` | CLIs; see "How to run" |
+| `scripts/lo_paths.py`, `lo_oracle.py`, `lo_pipeline.py` | CLIs; see "How to run" |
 
 Pipeline stages in `run_pipeline`:
 1. Ghidra `analyze` (light profile).
@@ -104,11 +104,6 @@ Free steps, in this order:
    - Shows what real LibreOffice returns. Give the user the `unverified` cases to confirm.
    - Never "fix" a disagreement by editing `observed`. Only a human-confirmed change to the
      suite's `expected` is allowed.
-3. `python3 scripts/lo_triage.py runtime`
-   - Exercises REA's Frida session tools. Each formula should list functions such as
-     `ScInterpreter::ScMul`.
-4. Optional, slow: `python3 scripts/lo_triage.py static --pattern 'ScInterpreter::Sc(Add|Mul)'`
-   - REA opens the library with its own Ghidra provider.
 
 Costs Bedrock tokens, so **ask the user first**. It needs fresh AWS credentials in the
 repo-root `.env`, `AWS_REGION=us-east-2` (Qwen was verified there), and the OpenCode binary
@@ -136,21 +131,20 @@ python3 scripts/lo_pipeline.py --max-functions 20 --workers 2   # start small
   format of entries (e.g. `0011b900`) isn't assumed.
 - **UNO grammar:** `setFormula` uses `;` between function arguments. Error codes expected:
   532 `#DIV/0!`, 519 `#VALUE!`, 502 invalid argument, 503 `#NUM!`.
-- **Scoring:** `score_against_source.py` is analyst-only. LibreOffice source must never reach a
-  model prompt or the spec.
+- **Scoring:** LibreOffice source must never reach a model prompt or the spec.
 
 ## Rules
 
 - Report real command output. Don't claim a stage works until you've run it.
 - Ask before Bedrock spend, commits, merges or pushes.
-- Background: `docs/handoff-decompilation.md` (slowness and junk causes), and
-  `docs/NATIVE_CLEANROOM_HANDOFF.md` (cleanroom separation; held-out cases stay hidden from the
-  spec writer and implementer).
+- Background: [`decompilation-recommendations.md`](decompilation-recommendations.md) (slowness and
+  junk causes), and [`../NATIVE_CLEANROOM_HANDOFF.md`](../NATIVE_CLEANROOM_HANDOFF.md) (cleanroom
+  separation; held-out cases stay hidden from the spec writer and implementer).
 - The plan is at `C:\Users\pohfe\.claude\plans\yeah-rename-the-branch-federated-eclipse.md`.
 
 ## EC2 runtime follow-up (2026-10-24 local / 2026-10-25 UTC)
 
-See [the EC2 trial record](docs/LIBREOFFICE_EC2_TRIAL.md) for exact outcomes and
+See [the EC2 trial record](../LIBREOFFICE_EC2_TRIAL.md) for exact outcomes and
 resource IDs. Runtime setup is present in `7250435` (`EC2 Migration`); these
 follow-up diagnostics and documentation edits remain local. Existing user edits
 are preserved; this agent did not create that commit.

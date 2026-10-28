@@ -19,6 +19,9 @@ packages/
 targets/                    demo apps that REA analyzes (source + built .asar)
 fixtures/                   recorded runs used for replay mode and tests
 scripts/build-targets.mjs   packs targets/src/<app> into targets/build/<app>/app.asar
+docs/                       live design, run and gate documents; start at docs/README.md
+docs/archive/               dated audits and superseded plans/handoffs; context only, not policy
+docs/libreoffice-spec/      LibreOffice behavioral specification set
 models.json                 role → model routing for BOTH tracks (Splice defaults use Qwen via Converse)
 Dockerfile                  Node app image (contracts → backend → frontend), used by CI
 .github/workflows/ci.yml    CI: npm ci + build on Node 22, then Docker smoke test (/api/health, SPA, 404 guard)
@@ -30,7 +33,6 @@ launch.py, agent_worker.py  current rename-attempt scaffold (OpenCode + Ghidra h
 model_config.py             Python role resolver for models.json
 worker.Dockerfile, implementer.Dockerfile, docker-compose.yml, compose.yaml
                             analysis worker image + public-only implementation sandbox
-docs/archive/               historical reviews; context only, not policy
 engine/                     native analysis, queue, dossier, broker, workbench, and specification generator
 docs/decomp-s3-cache.md     S3 cache keys, trust boundaries, bootstrap and recovery rules
 infra/decomp-ec2/           worker runner and S3 upload/download path for Studio native runs

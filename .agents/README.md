@@ -43,7 +43,7 @@ The user picks features from a pantry of desktop apps. The pipeline then runs th
 For **native / subsystem decompilation** work: `DecompPileline.md` first, then
 `DECOMP_IMPLEMENTATION_PLAN.md`. For shared S3 cache work also read
 `docs/decomp-s3-cache.md` before changing the engine or EC2 runner. `docs/archive/` is
-historical context only. For the
+historical context only; [`docs/README.md`](../docs/README.md) indexes the live documents. For the
 **Splice app**:
 
 1. **`agents/CONTRACTS.md`** + **`packages/contracts/src/`**: every type passed between
@@ -54,9 +54,9 @@ historical context only. For the
    Every stub in `packages/` has a header pointing to its section.
 4. **`development_guidelines.md`**: the git workflow. It is mandatory.
 
-**Ignore for current work:** `hackathon_master_plan_rea_lovable.md`, the original plan that the
-`agents/` step folders supersede. `fixtures/_legacy_mocks/` holds old hand-written mocks that use
-the outdated schema.
+**Ignore for current work:** [`docs/archive/plans/hackathon-master-plan.md`](../docs/archive/plans/hackathon-master-plan.md),
+the original plan that the `agents/` step folders supersede. Everything under `docs/archive/` is
+historical: audits, superseded plans and handoffs, and fixed-issue notes.
 
 **Engine files:** `launch.py`, `agent_worker.py`, `model_config.py`, `worker.Dockerfile`,
 `docker-compose.yml`/`compose.yaml` and the root `README.md` belong to the Python decompilation
@@ -71,7 +71,7 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   truncated and has been restored from its spec).
 - **Step 3 backend (Eng 3, `feat/step3-backend`):** engine purity/conformance/implement loop,
   bundle assembly + validator + virtual `tsc`, synthesize, refine, routes and scripts are implemented
-  with 65 backend unit tests (61 baseline + 4 Qwen migration checks). Built against injected ports (`engine/ports.ts`). Valid
+  with 208 backend unit tests. Built against injected ports (`engine/ports.ts`). Valid
   `/api/implement|synthesize|refine` requests return **503** until Eng 1/2 helpers are wired in
   `routes/step3/deps.ts`. Log: `docs/archive/implementation_frontend/accomplishments.md`.
 - **Shared LLM client:** `llm/llm.ts` is implemented per `02_llm_client.md` (Bedrock Mantle for Claude,

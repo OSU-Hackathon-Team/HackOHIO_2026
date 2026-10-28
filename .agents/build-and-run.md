@@ -81,8 +81,11 @@ recorded transcripts) or frontend mock mode.
 `.github/workflows/ci.yml` runs on pushes to dev/main and manual dispatch:
 
 1. Install with `npm ci`, build, and run `npm run typecheck`.
-2. `npm test` runs Step 1 integration and contract tests (24 + 13 cases).
-3. `npm run test:unit --workspaces --if-present` runs backend and frontend unit tests (65 + 10 cases). Quoted globs preserve nested route tests on Linux.
+2. `npm test` runs the backend Step 1–3 and replay suites, the shared contract tests, and the
+   frontend, desktop-host and runtime suites.
+3. `npm run test:unit --workspaces --if-present` runs the backend module tests (`src/**/*.test.ts`,
+   including nested route tests) and the frontend unit tests. Quoted globs preserve nested route
+   tests on Linux.
 4. Install pinned Playwright Chromium and run the two core Studio browser checks. Failed runs upload screenshots/traces for seven days. Local runs still use Edge.
 5. Docker build and endpoint smoke tests run only after both regression and browser jobs pass. The builder includes frontend fixture/manifest imports, models.json is shipped to the runner, and TypeScript remains a production dependency because the backend imports its compiler API at runtime. Docker checks health/pantry/blueprint schemas, configured model roles, malformed-request 400 behavior and the existing SPA/API guard.
 

@@ -1,4 +1,4 @@
-// Owner: Eng 3 (Implementation) — spec: docs/USETHISproposal-backend-generation.md §3
+// Owner: Eng 3 (Implementation) — spec: docs/archive/proposals/backend-generation-proposal.md §3
 // Deterministic (no model) backend writer for specs that declare effects: ["persistence"].
 //
 // For every entity it emits a self-contained Express + TypeScript project:

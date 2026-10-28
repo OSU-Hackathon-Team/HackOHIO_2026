@@ -24,11 +24,11 @@ At the last root status check, somebody else's changes were present in
 `packages/backend/src/engine/oracle.ts` and `oracle.test.ts`. Preserve them. Do not
 switch the root checkout to do this work or incidentally stage its files.
 
-This handoff itself lives in the root checkout for discoverability. Read the root
-AGENTS instructions, `.agents/README.md`, `development_guidelines.md`,
-`handoff-libreoffice-rea.md`, `DecompPileline.md`, and `DECOMP_IMPLEMENTATION_PLAN.md`.
-The earlier EC2 record in `docs/LIBREOFFICE_EC2_TRIAL.md` is historical and has not
-been updated with the final success below.
+This handoff is archived under `docs/archive/handoffs/`. Read the root AGENTS instructions,
+`.agents/README.md`, `development_guidelines.md`, `docs/handoffs/libreoffice-rea.md`,
+`DecompPileline.md`, and `DECOMP_IMPLEMENTATION_PLAN.md`. The earlier EC2 record in
+`docs/LIBREOFFICE_EC2_TRIAL.md` is historical and has not been updated with the final success
+below.
 
 ## User intent and the important architecture correction
 

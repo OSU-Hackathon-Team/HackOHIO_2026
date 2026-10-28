@@ -21,8 +21,9 @@ the new engine. The Electron `FeatureSpec` remains separate. `NativeSubsystemSpe
 versioned dossier-to-spec handoff; broader campaign and dossier API records remain proposed.
 
 
-This folder is the build spec for Splice. It replaces the high-level plan in
-`hackathon_master_plan_rea_lovable.md` wherever the two disagree. (The older flat files
+This folder is the build spec for Splice. It replaces the high-level plan archived at
+[`docs/archive/plans/hackathon-master-plan.md`](../docs/archive/plans/hackathon-master-plan.md)
+wherever the two disagree. (The older flat files
 `agents/reverse_engineering.md`, `feature_extraction.md` and `implementation_and_frontend.md`
 have been deleted; see git history if needed.)
 

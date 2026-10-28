@@ -75,6 +75,7 @@ For container rebuilds, environment configuration, and workspace details, see th
 - **Private S3 Cache:** [docs/decomp-s3-cache.md](docs/decomp-s3-cache.md) documents content-addressed caching in `cache/v1/` for exact function exports, semantic records, and specifications.
 - **Cleanroom Handoff & Governance:** [docs/NATIVE_CLEANROOM_HANDOFF.md](docs/NATIVE_CLEANROOM_HANDOFF.md) details analyst/implementer separation, audit artifact boundaries, and legal rights verification.
 - **Studio Frontend Workspace:** [docs/DOCKER_FRONTEND.md](docs/DOCKER_FRONTEND.md) explains Chat, App Library, and My App workspaces.
+- **Documentation Index:** [docs/README.md](docs/README.md) lists every live document and separates the historical archive.
 
 ---
 

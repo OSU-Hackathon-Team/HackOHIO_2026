@@ -2,12 +2,13 @@
 
 Updated 2026-10-25, about 01:30 America/New_York. This is for the next agent picking up this work.
 Read root `AGENTS.md`, `.agents/README.md` and `development_guidelines.md` first. Ignore the older
-`handoff-scoped-native-analysis.md`: it describes code that has since been committed and merged.
+[`scoped-native-analysis.md`](../archive/handoffs/scoped-native-analysis.md): it describes code
+that has since been committed and merged.
 
 ## Where things stand
 
 Everything below is merged into `dev`. Saved runs are now also published to the private S3
-library (`docs/native-library.md`); this handoff covers producing them.
+library (`../native-library.md`); this handoff covers producing them.
 
 **Latest run:** `run-258f6ec3-91b4-4976`, 40 functions at depth 3, started from the Studio UI. It
 finished `ok` in about 9 minutes, and the worker stopped itself.

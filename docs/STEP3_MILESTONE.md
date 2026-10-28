@@ -61,7 +61,8 @@ Browser tests use installed Microsoft Edge on isolated port 5175, leaving port 5
 - Team approval of the existing `HealthResponse.models` contract addition remains outstanding.
 
 Existing hand-authored fixtures or historical journal rows are not recordings of live runs.
-User-authored PLAN.md and the frontend-guidelines move are preserved separately from this milestone.
+The user-authored step-3 plan is archived at `docs/archive/plans/step3-implementation-plan.md`, and
+the frontend-guidelines move is preserved separately from this milestone.
 
 ## Integration with latest dev
 
