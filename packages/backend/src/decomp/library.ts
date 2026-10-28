@@ -160,8 +160,9 @@ export class NativeLibraryStore {
         if (/^library\/analyses\/[a-z0-9-]{8,64}\/manifest\.json$/.test(key)) {
           analyses.push(SavedAnalysisSummary.parse(await this.read(key)));
         } else if (/^library\/blocks\/[a-f0-9]{64}\.json$/.test(key)) {
-          const block = SavedBlock.parse(await this.read(key));
-          const hash = createHash("sha256").update(JSON.stringify(block.blueprint)).digest("hex");
+          const stored = await this.read(key) as { blueprint: unknown };
+          const block = SavedBlock.parse(stored);
+          const hash = createHash("sha256").update(JSON.stringify(stored.blueprint)).digest("hex");
           if (hash !== block.id || !key.endsWith(`/${hash}.json`)) throw new Error("building block hash mismatch");
           if (block.blueprint.verification.status !== "passed") throw new Error("saved building block has not passed verification");
           blocks.push(block);

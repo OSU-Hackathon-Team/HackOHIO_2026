@@ -225,6 +225,20 @@ test("only passing engine blocks are saved, and stored code hashes are checked",
   await assert.rejects(store.list(), /hash mismatch/);
 });
 
+test("block identity verifies the stored representation before schema normalization", async () => {
+  const { store, objects } = fakeStore();
+  const blueprint = makeBlueprint(makeSpec(), GOOD_ENGINE);
+  blueprint.verification.tests = [1, 2, 3].map(i => ({ name: `REQ-${i}`, kind: "acceptance", passed: true, error: null, duration_ms: 1 }));
+  await store.saveBlock(blueprint);
+  const key = [...objects.keys()][0];
+  const saved = JSON.parse(objects.get(key)!);
+  saved.blueprint = Object.fromEntries(Object.entries(saved.blueprint).reverse());
+  saved.id = createHash("sha256").update(JSON.stringify(saved.blueprint)).digest("hex");
+  objects.delete(key);
+  objects.set(`library/blocks/${saved.id}.json`, JSON.stringify(saved));
+  assert.equal((await store.list()).blocks.length, 1);
+});
+
 test("publishing imported evidence checks artifact hashes and selects only public handoff cases", async () => {
   const { store } = fakeStore();
   const state = await fs.mkdtemp(path.join(os.tmpdir(), "s3-library-test-"));
