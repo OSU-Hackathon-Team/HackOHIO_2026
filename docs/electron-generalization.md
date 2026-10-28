@@ -25,6 +25,18 @@ npm start
 
 The run needs AWS credentials with Bedrock access. Model roles come from `models.json`:
 
+Studio's **Recombine capabilities** view also exposes this pipeline. Upload an `.asar` archive,
+select the IPC channels discovered by the static inventory and original-app startup probe,
+then start a scoped reconstruction job. The backend API is `POST /api/electron/archives`
+(`application/octet-stream`, 100 MB limit), `GET /api/electron/archives/:id/inventory`,
+`POST /api/electron/runs` with `archive_id`, `channels` and `scope_label`, and
+`GET /api/electron/runs/:id` plus `/log`, `/events` and `/report`. A running job can be
+cancelled with `POST /api/electron/runs/:id/cancel`. Archives and run state live under
+`SPLICE_STATE_DIR/electron-runs`; a backend restart marks an unfinished run interrupted.
+The report's `readiness.scoped` and `readiness.whole_app_ready` remain distinct. This API
+reconstructs main-process IPC behavior; editor and renderer behavior still needs a separate
+observable pipeline.
+
 | Role | Stage | Override |
 |---|---|---|
 | `electron_spec_writer` | observes and writes the specification | `MODEL_ELECTRON_SPEC_WRITER` |

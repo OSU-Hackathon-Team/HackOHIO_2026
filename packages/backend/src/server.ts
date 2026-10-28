@@ -11,6 +11,7 @@ import { nativeSpecsRouter } from "./routes/nativeSpecs.js";
 import { decompRunsRouter } from "./routes/decompRuns.js";
 import { nativeLibraryRouter } from "./routes/nativeLibrary.js";
 import { createRecombinationRouter } from "./routes/recombination.js";
+import { electronRunsRouter } from "./routes/electronRuns.js";
 import { FilesystemRecombinationService } from "./recombination/service.js";
 import { JobManager } from "./recombination/jobs.js";
 
@@ -47,6 +48,7 @@ app.use(step2Router); // Eng 2 (Requirements):   /api/extract, /api/specs
 app.use(step3Router); // Eng 3 (Implementation): /api/implement, /api/blueprints, /api/synthesize, /api/refine
 app.use(nativeSpecsRouter); // Native dossier-to-spec handoff
 app.use(decompRunsRouter()); // UI-triggered native decomp runs on the EC2 worker: /api/decomp/*
+app.use(electronRunsRouter()); // Uploaded archive reconstruction jobs: /api/electron/*
 app.use(nativeLibraryRouter()); // Private S3-backed analysis and building-block catalog.
 const recombinationStateDir = path.resolve(process.env.SPLICE_STATE_DIR || ".splice-state");
 app.use(createRecombinationRouter(new FilesystemRecombinationService(recombinationStateDir), new JobManager(recombinationStateDir)));
