@@ -159,10 +159,11 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   explicit `readiness` verdict. Roles: `electron_spec_writer`, `electron_implementer` (fallback
   `electron_reconstructor`) in `models.json`. There are no per-app adapters, templates, blueprints
   or scenarios in the reconstruction path. See `docs/electron-generalization.md`.
-  Studio's Recombine view now exposes archive upload, runtime IPC inventory and scoped run jobs
-  through `/api/electron/*`. The first Obsidian vault-scope run reached the spec agent but could
-  not produce a handoff because the current AWS session token is expired. IPC inventory does not
-  expose Obsidian's Markdown renderer/editor; that target remains open.
+  Studio's Recombine view exposes archive upload, runtime IPC inventory and scoped run jobs
+  through `/api/electron/*`. A live Obsidian vault run passed public and repair checks but failed
+  final parity (13/16). Renderer discovery now runs a separate UI-only specification worker through
+  the same client API. It reached the real original welcome screen; editor reachability,
+  independent replay and implementation remain open. See `docs/obsidian-calc-demo-gap-log.md`.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
   `trace_application_feature` and `binary_session` (live probe; catalog and samples in `fixtures/rea/`),

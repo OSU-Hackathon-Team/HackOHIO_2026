@@ -4,6 +4,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import { Router, raw } from "express";
 import * as asar from "@electron/asar";
 import { z } from "zod";
@@ -28,7 +29,7 @@ type Run = {
 type Event = { type: "log" | "done"; message?: string; run?: Run };
 
 export function electronRunsRouter(stateDir = path.resolve(process.env.SPLICE_STATE_DIR || ".splice-state"),
-  pipelineScript = path.join(REPO_ROOT, "scripts", "electron", "pipeline.mjs")): Router {
+  pipelineScript = path.join(REPO_ROOT, "scripts", "electron", "pipeline.mjs"), rendererWorkerScript?: string): Router {
   const router = Router();
   const root = path.join(stateDir, "electron-runs");
   const archivePath = (id: string) => path.join(root, "archives", `${id}.asar`);
@@ -158,6 +159,55 @@ export function electronRunsRouter(stateDir = path.resolve(process.env.SPLICE_ST
       emit(run.run_id, { type: "done", run });
     });
     return res.status(202).json({ run });
+  });
+
+  router.post("/api/electron/archives/:id/renderer-discovery", async (req, res) => {
+    await ready;
+    const request = z.object({ task: z.string().min(5).max(4000), confirm_cost: z.literal(true),
+      resource_archives: z.array(z.object({ archive_id: z.string().regex(/^[a-f0-9]{64}$/), name: z.string().regex(/^[a-zA-Z0-9_.-]+\.asar$/) })).max(10).default([]),
+      entry_resource: z.string().regex(/^[a-zA-Z0-9_.-]+\.asar$/).optional(),
+    }).strict().safeParse(req.body);
+    if (!request.success) return res.status(400).json({ error: "A task and model-cost confirmation are required" });
+    if (!/^[a-f0-9]{64}$/.test(req.params.id) || !fs.existsSync(archivePath(req.params.id)))
+      return res.status(404).json({ error: "Archive not uploaded" });
+    if (config.llmMode !== "live") return res.status(503).json({ error: "Renderer discovery requires live model mode" });
+    if (request.data.resource_archives.some(item => !fs.existsSync(archivePath(item.archive_id))))
+      return res.status(404).json({ error: "A companion archive is not uploaded" });
+    if (new Set(request.data.resource_archives.map(item => item.name)).size !== request.data.resource_archives.length)
+      return res.status(400).json({ error: "Resource names must be unique" });
+    const id = `renderer-${randomUUID()}`;
+    const sse = openSse(req, res);
+    let ok = false;
+    try {
+      sse.send({ type: "stage", message: "Starting renderer discovery", discovery_id: id });
+      const worker = rendererWorkerScript ?? fileURLToPath(new URL(`../scripts/discoverRenderer.${import.meta.url.endsWith(".ts") ? "ts" : "js"}`, import.meta.url));
+      const signal = AbortSignal.any([sse.signal, AbortSignal.timeout(10 * 60_000)]);
+      const child = spawn(process.execPath, [...(worker.endsWith(".ts") ? ["--import", "tsx"] : []), worker,
+        archivePath(req.params.id), path.join(root, "renderer-discoveries", id), request.data.task,
+        JSON.stringify({ resources: request.data.resource_archives.map(item => ({ archive: archivePath(item.archive_id), name: item.name })), entryResource: request.data.entry_resource })],
+      { cwd: REPO_ROOT, detached: true, env: { ...process.env, AWS_REGION: config.awsRegion }, stdio: ["ignore", "pipe", "pipe"] });
+      const stop = () => { if (child.pid) { try { process.kill(-child.pid, "SIGTERM"); } catch {} } };
+      signal.addEventListener("abort", stop, { once: true });
+      let buffer = "", errors = "";
+      child.stdout.on("data", chunk => {
+        buffer += String(chunk);
+        const lines = buffer.split("\n"); buffer = lines.pop() ?? "";
+        for (const line of lines) { try { sse.send({ ...JSON.parse(line), discovery_id: id }); } catch {} }
+      });
+      child.stderr.on("data", chunk => { errors = (errors + String(chunk)).slice(-8000); });
+      try {
+        const code = await new Promise<number | null>((resolve, reject) => { child.once("error", reject); child.once("close", resolve); });
+        if (code !== 0) throw new Error(errors || `Renderer worker exited ${code}`);
+        ok = true;
+      } finally { signal.removeEventListener("abort", stop); stop(); }
+    } catch (error) { if (!sse.signal.aborted) sse.send({ type: "error", message: (error as Error).message }); }
+    finally { sse.send({ type: "done", ok }); sse.close(); }
+  });
+
+  router.get("/api/electron/renderer-discoveries/:id", async (req, res) => {
+    if (!/^renderer-[a-f0-9-]{36}$/.test(req.params.id)) return res.status(400).json({ error: "Invalid discovery ID" });
+    try { return res.json(JSON.parse(await fsp.readFile(path.join(root, "renderer-discoveries", req.params.id, "draft.json"), "utf8"))); }
+    catch { return res.status(404).json({ error: "No completed discovery draft" }); }
   });
 
   router.get("/api/electron/runs", async (_req, res) => { await ready; res.json({ runs: [...runs.values()] }); });

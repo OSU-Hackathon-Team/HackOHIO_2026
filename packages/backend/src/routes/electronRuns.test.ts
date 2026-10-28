@@ -25,7 +25,9 @@ process.stderr.write("scoped pipeline finished\\n");
 `);
     const app = express();
     app.use(express.json());
-    app.use(electronRunsRouter(directory, script));
+    const renderer = path.join(directory, "failed-renderer.mjs");
+    await fs.writeFile(renderer, 'process.stderr.write("renderer launch failed"); process.exit(1);');
+    app.use(electronRunsRouter(directory, script, renderer));
     server = app.listen(0);
     await new Promise<void>(resolve => server.once("listening", resolve));
     const address = server.address();
@@ -49,6 +51,14 @@ process.stderr.write("scoped pipeline finished\\n");
     assert.equal(upload.status, 201);
     const archive = await upload.json() as { archive_id: string };
     assert.match(archive.archive_id, /^[a-f0-9]{64}$/);
+    const renderer = await fetch(`${base}/api/electron/archives/${archive.archive_id}/renderer-discovery`, {
+      method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      body: JSON.stringify({ task: "Discover editing behavior", confirm_cost: true }),
+    });
+    const events = await renderer.text();
+    assert.match(events, /renderer launch failed/);
+    assert.match(events, /"ok":false/);
+    assert.equal((await fetch(`${base}/api/electron/archives`)).status, 200, "renderer failure must leave the API available");
     const inventory = await fetch(`${base}/api/electron/archives/${archive.archive_id}/inventory`);
     assert.equal(inventory.status, 200);
     assert(Array.isArray((await inventory.json() as { channels: unknown[] }).channels));

@@ -5,6 +5,7 @@ that the next agent does not hit the same wall.
 
 | Date | Workstream | Friction | Pipeline fix |
 |---|---|---|---|
+| 2026-10-28 | renderer discovery | The IPC oracle cannot observe Markdown editing. Archive-only startup opened no renderer; a production executable did not attach through Playwright's Node inspector path. Text selectors silently chose headings, and native pickers/windows were missing from the tool surface. | Added a client-triggered specification worker with UI-only tools, content-bound installed-original startup through Chromium CDP, strict selectors, control/rendered-element snapshots, fixture folders, native picker input and window selection. Worker failures are contained and emitted through SSE. First original welcome-screen observations are real; editor reachability and independent replay remain open. |
 | 2026-10-27 | setup | Contract tests failed on Node 22.22 because `.ts` files were passed straight to `node --test`. | `@splice/contracts` now runs tests with `node --import tsx --test`, like the backend. |
 | 2026-10-27 | setup | The root filesystem has ~350 MB free; `npm ci` filled it. | `node_modules` is a bind mount on the 100 GB scratch disk; use `npm ci --cache /mnt/nvme1n1/npm-cache`. |
 | 2026-10-27 | builders | Bubblewrap could not create namespaces with a low process limit, and Node's V8 virtual address reservation exceeded a small address-space limit. | `runRestricted` now uses a process limit above the host UID count and a 4 GiB virtual address limit; builders run their public tests inside bubblewrap. |

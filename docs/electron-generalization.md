@@ -37,6 +37,25 @@ The report's `readiness.scoped` and `readiness.whole_app_ready` remain distinct.
 reconstructs main-process IPC behavior; editor and renderer behavior still needs a separate
 observable pipeline.
 
+Renderer discovery is now available through `POST /api/electron/archives/:id/renderer-discovery`
+with `{task, confirm_cost:true}`. Studio exposes the task and streams its UI observations.
+The specification model receives only UI, fixture and native picker tools. It can select windows,
+edit fields, type keys, inspect rendered elements and create fixture notes under its workspace.
+It saves a **draft** with observation citations; no renderer implementation or readiness promotion
+occurs. Fetch a completed draft with `GET /api/electron/renderer-discoveries/:id`.
+Disconnect or the ten-minute deadline stops its child process group.
+
+This opt-in path currently requires Linux, Xvfb, xdotool, and Electron with a correctly configured
+sandbox helper. `SPLICE_RENDERER_ORIGINAL_EXECUTABLE` selects an installed source-app executable;
+its adjacent resources must contain the uploaded archive hash. It is observed through Chromium
+CDP, so it does not depend on production Node inspector support. Otherwise the host uses the
+installed Electron package (or `SPLICE_RENDERER_ELECTRON`) and a conventional main entry launcher.
+For multi-archive packaging, optional `resource_archives:[{archive_id,name}]` and `entry_resource`
+recreate the source resources layout from client uploads. This gives the app a separate workspace
+and user configuration, but does not provide operating-system isolation from the host filesystem.
+Independent scenario replay, held-out renderer checks and downstream renderer implementation are
+still required before claiming editor parity.
+
 | Role | Stage | Override |
 |---|---|---|
 | `electron_spec_writer` | observes and writes the specification | `MODEL_ELECTRON_SPEC_WRITER` |
