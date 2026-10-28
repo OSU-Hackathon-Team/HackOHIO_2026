@@ -70,7 +70,8 @@ require at least three distinct Markdown cases. The model's `render_case` tool f
 original editor, verifies the exact text, clicks a selected view control, and records settled DOM
 from a selected rendered-document element. It strips scripts, styles, SVG controls and event
 attributes; it never invents expected HTML. Captures are frozen actions replayed against a fresh
-original workspace. Each successful case needs a requirement citation. The public handoff adds
+original workspace. Three distinct cases with requirement citations are required in this mode.
+Uncited exploration cases do not enter the implementation handoff. The public handoff adds
 `cases:[{case_id,observation_id,input_markdown,expected_html}]` only for captures confirmed by replay,
 and rejects case exports requiring local-path redaction. Case capture remains specification
 evidence; implementation, independent held-out evaluation and approval are separate gates.
@@ -84,6 +85,11 @@ and a bounded actual-text excerpt for model feedback instead of publishing a cas
 The model can choose `input_method:"keyboard"` for custom editors: the host focuses, selects all,
 deletes and inserts the complete text. The chosen method is frozen with the capture action and
 must pass the same exact-input check during original replay.
+For live preview editors whose visible DOM omits syntax markers, `document_path` can name the
+original note relative to the fixture workspace. The host then verifies exact saved Markdown
+bytes on two reads after editing. Only bounded Markdown files inside that workspace are readable;
+absolute paths, source files and escaping symlinks are rejected. The public case records whether
+input was checked using the editor DOM or the saved document, while omitting the fixture path.
 
 This opt-in path currently requires Linux, Xvfb, xdotool, and Electron with a correctly configured
 sandbox helper. `SPLICE_RENDERER_ORIGINAL_EXECUTABLE` selects an installed source-app executable;

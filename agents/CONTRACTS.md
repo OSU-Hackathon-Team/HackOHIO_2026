@@ -328,6 +328,10 @@ Markdown input/rendered-DOM captures with requirement citations. The host verifi
 and replays capture actions. `GET /api/electron/renderer-discoveries/:id/public-handoff` adds
 replay-confirmed `cases` with exact `input_markdown` and original `expected_html`; selectors and
 local paths are excluded. The handoff stays draft with `implementation_ready:false`.
+Cases also record `input_verification` (`editor_dom` or `saved_document`). Saved-document checking
+reads exact UTF-8 bytes only from bounded Markdown files inside the isolated fixture workspace.
+`output_projection:"sanitized_document_dom_v1"` identifies the script/style/SVG/event/style-attribute
+removal used by capture; those cases do not establish omitted-markup behavior or pixel parity.
 
 ---
 

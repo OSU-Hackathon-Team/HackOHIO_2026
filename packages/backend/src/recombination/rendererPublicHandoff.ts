@@ -112,13 +112,15 @@ export function buildRendererPublicHandoff(discoveryId: string, rawSource: unkno
   });
   const cases = source.observations.flatMap(observation => {
     const action = object(observation.action), result = object(observation.result);
-    if (action.action !== "capture_case" || result.input_verified !== true || checkById.get(observation.id)?.status !== "passed") return [];
+    if (action.action !== "capture_case" || result.input_verified !== true || !citedIds.has(observation.id) || checkById.get(observation.id)?.status !== "passed") return [];
     if (typeof action.value !== "string" || typeof result.rendered !== "string" || typeof action.case_id !== "string")
       throw new Error("Renderer case has incomplete original evidence");
     const input = publicText(action.value, source.workspace_root, 100_000);
     const output = publicText(result.rendered, source.workspace_root, 100_000);
     if (input !== action.value || output !== result.rendered) throw new Error("Renderer case contains local paths or exceeds the public evidence limit");
-    return [{ case_id: action.case_id, observation_id: observation.id, input_markdown: input, expected_html: output }];
+    return [{ case_id: action.case_id, observation_id: observation.id, input_markdown: input, expected_html: output,
+      input_verification: result.input_verification === "saved_document" ? "saved_document" : "editor_dom",
+      output_projection: "sanitized_document_dom_v1" }];
   });
 
   return {
@@ -137,6 +139,7 @@ export function buildRendererPublicHandoff(discoveryId: string, rawSource: unkno
       limitations: [
         "This artifact contains observed examples, not candidate implementation results or held-out checks.",
         "A passed original replay confirms trace repeatability; it does not approve requirement semantics or implementation readiness.",
+        ...(cases.length ? ["Captured DOM omits script, style and SVG nodes, event attributes and inline styles; these cases do not establish pixel parity or omitted markup behavior."] : []),
       ],
     },
     requirements,

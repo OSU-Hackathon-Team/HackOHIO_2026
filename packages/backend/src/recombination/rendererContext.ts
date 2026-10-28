@@ -6,7 +6,7 @@ export function compactRendererResult(value: unknown): unknown {
   if (!result || typeof result !== "object" || Array.isArray(result)) return value;
   if (typeof result.error === "string") return { error: result.error.slice(0, 1000) };
   if (result.input_verified === true && typeof result.rendered === "string") return {
-    case_id: result.case_id, input_verified: true, rendered_excerpt: result.rendered.slice(0, 1800),
+    case_id: result.case_id, input_verified: true, input_verification: result.input_verification, rendered_excerpt: result.rendered.slice(0, 1800),
     note: "Exact original case output is recorded. Read observation rendered in chunks for full HTML.",
   };
   if (typeof result.elements === "string") return { elements: result.elements.slice(0, 3000), truncated: result.elements.length > 3000, note: "Read the recorded observation in chunks for complete HTML" };

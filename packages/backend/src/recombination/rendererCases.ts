@@ -1,12 +1,30 @@
 import type { Page } from "playwright";
 import { z } from "zod";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 export const RendererCaseInput = z.object({
   case_id: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/), markdown: z.string().max(20000),
   input_selector: z.string().min(1).max(2000), render_selector: z.string().min(1).max(2000),
   output_selector: z.string().min(1).max(2000),
   input_method: z.enum(["fill", "keyboard"]).default("fill"),
+  document_path: z.string().max(500).default(""),
 }).strict();
+
+/** Only original fixture Markdown is readable; source archives and host files stay outside. */
+export async function readCapturedDocument(workspace: string, relative: string): Promise<string> {
+  const root = await fs.realpath(workspace), requested = path.resolve(root, relative);
+  if (!relative || path.isAbsolute(relative) || !requested.startsWith(root + path.sep) || path.extname(requested).toLowerCase() !== ".md")
+    throw new Error("Case document must be a Markdown file inside the fixture workspace");
+  const real = await fs.realpath(requested);
+  if (!real.startsWith(root + path.sep)) throw new Error("Case document resolves outside the fixture workspace");
+  const stat = await fs.stat(real);
+  if (!stat.isFile() || path.extname(real).toLowerCase() !== ".md" || stat.size > 400000) throw new Error("Case document must be a bounded Markdown fixture file");
+  const bytes = await fs.readFile(real), text = bytes.toString("utf8");
+  if (!Buffer.from(text, "utf8").equals(bytes)) throw new Error("Case document is not valid UTF-8");
+  if (text.length > 100000) throw new Error("Case document exceeds the read limit");
+  return text;
+}
 
 /** Runs inside the browser; structural paths avoid application-specific selector guesses. */
 export function rendererControlMetadata(node: any) {
@@ -24,7 +42,7 @@ export function rendererControlMetadata(node: any) {
 }
 
 /** Execute the original UI interaction; expectations always come from the resulting DOM. */
-export async function captureRendererCase(page: Page, raw: unknown) {
+export async function captureRendererCase(page: Page, raw: unknown, options: { readDocument?: () => Promise<string> } = {}) {
   const input = RendererCaseInput.parse(raw);
   for (const selector of [input.input_selector, input.render_selector, input.output_selector]) {
     if (/^@\d+$/.test(selector)) throw new Error("Case capture requires stable selectors, not snapshot control refs");
@@ -46,12 +64,19 @@ export async function captureRendererCase(page: Page, raw: unknown) {
     await editor.press("Backspace");
     await page.keyboard.insertText(input.markdown);
   } else await editor.fill(input.markdown);
-  const requested = input.markdown.replaceAll("\r\n", "\n");
+  const requested = options.readDocument ? input.markdown : input.markdown.replaceAll("\r\n", "\n");
   let actual = "", matches = 0;
   for (let attempt = 0; attempt < 12 && matches < 2; attempt++) {
     await page.waitForTimeout(150);
-    actual = (await editor.evaluate((node: any) =>
-      ["INPUT", "TEXTAREA"].includes(node.tagName) ? node.value : node.innerText)).replaceAll("\r\n", "\n");
+    try {
+      const value = options.readDocument ? await options.readDocument() : await editor.evaluate((node: any) =>
+        ["INPUT", "TEXTAREA"].includes(node.tagName) ? node.value : node.innerText);
+      actual = options.readDocument ? value : value.replaceAll("\r\n", "\n");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT" || attempt === 11) throw error;
+      actual = ""; matches = 0;
+      continue;
+    }
     matches = actual === requested ? matches + 1 : 0;
   }
   if (matches < 2) {
@@ -80,7 +105,8 @@ export async function captureRendererCase(page: Page, raw: unknown) {
       return clone.innerHTML;
     });
     if (rendered.length > 100000) throw new Error("Original case output exceeds the capture limit; use a smaller document");
-    if (rendered === previous) return { case_id: input.case_id, input_verified: true, rendered };
+    if (rendered === previous) return { case_id: input.case_id, input_verified: true,
+      input_verification: options.readDocument ? "saved_document" : "editor_dom", rendered };
     previous = rendered;
   }
   throw new Error("Original case output did not settle to a document");

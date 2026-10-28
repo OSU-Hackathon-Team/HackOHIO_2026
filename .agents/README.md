@@ -173,8 +173,9 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   six public table outputs, including working range sorts after the UNO struct-sequence repair.
   These are observations, not approved specifications or candidate parity.
   Renderer discovery also supports `capture_cases:true`, requiring exact editor-input/original-DOM
-  pairs and original replay. Its first live capture run failed on selector/mode preconditions;
-  generic control-ref resolution and editable-control guidance are implemented for the next run.
+  pairs and original replay. Live capture attempts exposed selector/mode preconditions and hidden
+  Markdown markers in live-preview DOM text. Generic control refs, keyboard input and exact saved
+  fixture-document verification are implemented; a three-case original replay is still pending.
   See `docs/obsidian-calc-demo-gap-log.md`.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,

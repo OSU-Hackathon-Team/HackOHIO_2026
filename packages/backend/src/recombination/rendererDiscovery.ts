@@ -10,7 +10,7 @@ import { z } from "zod";
 import { continueWith, structuredCall, type AssistTool, type StructuredCallOpts } from "../llm/llm.js";
 import { RendererReplaySource, replayRendererTrace } from "./rendererReplay.js";
 import { compactRendererResult } from "./rendererContext.js";
-import { captureRendererCase, RendererCaseInput, rendererControlMetadata } from "./rendererCases.js";
+import { captureRendererCase, readCapturedDocument, RendererCaseInput, rendererControlMetadata } from "./rendererCases.js";
 
 const Answer = z.object({
   summary: z.string(), requirements: z.array(z.object({ id: z.string(), statement: z.string(), observation_ids: z.array(z.number().int()) })),
@@ -46,14 +46,10 @@ export function rendererDraftProblems(draft: z.infer<typeof Answer>, observation
   if (options.requireCases) {
     const capturedInputs = new Set(observations.filter(item => {
       const action = item.action as Record<string, unknown>, result = item.result as Record<string, unknown>;
-      return action.action === "capture_case" && result.input_verified === true && typeof result.rendered === "string" && result.rendered.length > 0 && !result.error;
+      return action.action === "capture_case" && result.input_verified === true && typeof result.rendered === "string" && result.rendered.length > 0 && !result.error &&
+        draft.requirements.some(requirement => requirement.observation_ids.includes(item.id));
     }).map(item => (item.action as Record<string, unknown>).value));
-    if (capturedInputs.size < 3) problems.push("Capture at least three distinct Markdown inputs with render_case before declaring a draft");
-    for (const observation of observations) {
-      if ((observation.action as Record<string, unknown>).action === "capture_case" && (observation.result as Record<string, unknown>).input_verified === true &&
-        !draft.requirements.some(requirement => requirement.observation_ids.includes(observation.id)))
-        problems.push(`Captured case observation ${observation.id} needs a requirement citation`);
-    }
+    if (capturedInputs.size < 3) problems.push("Capture at least three distinct Markdown inputs with render_case and cite them in requirements before declaring a draft");
   }
   const ids = new Set<string>();
   for (const requirement of draft.requirements) {
@@ -271,10 +267,11 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
           return await record(action, await snapshot());
         } catch (error) { return record(action, { error: (error as Error).message }); }
       },
-    }, { name: "render_case", description: "Capture an executable public Markdown case on the original app. First open a note in EDITING mode; do NOT switch to reading before calling this tool. Supply a unique case_id, complete Markdown, the editable control ref (such as @12) from a fresh snapshot, a view-toggle control ref (such as @26), and a CSS selector scoped to the rendered document body. Input/view selectors may also be exact CSS. Control refs are converted to structural CSS paths for frozen replay. Choose input_method fill for ordinary editable controls or keyboard for custom editors: keyboard focuses the control, selects all, deletes and inserts the full text using keyboard input. If fill reports a mismatch on a custom editor, try keyboard. The host checks exact settled editor text, clicks the view control, and records settled DOM output. After capture the note is in rendered mode; switch back to editing before another capture. The result is original evidence, never an authored expectation. Use observation to read full HTML when excerpts are truncated.",
-      inputSchema: { type: "object", additionalProperties: false, required: ["case_id", "markdown", "input_selector", "render_selector", "output_selector", "input_method"], properties: {
+    }, { name: "render_case", description: "Capture an executable public Markdown case on the original app. First open a note in EDITING mode; do NOT switch to reading before calling this tool. Supply a unique case_id, complete Markdown, the editable control ref (such as @12) from a fresh snapshot, a view-toggle control ref (such as @26), and a CSS selector scoped to the rendered document body. Input/view selectors may also be exact CSS. Control refs are converted to structural CSS paths for frozen replay. Choose input_method fill for ordinary editable controls or keyboard for custom editors: keyboard focuses the control, selects all, deletes and inserts the full text using keyboard input. If fill reports a mismatch on a custom editor, try keyboard. Set document_path to the actual Markdown note path relative to the fixture root when live preview hides syntax markers. The host verifies exact saved document bytes when document_path is provided, otherwise settled editor text, then clicks the view control and records settled DOM output. After capture the note is in rendered mode; switch back to editing before another capture. The result is original evidence, never an authored expectation. Use observation to read full HTML when excerpts are truncated.",
+      inputSchema: { type: "object", additionalProperties: false, required: ["case_id", "markdown", "input_selector", "render_selector", "output_selector", "input_method", "document_path"], properties: {
         case_id: { type: "string" }, markdown: { type: "string" }, input_selector: { type: "string" }, render_selector: { type: "string" }, output_selector: { type: "string" },
         input_method: { type: "string", enum: ["fill", "keyboard"] },
+        document_path: { type: "string", description: "Optional relative Markdown fixture path, such as vault/Note.md. Use it to verify the original app's saved bytes when live preview hides syntax markers. Empty string verifies editor DOM text instead." },
       } },
       async run(value) {
         signal.throwIfAborted();
@@ -287,13 +284,14 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
             item[field] = (await control.evaluate(rendererControlMetadata)).selector;
           }
         }
-        const action = { action: "capture_case", case_id: item.case_id, value: item.markdown, input_method: item.input_method,
+        const action = { action: "capture_case", case_id: item.case_id, value: item.markdown, input_method: item.input_method, document_path: item.document_path,
           input_selector: item.input_selector, render_selector: item.render_selector, output_selector: item.output_selector };
         try {
           if (observations.some(o => (o.action as Record<string, unknown>).case_id === item.case_id && (o.result as Record<string, unknown>).input_verified))
             throw new Error("Choose a unique case_id for each captured case");
           await ensurePage();
-          return await record(action, await captureRendererCase(page, item));
+          return await record(action, await captureRendererCase(page, item, item.document_path
+            ? { readDocument: () => readCapturedDocument(workspace, item.document_path) } : {}));
         } catch (error) { return record(action, { error: (error as Error).message }); }
       },
     }, { name: "fixture", description: "Create a UTF-8 test note or folder under the isolated workspace. An empty content creates an empty file; directory=true creates a folder. Returned paths can be typed into the app's folder picker. Never access source or host files.",
@@ -357,7 +355,7 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
         } else if (action.action === "capture_case") {
           name = "render_case"; input = { case_id: action.case_id, markdown: action.value,
             input_selector: action.input_selector, render_selector: action.render_selector, output_selector: action.output_selector,
-            input_method: action.input_method ?? "fill" };
+            input_method: action.input_method ?? "fill", document_path: action.document_path ?? "" };
         } else if (action.host_input) { name = "native_dialog"; input = action.host_input; }
         else { name = "ui"; input = action; }
         await tools.find(tool => tool.name === name)!.run(input);
