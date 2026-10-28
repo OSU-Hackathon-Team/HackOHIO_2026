@@ -344,6 +344,8 @@ export class FilesystemRecombinationService implements RecombinationService {
         let state = openStateStore(scenarioDir);
         let calls = 0;
         let assertions = 0;
+        let successfulInvocations = 0;
+        let observedOutput = false;
         let passed = true;
         let detail = "Acceptance scenario passed";
         const counted = new Map<string, WorkflowCapabilityClient>([...runtime.clients].map(([id, client]) => [id, {
@@ -357,6 +359,7 @@ export class FilesystemRecombinationService implements RecombinationService {
               const outcome = await engine.run(plan, step.workflow, asObject(step.input, `scenario ${scenario.id} input`), { signal });
               assertions += 1;
               if (outcome.status !== step.expect_status) throw new Error(`Workflow ${step.workflow} ended ${outcome.status}; expected ${step.expect_status}: ${canonicalJson(outcome.errors)}`);
+              if (step.expect_status === "succeeded") successfulInvocations += 1;
             } else if (step.kind === "set_document") {
               const definition = plan.documents.find((document) => document.id === step.document && document.owner_instance === null);
               if (!definition) throw new Error(`Scenario ${scenario.id} cannot edit document ${step.document}`);
@@ -369,6 +372,7 @@ export class FilesystemRecombinationService implements RecombinationService {
               if (!current) throw new Error(`Document ${step.document} does not exist`);
               const actual = readPath(current.data, step.path);
               assertions += 1;
+              if (successfulInvocations > 0) observedOutput = true;
               if (canonicalJson(actual) !== canonicalJson(step.equals)) throw new Error(`Document ${step.document}.${step.path} was ${canonicalJson(actual)}; expected ${canonicalJson(step.equals)}`);
             } else if (step.kind === "restart") {
               state.close();
@@ -380,6 +384,7 @@ export class FilesystemRecombinationService implements RecombinationService {
             }
           }
           if (calls === 0 || assertions === 0) throw new Error("Scenario had no operation calls or assertions");
+          if (successfulInvocations > 0 && !observedOutput) throw new Error("Successful scenario must assert a saved document value after invoking its workflow");
         } catch (cause) {
           passed = false;
           detail = cause instanceof Error ? cause.message : String(cause);
