@@ -147,9 +147,6 @@ COPY --from=builder /app/packages/frontend/dist ./packages/frontend/dist
 COPY fixtures ./fixtures
 COPY targets ./targets
 
-# Backward-compatibility symlink for legacy mock references
-RUN mkdir -p ./packages && ln -s /app/fixtures/_legacy_mocks ./packages/mocks || true
-
 # Unified single-port deployment: Express serves /api/* and static Vite frontend on 3001
 EXPOSE 3001
 
