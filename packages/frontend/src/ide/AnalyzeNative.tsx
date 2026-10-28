@@ -129,7 +129,7 @@ export function AnalyzeNative() {
             <WorkspaceButton primary isDisabled={running || !budget || enabled === null}
               className="bg-indigo-600 text-white hover:bg-indigo-500">
               {running ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
-              {running ? "Analyzing..." : "Analyze"}
+              {running ? "Running..." : "Analyze"}
             </WorkspaceButton>
             <ModalOverlay className="builder-modal fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-6">
               <Modal className="w-full max-w-md rounded-xl border border-stone-700 bg-stone-900 p-6">
@@ -152,6 +152,35 @@ export function AnalyzeNative() {
               </Modal>
             </ModalOverlay>
           </DialogTrigger>
+          {target.driver === "uno" && (
+            <DialogTrigger>
+              <WorkspaceButton isDisabled={running || enabled === null} className="border border-indigo-800">
+                Record public original behavior
+              </WorkspaceButton>
+              <ModalOverlay className="builder-modal fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-6">
+                <Modal className="w-full max-w-md rounded-xl border border-stone-700 bg-stone-900 p-6">
+                  <Dialog role="alertdialog" className="outline-none">
+                    {({ close }) => <>
+                      <Heading slot="title" className="text-lg font-semibold">Record public original behavior?</Heading>
+                      <p className="mt-3 text-sm leading-6 text-stone-400">
+                        This starts the worker to run the registered public cases on {target.name}.
+                        It uses worker compute, makes no model calls, and stops when finished.
+                        Results include original outputs and operation diagnostics.
+                      </p>
+                      <div className="mt-6 flex justify-end gap-2">
+                        <WorkspaceButton autoFocus onPress={close}>Cancel</WorkspaceButton>
+                        <WorkspaceButton primary onPress={() => {
+                          close(); setStartError(null);
+                          void useIdeStore.getState().startPublicOracle(target.id)
+                            .catch(error => setStartError(error instanceof Error ? error.message : String(error)));
+                        }}>Record originals</WorkspaceButton>
+                      </div>
+                    </>}
+                  </Dialog>
+                </Modal>
+              </ModalOverlay>
+            </DialogTrigger>
+          )}
         </div>
       )}
 
@@ -173,12 +202,31 @@ export function AnalyzeNative() {
             </p>
           )}
           {run.error && <p className="mt-2 text-rose-400">{run.error}</p>}
-          {run.result && (
+          {run.finished && !run.ok && !run.result && api.reimportDecompRun && (
+            <WorkspaceButton className="mt-2 border border-amber-700 text-amber-200"
+              onPress={() => void useIdeStore.getState().reimportDecompRun(run.runId)
+                .catch((error) => setStartError(error instanceof Error ? error.message : String(error)))}>
+              Re-import saved results (no new analysis run)
+            </WorkspaceButton>
+          )}
+          {run.result?.public_oracle && (
+            <div className="mt-3 space-y-2 text-stone-300">
+              <p>{run.result.public_oracle.application_version}: {run.result.oracle.public_observed}/{run.result.public_oracle.cases.length} public original outputs recorded.</p>
+              <p className="break-all font-mono text-[10px] text-stone-500">Driver: {run.result.public_oracle.driver_sha256}</p>
+              {run.result.public_oracle.cases.map(item => <details key={item.id} className="rounded border border-stone-800 p-2">
+                <summary className="cursor-pointer">{item.id} · {item.outcome.replaceAll("_", " ")}</summary>
+                <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap text-[11px]">{JSON.stringify({ input: item.input, observed: item.observed,
+                  ...(item.error ? { error: item.error } : {}), ...(item.diagnostics ? { diagnostics: item.diagnostics } : {}) }, null, 2)}</pre>
+              </details>)}
+            </div>
+          )}
+          {run.result && !run.result.public_oracle && (
             <div className="mt-3 space-y-1 text-stone-300">
               <p>
                 Evidence <strong>{run.result.readiness ?? "unknown"}</strong>
-                {" · "}The original program confirmed {run.result.oracle.public_agreement} public and{" "}
-                {run.result.oracle.held_out_agreement} held-out cases
+                {" · "}Original oracle: {run.result.oracle.public_agreement} public and {run.result.oracle.held_out_agreement} held-out expectation matches
+                {(run.result.oracle.public_observed + run.result.oracle.held_out_observed) > 0 &&
+                  <>; {run.result.oracle.public_observed} public and {run.result.oracle.held_out_observed} held-out outputs recorded without expectations</>}
               </p>
               <p className="tabular-nums">
                 Claims: {Object.entries(run.result.claim_outcomes).map(([k, v]) => `${k.replace("_static", "")} ${v}`).join(", ") || "none"}

@@ -28,15 +28,16 @@ from engine.analysis.rea import RuntimeTracer, ReaSession, spawn_triage, static_
 from engine.analysis.ghidra import file_hash
 from engine.scope import resolve_seed
 from engine.analysis.scoped import symbol_inventory, prepared_readers
-from engine.libreoffice import (UNO_DRIVER, UnoDriver, formula_input, matches, observe_cases,
+from engine.libreoffice import (UNO_DRIVER, UnoDriver, case_display as display_case, formula_input, matches, observe_cases,
                                 probe_report, resolve_targets, split_cases)
 from engine.models import ScopeRequest
 from model_config import get_model
 
 DEFAULT_FRIDA_PATTERNS = ["*ScInterpreter*", "*ScCompiler*", "*FormulaCompiler*"]
 OBSERVATION_FORMAT = ("a JSON object with value (a number) for numeric results, text (a string) for "
-                      "text results, or both error (the numeric LibreOffice error code) and text "
-                      "(its display string such as #DIV/0!) for errors.")
+                      "text results, both error (the numeric LibreOffice error code) and text "
+                      "(its display string such as #DIV/0!) for errors, or cells (an array of row "
+                      "arrays) for Calc table-operation results.")
 
 
 def _materialize_cached_result(root: Path, store, kind: str, result: dict) -> None:
@@ -126,7 +127,7 @@ class LoPipelineConfig:
     scoped_analysis: bool = False
     # Target plug points (fixtures/decomp/targets). Defaults are LibreOffice driven over UNO.
     case_input: Callable[[dict], dict] = formula_input
-    case_display: Callable[[dict], str] = lambda case: case["formula"]
+    case_display: Callable[[dict], str] = display_case
     matches: Callable[[dict, dict], bool] = matches
     observation_format: str = OBSERVATION_FORMAT
     probe_kind: str = "uno_formula"
@@ -245,7 +246,7 @@ def seeds_from_runtime(index: dict, runtime_cases: dict[str, dict], *, max_seeds
 
 
 def observations_by_entry(runtime_cases: dict[str, dict], cases: list[dict]) -> dict[int, list[dict]]:
-    formulas = {case["id"]: case.get("formula") or " ".join(case.get("args", [])) for case in cases}
+    formulas = {case["id"]: display_case(case) for case in cases}
     found: dict[int, list[dict]] = {}
     for case_id, observation in runtime_cases.items():
         for hit in observation["hits"]:
@@ -624,7 +625,7 @@ def build_handoff(store, analysed: list[dict], scope: dict, public: list[dict],
                   observations: dict[str, dict],
                   case_links: dict[tuple[str, int], list[dict]] | None = None,
                   case_input: Callable[[dict], dict] = formula_input,
-                  case_display: Callable[[dict], str] = lambda case: case["formula"]) -> dict:
+                  case_display: Callable[[dict], str] = display_case) -> dict:
     """Evidence a spec author can turn into a FeatureSpec, even when the dossier is not ready.
 
     Claims carry the independent review verdict; observed cases are real LibreOffice results.
@@ -662,10 +663,16 @@ def build_handoff(store, analysed: list[dict], scope: dict, public: list[dict],
                 missing_behavior=missing)
         functions.append(record)
     # `formula` is the human-readable invocation; `input` is exactly what the oracle ran.
-    cases = [{"id": case["id"], "formula": case_display(case), "cells": case.get("cells", {}),
-              "input": case_input(case), "description": case.get("input_description"),
-              "observed": (observations.get(case["id"]) or {}).get("observed")}
-             for case in public]
+    cases = []
+    for case in public:
+        record = {"id": case["id"], "cells": case.get("cells", {}),
+                  "input": case_input(case), "description": case.get("input_description"),
+                  "observed": (observations.get(case["id"]) or {}).get("observed")}
+        if "operation" in case:
+            record["operation"] = case_display(case)
+        else:
+            record["formula"] = case_display(case)
+        cases.append(record)
     return {"functions": functions, "observed_cases": cases}
 
 

@@ -103,6 +103,86 @@ def evaluate(doc, sheet, formula, cells):
     return {"value": target.getValue()}
 
 
+def read_matrix(sheet, range_name):
+    return [list(row) for row in sheet.getCellRangeByName(range_name).getDataArray()]
+
+
+def operate(doc, sheet, operation, cells, diagnostics=None):
+    sheet.getCellRangeByName("A1:Z200").clearContents(CLEAR_ALL)
+    for name, value in cells.items():
+        cell = sheet.getCellRangeByName(name)
+        if isinstance(value, str) and value.startswith("="):
+            cell.setFormula(value)
+        elif isinstance(value, str):
+            cell.setString(value)
+        else:
+            cell.setValue(float(value))
+
+    kind = operation["type"]
+    if kind == "sort_range":
+        target = sheet.getCellRangeByName(operation["range"])
+        descriptor = list(target.createSortDescriptor())
+        properties = {item.Name: item for item in descriptor}
+        if "SortFields" not in properties or "ContainsHeader" not in properties:
+            raise RuntimeError("Calc range returned an incomplete sort descriptor")
+
+        # Calc exposes either the current descriptor (TableSortField / IsSortColumns) or
+        # the deprecated one (util.SortField / SortColumns). Keep the complete descriptor
+        # returned by this range and only replace its operation-specific properties.
+        if "IsSortColumns" in properties:
+            struct_name = "com.sun.star.table.TableSortField"
+            ascending_name = "IsAscending"
+            columns_name = "IsSortColumns"
+        elif "SortColumns" in properties:
+            struct_name = "com.sun.star.util.SortField"
+            ascending_name = "SortAscending"
+            columns_name = "SortColumns"
+        else:
+            raise RuntimeError("Calc range returned an unsupported sort descriptor")
+
+        fields = []
+        for key in operation["keys"]:
+            field = uno.createUnoStruct(struct_name)
+            field.Field = key["column"]
+            setattr(field, ascending_name, key["ascending"])
+            fields.append(field)
+        # Preserve the declared struct sequence type inside PropertyValue's Any.
+        properties["SortFields"].Value = uno.Any("[]" + struct_name, tuple(fields))
+        properties["ContainsHeader"].Value = operation["contains_header"]
+        properties[columns_name].Value = False  # sort rows using the selected columns as keys
+        if diagnostics is not None:
+            diagnostics["sort_descriptor"] = [{"name": p.Name, "value": str(p.Value)} for p in descriptor]
+        target.sort(tuple(descriptor))
+        output_range = operation.get("output_range", operation["range"])
+    elif kind == "insert_rows":
+        sheet.Rows.insertByIndex(operation["index"], operation["count"])
+        output_range = operation["output_range"]
+    elif kind == "delete_rows":
+        sheet.Rows.removeByIndex(operation["index"], operation["count"])
+        output_range = operation["output_range"]
+    elif kind == "insert_columns":
+        sheet.Columns.insertByIndex(operation["index"], operation["count"])
+        output_range = operation["output_range"]
+    elif kind == "delete_columns":
+        sheet.Columns.removeByIndex(operation["index"], operation["count"])
+        output_range = operation["output_range"]
+    elif kind == "copy_range":
+        destination = sheet.getCellRangeByName(operation["destination_cell"]).getRangeAddress()
+        source = sheet.getCellRangeByName(operation["source_range"]).getRangeAddress()
+        sheet.copyRange(destination, source)
+        output_range = operation["output_range"]
+    else:  # clear_range
+        sheet.getCellRangeByName(operation["range"]).clearContents(CLEAR_ALL)
+        output_range = operation["output_range"]
+    doc.calculateAll()
+    return {"cells": read_matrix(sheet, output_range)}
+
+
+def new_document(desktop):
+    hidden = PropertyValue("Hidden", 0, True, 0)
+    return desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, (hidden,))
+
+
 def main():
     soffice = sys.argv[1]
     pipe = "splice_" + uuid.uuid4().hex
@@ -111,8 +191,7 @@ def main():
     try:
         process, ctx = connect(soffice, profile, pipe)
         desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
-        hidden = PropertyValue("Hidden", 0, True, 0)
-        doc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, (hidden,))
+        doc = new_document(desktop)
         sheet = doc.Sheets.getByIndex(0)
         emit({"op": "ready", "pid": find_pid(pipe) or process.pid, "version": product_version(ctx)})
         for line in sys.stdin:
@@ -120,8 +199,17 @@ def main():
             if request.get("op") == "quit":
                 break
             try:
-                observed = evaluate(doc, sheet, request["formula"], request.get("cells") or {})
-                emit({"id": request["id"], "observed": observed})
+                diagnostics = {} if request.get("diagnostics") else None
+                if request.get("op") == "operation":
+                    # Structural edits persist across Calc requests; isolate each operation case.
+                    doc.close(True)
+                    doc = new_document(desktop)
+                    sheet = doc.Sheets.getByIndex(0)
+                    observed = operate(doc, sheet, request["operation"], request.get("cells") or {}, diagnostics)
+                else:
+                    observed = evaluate(doc, sheet, request["formula"], request.get("cells") or {})
+                emit({"id": request["id"], "observed": observed,
+                      **({"diagnostics": diagnostics} if diagnostics else {})})
             except Exception as error:  # report per case; LibreOffice keeps running
                 emit({"id": request["id"], "observed": None, "error": str(error)})
     except Exception as error:

@@ -13,6 +13,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import re
 import subprocess
 import threading
 from typing import Callable
@@ -26,6 +27,10 @@ PROGRAM_DIR_GLOBS = ("/usr/lib/libreoffice/program", "/usr/lib64/libreoffice/pro
                      "/opt/libreoffice*/program", "/snap/libreoffice/current/lib/libreoffice/program")
 LIBRARIES = {"calc": "libsclo.so", "formula": "libforlo.so"}
 HELD_OUT_PERCENT = 30
+_CELL = re.compile(r"^\$?[A-Z]{1,3}\$?[1-9][0-9]*$", re.IGNORECASE)
+_RANGE = re.compile(r"^\$?[A-Z]{1,3}\$?[1-9][0-9]*(?::\$?[A-Z]{1,3}\$?[1-9][0-9]*)?$", re.IGNORECASE)
+_TABLE_OPERATIONS = {"sort_range", "insert_rows", "delete_rows", "insert_columns",
+                     "delete_columns", "copy_range", "clear_range"}
 
 
 def find_install(program_dirs: list[str] | None = None) -> dict:
@@ -76,12 +81,50 @@ def load_cases(path: Path) -> dict:
         if not isinstance(case.get("id"), str) or case["id"] in ids:
             raise ValueError(f"case ids must be unique strings: {case.get('id')!r}")
         ids.add(case["id"])
-        if not str(case.get("formula", "")).startswith("="):
-            raise ValueError(f"{case['id']}: formula must start with '='")
-        if not isinstance(case.get("expected"), dict) or not (
-                set(case["expected"]) <= {"value", "text", "error"} and case["expected"]):
-            raise ValueError(f"{case['id']}: expected must be one of value, text or error")
+        formula, operation = case.get("formula"), case.get("operation")
+        if isinstance(formula, str):
+            if not formula.startswith("=") or operation is not None:
+                raise ValueError(f"{case['id']}: formula cases need one formula starting with '='")
+        elif isinstance(operation, dict):
+            _validate_table_operation(case["id"], operation)
+        else:
+            raise ValueError(f"{case['id']}: provide a formula or a supported table operation")
+        expected = case.get("expected")
+        if expected is not None and (not isinstance(expected, dict) or not expected):
+            raise ValueError(f"{case['id']}: expected must be a non-empty result object when supplied")
     return suite
+
+
+def _validate_table_operation(case_id: str, operation: dict) -> None:
+    kind = operation.get("type")
+    if kind not in _TABLE_OPERATIONS:
+        raise ValueError(f"{case_id}: unsupported table operation {kind!r}")
+    def needs_range(key: str) -> None:
+        if not isinstance(operation.get(key), str) or not _RANGE.fullmatch(operation[key]):
+            raise ValueError(f"{case_id}: {key} must be a Calc cell range")
+    if kind == "sort_range":
+        needs_range("range")
+        keys = operation.get("keys")
+        if not isinstance(keys, list) or not keys or any(
+                not isinstance(item, dict) or type(item.get("column")) is not int or
+                item["column"] < 0 or not isinstance(item.get("ascending"), bool) for item in keys):
+            raise ValueError(f"{case_id}: sort_range needs ordered column/ascending keys")
+        if not isinstance(operation.get("contains_header"), bool):
+            raise ValueError(f"{case_id}: sort_range needs contains_header")
+    elif kind in {"insert_rows", "delete_rows", "insert_columns", "delete_columns"}:
+        index, count = operation.get("index"), operation.get("count")
+        if type(index) is not int or not 0 <= index < 16_384 or type(count) is not int or not 1 <= count <= 100:
+            raise ValueError(f"{case_id}: row/column operations need a bounded index and count")
+        needs_range("output_range")
+    elif kind == "copy_range":
+        needs_range("source_range")
+        needs_range("output_range")
+        destination = operation.get("destination_cell")
+        if not isinstance(destination, str) or not _CELL.fullmatch(destination):
+            raise ValueError(f"{case_id}: copy_range destination_cell must be a Calc cell")
+    else:
+        needs_range("range")
+        needs_range("output_range")
 
 
 def split_cases(cases: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -188,11 +231,14 @@ class UnoDriver:
     def pid(self) -> int:
         return int(self.ready["pid"])
 
-    def evaluate(self, case: dict) -> dict:
+    def evaluate(self, case: dict, *, diagnostics: bool = False) -> dict:
         assert self.process and self.process.stdin
-        self.process.stdin.write(json.dumps({"op": "eval", "id": case["id"],
-                                             "formula": case["formula"],
-                                             "cells": case.get("cells", {})}) + "\n")
+        request = {"op": "operation", "id": case["id"], "operation": case["operation"],
+                   "cells": case.get("cells", {})} if "operation" in case else {
+            "op": "eval", "id": case["id"], "formula": case["formula"], "cells": case.get("cells", {})}
+        if diagnostics:
+            request["diagnostics"] = True
+        self.process.stdin.write(json.dumps(request) + "\n")
         self.process.stdin.flush()
         reply = self._read()
         if reply.get("id") != case["id"]:
@@ -213,7 +259,17 @@ class UnoDriver:
 
 
 def formula_input(case: dict) -> dict:
+    if "operation" in case:
+        return {"operation": case["operation"], "cells": case.get("cells", {})}
     return {"formula": case["formula"], "cells": case.get("cells", {})}
+
+
+def case_display(case: dict) -> str:
+    if isinstance(case.get("formula"), str):
+        return case["formula"]
+    operation = case.get("operation") or {}
+    target = operation.get("range") or operation.get("output_range") or operation.get("source_range") or ""
+    return f"{operation.get('type', 'table operation')} {target}".strip()
 
 
 def probe_report(store, cases: list[dict], observations: dict[str, dict], *,

@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "id": "libreoffice-calc-tables",
+  "name": "LibreOffice Calc Table Operations",
+  "description": "Original-Calc observations for range sorting, row and column edits, copying, and clearing; outputs start unverified until the original oracle records them.",
+  "driver": "uno",
+  "library": "calc",
+  "cases": "fixtures/decomp/libreoffice/table_cases.json",
+  "trace_patterns": ["*ScDBFunc*", "*ScDocFunc*", "*ScDocument*", "*ScTable*", "*ScColumn*", "*ScViewFunc*"],
+  "function_budgets": [20],
+  "estimated_cost_usd": { "20": 0.6 },
+  "depth_by_budget": { "20": 2 },
+  "handoff": "libreoffice-calc-tables"
+}

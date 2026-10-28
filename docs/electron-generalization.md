@@ -25,6 +25,88 @@ npm start
 
 The run needs AWS credentials with Bedrock access. Model roles come from `models.json`:
 
+Studio's **Recombine capabilities** view also exposes this pipeline. Upload an `.asar` archive,
+select the IPC channels discovered by the static inventory and original-app startup probe,
+then start a scoped reconstruction job. The backend API is `POST /api/electron/archives`
+(`application/octet-stream`, 100 MB limit), `GET /api/electron/archives/:id/inventory`,
+`POST /api/electron/runs` with `archive_id`, `channels` and `scope_label`, and
+`GET /api/electron/runs/:id` plus `/log`, `/events` and `/report`. A running job can be
+cancelled with `POST /api/electron/runs/:id/cancel`. Archives and run state live under
+`SPLICE_STATE_DIR/electron-runs`; a backend restart marks an unfinished run interrupted.
+The report's `readiness.scoped` and `readiness.whole_app_ready` remain distinct. This API
+reconstructs main-process IPC behavior; editor and renderer behavior still needs a separate
+observable pipeline.
+
+Renderer discovery is now available through `POST /api/electron/archives/:id/renderer-discovery`
+with `{task, confirm_cost:true}`. Studio exposes the task and streams its UI observations.
+The specification model receives only UI, fixture and native picker tools. It can select windows,
+edit fields, type keys, inspect rendered elements and create fixture notes under its workspace.
+It saves a **draft** with observation citations and the uploaded archive hash. The host then starts
+a fresh original workspace and replays the frozen fixture/UI/native-picker actions without model
+calls. Workspace paths are normalized, while observable text, title, rendered HTML and inspected
+elements are compared without rewriting expectations. Errors and uncovered requirements fail the
+gate. A replay pass is still not implementation approval or held-out candidate verification.
+Fetch a draft with `GET /api/electron/renderer-discoveries/:id` and its replay report with the
+same path plus `/replay`. Disconnect or the twenty-minute deadline stops the child process group.
+To retry a frozen trace without model calls, send `replay_discovery_id` in the same discovery POST;
+Studio has a saved-discovery ID field for this action. The source must have archive identity and
+complete observation metadata, and its archive must match the selected upload. Retries create a
+new report and preserve the source and earlier failures. Snapshots wait for a consistent title,
+visible text and rendered HTML rather than sampling a partially updated frame.
+For a host observation fix, `recapture:true` with a saved replay ID records a new original
+revision from the same frozen actions and then replays it. It preserves the source task,
+requirements, parent ID and variance report, while leaving all earlier expectations/reports
+unchanged. Action failures or missing source observations reject the revision. This is original
+evidence recapture, not repair of candidate held-out failures or implementation approval.
+Studio exposes this as a checkbox beside the saved-discovery field.
+
+Model replies use compact snapshots and a chunked `observation` tool for earlier exact evidence.
+Full observations remain in the audit files and are used for replay comparisons; compact replies
+are never used as the replay oracle. This prevents repeated DOM snapshots from exhausting the
+model context without erasing evidence.
+
+Set `capture_cases:true` in the discovery request (or Studio's executable-case checkbox) to
+require at least three distinct Markdown cases. The model's `render_case` tool fills a selected
+original editor, verifies the exact text, clicks a selected view control, and records settled DOM
+from a selected rendered-document element. It strips scripts, styles, SVG controls and event
+attributes; it never invents expected HTML. Captures are frozen actions replayed against a fresh
+original workspace. Three distinct cases with requirement citations are required in this mode.
+Uncited exploration cases do not enter the implementation handoff. The public handoff adds
+`cases:[{case_id,observation_id,input_markdown,expected_html}]` only for captures confirmed by replay,
+and rejects case exports requiring local-path redaction. Case capture remains specification
+evidence; implementation, independent held-out evaluation and approval are separate gates.
+Editor and view controls can be selected with current snapshot refs; the host freezes them as
+structural DOM paths before capture so replay does not depend on the model guessing selectors.
+Compact snapshots retain a separate editable-control list without changing existing control-ref
+ordering. Failed captures report mode/selector guidance and cannot satisfy the case-count gate.
+When a selected container has one visible editable descendant, capture resolves that descendant.
+Input must match on two consecutive reads after the fill; a mismatch returns its offset, lengths
+and a bounded actual-text excerpt for model feedback instead of publishing a case.
+The model can choose `input_method:"keyboard"` for custom editors: the host focuses, selects all,
+deletes and inserts the complete text. The chosen method is frozen with the capture action and
+must pass the same exact-input check during original replay.
+For live preview editors whose visible DOM omits syntax markers, `document_path` can name the
+original note relative to the fixture workspace. The host then verifies exact saved Markdown
+bytes on two reads after editing. Only bounded Markdown files inside that workspace are readable;
+absolute paths, source files and escaping symlinks are rejected. The public case records whether
+input was checked using the editor DOM or the saved document, while omitting the fixture path.
+Snapshots also expose observed rendered-document choices with numeric indices. The model selects
+`output_document` as an integer, preventing confusion between a ref label and a CSS class. Capture resolves this to
+structural DOM paths recorded when the original reading view was visible, preserving them while
+the agent switches back to editing. This supplies output-container evidence without requiring a
+model to guess application class names.
+
+This opt-in path currently requires Linux, Xvfb, xdotool, and Electron with a correctly configured
+sandbox helper. `SPLICE_RENDERER_ORIGINAL_EXECUTABLE` selects an installed source-app executable;
+its adjacent resources must contain the uploaded archive hash. It is observed through Chromium
+CDP, so it does not depend on production Node inspector support. Otherwise the host uses the
+installed Electron package (or `SPLICE_RENDERER_ELECTRON`) and a conventional main entry launcher.
+For multi-archive packaging, optional `resource_archives:[{archive_id,name}]` and `entry_resource`
+recreate the source resources layout from client uploads. This gives the app a separate workspace
+and user configuration, but does not provide operating-system isolation from the host filesystem.
+Original replay acceptance, requirement review, held-out renderer checks and downstream renderer
+implementation are still required before claiming editor parity.
+
 | Role | Stage | Override |
 |---|---|---|
 | `electron_spec_writer` | observes and writes the specification | `MODEL_ELECTRON_SPEC_WRITER` |

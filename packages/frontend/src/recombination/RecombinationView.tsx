@@ -24,6 +24,7 @@ import {
   validateComposition,
 } from "../api/recombination";
 import { startMicrophoneCapture, type MicrophoneCapture } from "./microphone";
+import { ElectronRunsPanel } from "./ElectronRunsPanel";
 
 function message(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 const ACTIVE_BUILD_KEY = "splice.recombination.activeBuildJob";
@@ -332,6 +333,8 @@ export function RecombinationView() {
           <p className="mt-2 max-w-3xl text-sm text-stone-400">Build an application from hash-pinned capability packages, explicit bindings, shared documents, and tested workflows. The notebook example uses authored development packages.</p>
         </header>
         {error && <p role="alert" className="rounded border border-red-700 bg-red-950/30 p-3 text-sm text-red-200">{error}</p>}
+
+        <ElectronRunsPanel />
 
         <section className="rounded-xl border border-stone-700 bg-[#211e1b] p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">

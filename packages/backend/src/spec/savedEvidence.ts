@@ -13,6 +13,12 @@ const READY_LIMITATIONS = [
   "Behavior beyond those cases, dependency contracts and scope coverage have not been established by this extraction.",
 ];
 
+function caseInput(item: SavedAnalysis["observed_cases"][number]) {
+  return item.input ?? (item.operation
+    ? { operation: item.operation, cells: item.cells ?? {} }
+    : { formula: item.formula, ...(item.cells ? { cells: item.cells } : { setup_unavailable: true }) });
+}
+
 export function adaptSavedEvidence(raw: unknown, request: NativeExtractionRequest) {
   const analysis = SavedAnalysis.parse(raw);
   const selected = new Set(request.function_entries);
@@ -53,7 +59,7 @@ export function adaptSavedEvidence(raw: unknown, request: NativeExtractionReques
       // Function names, review prose and decompilation stay in the analyst record, outside the writer input.
       claims: claim_sources.map(({ id, statement }) => ({ id, statement })),
       original_examples: analysis.observed_cases.map(c => ({ name: c.id,
-        input: c.input ?? { formula: c.formula, ...(c.cells ? { cells: c.cells } : { setup_unavailable: true }) }, expected_output: c.observed })),
+        input: caseInput(c), expected_output: c.observed })),
       observation_limit: "Application observations are not linked to these facts. Do not infer new requirements from them.",
       excluded_behavior: [], deviations: [],
     },
@@ -73,7 +79,7 @@ export function assembleSavedExtraction(prepared: ReturnType<typeof adaptSavedEv
   const examples = !ready ? [] : draft.requirements.flatMap(r =>
     [...new Set(r.claim_ids.flatMap(id => sources.get(id)?.case_ids ?? []))].map(caseId => {
       const observed = cases.get(caseId)!;
-      return { name: `${r.id} ${caseId}`, input: observed.input ?? { formula: observed.formula, cells: observed.cells ?? {} },
+      return { name: `${r.id} ${caseId}`, input: caseInput(observed),
         expected_output: observed.observed };
     }));
   const spec = NativeSubsystemSpec.parse({ ...draft, schema: 2, kind: "native_subsystem_spec",

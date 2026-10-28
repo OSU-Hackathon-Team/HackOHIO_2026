@@ -14,6 +14,7 @@ import type { DecompWorker } from "./ec2.js";
 import { importRunResults } from "./importRun.js";
 import { parseProgress } from "./progress.js";
 import { loadTargetRegistry, publicTarget } from "./targets.js";
+import { validatePublicOracle } from "./publicOracle.js";
 
 // Registered targets: fixtures/decomp/targets/<id>.json (Phase 1 registry).
 export const TARGET_REGISTRY = path.join(REPO_ROOT, "fixtures", "decomp", "targets");
@@ -88,7 +89,9 @@ export class DecompRunService {
     if (!worker) throw new HttpError(403, "decomp runs are disabled; set DECOMP_EC2_ENABLED=1 with the worker config");
     const target = this.registry.find((t) => t.id === request.data.target_id);
     if (!target) throw new HttpError(400, `unknown target ${request.data.target_id}`);
-    if (!target.function_budgets.includes(request.data.max_functions)) {
+    const mode = request.data.mode ?? "analysis";
+    if (mode === "public_oracle" && target.driver !== "uno") throw new HttpError(400, "public oracle recording requires a UNO target");
+    if (mode === "analysis" && !target.function_budgets.includes(request.data.max_functions)) {
       throw new HttpError(400, `max_functions must be one of ${target.function_budgets.join(", ")}`);
     }
     if (this.active) throw new HttpError(409, `run ${this.active} is still in progress`);
@@ -101,14 +104,53 @@ export class DecompRunService {
       throw error;
     }
     const run: DecompRun = { run_id: `run-${randomUUID().slice(0, 18)}`, target_id: target.id,
-      max_functions: request.data.max_functions, stage: "queued", started_at: this.now(), finished_at: null,
+      max_functions: request.data.max_functions, mode, stage: "queued", started_at: this.now(), finished_at: null,
       ok: null, result: null };
     const record = { run, events: [] };
     this.runs.set(run.run_id, record);
     this.active = run.run_id;
-    await this.emit(record, { type: "stage", stage: "queued", message: `${target.name}, ${run.max_functions} functions` });
+    await this.emit(record, { type: "stage", stage: "queued", message: mode === "public_oracle"
+      ? `${target.name}: public original observations (no model calls)` : `${target.name}, ${run.max_functions} functions` });
     void this.drive(record, target).finally(() => { this.active = null; });
     return run;
+  }
+
+  /** Re-import an already-finished worker result after a local publication/schema repair. */
+  async reimport(id: string): Promise<DecompRun> {
+    const record = this.runs.get(id);
+    if (!record) throw new HttpError(404, "run not found");
+    if (!this.deps.worker) throw new HttpError(503, "the decomp worker is not configured");
+    if (record.run.stage !== "failed" || record.run.result !== null) {
+      throw new HttpError(409, "only a failed run with no imported result can be re-imported");
+    }
+    if (this.active) throw new HttpError(409, `run ${this.active} is still in progress`);
+    const target = this.registry.find((item) => item.id === record.run.target_id);
+    if (!target) throw new HttpError(409, `target ${record.run.target_id} is no longer registered`);
+    const archive = record.run.mode === "public_oracle" ? null : await this.deps.worker.readObject(id, "results.tgz");
+    if (!archive && record.run.mode !== "public_oracle") throw new HttpError(409, "the worker did not save a result archive for this run");
+
+    this.active = id;
+    try {
+      await this.emit(record, { type: "stage", stage: "importing", message: "Re-importing saved worker results" });
+      if (record.run.mode === "public_oracle") {
+        await this.importPublicOracle(record, target);
+        return record.run;
+      }
+      const progress = await this.deps.worker.readObject(id, "progress.jsonl");
+      const result = await importRunResults(archive!, {
+        stateDir: this.deps.stateDir, repoRoot: this.deps.repoRoot,
+        handoffDir: path.join(this.deps.repoRoot, "docs", "handoffs", target.handoff),
+      });
+      await this.deps.publishAnalysis?.(record.run, result, progress?.toString("utf8") ?? "", target);
+      await this.emit(record, { type: "result", result });
+      await this.emit(record, { type: "stage", stage: "complete", message: "Saved worker results imported" });
+      await this.emit(record, { type: "done", ok: true });
+      return record.run;
+    } catch (error) {
+      const message = `Saved result import failed: ${(error as Error).message}`;
+      await this.fail(record, message);
+      throw new HttpError(422, message);
+    } finally { this.active = null; }
   }
 
   private async emit(record: Record_, event: DistributiveOmit<DecompRunEvent, "run_id" | "ts">): Promise<void> {
@@ -141,7 +183,8 @@ export class DecompRunService {
       await worker.uploadPayload(payload);
       await this.emit(record, { type: "stage", stage: "instance_starting", message: "Starting the analysis worker" });
       const depth = target.depth_by_budget[String(record.run.max_functions)] ?? 2;
-      await worker.start(record.run.run_id, { maxFunctions: record.run.max_functions, maxDepth: depth, targetId: target.id },
+      await worker.start(record.run.run_id, { maxFunctions: record.run.max_functions, maxDepth: depth, targetId: target.id,
+        ...(record.run.mode === "public_oracle" ? { mode: "public_oracle" as const } : {}) },
                          await this.deps.runnerScript());
     } catch (error) {
       await this.fail(record, `could not start the run: ${(error as Error).message}`);
@@ -201,6 +244,10 @@ export class DecompRunService {
         await new Promise((r) => setTimeout(r, this.deps.pollMs ?? 10_000));
       }
       await this.emit(record, { type: "stage", stage: "importing", message: "Importing results" });
+      if (record.run.mode === "public_oracle") {
+        await this.importPublicOracle(record, target);
+        return;
+      }
       const archive = await this.waitFor(() => worker.readObject(record.run.run_id, "results.tgz"));
       if (!archive) {
         await this.fail(record, "the worker finished without uploading results");
@@ -217,6 +264,21 @@ export class DecompRunService {
     } catch (error) {
       await this.fail(record, (error as Error).message);
     }
+  }
+
+  private async importPublicOracle(record: Record_, target: DecompTargetSpec): Promise<void> {
+    const bytes = await this.waitFor(() => this.deps.worker!.readObject(record.run.run_id, "public-oracle.json"));
+    if (!bytes) throw new Error("the worker finished without a public oracle report");
+    const report = await validatePublicOracle(JSON.parse(bytes.toString("utf8")), target, this.deps.repoRoot);
+    const observed = report.cases.filter(c => c.outcome === "observed").length;
+    await this.emit(record, { type: "result", result: {
+      public_oracle: report, readiness: "observation_only", spec_artifact: null, spec_status: null,
+      spec_writer: null, spec_error: null, claim_outcomes: {}, functions: { included: 0, drafted: 0, reviewed: 0 },
+      oracle: { public_agreement: 0, held_out_agreement: 0, public_observed: observed, held_out_observed: 0 },
+      handoff_path: null, tokens: { input: 0, output: 0 },
+    } });
+    await this.emit(record, { type: "stage", stage: "complete", message: `${observed}/${report.cases.length} public original outputs recorded` });
+    await this.emit(record, { type: "done", ok: observed === report.cases.length });
   }
 
   private async waitFor(read: () => Promise<Buffer | null>): Promise<Buffer | null> {

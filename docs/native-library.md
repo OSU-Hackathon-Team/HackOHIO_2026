@@ -4,6 +4,14 @@ The App library reads a private S3 catalog through the backend. No Docker volume
 disk is required. The catalog works while the analysis worker is stopped and does not require
 local analysis files after publication.
 
+Studio's **Record public original behavior** action submits `POST /api/decomp/runs` with
+`{target_id, max_functions:0, mode:"public_oracle", confirm_cost:true}` for registered UNO targets.
+It starts the shared worker, runs only the public partition, records exact inputs and outputs with
+application/driver identity, and returns the report through the existing status and SSE routes.
+Sort diagnostics show the descriptor passed to Calc. This uses worker compute and no model calls.
+The backend validates public case membership and inputs before publication; these observation-only
+jobs do not create specifications, case agreement claims, or saved library analyses.
+
 `library/` is distinct from the private engine `cache/v1/` namespace. The latter can restore
 analyst-side evidence and reviewed work in later runs, but the API never serves cache objects.
 See `decomp-s3-cache.md` for activation and identity rules.
@@ -279,7 +287,9 @@ review still gates every fact.
   script are in the payload whitelist.
 
 **Drivers:**
-- **`uno`:** LibreOffice Calc, unchanged.
+- **`uno`:** LibreOffice Calc formulas and bounded table/range operations over UNO. Formula cases may
+  include analyst expectations that the oracle compares; operation cases can omit expectations so
+  the original Calc output is stored as `observed` and cannot be mistaken for a passed hypothesis.
 - **`cli`:** a packaged command-line program (`engine/cli_target.py`).
   - The worker installs the apt package if it's missing, then fetches the binary's debug file from
     `debuginfod.ubuntu.com` by build-id.

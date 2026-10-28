@@ -59,6 +59,16 @@ export function decompRunsRouter(service: DecompRunService = defaultDecompRunSer
     }
   });
 
+  router.post("/api/decomp/runs/:id/reimport", async (req, res) => {
+    await ready;
+    try {
+      return res.json({ run: await service.reimport(req.params.id) });
+    } catch (error) {
+      const status = error instanceof HttpError ? error.status : 500;
+      return res.status(status).json({ error: (error as Error).message });
+    }
+  });
+
   router.get("/api/decomp/runs/:id", async (req, res) => {
     await ready;
     const record = service.get(req.params.id);

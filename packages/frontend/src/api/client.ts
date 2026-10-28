@@ -56,6 +56,7 @@ export interface Api {
   /** UI-triggered native decompilation on the EC2 worker (backend: routes/decompRuns.ts). */
   decompTargets?(signal?: AbortSignal): Promise<{ enabled: boolean; targets: DecompTarget[] }>;
   startDecompRun?(req: DecompRunRequest, signal?: AbortSignal): Promise<DecompRun>;
+  reimportDecompRun?(runId: string, signal?: AbortSignal): Promise<DecompRun>;
   streamDecompRun?(runId: string, on: (e: DecompRunEvent) => void, signal?: AbortSignal): Promise<void>;
 }
 
@@ -171,6 +172,12 @@ export const liveApi: Api = {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error((data as { error?: string }).error ?? `/api/decomp/runs: ${res.status}`);
+    return z.object({ run: DecompRun }).parse(data).run;
+  },
+  async reimportDecompRun(runId, signal) {
+    const response = await fetch(`/api/decomp/runs/${encodeURIComponent(runId)}/reimport`, { method: "POST", signal });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error((data as { error?: string }).error ?? `Re-import ${runId}: ${response.status}`);
     return z.object({ run: DecompRun }).parse(data).run;
   },
   streamDecompRun: (runId, on, signal) =>

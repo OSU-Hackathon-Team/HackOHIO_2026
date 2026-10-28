@@ -216,6 +216,8 @@ export interface IdeState {
   decompRun: DecompRunView | null;
   loadLiveNativeSpecs(): Promise<void>;
   startDecompRun(targetId: string, maxFunctions: number): Promise<void>;
+  startPublicOracle(targetId: string): Promise<void>;
+  reimportDecompRun(runId: string): Promise<void>;
   followDecompRun(runId: string): Promise<void>;
 
   // Verification & Copilot
@@ -876,6 +878,21 @@ export const useIdeStore = create<IdeState>((set, get) => ({
     set({ decompRun: initialRunView(run.run_id), bottomPanelOpen: true, bottomPanelTab: "terminal" });
     get().appendLog("decompiler", `Started native decompilation run ${run.run_id} (${maxFunctions} functions).`);
     await get().followDecompRun(run.run_id);
+  },
+
+  async startPublicOracle(targetId) {
+    if (!api.startDecompRun) throw new Error("This API mode cannot record original observations.");
+    const run = await api.startDecompRun({ target_id: targetId, max_functions: 0, mode: "public_oracle", confirm_cost: true });
+    set({ decompRun: initialRunView(run.run_id), bottomPanelOpen: true, bottomPanelTab: "terminal" });
+    get().appendLog("oracle", `Started public original observations ${run.run_id}; no model calls.`);
+    await get().followDecompRun(run.run_id);
+  },
+
+  async reimportDecompRun(runId) {
+    if (!api.reimportDecompRun) throw new Error("This API mode cannot re-import decompilation results.");
+    await api.reimportDecompRun(runId);
+    get().appendLog("decompiler", `Re-imported saved results for ${runId}; no new analysis run was started.`);
+    await get().followDecompRun(runId);
   },
 
   async followDecompRun(runId) {

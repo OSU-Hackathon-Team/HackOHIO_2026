@@ -67,9 +67,10 @@ export async function importRunResults(tgz: Buffer, opts: ImportOptions): Promis
       claim_outcomes: outcomes,
       functions: { included: summary.scope?.included ?? 0, drafted: summary.claims?.drafted ?? 0,
                    reviewed: summary.claims?.reviewed ?? 0 },
-      // Command-line targets have no analyst expectations: the program's own result ("observed") is the oracle.
-      oracle: { public_agreement: (summary.probes?.public?.agreement ?? 0) + (summary.probes?.public?.observed ?? 0),
-                held_out_agreement: (summary.probes?.held_out?.agreement ?? 0) + (summary.probes?.held_out?.observed ?? 0) },
+      oracle: { public_agreement: summary.probes?.public?.agreement ?? 0,
+                held_out_agreement: summary.probes?.held_out?.agreement ?? 0,
+                public_observed: summary.probes?.public?.observed ?? 0,
+                held_out_observed: summary.probes?.held_out?.observed ?? 0 },
       handoff_path: handoffPath,
       tokens: await sumUsage(state),
     };

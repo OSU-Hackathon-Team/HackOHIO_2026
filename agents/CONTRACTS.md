@@ -312,6 +312,26 @@ outcomes, function counts, public and held-out oracle agreement counts, the hand
 token usage. Held-out cases are never included in a result or handoff. One run at a time; the
 backend persists runs under `decomp-state/runs/` so the stream replays after a reload.
 The TypeScript contract in `packages/contracts/src/decompRun.ts` is authoritative.
+`POST /api/decomp/runs/:id/reimport` retries local import/publication from an already-finished
+worker archive after a local schema or publication repair; it never starts another analysis run.
+`DecompRunRequest.mode?: "analysis" | "public_oracle"` defaults to analysis. Public oracle mode
+requires `max_functions: 0`, a UNO target and `confirm_cost: true` for worker compute. It records
+only registered public cases without model calls, static analysis, or library publication.
+`DecompRunResult.public_oracle?` carries the application version, binary/driver hashes, exact
+public inputs, observed outputs, per-case execution errors and bounded sort descriptor metadata.
+The backend rechecks case membership and exact inputs against the public partition before exposing
+the report. This recording does not declare expectation agreement or implementation readiness.
+
+Renderer discovery accepts optional `capture_cases:true` through
+`POST /api/electron/archives/:id/renderer-discovery`. This requires three distinct original
+Markdown input/rendered-DOM captures with requirement citations. The host verifies editor input
+and replays capture actions. `GET /api/electron/renderer-discoveries/:id/public-handoff` adds
+replay-confirmed `cases` with exact `input_markdown` and original `expected_html`; selectors and
+local paths are excluded. The handoff stays draft with `implementation_ready:false`.
+Cases also record `input_verification` (`editor_dom` or `saved_document`). Saved-document checking
+reads exact UTF-8 bytes only from bounded Markdown files inside the isolated fixture workspace.
+`output_projection:"sanitized_document_dom_v1"` identifies the script/style/SVG/event/style-attribute
+removal used by capture; those cases do not establish omitted-markup behavior or pixel parity.
 
 ---
 
@@ -509,6 +529,7 @@ export type HealthResponse = z.infer<typeof HealthResponse>;
 | POST | `/api/refine` | `RefineRequest` | SSE `SynthEvent` stream | Eng 3 |
 | GET | `/api/decomp/targets` | - | `{ enabled, targets: DecompTarget[] }` | Eng 3 |
 | POST | `/api/decomp/runs` | `DecompRunRequest` | `202 { run: DecompRun }`; 403 disabled, 409 busy | Eng 3 |
+| POST | `/api/decomp/runs/:id/reimport` | – | `{ run: DecompRun }`; imports an existing worker archive without rerunning analysis | Eng 3 |
 | GET | `/api/decomp/runs/:id/events` | - | SSE `DecompRunEvent` stream (history, then live) ending with `done` | Eng 3 |
 
 The frontend chains `/api/extract` → `/api/implement` for each selected feature, so a card goes
@@ -794,8 +815,10 @@ Schemas: `nativeLibrary.ts`, `nativeExtraction.ts`, `decompTarget.ts`, `decompRu
 - `SavedFunction.claims[].case_links?`: `{case_id, agreement}` per public original case whose result
   a model predicted *blind* from the claim (engine/validation/case_links.py) and that was then compared
   with the real result. Absent on analyses saved before linking existed. Held-out cases are never linked.
-- `SavedAnalysis.observed_cases[].input?`: exactly what the oracle ran (`{formula, cells}` or
-  `{args}`); `formula` stays as the readable invocation.
+- `SavedAnalysis.observed_cases[].input?`: exactly what the oracle ran (`{formula, cells}`,
+  `{args}`, or a target operation plus its input cells); `formula` and `operation` stay as readable
+  invocations. Each observation needs a formula, operation, or exact input so non-formula cases
+  can be imported without inventing a formula.
 - `NativeExtraction.claim_sources[].case_ids?`: agreeing public cases for that fact. An extraction may
   be `ready_for_review` only when every fact has case IDs and every example (named `REQ-n <case_id>`)
   is one of those cases; otherwise it must stay `draft`. Extractions saved earlier are unchanged.

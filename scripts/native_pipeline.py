@@ -54,9 +54,12 @@ def target_setup(target: dict, args: argparse.Namespace) -> tuple[dict, dict, di
     """(install, config fields, driver factory) for the target's driver."""
     cases_path = ROOT / target["cases"]
     if target["driver"] == "uno":
-        from engine.libreoffice import UnoDriver, find_install, load_cases
+        from engine.libreoffice import UnoDriver, case_display, find_install, formula_input, load_cases
+        from engine.lo_pipeline import OBSERVATION_FORMAT
         suite, install = load_cases(cases_path), find_install()
-        fields = {"module": Path(install["libraries"][target["library"]]["path"]).name}
+        fields = {"module": Path(install["libraries"][target["library"]]["path"]).name,
+                  "case_input": formula_input, "case_display": case_display,
+                  "observation_format": OBSERVATION_FORMAT}
         return install, {"suite": suite, **fields}, {
             "driver_factory": lambda: UnoDriver(install["soffice"], python=args.uno_python)}
     from engine.cli_target import (OBSERVATION_FORMAT, CliDriver, cli_case_input, cli_display,

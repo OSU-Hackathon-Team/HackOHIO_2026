@@ -53,6 +53,7 @@ COPY packages/backend ./packages/backend
 COPY packages/frontend ./packages/frontend
 COPY packages/runtime ./packages/runtime
 COPY packages/desktop-host ./packages/desktop-host
+COPY scripts/electron ./scripts/electron
 COPY fixtures ./fixtures
 COPY targets/manifest.json ./targets/manifest.json
 
@@ -129,6 +130,7 @@ COPY --from=builder /app/packages/backend/package.json ./packages/backend/
 COPY --from=builder /app/packages/backend/dist ./packages/backend/dist
 # The Electron export compiler bundles its host template against these TypeScript modules.
 COPY --from=builder /app/packages/backend/src ./packages/backend/src
+COPY --from=builder /app/scripts/electron ./scripts/electron
 COPY --from=builder /app/packages/runtime/package.json ./packages/runtime/
 COPY --from=builder /app/packages/runtime/dist ./packages/runtime/dist
 # The application compiler bundles these source templates when a build job runs in production.

@@ -15,8 +15,13 @@ export type DecompTarget = z.infer<typeof DecompTarget>;
 
 export const DecompRunRequest = z.object({
   target_id: z.string(),
-  max_functions: z.number().int().positive(),
+  max_functions: z.number().int().nonnegative(),
+  mode: z.enum(["analysis", "public_oracle"]).optional(),
   confirm_cost: z.literal(true),        // the UI must show the estimate and get consent first
+}).strict().superRefine((request, ctx) => {
+  if ((request.mode === "public_oracle") !== (request.max_functions === 0)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "public_oracle requires zero functions; analysis requires a positive budget" });
+  }
 });
 export type DecompRunRequest = z.infer<typeof DecompRunRequest>;
 
@@ -26,7 +31,20 @@ export const DecompStage = z.enum([
 ]);
 export type DecompStage = z.infer<typeof DecompStage>;
 
+export const PublicOracleReport = z.object({
+  schema: z.literal(1), target_id: z.string(), application_version: z.string().nullable(),
+  driver_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  binary_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  cases: z.array(z.object({
+    id: z.string(), input: z.unknown(), observed: z.unknown(), error: z.string().nullable(),
+    outcome: z.enum(["observed", "execution_error"]),
+    diagnostics: z.object({ sort_descriptor: z.array(z.object({ name: z.string(), value: z.string().max(20000) })) }).optional(),
+  }).strict()).min(1).max(512),
+}).strict();
+export type PublicOracleReport = z.infer<typeof PublicOracleReport>;
+
 export const DecompRunResult = z.object({
+  public_oracle: PublicOracleReport.optional(),
   readiness: z.string().nullable(),
   spec_artifact: z.string().nullable(),
   spec_status: z.enum(["draft", "ready_for_review"]).nullable(),
@@ -34,7 +52,8 @@ export const DecompRunResult = z.object({
   spec_error: z.string().nullable(),
   claim_outcomes: z.record(z.string(), z.number()),
   functions: z.object({ included: z.number().int(), drafted: z.number().int(), reviewed: z.number().int() }),
-  oracle: z.object({ public_agreement: z.number().int(), held_out_agreement: z.number().int() }),
+  oracle: z.object({ public_agreement: z.number().int(), held_out_agreement: z.number().int(),
+    public_observed: z.number().int().default(0), held_out_observed: z.number().int().default(0) }),
   handoff_path: z.string().nullable(), // repo-relative folder with README.md + evidence.json
   tokens: z.object({ input: z.number().int(), output: z.number().int() }),
 });
@@ -54,6 +73,7 @@ export type DecompRunEvent = z.infer<typeof DecompRunEvent>;
 export const DecompRun = z.object({
   run_id: z.string(),
   target_id: z.string(),
+  mode: z.enum(["analysis", "public_oracle"]).optional(),
   max_functions: z.number().int(),
   stage: DecompStage,
   started_at: z.number(),

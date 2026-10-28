@@ -159,6 +159,24 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   explicit `readiness` verdict. Roles: `electron_spec_writer`, `electron_implementer` (fallback
   `electron_reconstructor`) in `models.json`. There are no per-app adapters, templates, blueprints
   or scenarios in the reconstruction path. See `docs/electron-generalization.md`.
+  Studio's Recombine view exposes archive upload, runtime IPC inventory and scoped run jobs
+  through `/api/electron/*`. A live Obsidian vault run passed public and repair checks but failed
+  final parity (13/16). Renderer discovery now runs a separate UI-only specification worker through
+  the same client API. It now follows replacement windows and reached the real original editor:
+  the model created a vault/note and observed live Markdown rendering. A 10-requirement draft
+  exists. Original revision `renderer-c9a4632b-7ce1-468b-9bdb-66fe2bb2d425` passed a fresh replay:
+  seven UI snapshots matched, with citation coverage for ten draft requirements. This does not
+  approve requirement semantics or candidate parity. Model context is bounded with compact replies
+  and chunked evidence reads; complete audit/replay evidence is preserved. Renderer implementation
+  and Calc integration remain open. Studio can also record public original Calc cases without
+  model calls through `POST /api/decomp/runs` in `public_oracle` mode. A live client job recorded
+  six public table outputs, including working range sorts after the UNO struct-sequence repair.
+  These are observations, not approved specifications or candidate parity.
+  Renderer discovery also supports `capture_cases:true`, requiring exact editor-input/original-DOM
+  pairs and original replay. Live capture attempts exposed selector/mode preconditions and hidden
+  Markdown markers in live-preview DOM text. Generic control refs, keyboard input and exact saved
+  fixture-document verification are implemented; a three-case original replay is still pending.
+  See `docs/obsidian-calc-demo-gap-log.md`.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
   `trace_application_feature` and `binary_session` (live probe; catalog and samples in `fixtures/rea/`),
