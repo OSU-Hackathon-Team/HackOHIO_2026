@@ -8,6 +8,7 @@ import * as asar from "@electron/asar";
 import { _electron, chromium, type Browser, type ElementHandle, type Page, type ElectronApplication } from "playwright";
 import { z } from "zod";
 import { continueWith, structuredCall, type AssistTool, type StructuredCallOpts } from "../llm/llm.js";
+import { RendererReplaySource, replayRendererTrace } from "./rendererReplay.js";
 
 const Answer = z.object({
   summary: z.string(), requirements: z.array(z.object({ id: z.string(), statement: z.string(), observation_ids: z.array(z.number().int()) })),
@@ -40,8 +41,11 @@ export function rendererDraftProblems(draft: z.infer<typeof Answer>, observation
 /** Observe renderer behavior through UI actions only. No source-reading tool reaches the model. */
 export async function discoverRenderer(options: { archive: string; directory: string; task: string; signal: AbortSignal;
   resources?: Array<{ archive: string; name: string }>; entryResource?: string;
+  replay?: RendererReplaySource;
   emit: (event: { type: string; [key: string]: unknown }) => void }) {
   const { archive, directory, task, signal, emit } = options;
+  const archiveHash = createHash("sha256").update(await fs.readFile(archive)).digest("hex");
+  if (options.replay && options.replay.archive_sha256 !== archiveHash) throw new Error("Replay source archive identity mismatch");
   await fs.mkdir(directory, { recursive: true });
   const original = path.join(directory, "private-original");
   const workspace = path.join(directory, "workspace");
@@ -230,6 +234,21 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
       },
     }];
     const initial = await record({ action: "startup" }, await snapshot());
+    if (options.replay) {
+      emit({ type: "stage", message: "Replaying recorded actions against a fresh original workspace without model calls" });
+      const report = await replayRendererTrace(options.replay, workspace, JSON.parse(initial).result, async action => {
+        signal.throwIfAborted();
+        let name: string, input: unknown;
+        if (typeof action.fixture === "string") {
+          if (typeof action.content !== "string" || typeof action.directory !== "boolean") throw new Error("Fixture content is missing from the source trace");
+          name = "fixture"; input = { path: action.fixture, content: action.content, directory: action.directory };
+        } else if (action.host_input) { name = "native_dialog"; input = action.host_input; }
+        else { name = "ui"; input = action; }
+        return JSON.parse(await tools.find(tool => tool.name === name)!.run(input)).result;
+      }, emit);
+      await fs.writeFile(path.join(directory, "replay-report.json"), JSON.stringify(report, null, 2));
+      return report;
+    }
     let messages: StructuredCallOpts<z.infer<typeof Answer>>["messages"] = [{ role: "user", content: `Task: ${task}\nIsolated fixture root: ${workspace}\nStartup observation: ${initial}` }];
     const call = () => structuredCall({ role: "spec_writer", signal, tools, maxToolTurns: 40, maxTokens: 12_000,
       system: "You are a behavioral specification agent. Observe the original app only through UI and fixture tools. Write precise requirements only for behavior you actually reached; cite observation IDs. A requirement must describe concrete inputs, user actions and observable outputs (including HTML tags where relevant), never merely say that something works correctly. Use ui inspect on specific rendered elements and on [aria-label] controls to obtain exact outputs and available actions. Explore varied inputs, syntax boundaries and edit/read transitions. Verify each UI transition before assuming it succeeded; fixture creation and native-dialog typing do not prove a vault opened. If a click leaves the same screen, target an actual interactive control precisely rather than its heading. Do not invent behavior from product familiarity. Do not implement anything. Record unreachable task requirements as blockers. Your output is a draft, never an approval. No original source is available.",
@@ -246,7 +265,7 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
       messages = continueWith(messages, response.assistantContent, `Draft problems: ${invalid.join("; ")}. Rewrite only from actual observations below, or remove unsupported requirements and state blockers. Never invent observation IDs. Actual recorded observations: ${JSON.stringify(observations)}`);
       response = await call();
     }
-    const draft = { schema: 1, status: "draft", task, ...response.value, model: response.model,
+    const draft = { schema: 1, status: "draft", archive_sha256: archiveHash, workspace_root: workspace, task, ...response.value, model: response.model,
       observations, limitations: ["Interactive observations have not been replayed independently", "No implementation or held-out renderer checks have run"] };
     await fs.writeFile(path.join(directory, "draft.json"), JSON.stringify(draft, null, 2));
     return draft;

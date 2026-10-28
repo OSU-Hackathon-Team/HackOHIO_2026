@@ -105,7 +105,7 @@ export function ElectronRunsPanel() {
     </div>
     {archive && <div className="mt-4 rounded border border-stone-700 p-3">
       <label className="block text-sm">Renderer behavior to discover<textarea aria-label="Renderer discovery task" value={rendererTask} onChange={event => setRendererTask(event.target.value)} placeholder="Describe the editing and rendering behavior to recover from the original app" className="mt-2 h-24 w-full rounded border border-stone-600 bg-[#141210] p-2 text-sm" /></label>
-      <p className="mt-1 text-xs text-stone-400">The specification model operates the original app in an isolated workspace. Results are drafts with recorded UI observations; replay and implementation checks remain separate.</p>
+      <p className="mt-1 text-xs text-stone-400">The specification model operates the original app, then the host replays its recorded actions in a fresh workspace. Drafts and replay reports remain separate from implementation approval.</p>
       <details className="mt-2 text-xs text-stone-400"><summary>Companion archives for packaged applications</summary>
         <p className="mt-2">Upload each companion archive above, then map its archive ID to the filename used in the original resources folder. Example: [{'{"archive_id":"…","name":"app.asar"}'}].</p>
         <textarea aria-label="Renderer resource archive map" value={resourceText} onChange={event => setResourceText(event.target.value)} className="mt-2 h-20 w-full rounded border border-stone-600 bg-[#141210] p-2 font-mono" />
@@ -118,7 +118,7 @@ export function ElectronRunsPanel() {
           event => setRendererActivity(previous => [...previous, JSON.stringify(event)].slice(-100)),
           { schema: z.object({ type: z.string() }).passthrough() }); })()
           .catch(cause => setError(String(cause))).finally(() => setBusy(false));
-      }}>Discover renderer (uses model)</button>
+      }}>Discover and replay renderer (uses model)</button>
       {rendererActivity.length > 0 && <pre aria-live="polite" className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap bg-[#141210] p-2 text-xs">{rendererActivity.join("\n")}</pre>}
     </div>}
     {channels.length > 0 && <div className="mt-3">

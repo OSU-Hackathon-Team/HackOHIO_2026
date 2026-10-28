@@ -41,9 +41,13 @@ Renderer discovery is now available through `POST /api/electron/archives/:id/ren
 with `{task, confirm_cost:true}`. Studio exposes the task and streams its UI observations.
 The specification model receives only UI, fixture and native picker tools. It can select windows,
 edit fields, type keys, inspect rendered elements and create fixture notes under its workspace.
-It saves a **draft** with observation citations; no renderer implementation or readiness promotion
-occurs. Fetch a completed draft with `GET /api/electron/renderer-discoveries/:id`.
-Disconnect or the ten-minute deadline stops its child process group.
+It saves a **draft** with observation citations and the uploaded archive hash. The host then starts
+a fresh original workspace and replays the frozen fixture/UI/native-picker actions without model
+calls. Workspace paths are normalized, while observable text, title, rendered HTML and inspected
+elements are compared without rewriting expectations. Errors and uncovered requirements fail the
+gate. A replay pass is still not implementation approval or held-out candidate verification.
+Fetch a draft with `GET /api/electron/renderer-discoveries/:id` and its replay report with the
+same path plus `/replay`. Disconnect or the twenty-minute deadline stops the child process group.
 
 This opt-in path currently requires Linux, Xvfb, xdotool, and Electron with a correctly configured
 sandbox helper. `SPLICE_RENDERER_ORIGINAL_EXECUTABLE` selects an installed source-app executable;
@@ -53,8 +57,8 @@ installed Electron package (or `SPLICE_RENDERER_ELECTRON`) and a conventional ma
 For multi-archive packaging, optional `resource_archives:[{archive_id,name}]` and `entry_resource`
 recreate the source resources layout from client uploads. This gives the app a separate workspace
 and user configuration, but does not provide operating-system isolation from the host filesystem.
-Independent scenario replay, held-out renderer checks and downstream renderer implementation are
-still required before claiming editor parity.
+Original replay acceptance, requirement review, held-out renderer checks and downstream renderer
+implementation are still required before claiming editor parity.
 
 | Role | Stage | Override |
 |---|---|---|

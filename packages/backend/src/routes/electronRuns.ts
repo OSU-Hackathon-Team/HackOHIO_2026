@@ -181,7 +181,7 @@ export function electronRunsRouter(stateDir = path.resolve(process.env.SPLICE_ST
     try {
       sse.send({ type: "stage", message: "Starting renderer discovery", discovery_id: id });
       const worker = rendererWorkerScript ?? fileURLToPath(new URL(`../scripts/discoverRenderer.${import.meta.url.endsWith(".ts") ? "ts" : "js"}`, import.meta.url));
-      const signal = AbortSignal.any([sse.signal, AbortSignal.timeout(10 * 60_000)]);
+      const signal = AbortSignal.any([sse.signal, AbortSignal.timeout(20 * 60_000)]);
       const child = spawn(process.execPath, [...(worker.endsWith(".ts") ? ["--import", "tsx"] : []), worker,
         archivePath(req.params.id), path.join(root, "renderer-discoveries", id), request.data.task,
         JSON.stringify({ resources: request.data.resource_archives.map(item => ({ archive: archivePath(item.archive_id), name: item.name })), entryResource: request.data.entry_resource })],
@@ -208,6 +208,11 @@ export function electronRunsRouter(stateDir = path.resolve(process.env.SPLICE_ST
     if (!/^renderer-[a-f0-9-]{36}$/.test(req.params.id)) return res.status(400).json({ error: "Invalid discovery ID" });
     try { return res.json(JSON.parse(await fsp.readFile(path.join(root, "renderer-discoveries", req.params.id, "draft.json"), "utf8"))); }
     catch { return res.status(404).json({ error: "No completed discovery draft" }); }
+  });
+  router.get("/api/electron/renderer-discoveries/:id/replay", async (req, res) => {
+    if (!/^renderer-[a-f0-9-]{36}$/.test(req.params.id)) return res.status(400).json({ error: "Invalid discovery ID" });
+    try { return res.json(JSON.parse(await fsp.readFile(path.join(root, "renderer-discoveries", req.params.id, "replay", "replay-report.json"), "utf8"))); }
+    catch { return res.status(404).json({ error: "No completed original replay report" }); }
   });
 
   router.get("/api/electron/runs", async (_req, res) => { await ready; res.json({ runs: [...runs.values()] }); });
