@@ -53,6 +53,17 @@ Studio has a saved-discovery ID field for this action. The source must have arch
 complete observation metadata, and its archive must match the selected upload. Retries create a
 new report and preserve the source and earlier failures. Snapshots wait for a consistent title,
 visible text and rendered HTML rather than sampling a partially updated frame.
+For a host observation fix, `recapture:true` with a saved replay ID records a new original
+revision from the same frozen actions and then replays it. It preserves the source task,
+requirements, parent ID and variance report, while leaving all earlier expectations/reports
+unchanged. Action failures or missing source observations reject the revision. This is original
+evidence recapture, not repair of candidate held-out failures or implementation approval.
+Studio exposes this as a checkbox beside the saved-discovery field.
+
+Model replies use compact snapshots and a chunked `observation` tool for earlier exact evidence.
+Full observations remain in the audit files and are used for replay comparisons; compact replies
+are never used as the replay oracle. This prevents repeated DOM snapshots from exhausting the
+model context without erasing evidence.
 
 This opt-in path currently requires Linux, Xvfb, xdotool, and Electron with a correctly configured
 sandbox helper. `SPLICE_RENDERER_ORIGINAL_EXECUTABLE` selects an installed source-app executable;

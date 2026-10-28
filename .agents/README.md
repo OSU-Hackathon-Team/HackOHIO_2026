@@ -164,8 +164,11 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   final parity (13/16). Renderer discovery now runs a separate UI-only specification worker through
   the same client API. It now follows replacement windows and reached the real original editor:
   the model created a vault/note and observed live Markdown rendering. A 10-requirement draft
-  exists; reading-mode reachability, precise replayable requirements, independent replay and
-  implementation remain open. See `docs/obsidian-calc-demo-gap-log.md`.
+  exists. Original revision `renderer-c9a4632b-7ce1-468b-9bdb-66fe2bb2d425` passed a fresh replay:
+  seven UI snapshots matched, with citation coverage for ten draft requirements. This does not
+  approve requirement semantics or candidate parity. Model context is bounded with compact replies
+  and chunked evidence reads; complete audit/replay evidence is preserved. Renderer implementation
+  and Calc integration remain open. See `docs/obsidian-calc-demo-gap-log.md`.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
   `trace_application_feature` and `binary_session` (live probe; catalog and samples in `fixtures/rea/`),

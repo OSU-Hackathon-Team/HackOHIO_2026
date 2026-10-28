@@ -168,6 +168,7 @@ export function electronRunsRouter(stateDir = path.resolve(process.env.SPLICE_ST
       resource_archives: z.array(z.object({ archive_id: z.string().regex(/^[a-f0-9]{64}$/), name: z.string().regex(/^[a-zA-Z0-9_.-]+\.asar$/) })).max(10).default([]),
       entry_resource: z.string().regex(/^[a-zA-Z0-9_.-]+\.asar$/).optional(),
       replay_discovery_id: z.string().regex(/^renderer-[a-f0-9-]{36}$/).optional(),
+      recapture: z.boolean().default(false),
     }).strict().safeParse(req.body);
     if (!request.success) return res.status(400).json({ error: "A task and model-cost confirmation are required" });
     if (!/^[a-f0-9]{64}$/.test(req.params.id) || !fs.existsSync(archivePath(req.params.id)))
@@ -177,6 +178,7 @@ export function electronRunsRouter(stateDir = path.resolve(process.env.SPLICE_ST
       return res.status(404).json({ error: "A companion archive is not uploaded" });
     if (new Set(request.data.resource_archives.map(item => item.name)).size !== request.data.resource_archives.length)
       return res.status(400).json({ error: "Resource names must be unique" });
+    if (request.data.recapture && !request.data.replay_discovery_id) return res.status(400).json({ error: "Recapture requires a frozen source discovery ID" });
     let replay: RendererReplaySource | undefined;
     if (request.data.replay_discovery_id) {
       try { replay = RendererReplaySource.parse(JSON.parse(await fsp.readFile(path.join(root, "renderer-discoveries", request.data.replay_discovery_id, "draft.json"), "utf8"))); }
@@ -192,7 +194,7 @@ export function electronRunsRouter(stateDir = path.resolve(process.env.SPLICE_ST
       const signal = AbortSignal.any([sse.signal, AbortSignal.timeout(20 * 60_000)]);
       const child = spawn(process.execPath, [...(worker.endsWith(".ts") ? ["--import", "tsx"] : []), worker,
         archivePath(req.params.id), path.join(root, "renderer-discoveries", id), request.data.task,
-        JSON.stringify({ resources: request.data.resource_archives.map(item => ({ archive: archivePath(item.archive_id), name: item.name })), entryResource: request.data.entry_resource, replay })],
+        JSON.stringify({ resources: request.data.resource_archives.map(item => ({ archive: archivePath(item.archive_id), name: item.name })), entryResource: request.data.entry_resource, replay, recapture: request.data.recapture, replay_source_id: request.data.replay_discovery_id })],
       { cwd: REPO_ROOT, detached: true, env: { ...process.env, AWS_REGION: config.awsRegion }, stdio: ["ignore", "pipe", "pipe"] });
       const stop = () => { if (child.pid) { try { process.kill(-child.pid, "SIGTERM"); } catch {} } };
       signal.addEventListener("abort", stop, { once: true });

@@ -9,6 +9,7 @@ import { _electron, chromium, type Browser, type ElementHandle, type Page, type 
 import { z } from "zod";
 import { continueWith, structuredCall, type AssistTool, type StructuredCallOpts } from "../llm/llm.js";
 import { RendererReplaySource, replayRendererTrace } from "./rendererReplay.js";
+import { compactRendererResult } from "./rendererContext.js";
 
 const Answer = z.object({
   summary: z.string(), requirements: z.array(z.object({ id: z.string(), statement: z.string(), observation_ids: z.array(z.number().int()) })),
@@ -42,6 +43,7 @@ export function rendererDraftProblems(draft: z.infer<typeof Answer>, observation
 export async function discoverRenderer(options: { archive: string; directory: string; task: string; signal: AbortSignal;
   resources?: Array<{ archive: string; name: string }>; entryResource?: string;
   replay?: RendererReplaySource;
+  recapture?: boolean; replay_source_id?: string;
   emit: (event: { type: string; [key: string]: unknown }) => void }) {
   const { archive, directory, task, signal, emit } = options;
   const archiveHash = createHash("sha256").update(await fs.readFile(archive)).digest("hex");
@@ -180,7 +182,7 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
       observations.push(observation);
       await fs.writeFile(path.join(directory, "observations.json"), JSON.stringify(observations, null, 2));
       emit({ type: "observation", observation });
-      return JSON.stringify(observation);
+      return JSON.stringify({ id: observation.id, result: compactRendererResult(result) });
     };
     const input = z.object({ action: z.enum(["snapshot", "inspect", "select_window", "click", "fill", "press", "type", "wait"]), selector: z.string(), value: z.string() });
     let pickerWindow: string | null = null;
@@ -250,11 +252,24 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
         return record({ host_input: item }, { focused_window: focused,
           note: "Native dialogs can block renderer JavaScript. Confirm or cancel the picker before requesting a browser snapshot." });
       },
+    }, { name: "observation", description: "Read an earlier recorded UI observation without re-running the app. Complete evidence is stored even when model replies are compact. Choose a field and an offset to read up to 5000 characters; use field action to inspect the input that produced it. No source files are accessible.",
+      inputSchema: { type: "object", additionalProperties: false, required: ["id", "field", "offset"], properties: {
+        id: { type: "integer" }, field: { type: "string", enum: ["action", "text", "rendered", "elements", "controls", "windows", "summary"] }, offset: { type: "integer" },
+      } },
+      async run(value) {
+        const query = z.object({ id: z.number().int(), field: z.enum(["action", "text", "rendered", "elements", "controls", "windows", "summary"]), offset: z.number().int().min(0) }).parse(value);
+        const observation = observations.find(item => item.id === query.id);
+        if (!observation) throw new Error("Observation ID does not exist");
+        const result = observation.result as Record<string, unknown>;
+        const selected = query.field === "action" ? observation.action : query.field === "summary" ? compactRendererResult(result) : result[query.field];
+        const text = typeof selected === "string" ? selected : JSON.stringify(selected) ?? "";
+        return JSON.stringify({ id: query.id, field: query.field, offset: query.offset, total_characters: text.length, text: text.slice(query.offset, query.offset + 5000) });
+      },
     }];
     const initial = await record({ action: "startup" }, await snapshot());
     if (options.replay) {
       emit({ type: "stage", message: "Replaying recorded actions against a fresh original workspace without model calls" });
-      const report = await replayRendererTrace(options.replay, workspace, JSON.parse(initial).result, async action => {
+      const report = await replayRendererTrace(options.replay, workspace, observations[0].result, async action => {
         signal.throwIfAborted();
         let name: string, input: unknown;
         if (typeof action.fixture === "string") {
@@ -262,9 +277,26 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
           name = "fixture"; input = { path: action.fixture, content: action.content, directory: action.directory };
         } else if (action.host_input) { name = "native_dialog"; input = action.host_input; }
         else { name = "ui"; input = action; }
-        return JSON.parse(await tools.find(tool => tool.name === name)!.run(input)).result;
+        await tools.find(tool => tool.name === name)!.run(input);
+        return observations[observations.length - 1].result;
       }, emit);
       await fs.writeFile(path.join(directory, "replay-report.json"), JSON.stringify(report, null, 2));
+      if (options.recapture) {
+        if (observations.length !== options.replay.observations.length || observations.some((item, index) => item.id !== options.replay!.observations[index].id))
+          throw new Error("Recapture did not preserve the complete action sequence");
+        if (observations.some((item, index) => (item.result as { error?: unknown })?.error && !(options.replay!.observations[index].result as { error?: unknown })?.error))
+          throw new Error("Recapture introduced an action failure; no replacement source draft was created");
+        const requirements = options.replay.requirements.map(item => ({ ...item, statement: item.statement ?? "" }));
+        const value = { summary: options.replay.summary ?? "Original trace recaptured after host observation changes", requirements, blockers: options.replay.blockers ?? [] };
+        const problems = rendererDraftProblems(value, observations);
+        if (problems.length) throw new Error(problems.join("; "));
+        const draft = { schema: 1, status: "draft", archive_sha256: archiveHash, workspace_root: workspace, task: options.replay.task, ...value,
+          model: options.replay.model ?? "not_recorded", generator: "original_trace_recapture", recaptured_from: options.replay_source_id,
+          source_variance: report.checks.filter(check => check.status === "failed"), observations,
+          limitations: ["Fresh original observations after a host adapter change; earlier expectations and failed reports remain preserved", "Requirement semantics and candidate parity have not been approved"] };
+        await fs.writeFile(path.join(directory, "draft.json"), JSON.stringify(draft, null, 2));
+        return draft;
+      }
       return report;
     }
     let messages: StructuredCallOpts<z.infer<typeof Answer>>["messages"] = [{ role: "user", content: `Task: ${task}\nIsolated fixture root: ${workspace}\nStartup observation: ${initial}` }];
@@ -280,7 +312,7 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
       await fs.writeFile(path.join(directory, `rejected-draft-${attempt + 1}.json`), JSON.stringify(response.value, null, 2));
       if (attempt === 2) throw new Error(invalid.join("; "));
       emit({ type: "stage", message: "Repairing invalid observation citations" });
-      messages = continueWith(messages, response.assistantContent, `Draft problems: ${invalid.join("; ")}. Rewrite only from actual observations below, or remove unsupported requirements and state blockers. Never invent observation IDs. Actual recorded observations: ${JSON.stringify(observations)}`);
+      messages = continueWith(messages, response.assistantContent, `Draft problems: ${invalid.join("; ")}. Rewrite only from recorded evidence or remove unsupported requirements and state blockers. Never invent observation IDs. Use the observation tool for exact earlier evidence. Recorded index: ${JSON.stringify(observations.map(item => ({ id: item.id, action: JSON.stringify(item.action).slice(0, 180), error: (item.result as { error?: unknown })?.error ? String((item.result as { error: unknown }).error).slice(0, 160) : null })))}`);
       response = await call();
     }
     const draft = { schema: 1, status: "draft", archive_sha256: archiveHash, workspace_root: workspace, task, ...response.value, model: response.model,

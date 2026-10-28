@@ -7,13 +7,13 @@ const emit = (event: unknown) => process.stdout.write(`${JSON.stringify(event)}\
 process.on("SIGTERM", () => controller.abort(new Error("Renderer discovery cancelled")));
 try {
   const settings = packaging ? JSON.parse(packaging) : {};
-  const draft = await discoverRenderer({ archive, directory: settings.replay ? `${directory}/replay` : directory, task, ...settings, signal: controller.signal, emit });
-  if (settings.replay) { emit({ type: "report", report: draft }); if (draft.status !== "passed") process.exitCode = 1; }
+  const draft = await discoverRenderer({ archive, directory: settings.replay && !settings.recapture ? `${directory}/replay` : directory, task, ...settings, signal: controller.signal, emit });
+  if (settings.replay && !settings.recapture) { emit({ type: "report", report: draft }); if (draft.status !== "passed") process.exitCode = 1; }
   else {
   emit({ type: "draft", draft });
   const source = RendererReplaySource.parse(draft);
   const report = await discoverRenderer({ archive, directory: `${directory}/replay`, task,
-    ...(packaging ? JSON.parse(packaging) : {}), replay: source, signal: controller.signal, emit });
+    ...settings, replay: source, recapture: false, signal: controller.signal, emit });
   emit({ type: "report", report });
   if (report.status !== "passed") process.exitCode = 1;
   }

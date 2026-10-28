@@ -31,6 +31,7 @@ export function ElectronRunsPanel() {
   const [resourceText, setResourceText] = useState("[]");
   const [entryResource, setEntryResource] = useState("");
   const [replayDiscovery, setReplayDiscovery] = useState("");
+  const [recapture, setRecapture] = useState(false);
 
   async function refresh() {
     const [catalog, history] = await Promise.all([
@@ -108,6 +109,7 @@ export function ElectronRunsPanel() {
       <label className="block text-sm">Renderer behavior to discover<textarea aria-label="Renderer discovery task" value={rendererTask} onChange={event => setRendererTask(event.target.value)} placeholder="Describe the editing and rendering behavior to recover from the original app" className="mt-2 h-24 w-full rounded border border-stone-600 bg-[#141210] p-2 text-sm" /></label>
       <p className="mt-1 text-xs text-stone-400">The specification model operates the original app, then the host replays its recorded actions in a fresh workspace. Drafts and replay reports remain separate from implementation approval.</p>
       <label className="mt-2 block text-xs text-stone-400">Saved discovery ID to replay without model calls (optional)<input aria-label="Renderer replay discovery ID" value={replayDiscovery} onChange={event => setReplayDiscovery(event.target.value)} placeholder="renderer-…" className="mt-1 w-full rounded border border-stone-600 bg-[#141210] p-2" /></label>
+      <label className="mt-2 flex gap-2 text-xs text-stone-400"><input type="checkbox" disabled={!replayDiscovery} checked={recapture} onChange={event => setRecapture(event.target.checked)} />Record a new original revision after host observation changes, then replay it. Earlier evidence and failures are preserved.</label>
       <details className="mt-2 text-xs text-stone-400"><summary>Companion archives for packaged applications</summary>
         <p className="mt-2">Upload each companion archive above, then map its archive ID to the filename used in the original resources folder. Example: [{'{"archive_id":"…","name":"app.asar"}'}].</p>
         <textarea aria-label="Renderer resource archive map" value={resourceText} onChange={event => setResourceText(event.target.value)} className="mt-2 h-20 w-full rounded border border-stone-600 bg-[#141210] p-2 font-mono" />
@@ -117,11 +119,12 @@ export function ElectronRunsPanel() {
         setBusy(true); setError(""); setRendererActivity([]);
         void (async () => { await streamPost(`/api/electron/archives/${archive}/renderer-discovery`, { task: rendererTask || "Replay saved original observations", confirm_cost: true,
           ...(replayDiscovery ? { replay_discovery_id: replayDiscovery } : {}),
+          recapture: Boolean(replayDiscovery && recapture),
           resource_archives: JSON.parse(resourceText), ...(entryResource ? { entry_resource: entryResource } : {}) },
           event => setRendererActivity(previous => [...previous, JSON.stringify(event)].slice(-100)),
           { schema: z.object({ type: z.string() }).passthrough() }); })()
           .catch(cause => setError(String(cause))).finally(() => setBusy(false));
-      }}>{replayDiscovery ? "Replay saved trace" : "Discover and replay renderer (uses model)"}</button>
+      }}>{replayDiscovery ? recapture ? "Recapture and replay frozen actions" : "Replay saved trace" : "Discover and replay renderer (uses model)"}</button>
       {rendererActivity.length > 0 && <pre aria-live="polite" className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap bg-[#141210] p-2 text-xs">{rendererActivity.join("\n")}</pre>}
     </div>}
     {channels.length > 0 && <div className="mt-3">

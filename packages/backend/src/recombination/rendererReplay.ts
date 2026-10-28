@@ -2,10 +2,11 @@ import { z } from "zod";
 
 export const RendererReplaySource = z.object({
   task: z.string(), archive_sha256: z.string().regex(/^[a-f0-9]{64}$/), workspace_root: z.string().min(1),
-  requirements: z.array(z.object({ id: z.string(), observation_ids: z.array(z.number().int()) })),
+  summary: z.string().optional(), blockers: z.array(z.string()).default([]), model: z.string().optional(),
+  requirements: z.array(z.object({ id: z.string(), statement: z.string().default(""), observation_ids: z.array(z.number().int()) })),
   observations: z.array(z.object({ id: z.number().int(), action: z.unknown(), result: z.unknown() })).max(1000),
 });
-export type RendererReplaySource = z.infer<typeof RendererReplaySource>;
+export type RendererReplaySource = z.input<typeof RendererReplaySource>;
 
 /** Compare a fresh original run without a model rewriting expectations after a mismatch. */
 export async function replayRendererTrace(source: RendererReplaySource, workspace: string,
