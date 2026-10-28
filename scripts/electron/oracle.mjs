@@ -13,12 +13,27 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import * as asar from "@electron/asar";
+import { resolveMainEntry } from "./entry.mjs";
 
 const self = fileURLToPath(import.meta.url);
 const BASES = ["userData", "documents", "logs", "temp"];
+
+/* Host parameters a channel's result may legitimately depend on. They are inputs to the mocked
+   host, so a case can be replayed under a second configuration: a result that changes is
+   host-dependent, and the feature contract cannot reproduce it. */
+export const DEFAULT_HOST = { bounds: { x: 0, y: 0, width: 800, height: 600 },
+  display: { width: 1280, height: 800 } };
+export const VARIANT_HOST = { bounds: { x: 40, y: 60, width: 1024, height: 720 },
+  display: { width: 1920, height: 1080 } };
+
+function hostConfig(host) {
+  return { bounds: { ...DEFAULT_HOST.bounds, ...(host?.bounds ?? {}) },
+    display: { ...DEFAULT_HOST.display, ...(host?.display ?? {}) } };
+}
 
 function within(root, relative) {
   if (typeof relative !== "string" || !relative || path.isAbsolute(relative))
@@ -61,7 +76,14 @@ async function snapshot(root) {
       if (entry.isDirectory()) await walk(path.join(directory, entry.name), next);
       else if (entry.isFile()) {
         const file = path.join(directory, entry.name);
-        const bytes = await fsp.readFile(file);
+        let bytes;
+        try { bytes = await fsp.readFile(file); }
+        catch (error) {
+          /* An application may replace a file while it is read (electron-store writes a temporary
+             file and renames it). A file that is gone by the time it is opened is not an effect. */
+          if (error.code === "ENOENT") continue;
+          throw error;
+        }
         files[next] = bytes.length > 262144
           ? { sha256: crypto.createHash("sha256").update(bytes).digest("hex"), size: bytes.length }
           : bytes.toString("utf8");
@@ -104,7 +126,7 @@ export function validateCase(value) {
 }
 
 /** Run a validated case against an extracted app directory. */
-export async function runCase({ appDir, case: rawCase, timeout = 20000 }) {
+export async function runCase({ appDir, case: rawCase, timeout = 20000, host }) {
   appDir = path.resolve(appDir);
   const testCase = validateCase(rawCase);
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "splice-oracle-run-"));
@@ -120,10 +142,23 @@ export async function runCase({ appDir, case: rawCase, timeout = 20000 }) {
       await fsp.writeFile(file, typeof fixture.content === "string" ? fixture.content : JSON.stringify(fixture.content, null, 2));
     }
     const pkg = JSON.parse(await fsp.readFile(path.join(appDir, "package.json"), "utf8"));
-    const main = within(appDir, String(pkg.main ?? "index.js"));
-    if (!fs.existsSync(main)) throw new Error(`Main entry is missing: ${main}`);
-    const initial = await snapshot(bases);
-    const result = await runWorker({ appDir, main, bases, calls: testCase.calls, fixed_time: testCase.fixed_time }, timeout);
+    /* Same resolution as the static inventory: a launcher package names an entry it does not
+       ship, and the archive's conventional main is what it loads. */
+    const resolved = resolveMainEntry(String(pkg.main ?? "index.js"),
+      name => fs.existsSync(path.join(appDir, name)));
+    if (!resolved.entry) throw new Error(`Main entry is missing: ${pkg.main ?? "index.js"}`);
+    const main = within(appDir, resolved.entry);
+    /* Match the worker's normalization so a fixture that mentions its own absolute location is
+       not reported as a change on the first call. */
+    const labels = BASES.map(base => [bases[base], base]).concat([[appDir, "<app>"]])
+      .sort((first, second) => second[0].length - first[0].length);
+    const initial = Object.fromEntries(Object.entries(await snapshot(bases)).map(([file, value]) => [file,
+      typeof value === "string"
+        ? labels.reduce((text, [absolute, label]) => text.split(absolute).join(label), value)
+        : value]));
+    const esmMain = pkg.type === "module" || String(pkg.main ?? "").endsWith(".mjs");
+    const result = await runWorker({ appDir, main, esmMain, packageName: pkg.name, packageVersion: pkg.version,
+      bases, calls: testCase.calls, fixed_time: testCase.fixed_time, host: hostConfig(host) }, timeout);
     const effects = [];
     let files = initial;
     for (const outcome of result.outcomes) {
@@ -208,10 +243,31 @@ async function worker() {
   console.info = console.log;
   console.warn = console.log;
   process.stdout.write = (chunk, ...rest) => error(chunk, ...rest);
+  /* Libraries branch on process.type. Without it, packages such as electron-log load their
+     renderer preload inside the main process and crash on renderer-only globals. */
+  if (!process.type) process.type = "browser";
+  /* Electron-only process properties and native bindings do not exist in Node, and packages read
+     them while loading: @electron/remote calls process._linkedBinding('electron_common_v8_util')
+     and reads feature flags from it. An unknown binding answers with a stub whose members return
+     undefined, which is the conservative answer for the checks they are used for, and the paths
+     match Electron's layout (resourcesPath is the directory that holds the app). */
+  const stubBinding = () => new Proxy({}, { get: (_, key) => key === Symbol.toPrimitive ? undefined : () => undefined });
+  const nativeBinding = process._linkedBinding?.bind(process);
+  if (nativeBinding) {
+    try {
+      process._linkedBinding = name => { try { return nativeBinding(name); } catch { return stubBinding(); } };
+    } catch { /* the property may be read-only */ }
+  }
+
+  try { process.versions.electron ??= "45.0.0"; } catch { /* versions may be frozen */ }
 
   const require = createRequire(import.meta.url);
   const Module = require("node:module");
   const pathModule = require("node:path");
+  /* Electron's own process properties, which applications read to locate their resources. */
+  process.resourcesPath = pathModule.dirname(payload.appDir);
+  process.defaultApp = false;
+  process.isMainFrame = true;
   const io = [];
   recordIo(io, payload.bases);
 
@@ -238,12 +294,39 @@ async function worker() {
     on: () => {}, once: () => {}, removeListener: () => {},
     id: 1, isDestroyed: () => false,
   };
-  const fakeEvent = { sender, senderFrame: { url: `file://${payload.appDir}/index.html` }, frameId: 1, processId: 1 };
+  /* A handler is invoked by a window, and real main processes resolve that window with
+     BrowserWindow.fromWebContents(event.sender). When the app has not created one yet, provide a
+     default window so bound-dependent call shapes run instead of failing on null. */
+  let defaultWindow = null;
+  const senderWindow = () => windows[0] ?? (defaultWindow ??= new BrowserWindow(payload.host.bounds));
+  /* Electron registers two IPC forms, and they answer differently: ipcMain.handle returns a value
+     to ipcRenderer.invoke, while ipcMain.on answers ipcRenderer.sendSync by assigning
+     event.returnValue. Most main-process APIs in a large application are the sendSync form, so
+     each call gets its own event object and an ipcMain.on channel's observed result is its
+     returnValue. */
+  const callEvent = () => ({ get sender() { return senderWindow().webContents; },
+    senderFrame: { url: `file://${payload.appDir}/index.html` }, frameId: 1, processId: 1,
+    returnValue: undefined,
+    /* The asynchronous answer form: an application that answers ipcRenderer.send with
+       event.reply(...) instead of sendSync. The reply is accepted and cannot be awaited by the
+       harness, so a channel that only replies is observed as returning nothing. */
+    reply: () => {}, replyOn: () => {}, });
+  const fakeEvent = callEvent();
   const webContents = () => ({
     send: () => {}, postMessage: () => {}, on: () => {}, once: () => {}, removeListener: () => {},
     executeJavaScript: async () => undefined, setWindowOpenHandler: () => {}, openDevTools: () => {},
     loadURL: async () => {}, loadFile: async () => {}, session: null, id: windows.length + 1,
     isDestroyed: () => false, getURL: () => "about:blank",
+    /* Printing and page capture are documented interface with a byte-shaped result; a channel that
+       renders a PDF writes the file it is given, and the host must not look broken there. */
+    printToPDF: async () => Buffer.from("%PDF-1.4\n"), print: async () => {},
+    capturePage: async () => ({ isEmpty: () => true, toPNG: () => Buffer.alloc(0),
+      getSize: () => ({ width: 0, height: 0 }) }),
+    savePage: async () => false, findInPage: () => 0, stopFindInPage: () => {},
+    insertCSS: async () => "", removeInsertedCSS: async () => {}, setZoomFactor: () => {},
+    getZoomFactor: () => 1, setZoomLevel: () => {}, getZoomLevel: () => 0,
+    getProcessId: () => 1, getOSProcessId: () => 1, getTitle: () => "", isLoading: () => false,
+    setAudioMuted: () => {}, isAudioMuted: () => false, focus: () => {}, blur: () => {},
   });
   class BrowserWindow {
     constructor(options = {}) {
@@ -256,17 +339,70 @@ async function worker() {
     loadFile(file) { this.url = `file://${pathModule.resolve(payload.appDir, String(file))}`; return Promise.resolve(); }
     on() { return this; } once() { return this; } removeListener() { return this; }
     show() {} hide() {} focus() {} close() {} destroy() {} isDestroyed() { return false; }
+    getBounds() { const { x = 0, y = 0, width = 800, height = 600 } = this.options; return { x, y, width, height }; }
+    getContentBounds() { return this.getBounds(); }
+    setContentBounds(next) { this.setBounds(next); }
+    setBounds(next) { this.options = { ...this.options, ...next }; }
+    getSize() { const { width = 800, height = 600 } = this.options; return [width, height]; }
+    setSize(width, height) { this.options = { ...this.options, width, height }; }
+    isMaximized() { return false; } maximize() {} unmaximize() {} isMinimized() { return false; }
+    minimize() {} restore() {}
     static getAllWindows() { return windows; }
     static getFocusedWindow() { return windows[0] ?? null; }
-    static fromWebContents() { return null; }
-    static fromId() { return null; }
+    static fromWebContents(contents) { return windows.find(window => window.webContents === contents) ?? null; }
+    static fromId(id) { return windows.find(window => window.id === id) ?? null; }
   }
+  /* Lifecycle listeners: apps commonly do real startup work in app.on("ready"), not only in
+     whenReady() chains. Without emitting it, settings stores and timers stay uninitialized and
+     every handler looks broken. */
+  const appListeners = new Map();
+  const appOn = (event, listener, once = false) => {
+    if (typeof listener !== "function") return app;
+    const entry = { listener, once };
+    appListeners.set(event, [...(appListeners.get(event) ?? []), entry]);
+    return app;
+  };
+  /* app.getPath is a lookup, not a capability gate: an unsupported key must return the path the
+     platform would use, not throw, or every channel that reads a directory looks broken. */
+  const home = pathModule.join(pathModule.dirname(payload.bases.userData), "home");
+  const systemPaths = {
+    home,
+    appData: pathModule.dirname(payload.bases.userData),
+    sessionData: payload.bases.userData,
+    crashDumps: pathModule.join(payload.bases.userData, "crashDumps"),
+    desktop: pathModule.join(home, "Desktop"),
+    downloads: pathModule.join(home, "Downloads"),
+    music: pathModule.join(home, "Music"),
+    pictures: pathModule.join(home, "Pictures"),
+    videos: pathModule.join(home, "Videos"),
+    recent: pathModule.join(home, "Recent"),
+    exe: pathModule.join(payload.appDir, "app"),
+    module: payload.appDir,
+  };
   const app = {
+    name: payload.packageName ?? "app",
+    setName: value => { app.name = String(value); },
     whenReady: () => new TrackedPromise(Promise.resolve()),
     isReady: () => true,
+    on: (event, listener) => appOn(event, listener),
+    once: (event, listener) => appOn(event, listener, true),
+    off: (event, listener) => { appListeners.set(event, (appListeners.get(event) ?? [])
+      .filter(entry => entry.listener !== listener)); return app; },
+    removeListener: (event, listener) => app.off(event, listener),
+    removeAllListeners: event => { appListeners.delete(event); return app; },
+    emit: (event, ...args) => {
+      const entries = appListeners.get(event) ?? [];
+      appListeners.set(event, entries.filter(entry => !entry.once));
+      for (const entry of entries) {
+        try { entry.listener(...args); }
+        catch (caught) { try { error(`${caught?.stack ?? caught}\n`); } catch { /* stderr is closed */ } }
+      }
+      return entries.length > 0;
+    },
     getPath: key => {
-      if (!payload.bases[key]) throw new Error(`App requested unsupported Electron path ${key}`);
-      return payload.bases[key];
+      const value = payload.bases[key] ?? systemPaths[key];
+      if (!value) throw new Error(`App requested unsupported Electron path ${key}`);
+      return value;
     },
     setPath: () => {},
     getName: () => payload.packageName ?? "app",
@@ -274,54 +410,192 @@ async function worker() {
     getAppPath: () => payload.appDir,
     getLocale: () => "en-US",
     isPackaged: false,
-    on: () => {}, once: () => {}, removeListener: () => {},
     quit: () => {}, exit: () => {}, relaunch: () => {}, focus: () => {},
     setAppUserModelId: () => {}, requestSingleInstanceLock: () => true, releaseSingleInstanceLock: () => {},
+    /* Desktop integration: the rest of the Electron app API, answered rather than missing. An app
+       that registers a protocol client, a recent document or an about panel reads a bare boolean
+       or returns nothing, and a missing member would fail at import time for a platform effect no
+       channel result depends on. */
     disableHardwareAcceleration: () => {}, setAsDefaultProtocolClient: () => true,
-    commandLine: { appendSwitch: () => {}, hasSwitch: () => false, getSwitchValue: () => "" },
+    removeAsDefaultProtocolClient: () => true, isDefaultProtocolClient: () => false,
+    addRecentDocument: () => {}, clearRecentDocuments: () => {},
+    setAboutPanelOptions: () => {}, showAboutPanel: () => {}, hide: () => {}, show: () => {},
+    getLoginItemSettings: () => ({ openAtLogin: false, wasOpenedAtLogin: false }),
+    setLoginItemSettings: () => {}, setActivationPolicy: () => true,
+    isAccessibilitySupportEnabled: () => false, getGPUFeatureStatus: () => ({}),
+    getCurrentActivityType: () => null, setUserActivity: () => {}, enableSandbox: () => {},
+    getSystemPreferences: () => ({}), setSecureKeyboardEntryEnabled: () => {},
+    dock: { hide: () => {}, show: () => {}, setBadge: () => {}, setBadgeCount: () => true,
+      getBadgeCount: () => 0, setIcon: () => {}, setMenu: () => {}, bounce: () => 0,
+      cancelBounce: () => {}, isVisible: () => false, setJumpList: () => {},
+      downloadFinished: () => {}, setAutoHideMenuBar: () => {} },
+    commandLine: { appendSwitch: () => {}, appendArgument: () => {}, hasSwitch: () => false,
+      getSwitchValue: () => "", removeSwitch: () => {} },
   };
   const noopEmitter = { on: () => {}, once: () => {}, removeListener: () => {}, emit: () => false };
+  /* webRequest is an event registrar, not an emitter: an application calls onBeforeRequest(filter,
+     listener) while installing content blocking. The listener is registered and the call returns,
+     which is what an application needs to finish starting; whether a real request would be
+     intercepted is outside what the oracle can observe (nothing here performs network I/O for the
+     app). */
+  const webRequest = (() => {
+    const api = {};
+    for (const name of ["onBeforeRequest", "onBeforeSendHeaders", "onSendHeaders", "onHeadersReceived",
+      "onResponseStarted", "onBeforeRedirect", "onCompleted", "onErrorOccurred"])
+      api[name] = (filter, listener) => ({
+        listener: typeof filter === "function" ? filter : listener,
+        removeListener: () => {},
+      });
+    return api;
+  })();
   const electron = {
     app,
     ipcMain: {
-      handle: (channel, handler) => { handlers.set(channel, handler); },
-      handleOnce: (channel, handler) => { handlers.set(channel, handler); },
-      on: (channel, handler) => { handlers.set(channel, handler); },
-      once: (channel, handler) => { handlers.set(channel, handler); },
+      handle: (channel, handler) => { handlers.set(channel, { handler, sync: false }); },
+      handleOnce: (channel, handler) => { handlers.set(channel, { handler, sync: false }); },
+      on: (channel, handler) => { handlers.set(channel, { handler, sync: true }); },
+      once: (channel, handler) => { handlers.set(channel, { handler, sync: true }); },
       removeHandler: channel => { handlers.delete(channel); },
       removeListener: () => {}, removeAllListeners: () => {},
     },
-    ipcRenderer: {
-      invoke: async () => undefined, send: () => {}, sendSync: () => undefined,
-      postMessage: () => {}, on: () => {}, once: () => {}, removeListener: () => {},
-      removeAllListeners: () => {}, setMaxListeners: () => {},
-    },
+    /* The main process has no ipcRenderer: in real Electron require("electron") inside main
+       only exposes main-process APIs. Libraries such as electron-log branch on that absence. */
     contextBridge: {
       exposeInMainWorld: (name, value) => { bridge.push({ global: name, methods: Object.keys(value ?? {}) }); },
       exposeInIsolatedWorld: () => {},
     },
     BrowserWindow,
     webContents: { getAllWebContents: () => windows.map(window => window.webContents), fromId: () => null },
+    /* Real Electron resolves BrowserWindow.fromWebContents(event.sender); channels such as
+       "get-window-bounds" are useless without it. */
+    /* (fromWebContents is defined on BrowserWindow below.) */
     session: {
       defaultSession: { setPermissionRequestHandler: () => {}, setPermissionCheckHandler: () => {},
-        protocol: { handle: () => {}, registerFileProtocol: () => {} }, webRequest: noopEmitter },
+        protocol: { handle: () => {}, registerFileProtocol: () => {}, interceptFileProtocol: () => true },
+        webRequest,
+        getPreloads: () => [], setPreloads: () => {}, getStoragePath: () => payload.bases.userData,
+        clearStorageData: async () => {}, flushStorageData: async () => {}, clearCache: async () => {},
+        setCertificateVerifyProc: () => {}, setProxy: async () => {}, resolveProxy: async () => "",
+        getUserAgent: () => "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+          `Electron/${process.versions.electron} Safari/537.36`,
+        setUserAgent: () => {}, setDisplayMediaRequestHandler: () => {},
+        setDevicePermissionHandler: () => {}, setPermissionCheckHandler: () => {},
+        setBluetoothPairingHandler: () => {}, setSpellCheckerDictionaryDownloadURL: () => {},
+        getCacheSize: async () => 0, clearHostResolverCache: () => {}, closeAllConnections: async () => {},
+        setCodeCachePath: () => {}, getPreloads: () => [], setSSLConfig: () => {},
+        loadExtension: async () => ({}), getAllExtensions: () => [], removeExtension: () => {},
+        downloadURL: () => {}, createInterruptedDownload: () => {},
+        setSpellCheckerLanguages: () => {}, getSpellCheckerLanguages: () => [],
+        spellCheckerDictionaryDownloadURL: "",
+        cookies: { get: async () => [], set: async () => {}, remove: async () => {}, flushStore: async () => {},
+          on: () => {}, once: () => {}, removeListener: () => {} } },
       fromPartition: () => electron.session.defaultSession,
     },
-    Menu: { setApplicationMenu: () => {}, buildFromTemplate: () => ({}), getApplicationMenu: () => null },
-    Tray: class { constructor() {} setToolTip() {} setContextMenu() {} on() {} destroy() {} },
+    /* A main process builds a menu template and shows it as the application menu or as a popup
+       from an IPC channel, so the menu object has to be one. */
+    Menu: (() => {
+      let applicationMenu = null;
+      class Menu {
+        constructor() { this.items = []; }
+        static buildFromTemplate(template) {
+          const menu = new Menu();
+          menu.template = Array.isArray(template) ? template : [];
+          menu.items = menu.template.map((item, index) => ({ id: item?.id ?? `item-${index}`,
+            label: item?.label ?? "", type: item?.type ?? "normal", enabled: item?.enabled !== false,
+            visible: item?.visible !== false, checked: Boolean(item?.checked), submenu: null,
+            click: () => {}, }));
+          return menu;
+        }
+        static setApplicationMenu(menu) { applicationMenu = menu ?? null; }
+        static getApplicationMenu() { return applicationMenu; }
+        static getMenuItemById(id) { return applicationMenu?.getMenuItemById(id) ?? null; }
+        static setApplicationMenuOnLinux() {}
+        static sendActionToFirstResponder() {}
+        append(item) { this.items.push(item); } insert(position, item) { this.items.splice(position, 0, item); }
+        popup() {} closePopup() {} getMenuItemById(id) { return this.items.find(item => item.id === id) ?? null; }
+      }
+      return Menu;
+    })(),
+    Tray: class {
+      constructor() {} setImage() {} setPressedImage() {} setToolTip() {} setTitle() {} getTitle() { return ""; }
+      setContextMenu() {} getBounds() { return { x: 0, y: 0, width: 0, height: 0 }; } popUpContextMenu() {}
+      close() {} destroy() {} isDestroyed() { return false; } setIgnoreDoubleClickEvents() {}
+      getIgnoreDoubleClickEvents() { return false; } displayBalloon() {} removeBalloon() {} focus() {}
+      on() { return this; } once() { return this; } addListener() { return this; }
+      removeListener() { return this; } removeAllListeners() { return this; }
+    },
+    nativeImage: (() => {
+      const image = () => ({ isEmpty: () => true, getSize: () => ({ width: 0, height: 0 }),
+        getAspectRatio: () => 1, resize: () => image(), crop: () => image(),
+        toPNG: () => Buffer.alloc(0), toJPEG: () => Buffer.alloc(0), toBitmap: () => Buffer.alloc(0),
+        toDataURL: () => "data:image/png;base64,", isTemplateImage: () => false,
+        setTemplateImage: () => {}, addRepresentation: () => {} });
+      return { createEmpty: () => image(), createFromPath: () => image(), createFromBuffer: () => image(),
+        createFromBitmap: () => image(), createFromDataURL: () => image(), createFromNamedImage: () => image() };
+    })(),
     Notification: class { constructor() {} show() {} on() {} close() {} },
     dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
       showSaveDialog: async () => ({ canceled: true, filePath: null }),
       showMessageBox: async () => ({ response: 0, checkboxChecked: false }),
       showErrorBox: () => {} },
-    shell: { openExternal: async () => {}, openPath: async () => "", showItemInFolder: () => {}, beep: () => {} },
+    shell: { openExternal: async () => {}, openPath: async () => "", showItemInFolder: () => {}, beep: () => {},
+      trashItem: async () => {}, writeShortcutLink: () => true, readShortcutLink: () => ({}) },
+    /* Electron's deprecated built-in remote module, which a launcher may enable before loading the
+       application's own window. Enabling it is a renderer capability; no case observes it. */
+    remote: { enable: () => {}, initialize: () => {}, getCurrentWindow: () => null,
+      getGlobal: () => globalThis, require: () => ({}), app, process, BrowserWindow,
+      getBuiltin: () => null, getOwnerBrowserWindow: () => null },
     clipboard: { readText: () => "", writeText: () => {}, readImage: () => null, writeImage: () => {} },
     nativeTheme: noopEmitter,
-    screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 1280, height: 800 }, scaleFactor: 1 }),
-      getAllDisplays: () => [{ workAreaSize: { width: 1280, height: 800 }, scaleFactor: 1 }],
-      getCursorScreenPoint: () => ({ x: 0, y: 0 }) },
+    screen: (() => {
+      const { width, height } = payload.host.display;
+      const bounds = { x: 0, y: 0, width, height };
+      const display = { id: 1, label: "", bounds, workArea: bounds,
+        size: { width, height }, workAreaSize: { width, height }, scaleFactor: 1, rotation: 0,
+        internal: false, touchSupport: "unknown", accelerometerSupport: "unknown", colorSpace: "srgb",
+        colorDepth: 24, depthPerComponent: 8, displayFrequency: 60, monochrome: false };
+      const primary = () => display;
+      return { getPrimaryDisplay: primary, getAllDisplays: () => [display],
+        getDisplayNearestPoint: primary, getDisplayMatching: primary, getDisplayNearestWindow: primary,
+        getCursorScreenPoint: () => ({ x: 0, y: 0 }),
+        screenToDipPoint: point => point, dipToScreenPoint: point => point,
+        screenToDipRect: rect => rect, dipToScreenRect: rect => rect };
+    })(),
     powerMonitor: noopEmitter,
-    globalShortcut: { register: () => true, unregister: () => {}, unregisterAll: () => {} },
+    /* protocol and the smaller modules are part of the main-process surface real applications
+       touch during startup (registerSchemesAsPrivileged, systemPreferences lookups). */
+    protocol: {
+      registerSchemesAsPrivileged: () => {}, isProtocolHandled: async () => false,
+      handle: () => {}, unhandle: () => {},
+      registerFileProtocol: () => {}, registerBufferProtocol: () => {}, registerStringProtocol: () => {},
+      registerStreamProtocol: () => {}, registerHttpProtocol: () => {},
+      unregisterProtocol: () => {}, unregisterFileProtocol: () => {}, unregisterBufferProtocol: () => {},
+      unregisterStringProtocol: () => {}, unregisterStreamProtocol: () => {}, unregisterHttpProtocol: () => {},
+      interceptFileProtocol: () => true, interceptBufferProtocol: () => true,
+      interceptStringProtocol: () => true, interceptStreamProtocol: () => true,
+      interceptHttpProtocol: () => true, uninterceptProtocol: () => true,
+    },
+    systemPreferences: { isDarkMode: () => false, getMediaAccessStatus: () => "granted",
+      askForMediaAccess: async () => true, getAccentColor: () => "", getColor: () => "#000000",
+      isAeroGlassEnabled: () => false, isInvertedColorScheme: () => false, isHighContrastColorScheme: () => false,
+      getAnimationSettings: () => ({ shouldRenderRichAnimation: false, scrollAnimationsEnabledBySystem: false,
+        prefersReducedMotion: false }), isSwipeTrackingFromScrollEventsEnabled: () => false,
+      subscribeNotification: () => {}, unsubscribeNotification: () => {}, subscribeWorkspaceNotification: () => {},
+      unsubscribeWorkspaceNotification: () => {}, on: () => {}, once: () => {}, removeListener: () => {} },
+    contentTracing: { startRecording: async () => {}, stopRecording: async () => "",
+      getCategories: async () => [], getTraceBufferUsage: async () => ({ value: 0, percentage: 0 }) },
+    crashReporter: { start: () => {}, getLastCrashReport: () => null, getUploadedReports: () => [],
+      getUploadToServer: () => false, setUploadToServer: () => {}, addExtraParameter: () => {},
+      removeExtraParameter: () => {}, getParameters: () => ({}), addASARHeaderInfo: () => {} },
+    desktopCapturer: { getSources: async () => [] },
+    MessageChannelMain: class { constructor() { const { port1, port2 } = (() => { const port = { postMessage: () => {},
+      close: () => {}, start: () => {}, on: () => {}, once: () => {}, addListener: () => {}, removeListener: () => {},
+      onmessage: null, onmessageerror: null }; return { port1: { ...port }, port2: { ...port } }; })();
+      this.port1 = port1; this.port2 = port2; } },
+    TouchBar: class { constructor() {} },
+    webFrameMain: { fromId: () => null, fromWebContents: () => null },
+    globalShortcut: { register: () => true, isRegistered: () => false, unregister: () => {},
+      unregisterAll: () => {} },
     safeStorage: { isEncryptionAvailable: () => false, encryptString: value => Buffer.from(String(value)),
       decryptString: value => Buffer.from(value).toString() },
     net: { fetch: (...args) => fetch(...args), request: () => { throw new Error("net.request is unavailable in the oracle"); } },
@@ -331,8 +605,39 @@ async function worker() {
   const nativeLoad = Module._load;
   Module._load = function (name, parent, isMain) {
     if (name === "electron") return electron;
+    /* Electron ships an unpatched `original-fs` built-in for applications that must bypass the
+       asar layer. Nothing here is packed, so it is the same module. */
+    if (name === "original-fs" || name === "node:original-fs") return nativeLoad.call(this, "fs", parent, isMain);
     return nativeLoad.call(this, name, parent, isMain);
   };
+  /* ES module main processes ("type": "module", import from "electron") bypass Module._load.
+     Publish the same host through a shim package in the extracted directory's node_modules and
+     expose it on a global that the ESM shim reads. Writes are idempotent and atomic so parallel
+     cases can share one extracted app. */
+  function exposeElectronToEsm() {
+    const directory = pathModule.join(payload.appDir, "node_modules", "electron");
+    const write = (name, content) => {
+      const file = pathModule.join(directory, name);
+      if (fs.existsSync(file) && fs.readFileSync(file, "utf8") === content) return;
+      const temporary = `${file}.${process.pid}.tmp`;
+      fs.mkdirSync(directory, { recursive: true });
+      fs.writeFileSync(temporary, content);
+      fs.renameSync(temporary, file);
+    };
+    const keys = Object.keys(electron);
+    write("package.json", JSON.stringify({ name: "electron", version: "0.0.0-splice-oracle",
+      main: "index.cjs",
+      exports: { ".": { import: "./index.mjs", require: "./index.cjs" },
+        "./main": { import: "./index.mjs", require: "./index.cjs" },
+        "./common": { import: "./index.mjs", require: "./index.cjs" },
+        "./renderer": { import: "./index.mjs", require: "./index.cjs" } } }, null, 2) + "\n");
+    write("index.cjs", "\"use strict\";\nmodule.exports = globalThis.__spliceElectron;\n");
+    write("index.mjs", ["const host = globalThis.__spliceElectron;",
+      ...keys.map(key => `export const ${key} = host.${key};`),
+      "export default host;", ""].join("\n"));
+  }
+  globalThis.__spliceElectron = electron;
+  try { exposeElectronToEsm(); } catch { /* A read-only app directory falls back to require only. */ }
   if (payload.fixed_time) {
     const NativeDate = globalThis.Date, instant = Date.parse(payload.fixed_time);
     globalThis.Date = class extends NativeDate {
@@ -340,33 +645,106 @@ async function worker() {
       static now() { return instant; }
     };
   }
+  /* Harness-owned absolute paths are not behavior: each observation runs in its own directory, so
+     a result, an error message or a written file that mentions one would differ between the
+     original and a reimplementation that computes the same path from ctx. Report them as the
+     storage root they came from, and keep everything else byte for byte. */
+  const pathLabels = BASES.filter(base => payload.bases[base])
+    .map(base => [pathModule.resolve(payload.bases[base]), base])
+    .concat([[pathModule.resolve(payload.appDir), "<app>"]])
+    .sort((first, second) => second[0].length - first[0].length);
+  const normalizeText = text => {
+    let out = String(text);
+    for (const [absolute, label] of pathLabels) out = out.split(absolute).join(label);
+    return out;
+  };
+  const normalizeValue = value => {
+    if (typeof value === "string") return normalizeText(value);
+    if (Array.isArray(value)) return value.map(normalizeValue);
+    if (value && typeof value === "object")
+      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeValue(item)]));
+    return value;
+  };
+  const normalizeFiles = files => Object.fromEntries(Object.entries(files)
+    .map(([file, value]) => [file, typeof value === "string" ? normalizeText(value) : value]));
+
+  /* An application can fail asynchronously while answering a call: a handler starts work it never
+     awaits and the rejection surfaces on a later tick. Without a listener that kills the worker
+     and the observation is lost, so the case is unobservable rather than the app's error being
+     recorded. The first error raised while a call is being answered is attributed to that call;
+     anything later is attributed to the call it interrupted. */
+  let callError = null;
+  const capture = value => { if (!callError) callError = value; };
+  process.on("unhandledRejection", capture);
+  process.on("uncaughtException", capture);
+  const drainTicks = async () => {
+    await new Promise(resolve => setImmediate(resolve));
+    await new Promise(resolve => setTimeout(resolve, 0));
+  };
+
   const outcomes = [];
   let startupError = null;
+  const exports = [];
   try {
-    require(payload.main);
+    /* An application whose main module only exports an initializer has a launcher of its own,
+       which calls it with the application directory. Running the module alone would observe an
+       app that registers nothing, so the exported function is invoked the way such a launcher
+       does. A module that registers as it loads never reaches this path. */
+    if (payload.esmMain) {
+      const module = await import(pathToFileURL(payload.main).href);
+      exports.push(module.default, module.exports);
+    } else exports.push(require(payload.main));
+    for (const exported of exports)
+      if (typeof exported === "function") exported(payload.appDir, new EventEmitter());
+    await Promise.allSettled(readyCallbacks);
+    app.emit("ready");
+    await Promise.allSettled(readyCallbacks);
     const settled = await Promise.allSettled(readyCallbacks);
     startupError = settled.find(item => item.status === "rejected")?.reason;
+    /* The calls arrive from a window; a handler that looks up its invoking window must find one. */
+    senderWindow();
     for (const call of payload.calls) {
-      const handler = handlers.get(call.channel);
+      const entry = handlers.get(call.channel);
       let outcome;
-      if (!handler) outcome = { ok: false, error: { name: "MissingHandler", message: "No handler registered", code: null } };
+      if (!entry) outcome = { ok: false, error: { name: "MissingHandler", message: "No handler registered", code: null } };
       else {
+        const event = callEvent();
+        callError = null;
         try {
-          const value = await handler(fakeEvent, ...call.args);
-          outcome = { ok: true, value: sanitize(value) };
+          const returned = await entry.handler(event, ...call.args);
+          /* Give work the handler started without awaiting it a chance to fail here rather than in
+             the next call's window. */
+          await drainTicks();
+          if (callError) throw callError;
+          /* A sendSync handler answers through returnValue; a handler that only does work leaves it
+             undefined, which is the honest observation of a fire-and-forget channel. */
+          const value = entry.sync
+            ? (event.returnValue !== undefined ? event.returnValue : returned)
+            : returned;
+          outcome = { ok: true, value: normalizeValue(sanitize(value)) };
         } catch (caught) {
-          outcome = { ok: false, error: { name: caught?.name ?? "Error", message: String(caught?.message ?? caught),
-            code: caught?.code ?? null } };
+          outcome = { ok: false, error: { name: caught?.name ?? "Error",
+            message: normalizeText(caught?.message ?? caught), code: caught?.code ?? null,
+            ...(process.env.SPLICE_ORACLE_STACKS ? { stack: String(caught?.stack ?? "") } : {}) } };
         }
       }
-      outcome.files = await snapshot(payload.bases);
+      outcome.files = normalizeFiles(await snapshot(payload.bases));
       outcomes.push(outcome);
     }
-    output(JSON.stringify({ channels: [...handlers.keys()].sort().map(channel => ({
-      channel, arity: Math.max(0, (handlers.get(channel)?.length ?? 1) - 1) })), outcomes, io, bridge,
+    const body = JSON.stringify({ channels: [...handlers.keys()].sort().map(channel => ({
+      channel, arity: Math.max(0, (handlers.get(channel)?.handler.length ?? 1) - 1) })), outcomes, io, bridge,
       windows: windows.map(window => ({ url: window.url ?? null })),
       startup_error: startupError ? { name: startupError.name ?? "Error",
-        message: String(startupError.message ?? startupError) } : null }));
+        message: String(startupError.message ?? startupError) } : null });
+    /* The app may have started timers, sockets or watchers. Report and exit deliberately instead
+       of waiting for its event loop to drain, which it never does for a real application. */
+    await new Promise((resolve, reject) => {
+      output(body, error => (error ? reject(error) : resolve()));
+    });
+    process.exit(0);
+  } catch (caught) {
+    error(`${caught?.stack ?? caught}\n`);
+    process.exit(1);
   } finally {
     Module._load = nativeLoad;
   }

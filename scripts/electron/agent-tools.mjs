@@ -1,19 +1,20 @@
 /**
- * Oracle tools for the reconstruction agent.
+ * Oracle tools for the specification agent.
  *
  * The agent sees a packaged app only through behavior: channel inventory, probe results, persisted
- * files and differential checks. It never receives the archive's source files or paths. This server
- * runs over stdio and is launched by the agent runtime with one extracted app directory.
+ * files and coverage of the generated cases. It never receives the archive's source files or paths.
+ * This server runs over stdio and is launched by the agent runtime with one extracted app
+ * directory. The implementation agent is served by implement-tools.mjs instead.
  */
 import fs from "node:fs";
-import fsp from "node:fs/promises";
 import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { runCase } from "./oracle.mjs";
-import { buildCases, compareCase, coverage, coverageGaps, hash, runSuite, usableResults, validateContract } from "./cases.mjs";
-import { assembleProject, validateWorkspace } from "./project.mjs";
+import { buildCases, coverage, coverageGaps, filesWithoutDescribedContent, hash, narrowChannels,
+  partitionCases, usableResults } from "./cases.mjs";
+import { excludedChannels, validateSpec } from "./spec.mjs";
 import { findFixture } from "./fixture-search.mjs";
 
 function argument(name, fallback = null) {
@@ -21,30 +22,44 @@ function argument(name, fallback = null) {
   return index >= 0 ? process.argv[index + 1] : fallback;
 }
 
+/* A probe reply is read by an agent with a finite context window, so persisted file content is
+   reported as a bounded digest plus the head of the file. `file` re-runs the same probe when a
+   requirement has to describe one file's exact bytes. */
+const FILE_CHARS = 4000;
+const IO_PAIRS = 60;
+
 const appDir = path.resolve(argument("app-dir"));
 const workspace = path.resolve(argument("workspace"));
 const analysisFile = argument("analysis");
 const publicFile = argument("public-cases");
-const candidateDir = path.resolve(argument("candidate", path.join(workspace, ".candidate")));
 const analysis = JSON.parse(fs.readFileSync(analysisFile, "utf8"));
-let publicSuite = publicFile && fs.existsSync(publicFile) ? JSON.parse(fs.readFileSync(publicFile, "utf8")) : { cases: [], gaps: [] };
+/* A run may cover one subsystem of the application. `--scope` lists the channels this run
+   specifies; every other registered channel is reported as out of scope, not as work to do. */
+const scopeArgument = argument("scope");
+const scope = scopeArgument ? JSON.parse(scopeArgument) : null;
+const scopeSet = scope ? new Set(scope) : null;
+const inScope = entry => !scopeSet || scopeSet.has(entry.channel);
+const outOfScope = () => (analysis.ipc?.handles ?? []).filter(entry => !inScope(entry))
+  .map(entry => entry.channel);
+let publicSuite = publicFile && fs.existsSync(publicFile)
+  ? JSON.parse(fs.readFileSync(publicFile, "utf8")) : { cases: [], gaps: [] };
 let preparedHash = null;
-const contractHash = contract => (contract ? hash(contract) : null);
+const specHash = spec => (spec ? hash(spec) : null);
 
 const text = value => ({ content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value) }] });
-const clip = (value, limit = 1600) => {
-  const json = typeof value === "string" ? value : JSON.stringify(value);
-  return json.length > limit ? `${json.slice(0, limit)}… (${json.length} chars)` : json;
-};
 
 function inventory() {
+  const out = outOfScope();
   return {
     package: { name: analysis.archive?.name ?? null, version: analysis.archive?.version ?? null,
       sha256: analysis.archive?.sha256 ?? null },
     entry: analysis.entries?.main ?? null,
     preloads: analysis.entries?.preloads ?? [],
     renderer_loads: analysis.entries?.renderers ?? [],
-    channels: (analysis.ipc?.handles ?? []).map(({ channel, arity }) => ({ channel, arity })),
+    channels: (analysis.ipc?.handles ?? []).filter(inScope).map(({ channel, arity }) => ({ channel, arity })),
+    ...(out.length ? { out_of_scope_channels: out,
+      out_of_scope_note: "The application registers these too; this run neither specifies nor " +
+        "verifies them, and a declaration about one is not accepted." } : {}),
     bridge_exports: (analysis.bridge_exports ?? []).map(({ global, methods }) => ({ global,
       methods: (methods ?? []).map(method => ({ name: method.name, invokes: method.invokes })) })),
     assets: (analysis.assets ?? []).map(asset => ({ file: asset.file, type: asset.type })),
@@ -56,86 +71,231 @@ function inventory() {
 }
 
 async function probe(input) {
-  const testCase = input.calls ? { calls: input.calls, fixtures: input.fixtures ?? [], fixed_time: input.fixed_time }
-    : { channel: input.channel, args: input.args ?? [], fixtures: input.fixtures ?? [], fixed_time: input.fixed_time };
-  const result = await runCase({ appDir, case: testCase, timeout: input.timeout_ms ?? 20000 });
+  const result = await runCase({ appDir, case: testCaseFrom(input), timeout: input.timeout_ms ?? 20000 });
   return {
     channels: result.channels,
     outcomes: result.outcomes.map(outcome => outcome.ok
       ? { ok: true, value: outcome.value }
       : { ok: false, error: { name: outcome.error.name, message: outcome.error.message, code: outcome.error.code } }),
-    files: result.files,
-    effects: result.effects,
-    io: result.io.slice(-60),
+    calls: callEffects(result),
+    files: fileSummary(result.files),
+    io: ioPairs(result.io),
     bridge: result.bridge,
     startup_error: result.startup_error,
+    note: `Changed file content is capped at ${FILE_CHARS} characters (marked \"truncated\"). ` +
+      "Use the `file` tool, with the same fixtures and calls, to read one file's exact bytes.",
   };
 }
 
-function readContract() {
-  const file = path.join(workspace, "contract.json");
+function clipFile(value) {
+  if (typeof value !== "string") return { bytes: value.size, sha256: value.sha256.slice(0, 12) };
+  if (value.length <= FILE_CHARS) return value;
+  return { truncated: true, characters: value.length, head: value.slice(0, FILE_CHARS) };
+}
+
+function fileSummary(files) {
+  const summary = {};
+  for (const [file, value] of Object.entries(files))
+    summary[file] = typeof value === "string"
+      ? { characters: value.length, sha256: hash(value).slice(0, 12) }
+      : { bytes: value.size, sha256: value.sha256.slice(0, 12) };
+  return summary;
+}
+
+function callEffects(result) {
+  return result.effects.map((effect, index) => ({
+    call: index,
+    changed: Object.fromEntries(Object.entries(effect.changed).map(([file, value]) => [file, clipFile(value)])),
+    removed: effect.removed,
+  }));
+}
+
+function ioPairs(io) {
+  const pairs = new Map();
+  for (const entry of io) {
+    const key = `${entry.op} ${entry.path}`;
+    pairs.set(key, (pairs.get(key) ?? 0) + 1);
+  }
+  return { total: io.length, unique: [...pairs.entries()].slice(0, IO_PAIRS)
+    .map(([key, count]) => ({ effect: key, calls: count })) };
+}
+
+function testCaseFrom(input) {
+  return input.calls
+    ? { calls: input.calls, fixtures: input.fixtures ?? [], fixed_time: input.fixed_time }
+    : { channel: input.channel, args: input.args ?? [], fixtures: input.fixtures ?? [], fixed_time: input.fixed_time };
+}
+
+/** The content of one persisted file after call `index`, replayed from the observation. */
+function fileAfter(result, file, index) {
+  let value = Object.hasOwn(result.initial, file) ? result.initial[file] : undefined;
+  for (let call = 0; call <= index; call++) {
+    const effect = result.effects[call];
+    if (!effect) continue;
+    if (Object.hasOwn(effect.changed, file)) value = effect.changed[file];
+    if (effect.removed.includes(file)) value = undefined;
+  }
+  return value;
+}
+
+async function probeFile(input) {
+  const match = /^(userData|documents|logs|temp)\/(.+)$/.exec(String(input.path ?? ""));
+  if (!match) return { found: false,
+    problem: "path must be relative to a fixture base, for example userData/config.json" };
+  const file = `${match[1]}/${match[2]}`;
+  const result = await runCase({ appDir, case: testCaseFrom(input), timeout: input.timeout_ms ?? 20000 });
+  const last = input.call === undefined ? result.outcomes.length - 1 : Number(input.call);
+  if (!Number.isInteger(last) || last < 0 || last >= result.outcomes.length)
+    return { path: file, found: false, calls: result.outcomes.length,
+      problem: `call must be between 0 and ${result.outcomes.length - 1}` };
+  const value = fileAfter(result, file, last);
+  if (value === undefined) return { path: file, call: last, found: false,
+    files: Object.keys(result.files),
+    problem: `${file} does not exist after call ${last}` };
+  if (typeof value !== "string") return { path: file, call: last, found: true, hashed: true,
+    bytes: value.size, sha256: value.sha256,
+    problem: `the file is larger than the oracle's 262144-byte snapshot limit, so only its digest is available` };
+  const offset = Math.max(0, Number(input.offset ?? 0));
+  const maxChars = Math.min(50000, Math.max(200, Number(input.max_chars ?? 20000)));
+  const text = value.slice(offset, offset + maxChars);
+  return { path: file, call: last, found: true, characters: value.length, sha256: hash(value).slice(0, 12),
+    offset, text, more: offset + text.length < value.length };
+}
+
+/* Every declared revision is re-checked, and most of its cases are unchanged, so the round's
+   observations are kept: the oracle freezes the clock and gives each case a fresh data directory,
+   which makes a case's answer a function of its fixtures and calls alone. */
+const caseCache = new Map();
+
+async function cachedRun(testCase) {
+  const key = hash({ channel: testCase.channel, fixtures: testCase.fixtures, calls: testCase.calls,
+    fixed_time: testCase.fixed_time });
+  if (!caseCache.has(key)) {
+    try {
+      caseCache.set(key, { case: testCase, result: await runCase({ appDir, case: testCase }) });
+    } catch (error) {
+      caseCache.set(key, { case: testCase, error: { name: error.name ?? "Error", message: error.message } });
+    }
+  }
+  return caseCache.get(key);
+}
+
+async function runSample(cases, concurrency = 6) {
+  const results = new Array(cases.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < cases.length) { const index = cursor++; results[index] = await cachedRun(cases[index]); }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, cases.length) }, worker));
+  return results;
+}
+
+function readSpec() {
+  const file = path.join(workspace, "spec.json");
   return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null;
 }
 
-async function prepareCases(contract) {
-  const problems = validateContract(contract, inventory().channels);
-  if (problems.length) { preparedHash = null; return { problems }; }
-  const built = buildCases({ contract, channels: inventory().channels, seed: "public" });
-  const results = await runSuite({ runCase, appDir, cases: built.publicCases });
-  const usable = usableResults(results);
+async function prepareCases(rawSpec) {
+  /* Only what this run covers is evaluated. A channel outside the scope is reported back and left
+     out of the evaluation instead of failing validation with a message about the archive. */
+  const foreign = Object.keys(rawSpec?.channels ?? {}).filter(channel => !inScope({ channel }));
+  const spec = foreign.length ? { ...rawSpec, channels: Object.fromEntries(Object.entries(rawSpec.channels)
+    .filter(([channel]) => inScope({ channel }))) } : rawSpec;
+  const problems = spec?.schema_version === 2 ? validateSpec(spec, inventory().channels)
+    : ["schema_version must be 2 for a handoff specification"];
+  if (problems.length) { preparedHash = null; return { problems, out_of_scope_ignored: foreign }; }
+  const excluded = excludedChannels(spec);
+  const declared = new Set(Object.keys(spec.channels ?? {}));
+  /* Declaration is incremental, so evaluate only what is declared: a channel that has not been
+     declared yet is reported as remaining, not as a coverage gap. */
+  const channels = inventory().channels.filter(entry => !excluded.has(entry.channel) && declared.has(entry.channel));
+  if (!channels.length) {
+    preparedHash = null;
+    return { problems: ["Every original channel is excluded, so the specification describes nothing. " +
+      "Exclusions are only for behavior the feature contract cannot express. Repair the fixtures " +
+      "(find_fixture repairs missing files and fields) and declare the channels you abandoned."] };
+  }
+  const built = buildCases({ contract: spec, channels, seed: "public" });
+  /* Coverage feedback during discovery samples shape-diverse cases per channel instead of running
+     the whole generated suite on every declaration. The driver observes the full suite once, so
+     a large application does not spend its round budget re-running hundreds of probes each time
+     the specification changes. */
+  const sample = [];
+  const perChannel = new Map();
+  const MAX_PER_CHANNEL = 12, MAX_PER_SHAPE = 6;
+  for (const testCase of built.all) {
+    const entry = perChannel.get(testCase.channel) ?? { shapes: new Map(), count: 0 };
+    if (entry.count >= MAX_PER_CHANNEL) continue;
+    const seen = entry.shapes.get(testCase.shape) ?? 0;
+    if (seen >= MAX_PER_SHAPE) continue;
+    entry.shapes.set(testCase.shape, seen + 1);
+    entry.count++;
+    perChannel.set(testCase.channel, entry);
+    sample.push(testCase);
+  }
+  const observed = usableResults(await runSample(sample));
+  const channelNames = channels.map(item => item.channel);
+  for (const item of observed)
+    item.result.channels = item.result.channels.filter(entry => !excluded.has(entry.channel));
+  const partitioned = partitionCases({ items: observed, channels: channelNames });
   publicSuite = {
-    coverage: coverage(usable),
-    gaps: coverageGaps(usable, inventory().channels.map(item => item.channel)),
-    cases: usable.map(item => ({ case: item.case, result: item.result })),
+    coverage: coverage(partitioned.publicItems),
+    gaps: coverageGaps(partitioned.publicItems, channelNames),
+    cases: partitioned.publicItems.map(item => ({ case: item.case, result: item.result })),
   };
-  if (publicFile) fs.writeFileSync(publicFile, JSON.stringify(publicSuite) + "\n");
-  preparedHash = contractHash(contract);
-  return { problems: publicSuite.gaps.map(gap => `Coverage: ${gap}`), cases: publicSuite.cases.length,
-    coverage: publicSuite.coverage, gaps: publicSuite.gaps };
+  if (publicFile) {
+    fs.mkdirSync(path.dirname(path.resolve(publicFile)), { recursive: true });
+    fs.writeFileSync(publicFile, JSON.stringify(publicSuite) + "\n");
+  }
+  preparedHash = specHash(spec);
+  return { problems: [], out_of_scope_ignored: foreign, cases: publicSuite.cases.length,
+    sampled_cases: sample.length,
+    coverage: publicSuite.coverage,
+    gaps: coverageGaps(observed, channelNames),
+    narrow: narrowChannels(observed, channelNames),
+    undescribed_files: filesWithoutDescribedContent(spec, observed),
+    public_gaps: publicSuite.gaps,
+    excluded_channels: [...excluded.keys()] };
 }
 
-async function assemble(contract) {
-  const problems = validateWorkspace(workspace, analysis, contract);
-  if (problems.length) return { problems };
-  try {
-    return { ...(await assembleProject({ analysis, contract, workspace, output: candidateDir })) };
-  } catch (error) {
-    return { problems: [error.message] };
-  }
-}
+const fixtureSchema = z.looseObject({
+  base: z.enum(["userData", "documents", "logs", "temp"]),
+  path: z.string(),
+  content: z.any(),
+});
+const sequenceSchema = z.looseObject({
+  fixtures: z.array(fixtureSchema).optional(),
+  calls: z.array(z.looseObject({ channel: z.string(), args: z.array(z.any()).optional() })),
+  description: z.string().optional(),
+  fixed_time: z.string().optional(),
+});
+const channelSchema = z.looseObject({
+  feature: z.string().describe("Workspace-relative module that exports a function or { handle }"),
+  fixtures: z.array(fixtureSchema).optional(),
+  args: z.array(z.array(z.any())).optional(),
+  params: z.array(z.looseObject({ name: z.string(),
+    type: z.enum(["string", "number", "boolean", "json"]), example: z.any().optional() })).optional(),
+  requirements: z.array(z.string()).optional(),
+  sequences: z.array(sequenceSchema).optional(),
+  fixed_time: z.string().optional(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+});
+const specSchema = z.looseObject({
+  schema_version: z.number(),
+  application: z.looseObject({
+    name: z.string().optional(),
+    version: z.string().optional(),
+    scope: z.array(z.string()).optional(),
+    exclusions: z.array(z.string()).optional(),
+    blockers: z.array(z.string()).optional(),
+    unresolved: z.array(z.string()).optional(),
+    environments: z.looseObject({ clock: z.string().optional() }).optional(),
+  }).optional(),
+  channels: z.record(z.string(), channelSchema),
+});
 
-async function verify(input) {
-  const contract = input.contract ?? readContract();
-  if (!contract) return { passed: 0, total: 0, failures: [{ problem: "No contract.json declared." }] };
-  if (preparedHash !== contractHash(contract)) {
-    const report = await prepareCases(contract);
-    if (report.problems) return { passed: 0, total: 0, failures: report.problems.map(problem => ({ problem })) };
-  }
-  const buildProblems = validateWorkspace(workspace, analysis, contract);
-  if (buildProblems.length) return { passed: 0, total: publicSuite.cases.length,
-    failures: buildProblems.map(problem => ({ problem })), gaps: publicSuite.gaps ?? [] };
-  const built = await assemble(contract);
-  if (built.problems) return { passed: 0, total: 0, failures: built.problems.map(problem => ({ problem })) };
-  const cases = publicSuite.cases;
-  const results = await runSuite({ runCase, appDir: candidateDir, cases: cases.map(item => item.case) });
-  const expected = new Map(cases.map(item => [item.case.name, item.result]));
-  const failures = [];
-  let passed = 0;
-  for (const item of results) {
-    const want = expected.get(item.case.name);
-    if (!want) continue;
-    if (item.error) { failures.push({ case: item.case.name, problems: [`candidate did not run: ${item.error.message}`] }); continue; }
-    const problems = compareCase(want, item.result);
-    if (problems.length) failures.push({ case: item.case.name, channel: item.case.channel, calls: item.case.calls,
-      fixtures: item.case.fixtures, problems: problems.map(problem => clip(problem, 1200)) });
-    else passed++;
-  }
-  const gaps = publicSuite.gaps ?? [];
-  return { passed, total: cases.length,
-    failures: [...gaps.map(gap => ({ problem: `Coverage: ${gap}` })), ...failures].slice(0, 10), gaps };
-}
-
-const server = new McpServer({ name: "oracle", version: "1.0.0" });
+const server = new McpServer({ name: "oracle", version: "2.0.0" });
 
 server.registerTool("inventory", {
   title: "Archive inventory",
@@ -145,17 +305,35 @@ server.registerTool("inventory", {
 
 server.registerTool("probe", {
   title: "Probe the original app",
-  description: "Run the original app under a mocked Electron host with optional fixtures and invoke IPC channels. Returns handler values or errors and every file effect. Use it to discover behavior; nothing is cached between probes.",
+  description: "Run the original app under a mocked Electron host with optional fixtures and invoke IPC channels. Returns handler values or errors, each call's changed or removed files, and an index of every file. Content is bounded, so use `file` when a file's exact bytes matter. Nothing is cached between probes.",
   inputSchema: {
     channel: z.string().optional().describe("IPC channel to invoke"),
     args: z.array(z.any()).optional().describe("Argument array for channel"),
-    calls: z.array(z.object({ channel: z.string(), args: z.array(z.any()).optional() })).optional()
+    calls: z.array(z.looseObject({ channel: z.string(), args: z.array(z.any()).optional() })).optional()
       .describe("Ordered calls for a stateful probe; overrides channel/args"),
-    fixtures: z.array(z.object({ base: z.enum(["userData", "documents", "logs", "temp"]), path: z.string(), content: z.any() })).optional(),
+    fixtures: z.array(fixtureSchema).optional(),
     fixed_time: z.string().optional().describe("Freeze Date to this ISO instant"),
     timeout_ms: z.number().optional(),
   },
 }, async input => text(await probe(input)));
+
+server.registerTool("file", {
+  title: "Read one persisted file exactly",
+  description: "Re-run a probe and return the exact bytes of one file under userData, documents, logs or temp after a given call. Probe replies cap file content; use this when a requirement must state a file's bytes precisely.",
+  inputSchema: {
+    path: z.string().describe("Base-relative path, for example userData/config.json"),
+    call: z.number().optional().describe("Call index to read after; defaults to the last call"),
+    channel: z.string().optional().describe("IPC channel to invoke"),
+    args: z.array(z.any()).optional().describe("Argument array for channel"),
+    calls: z.array(z.looseObject({ channel: z.string(), args: z.array(z.any()).optional() })).optional()
+      .describe("Ordered calls for a stateful probe; overrides channel/args"),
+    fixtures: z.array(fixtureSchema).optional(),
+    fixed_time: z.string().optional().describe("Freeze Date to this ISO instant"),
+    offset: z.number().optional().describe("Character offset to start from"),
+    max_chars: z.number().optional().describe("Maximum characters to return (default 20000)"),
+    timeout_ms: z.number().optional(),
+  },
+}, async input => text(await probeFile(input)));
 
 server.registerTool("find_fixture", {
   title: "Repair an unreachable fixture",
@@ -163,7 +341,7 @@ server.registerTool("find_fixture", {
   inputSchema: {
     channel: z.string(),
     args: z.array(z.any()).optional(),
-    fixtures: z.array(z.object({ base: z.enum(["userData", "documents", "logs", "temp"]), path: z.string(), content: z.any() })).optional(),
+    fixtures: z.array(fixtureSchema).optional(),
     timeout_ms: z.number().optional(),
   },
 }, async input => {
@@ -171,67 +349,94 @@ server.registerTool("find_fixture", {
     fixtures: input.fixtures ?? [], timeout: input.timeout_ms ?? 20000 });
   if (!found.found) return text({ found: false, attempts: found.attempts, failures: found.failures });
   return text({ found: true, attempts: found.attempts, fixtures: found.fixtures,
-    outcomes: found.result.outcomes, files: found.result.files });
+    outcomes: found.result.outcomes, calls: callEffects(found.result),
+    files: fileSummary(found.result.files) });
+});
+
+server.registerTool("declare_spec", {
+  title: "Declare the behavioral specification",
+  description: "Declare channels (and optionally application metadata, exclusions and schema_version) into spec.json. Each call merges into the current specification, so a large application can be declared in batches without one oversized tool call. Returns remaining channels, validation problems and coverage gaps for what is declared.",
+  inputSchema: {
+    spec: specSchema.partial(),
+    replace_channels: z.boolean().optional()
+      .describe("Discard previously declared channels before applying this batch"),
+  },
+}, async ({ spec, replace_channels }) => {
+  const existing = readSpec();
+  /* Channels the run does not cover never reach the specification file: the driver validates what
+     is written against the run scope, and a stray channel would be rejected as unknown. */
+  const requested = Object.entries(spec.channels ?? {}).filter(([channel]) => inScope({ channel }));
+  const ignored = Object.keys(spec.channels ?? {}).filter(channel => !inScope({ channel }));
+  const merged = {
+    schema_version: spec.schema_version ?? existing?.schema_version ?? 2,
+    application: { ...(existing?.application ?? {}), ...(spec.application ?? {}) },
+    channels: replace_channels ? Object.fromEntries(requested)
+      : { ...(existing?.channels ?? {}), ...Object.fromEntries(requested) },
+    channel_exclusions: spec.channel_exclusions !== undefined
+      ? spec.channel_exclusions : (existing?.channel_exclusions ?? []),
+  };
+  fs.writeFileSync(path.join(workspace, "spec.json"), JSON.stringify(merged, null, 2) + "\n");
+  preparedHash = null;
+  const allProblems = spec.schema_version === undefined && merged.schema_version !== 2
+    ? ["schema_version must be 2"] : [];
+  const report = merged.schema_version === 2 ? await prepareCases(merged)
+    : { problems: allProblems, cases: 0, coverage: {}, gaps: [] };
+  const problems = (report.problems ?? []).filter(problem =>
+    !problem.startsWith("Contract does not declare original channel(s)"));
+  const excluded = excludedChannels(merged);
+  const remaining = inventory().channels.map(entry => entry.channel)
+    .filter(channel => !(channel in merged.channels) && !excluded.has(channel));
+  /* The driver only trusts a specification that was declared: this record binds the file to the
+     validated revision. It is only written once nothing is left undeclared or broken. */
+  const complete = !remaining.length && !problems.length && !(report.gaps ?? []).length;
+  if (complete) fs.writeFileSync(path.join(workspace, "spec.declared.json"), JSON.stringify({
+    sha256: specHash(merged), declared_at: new Date().toISOString(),
+    problems, cases: report.cases ?? 0, gaps: report.gaps ?? [],
+  }, null, 2) + "\n");
+  const ignoredChannels = [...new Set([...ignored, ...(report.out_of_scope_ignored ?? [])])];
+  /* One module can serve several channels, but only if it can tell them apart: the implementation
+     contract passes the channel as ctx.channel. Say so rather than let a declaration look complete
+     while the implementer has no way to answer two channels differently. */
+  const sharedModules = Object.entries(Object.entries(merged.channels).reduce((byFeature, [channel, entry]) => {
+    const feature = entry?.feature;
+    if (typeof feature !== "string") return byFeature;
+    byFeature[feature] = [...(byFeature[feature] ?? []), channel];
+    return byFeature;
+  }, {})).filter(([, channels]) => channels.length > 1)
+    .map(([feature, channels]) => ({ feature, channels: channels.sort() }));
+  return text({ saved: true, complete, remaining_channels: remaining,
+    shared_feature_modules: sharedModules,
+    declared_channels: Object.keys(merged.channels).length,
+    excluded_channels: [...excluded.keys()], problems,
+    ignored_channels: ignoredChannels,
+    cases: report.cases ?? 0, coverage: report.coverage ?? {}, gaps: report.gaps ?? [],
+    narrow_channels: report.narrow ?? [],
+    undescribed_files: report.undescribed_files ?? [],
+    next: remaining.length
+      ? "Declare the remaining channels (send them in batches); the specification is not complete yet."
+      : problems.length ? "Fix the listed problems and declare again."
+      : ignoredChannels.length
+        ? `Ignored ${ignoredChannels.join(", ")}: outside this run's subsystem scope, so nothing about ` +
+          "them is accepted here. Declare only the channels the run prompt lists."
+      : report.gaps?.length ? "Close the coverage gaps before finishing."
+      : report.narrow?.length || report.undescribed_files?.length
+        ? "The specification is complete. Channels listed in narrow_channels answered with a single " +
+          "outcome; keep them only if their result genuinely does not depend on their arguments. " +
+          "Files listed in undescribed_files are written by cases but their content appears nowhere " +
+          "in the specification: if an implementer cannot derive them, read them with oracle_file " +
+          "and state them."
+        : "Specification complete; stop declaring." });
 });
 
 server.registerTool("public_cases", {
   title: "Public differential cases",
-  description: "The public cases the reconstruction must pass, with the original app's observed outcomes and file effects. Fixture sets are shared by reference.",
+  description: "After a declaration, the generated public cases with the original outcomes and per-channel coverage. Use it to confirm the requirements explain what was observed.",
   inputSchema: {},
 }, async () => {
-  const contract = readContract();
-  if (!contract) return text({ cases: [], gaps: ["Declare a contract first."] });
-  if (preparedHash !== contractHash(contract)) await prepareCases(contract);
+  const spec = readSpec();
+  if (!spec) return text({ cases: [], gaps: ["Declare a specification first."] });
+  if (preparedHash !== specHash(spec)) await prepareCases(spec);
   return text(publicSuite);
-});
-
-server.registerTool("declare_contract", {
-  title: "Declare the reconstruction contract",
-  description: "Write contract.json for the workspace. Every original channel needs a feature module, the fixtures that make it reachable, and sample arguments. Returns validation problems.",
-  inputSchema: {
-    contract: z.object({
-      schema_version: z.number(),
-      channels: z.record(z.string(), z.object({
-        feature: z.string().describe("Workspace-relative module that exports a function or { handle }"),
-        fixtures: z.array(z.object({ base: z.enum(["userData", "documents", "logs", "temp"]), path: z.string(), content: z.any() })).optional(),
-        args: z.array(z.array(z.any())).optional(),
-        params: z.array(z.object({ name: z.string(), type: z.enum(["string", "number", "boolean", "json"]), example: z.any().optional() })).optional(),
-        title: z.string().optional(),
-        description: z.string().optional(),
-      })),
-    }),
-  },
-}, async ({ contract }) => {
-  fs.writeFileSync(path.join(workspace, "contract.json"), JSON.stringify(contract, null, 2) + "\n");
-  preparedHash = null;
-  const report = await prepareCases(contract);
-  return text({ saved: true, ...report });
-});
-
-server.registerTool("verify", {
-  title: "Verify the candidate",
-  description: "Assemble the workspace into a runnable Electron project and compare it with the original app on every public case. Returns the count passed and compact failure details.",
-  inputSchema: { contract: z.any().optional() },
-}, async input => text(await verify(input)));
-
-server.registerTool("candidate", {
-  title: "Run the candidate",
-  description: "Assemble the current workspace and run one free-form case against the candidate, for debugging without the original comparison.",
-  inputSchema: {
-    channel: z.string().optional(),
-    args: z.array(z.any()).optional(),
-    calls: z.array(z.object({ channel: z.string(), args: z.array(z.any()).optional() })).optional(),
-    fixtures: z.array(z.object({ base: z.enum(["userData", "documents", "logs", "temp"]), path: z.string(), content: z.any() })).optional(),
-    fixed_time: z.string().optional(),
-  },
-}, async input => {
-  const contract = readContract();
-  if (!contract) return text({ error: "No contract.json declared." });
-  const built = await assemble(contract);
-  if (built.problems) return text({ problems: built.problems });
-  const result = await runCase({ appDir: candidateDir, case: input });
-  return text({ channels: result.channels, outcomes: result.outcomes, files: result.files,
-    startup_error: result.startup_error });
 });
 
 await server.connect(new StdioServerTransport());

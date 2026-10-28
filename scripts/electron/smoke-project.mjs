@@ -59,7 +59,10 @@ async function evaluate(socketUrl, expression) {
 const port = await freePort();
 const electron = path.join(project, "node_modules/.bin/electron");
 if (!fs.existsSync(electron)) throw new Error("Run npm install in the generated project first");
-const child = spawn("xvfb-run", ["-a", electron, `--remote-debugging-port=${port}`, "."], {
+/* Containers and other environments without a configured SUID sandbox need --no-sandbox;
+   opt in explicitly so a normal desktop still runs sandboxed. */
+const sandboxFlags = process.env.ELECTRON_NO_SANDBOX === "1" ? ["--no-sandbox"] : [];
+const child = spawn("xvfb-run", ["-a", electron, ...sandboxFlags, `--remote-debugging-port=${port}`, "."], {
   cwd: project, env: { ...process.env, XDG_CONFIG_HOME: path.join(project, ".smoke-config") },
   detached: true, stdio: "ignore",
 });

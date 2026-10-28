@@ -8,7 +8,79 @@ import { runCase } from "../oracle.mjs";
 import { buildCases, compareCase, runSuite, usableResults, validateContract } from "../cases.mjs";
 import { assembleProject, validateWorkspace } from "../project.mjs";
 import { findFixture } from "../fixture-search.mjs";
-import { CONTRACT, syntheticArchive, syntheticWorkspace } from "./synthetic.mjs";
+import { CONTRACT, asyncFailureArchive, hostSurfaceArchive, launcherArchive, syntheticArchive,
+  syntheticWorkspace } from "./synthetic.mjs";
+
+test("an asynchronous failure while answering a call is observed, not lost", async () => {
+  const { root, extracted } = await asyncFailureArchive();
+  try {
+    const result = await runCase({ appDir: extracted, case: { calls: [
+      { channel: "job:start", args: [] }, { channel: "job:status", args: [] }] } });
+    /* Real Electron would end the process here. An observation that instead disappears makes the
+       case unobservable, which hides an app behavior an implementation has to match. */
+    assert.equal(result.outcomes[0].ok, false);
+    assert.equal(result.outcomes[0].error.name, "TypeError");
+    assert.equal(result.outcomes[0].error.message, "late failure");
+    assert.equal(result.outcomes[1].ok, true, "the worker survives the failure and answers the next call");
+    assert.equal(result.outcomes[1].value, "idle");
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a launcher-style archive is observed: conventional entry, exported initializer, sendSync IPC", async () => {
+  const { root, archive, extracted } = await launcherArchive();
+  try {
+    /* package.json names index.js, which the archive does not ship. The inventory resolves the
+       conventional entry and reports the substitution instead of failing. */
+    const analysis = analyzeElectronArchive(archive);
+    assert.equal(analysis.entries.main, "main.js");
+    assert.deepEqual(analysis.diagnostics.filter(item => item.code === "entry-fallback")
+      .map(item => item.file), ["main.js"]);
+    /* Static discovery sees the registration form; the driver reconciles the channels the main
+       process actually registers at run time, which is what an implementation must match. */
+    assert.deepEqual(analysis.ipc.listens.map(item => item.channel).sort(),
+      ["launcher:state", "launcher:write"]);
+    const state = await runCase({ appDir: extracted, case: { channel: "launcher:state", args: [] } });
+    assert.deepEqual(state.channels.map(item => item.channel).sort(),
+      ["launcher:state", "launcher:write"]);
+    assert.deepEqual(state.channels.map(item => [item.channel, item.arity]),
+      [["launcher:state", 0], ["launcher:write", 1]],
+      "a channel's arity is its arguments after the event");
+    /* Everything here is Electron-only: the module never registers as it loads, it requires
+       original-fs, and it reads app.name. The observation is the sendSync returnValue the app
+       assigned to event.returnValue. */
+    assert.deepEqual(state.outcomes[0].value,
+      { name: "synthetic-launcher", directory: "extracted", events: "function" });
+    const written = await runCase({ appDir: extracted, case: { channel: "launcher:write", args: ["one"] } });
+    assert.equal(written.outcomes[0].value, null,
+      "the sendSync answer is the returnValue the handler assigned, not the handler's return");
+    assert.equal(written.files["userData/state.json"], '{"value":"one"}');
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test("the mocked host answers Electron-only process properties and native bindings", async () => {
+  const { root, extracted } = await hostSurfaceArchive();
+  try {
+    const result = await runCase({ appDir: extracted, case: { channel: "host:surface" } });
+    const surface = result.outcomes[0].value;
+    /* A large application loads @electron/remote and registers a privileged scheme before the
+       first window; neither exists in Node, so the host answers both instead of letting the main
+       process die at import time. */
+    assert.equal(surface.scheme, "function");
+    assert.equal(surface.dark, false);
+    assert.equal(surface.resources, true, "process.resourcesPath names the directory that holds the app");
+    assert.equal(surface.defaultApp, false);
+    assert.equal(surface.linked, "function");
+    /* The stub never invents a value: the observation reports the sanitized undefined. */
+    assert.deepEqual(surface.hidden, { $undefined: true });
+    assert.deepEqual(surface.flag, { $undefined: true });
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
 
 test("oracle observes a never-seen archive without any target-specific code", async () => {
   const { root, archive, extracted } = await syntheticArchive();
@@ -27,6 +99,10 @@ test("oracle observes a never-seen archive without any target-specific code", as
     const missing = await runCase({ appDir: extracted, case: { channel: "notes:read", args: ["nope"] } });
     assert.equal(missing.outcomes[0].ok, false);
     assert.equal(missing.outcomes[0].error.code, "ENOENT");
+    /* Harness-owned absolute paths are not behavior: the message names the storage root instead, so
+       the same answer is comparable when a reimplementation computes the path from ctx. */
+    assert.match(missing.outcomes[0].error.message, /userData[\\/]notes[\\/]nope\.txt/);
+    assert.equal(missing.outcomes[0].error.message.includes(root), false);
   } finally {
     await fsp.rm(root, { recursive: true, force: true });
   }

@@ -146,15 +146,19 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   blocks** (`spec/discovery.ts`) proposes up to five capabilities from supported claims and writes
   one draft spec per capability with Engineer 2's native writer. Drafts stay draft-only, and
   adding one to App library is an explicit user action. See `docs/native-library.md`.
-- **Electron reconstruction workflow (behavioral, target-neutral):** `npm run electron:reconstruct --
-  <app.asar> <out>` analyzes the archive, then an OpenCode agent with a black-box IPC oracle learns
-  channels, fixtures, errors and file effects, writes feature modules and declares a contract. The
-  driver generates public, held-out and final-held-out cases from that contract, assembles a runnable
-  Electron project (`main`, sandboxed preload, renderer, manifest) and verifies values, error
-  names/codes and persisted bytes against the original. Coverage gates reject contracts that only
-  reach error paths. There are no per-app adapters, templates, blueprints or scenarios in the
-  reconstruction path. The model role is `electron_reconstructor` in `models.json`. See
-  `docs/electron-generalization.md`.
+- **Electron reconstruction workflow (behavioral, target-neutral, two stages):** `npm run
+  electron:reconstruct -- <app.asar> <out>` runs a **specification agent** with the black-box IPC
+  oracle. It writes `spec.json` — every channel, reachable fixtures, argument samples, numbered
+  requirements and stateful sequences — and the driver rejects coverage that only reaches error
+  paths. A **different implementation agent** then gets only `SPEC.md`, `spec.json` and the public
+  differential cases: no oracle, no archive. The driver partitions observed cases into public,
+  repair and final held-out sets with per-channel success coverage, assembles a runnable Electron
+  project and compares values, error names/codes, intermediate file effects and bytes against the
+  original. Repair cases appear only after a failed round; final failures never feed back. The
+  report (`reconstruction-report.json`, schema 2) records partitions, observation failures and an
+  explicit `readiness` verdict. Roles: `electron_spec_writer`, `electron_implementer` (fallback
+  `electron_reconstructor`) in `models.json`. There are no per-app adapters, templates, blueprints
+  or scenarios in the reconstruction path. See `docs/electron-generalization.md`.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
   `trace_application_feature` and `binary_session` (live probe; catalog and samples in `fixtures/rea/`),

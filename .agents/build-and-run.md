@@ -60,10 +60,10 @@ Each script runs one module alone. "Done" for a module means its script passes.
 | Script | Checks |
 |---|---|
 | `npm run electron:analyze -- <app.asar>` | Static archive inventory (entries, IPC arity, bridges, assets) |
-| `npm run electron:reconstruct -- <app.asar> <out>` | Full behavior pipeline: oracle, agent, public/held-out verification, project assembly. Needs Bedrock credentials; model comes from the `electron_reconstructor` role |
+| `npm run electron:reconstruct -- <app.asar> <out>` | Full two-stage pipeline: oracle → specification agent → public handoff → implementation agent → public/repair/final verification → project assembly. Needs Bedrock credentials; roles are `electron_spec_writer` and `electron_implementer`. Options include `--spec-rounds`, `--impl-rounds`, `--spec-timeout`, `--impl-timeout`, `--state <dir>`, and `--only <channel[,channel|*]>` with `--scope-label <text>` to reconstruct one subsystem instead of the whole application (the report then says `readiness.scoped` and keeps `whole_app_ready` false) |
 | `npm run electron:verify -- <app.asar> <project> <scenario.json>` | Differential comparison for an explicit scenario |
 | `npm run electron:workbench -- <app.asar> <out>` | Offline function workbench from a verified blueprint (not app reconstruction) |
-| `npm run test:electron-general` | Oracle, case generation, fixture search, assembly, differential verification and MCP tool tests. No credentials needed |
+| `npm run test:electron-general` | Oracle, case generation and partitioning, specification validation, both agent tool servers, handoff isolation, assembly, differential verification and MCP tool tests. No credentials needed; CI runs it |
 
 ## Runtime modes (backend `.env`)
 
