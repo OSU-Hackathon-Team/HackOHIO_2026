@@ -5,6 +5,7 @@ export const RendererCaseInput = z.object({
   case_id: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/), markdown: z.string().max(20000),
   input_selector: z.string().min(1).max(2000), render_selector: z.string().min(1).max(2000),
   output_selector: z.string().min(1).max(2000),
+  input_method: z.enum(["fill", "keyboard"]).default("fill"),
 }).strict();
 
 /** Runs inside the browser; structural paths avoid application-specific selector guesses. */
@@ -39,7 +40,12 @@ export async function captureRendererCase(page: Page, raw: unknown) {
     if (await nested.count() !== 1) throw new Error("The selected control is a container with no unique editable descendant; use an editable_controls ref from a fresh editing-mode snapshot");
     editor = nested;
   }
-  await editor.fill(input.markdown);
+  if (input.input_method === "keyboard") {
+    await editor.click();
+    await editor.press("ControlOrMeta+A");
+    await editor.press("Backspace");
+    await page.keyboard.insertText(input.markdown);
+  } else await editor.fill(input.markdown);
   const requested = input.markdown.replaceAll("\r\n", "\n");
   let actual = "", matches = 0;
   for (let attempt = 0; attempt < 12 && matches < 2; attempt++) {

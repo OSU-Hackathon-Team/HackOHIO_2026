@@ -21,6 +21,7 @@ test("fixture browser case capture verifies exact input and records settled DOM 
     assert.equal(captured.input_verified, true);
     assert.equal(captured.rendered, "<h1>Recorded fixture text</h1>");
     assert.equal((await captureRendererCase(page, { ...input, input_selector: "body" })).rendered, "<h1>Recorded fixture text</h1>");
+    assert.equal((await captureRendererCase(page, { ...input, input_method: "keyboard" })).rendered, "<h1>Recorded fixture text</h1>");
     assert.equal((await captureRendererCase(page, { ...input, markdown: "" })).rendered, "<h1></h1>");
     await page.locator("#editor").evaluate((node: any) => node.addEventListener("input", () => { node.value = "different"; }));
     await assert.rejects(captureRendererCase(page, input), /content differs/);

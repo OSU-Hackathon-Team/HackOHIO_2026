@@ -271,9 +271,10 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
           return await record(action, await snapshot());
         } catch (error) { return record(action, { error: (error as Error).message }); }
       },
-    }, { name: "render_case", description: "Capture an executable public Markdown case on the original app. First open a note in EDITING mode; do NOT switch to reading before calling this tool. Supply a unique case_id, complete Markdown, the editable control ref (such as @12) from a fresh snapshot, a view-toggle control ref (such as @26), and a CSS selector scoped to the rendered document body. Input/view selectors may also be exact CSS. Control refs are converted to structural CSS paths for frozen replay. The host fills the exact input, checks editor text, clicks the view control, and records settled DOM output. After capture the note is in rendered mode; switch back to editing before another capture. The result is original evidence, never an authored expectation. Use observation to read full HTML when excerpts are truncated.",
-      inputSchema: { type: "object", additionalProperties: false, required: ["case_id", "markdown", "input_selector", "render_selector", "output_selector"], properties: {
+    }, { name: "render_case", description: "Capture an executable public Markdown case on the original app. First open a note in EDITING mode; do NOT switch to reading before calling this tool. Supply a unique case_id, complete Markdown, the editable control ref (such as @12) from a fresh snapshot, a view-toggle control ref (such as @26), and a CSS selector scoped to the rendered document body. Input/view selectors may also be exact CSS. Control refs are converted to structural CSS paths for frozen replay. Choose input_method fill for ordinary editable controls or keyboard for custom editors: keyboard focuses the control, selects all, deletes and inserts the full text using keyboard input. If fill reports a mismatch on a custom editor, try keyboard. The host checks exact settled editor text, clicks the view control, and records settled DOM output. After capture the note is in rendered mode; switch back to editing before another capture. The result is original evidence, never an authored expectation. Use observation to read full HTML when excerpts are truncated.",
+      inputSchema: { type: "object", additionalProperties: false, required: ["case_id", "markdown", "input_selector", "render_selector", "output_selector", "input_method"], properties: {
         case_id: { type: "string" }, markdown: { type: "string" }, input_selector: { type: "string" }, render_selector: { type: "string" }, output_selector: { type: "string" },
+        input_method: { type: "string", enum: ["fill", "keyboard"] },
       } },
       async run(value) {
         signal.throwIfAborted();
@@ -286,7 +287,7 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
             item[field] = (await control.evaluate(rendererControlMetadata)).selector;
           }
         }
-        const action = { action: "capture_case", case_id: item.case_id, value: item.markdown,
+        const action = { action: "capture_case", case_id: item.case_id, value: item.markdown, input_method: item.input_method,
           input_selector: item.input_selector, render_selector: item.render_selector, output_selector: item.output_selector };
         try {
           if (observations.some(o => (o.action as Record<string, unknown>).case_id === item.case_id && (o.result as Record<string, unknown>).input_verified))
@@ -355,7 +356,8 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
           name = "fixture"; input = { path: action.fixture, content: action.content, directory: action.directory };
         } else if (action.action === "capture_case") {
           name = "render_case"; input = { case_id: action.case_id, markdown: action.value,
-            input_selector: action.input_selector, render_selector: action.render_selector, output_selector: action.output_selector };
+            input_selector: action.input_selector, render_selector: action.render_selector, output_selector: action.output_selector,
+            input_method: action.input_method ?? "fill" };
         } else if (action.host_input) { name = "native_dialog"; input = action.host_input; }
         else { name = "ui"; input = action; }
         await tools.find(tool => tool.name === name)!.run(input);

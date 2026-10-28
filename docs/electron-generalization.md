@@ -81,6 +81,9 @@ ordering. Failed captures report mode/selector guidance and cannot satisfy the c
 When a selected container has one visible editable descendant, capture resolves that descendant.
 Input must match on two consecutive reads after the fill; a mismatch returns its offset, lengths
 and a bounded actual-text excerpt for model feedback instead of publishing a case.
+The model can choose `input_method:"keyboard"` for custom editors: the host focuses, selects all,
+deletes and inserts the complete text. The chosen method is frozen with the capture action and
+must pass the same exact-input check during original replay.
 
 This opt-in path currently requires Linux, Xvfb, xdotool, and Electron with a correctly configured
 sandbox helper. `SPLICE_RENDERER_ORIGINAL_EXECUTABLE` selects an installed source-app executable;
