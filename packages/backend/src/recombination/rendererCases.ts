@@ -28,17 +28,31 @@ export async function captureRendererCase(page: Page, raw: unknown) {
   for (const selector of [input.input_selector, input.render_selector, input.output_selector]) {
     if (/^@\d+$/.test(selector)) throw new Error("Case capture requires stable selectors, not snapshot control refs");
   }
-  const editor = page.locator(input.input_selector);
+  let editor = page.locator(input.input_selector);
   const editorCount = await editor.count();
   if (editorCount !== 1) {
     const visibleEditors = await page.locator("input,textarea,[contenteditable=true]").evaluateAll((nodes: any[]) => nodes.filter(n => n.getClientRects().length > 0).length);
     throw new Error(`Input selector matched ${editorCount} elements; expected one original editor. ${visibleEditors} editable controls are visible. Return to editing mode FIRST and use an editable control ref from a fresh snapshot; render_case itself switches to reading mode after filling.`);
   }
+  if (!await editor.evaluate((node: any) => node.matches("input,textarea,[contenteditable=true]"))) {
+    const nested = editor.locator("input:visible,textarea:visible,[contenteditable=true]:visible");
+    if (await nested.count() !== 1) throw new Error("The selected control is a container with no unique editable descendant; use an editable_controls ref from a fresh editing-mode snapshot");
+    editor = nested;
+  }
   await editor.fill(input.markdown);
-  const actual = await editor.evaluate((node: any) =>
-    ["INPUT", "TEXTAREA"].includes(node.tagName) ? node.value : node.innerText);
-  if (actual.replaceAll("\r\n", "\n") !== input.markdown.replaceAll("\r\n", "\n"))
-    throw new Error("Original editor content differs from the requested case input");
+  const requested = input.markdown.replaceAll("\r\n", "\n");
+  let actual = "", matches = 0;
+  for (let attempt = 0; attempt < 12 && matches < 2; attempt++) {
+    await page.waitForTimeout(150);
+    actual = (await editor.evaluate((node: any) =>
+      ["INPUT", "TEXTAREA"].includes(node.tagName) ? node.value : node.innerText)).replaceAll("\r\n", "\n");
+    matches = actual === requested ? matches + 1 : 0;
+  }
+  if (matches < 2) {
+    let offset = 0;
+    while (offset < Math.min(actual.length, requested.length) && actual[offset] === requested[offset]) offset++;
+    throw new Error(`Original editor content differs from the requested case input at offset ${offset}; requested length ${requested.length}, actual length ${actual.length}. Actual excerpt: ${JSON.stringify(actual.slice(Math.max(0, offset - 40), offset + 120))}`);
+  }
   const transition = page.locator(input.render_selector);
   const transitionCount = await transition.count();
   if (transitionCount !== 1) throw new Error(`Render selector matched ${transitionCount} controls; use an exact view-control ref from a fresh snapshot or the actual aria-label selector, not an invented name attribute`);

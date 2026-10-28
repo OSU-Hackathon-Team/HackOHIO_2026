@@ -13,3 +13,10 @@ test("compact model replies bound context without changing the stored evidence",
   assert.equal(JSON.stringify(original), before);
   assert(JSON.stringify(compactRendererResult({ elements: "x".repeat(30_000) })).length < 5200);
 });
+
+test("editable refs remain available when the ordinary control list is compacted", () => {
+  const controls = Array.from({ length: 80 }, (_, i) => ({ ref: `@${i}`, tag: "BUTTON", text: `Control ${i}` }));
+  const reply = compactRendererResult({ text: "fixture", controls: [...controls,
+    { ref: "@80", tag: "DIV", role: "textbox", editable: true }] }) as { editable_controls: Array<{ ref: string }> };
+  assert.deepEqual(reply.editable_controls.map(c => c.ref), ["@80"]);
+});

@@ -78,6 +78,9 @@ Editor and view controls can be selected with current snapshot refs; the host fr
 structural DOM paths before capture so replay does not depend on the model guessing selectors.
 Compact snapshots retain a separate editable-control list without changing existing control-ref
 ordering. Failed captures report mode/selector guidance and cannot satisfy the case-count gate.
+When a selected container has one visible editable descendant, capture resolves that descendant.
+Input must match on two consecutive reads after the fill; a mismatch returns its offset, lengths
+and a bounded actual-text excerpt for model feedback instead of publishing a case.
 
 This opt-in path currently requires Linux, Xvfb, xdotool, and Electron with a correctly configured
 sandbox helper. `SPLICE_RENDERER_ORIGINAL_EXECUTABLE` selects an installed source-app executable;
