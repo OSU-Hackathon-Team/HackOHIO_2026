@@ -3,9 +3,9 @@
 ## What this project is
 
 **Splice** reconstructs desktop Electron applications from their packaged `app.asar` and a
-subsystem-decompilation engine for native binaries. This checkout (`/home/ubuntu/electron-spec`)
-focuses on the Electron track: a packaged app is observed behaviorally, a public specification is
-written, and an independent agent implements the app from that specification alone.
+subsystem-decompilation engine for native binaries. The Electron track observes a packaged app
+behaviorally, writes a public specification, and has an independent agent implement the app from
+that specification alone.
 
 ## Stack & conventions
 

@@ -16,6 +16,17 @@ for the opt-in display smoke; it requires Xvfb and Electron installed locally. T
 This Ubuntu 26.04 host needs `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64` and a browser
 installed on the scratch drive; the CI Ubuntu runner uses its supported Chromium build.
 
+This branch now also carries the two frozen upstream spec pipelines it consumes. The native spec
+handoff (`engine/specification.py`, `launch.py spec`, `POST /api/native-specs`) writes claim-sized
+prose drafts plus a separate analyst audit artifact; the Electron track (`scripts/electron/`) writes
+a schema 2 behavioral handoff (`spec.json`, public cases, `SPEC.md`, assembled project). Both shapes
+are read downstream at their frozen revision: a generated native spec parses as
+`NativeSubsystemSpec`, and a generated Electron handoff parses as `ElectronContractSpec`.
+`capabilities/fromElectronContract.ts` adapts an approved handoff into the same intake envelope as
+the native adapter, with an explicit channel → operation mapping, and intake refuses a handoff that
+still declares blockers. Neither path has consumed a real upstream application artifact: the native
+and Electron intake tests use synthetic artifacts and approvals only to exercise the gates.
+
 This is **development evidence, not full M0–M7 acceptance**. The notebook uses authored formula,
 Markdown and recorded-segment fixtures. It does not consume an approved upstream native or
 Electron-origin package or recover Notion's transcription behavior. An optional AWS Transcribe
@@ -262,8 +273,8 @@ default-policy M6 gate. See the
 
 | Gate | Proved by |
 |---|---|
-| M0 trustworthy intake | `intake.test.ts`: draft, unapproved, no-op, tampered, missing-identity inputs all rejected with actionable blockers |
-| M1 common package format | one TS package and one native-origin definition load through one registry API; schema-derived clients compile |
+| M0 trustworthy intake | `intake.test.ts` and `fromElectronContract.test.ts`: draft, unapproved, blocked, no-op, tampered and missing-identity inputs all rejected with actionable blockers |
+| M1 common package format | one TS package, one native-origin and one Electron-origin definition load through one registry API; schema-derived clients compile |
 | M2 native + stateful runtime | C sidecar and JS worker execute through one client; int64/NaN/error fidelity, timeout, cancellation, crash restart |
 | M3 composition + durable state | two packages exchange data; mismatched units/IDs rejected; restart preserves revisions; stale/duplicate work cannot corrupt |
 | M4 vertical slice | meeting notebook: transcript -> confirmed values -> workbook -> formula -> note; 60 then 80; failure cases |
@@ -296,9 +307,9 @@ Deliver:
 
 - `identity.ts`: sha256(canonical JSON), content-addressed artifact writes, package id derivation.
 - `intake.ts`: readiness envelope. Reject draft specs, `ready_for_review` without attestation,
-  no-op tests (`assert.ok(true)` / zero assertions / zero operation calls), missing identity,
-  artifact hash mismatch, `any` interfaces, missing error contracts, undeclared effects.
-  Produce `IntakeBlocker[]` with `owner` and a precise `question`.
+  blocked Electron handoffs, no-op tests (`assert.ok(true)` / zero assertions / zero operation
+  calls), missing identity, artifact hash mismatch, `any` interfaces, missing error contracts,
+  undeclared effects. Produce `IntakeBlocker[]` with `owner` and a precise `question`.
 - `registry.ts`: filesystem registry keyed by hash; verifies artifact hashes on read; lists
   intakes and packages; never trusts an uploaded `verification` field (recomputes reference hash).
 - `clientGen.ts`: schema-derived TypeScript client + host wrapper + README from a definition.
@@ -307,9 +318,11 @@ Deliver:
 - `nativeBuilder.ts`: generate the C shim from operation wire schemas, compile with pinned gcc
   flags, run public C cases through the real sidecar, run boundary cases (int64 min/max, division
   by zero), produce a native package.
-- Legacy adapters: `fromBlueprint.ts` and `fromNativeSpec.ts` producing definitions + intake
-  records without editing upstream schemas. A `FeatureBlueprint` becomes a TS package; a native
-  spec without approved review and executable operations is rejected.
+- Origin adapters: `fromBlueprint.ts`, `fromNativeSpec.ts` and `fromElectronContract.ts` producing
+  definitions + intake records without editing upstream schemas. A `FeatureBlueprint` becomes a TS
+  package; a native spec without approved review and executable operations is rejected; an Electron
+  handoff needs an artifact-bound approval, no declared blockers, and an explicit channel →
+  operation mapping so IPC names never silently become the capability interface.
 - Tests: every M0 rejection, tamper detection, TS build, native build, client generation compile.
 
 ### W3 · Composition and durable state — `packages/backend/src/{composition,state}/`
