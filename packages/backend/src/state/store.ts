@@ -4,7 +4,7 @@
 // `node:sqlite` prints an ExperimentalWarning on Node 22. Tests keep it visible unless they
 // deliberately filter it; a real SQLite failure must never be mistaken for that warning.
 import { createHash, randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readSync, rmSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { canonicalJson, type JsonValue } from "@splice/contracts";
@@ -117,9 +117,12 @@ export class SqliteStateStore implements StateStore {
   private readonly clock: () => Date;
   private transactionDepth = 0;
   private closed = false;
+  readonly migrationBackupPath: string | null;
 
   constructor(file: string, options: SqliteStateStoreOptions = {}) {
     this.path = file === ":memory:" ? null : path.resolve(file);
+    const existingFile = this.path !== null && existsSync(this.path);
+    this.migrationBackupPath = null;
     this.clock = options.clock ?? (() => new Date());
     this.db = new DatabaseSync(file);
     try {
@@ -129,7 +132,15 @@ export class SqliteStateStore implements StateStore {
         this.db.exec("PRAGMA journal_mode = WAL");
         this.db.exec("PRAGMA synchronous = NORMAL");
       }
-      applyMigrations(this.db, options.migrations ?? MIGRATIONS, () => this.now());
+      const migrations = options.migrations ?? MIGRATIONS;
+      const applied = readAppliedMigrations(this.db);
+      checkAppliedMigrations(applied, migrations);
+      if (existingFile && this.path && migrations.some((migration) => !applied.some((row) => row.version === migration.version))) {
+        const target = `${this.path}.before-migration-${randomUUID()}.db`;
+        this.backupTo(target);
+        this.migrationBackupPath = target;
+      }
+      applyMigrations(this.db, migrations, () => this.now());
     } catch (error) {
       try {
         this.db.close();
@@ -478,7 +489,19 @@ export class SqliteStateStore implements StateStore {
 }
 
 function fileSha256(file: string): string {
-  return createHash("sha256").update(readFileSync(file)).digest("hex");
+  const digest = createHash("sha256");
+  const fd = openSync(file, "r");
+  const chunk = Buffer.allocUnsafe(1024 * 1024);
+  try {
+    for (;;) {
+      const count = readSync(fd, chunk, 0, chunk.length, null);
+      if (count === 0) break;
+      digest.update(chunk.subarray(0, count));
+    }
+  } finally {
+    closeSync(fd);
+  }
+  return digest.digest("hex");
 }
 
 /** Opens (and creates) `<dir>/state.db`, applying migrations. */

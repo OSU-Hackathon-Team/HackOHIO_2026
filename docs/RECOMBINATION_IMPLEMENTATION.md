@@ -65,6 +65,11 @@ to reconcile them. A durable active revision now supports same-schema rollback t
 the previous revision and shared documents remain stored. An additive, declared document migration
 can initialize a new composition-owned document atomically with build or activation and preserve it
 through rollback. Other schema and durable package-state changes still require a data migration.
+Opening an existing SQLite store with pending storage migrations now writes an integrity-checked
+`state.db.before-migration-<uuid>.db` snapshot beside `state.db` before applying them; a failed
+snapshot stops the migration. The backup can be restored into a new state directory with the
+matching older migration set. It covers the SQLite database, not the separate audio blob store,
+and old snapshots need an operator retention policy.
 The exported Electron host validates saved documents against the installed plan before it creates
 initial documents or opens a window. An incompatible saved document stops startup with a migration
 diagnostic, including after a package downgrade; additive documents absent from an older plan stay
