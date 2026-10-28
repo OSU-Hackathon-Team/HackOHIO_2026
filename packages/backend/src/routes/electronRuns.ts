@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { Router, raw } from "express";
 import * as asar from "@electron/asar";
 import { z } from "zod";
-import { REPO_ROOT } from "../config.js";
+import { REPO_ROOT, config } from "../config.js";
 import { openSse } from "../http/sse.js";
 
 const StartRequest = z.object({
@@ -119,7 +119,9 @@ export function electronRunsRouter(stateDir = path.resolve(process.env.SPLICE_ST
     const args = [pipelineScript, archivePath(input.archive_id), path.join(dir, "output"),
       "--state", path.join(dir, "state"), "--spec-rounds", String(input.spec_rounds), "--impl-rounds", String(input.impl_rounds),
       "--only", input.channels.join(","), "--scope-label", input.scope_label];
-    const child = spawn(process.execPath, args, { cwd: REPO_ROOT, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(process.execPath, args, { cwd: REPO_ROOT,
+      env: { ...process.env, AWS_REGION: config.awsRegion, AWS_DEFAULT_REGION: config.awsRegion },
+      stdio: ["ignore", "pipe", "pipe"] });
     children.set(run.run_id, child);
     const logFile = fs.createWriteStream(path.join(dir, "events.log"), { flags: "a" });
     for (const stream of [child.stdout, child.stderr]) stream?.on("data", (chunk: Buffer) => {
