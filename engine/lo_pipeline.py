@@ -668,10 +668,10 @@ def build_handoff(store, analysed: list[dict], scope: dict, public: list[dict],
         record = {"id": case["id"], "cells": case.get("cells", {}),
                   "input": case_input(case), "description": case.get("input_description"),
                   "observed": (observations.get(case["id"]) or {}).get("observed")}
-        if "formula" in case:
-            record["formula"] = case_display(case)
-        else:
+        if "operation" in case:
             record["operation"] = case_display(case)
+        else:
+            record["formula"] = case_display(case)
         cases.append(record)
     return {"functions": functions, "observed_cases": cases}
 
