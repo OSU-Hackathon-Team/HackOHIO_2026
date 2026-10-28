@@ -8,14 +8,20 @@ import { fileURLToPath } from "node:url";
 
 const MODELS = fileURLToPath(new URL("../../models.json", import.meta.url));
 
+const ROLE_FALLBACKS = {
+  electron_spec_writer: ["electron_reconstructor"],
+  electron_implementer: ["electron_reconstructor"],
+};
+
 export function resolveModel(role = "electron_reconstructor", explicit = null) {
   if (explicit) return explicit;
   const override = process.env[`MODEL_${role.toUpperCase()}`];
   if (override) return override;
   const models = JSON.parse(fs.readFileSync(MODELS, "utf8"));
-  const id = models.roles?.[role] ?? models.default;
-  if (!id) throw new Error(`No model configured for role ${role} in models.json`);
-  return id;
+  for (const candidate of [role, ...(ROLE_FALLBACKS[role] ?? [])])
+    if (models.roles?.[candidate]) return models.roles[candidate];
+  if (models.default) return models.default;
+  throw new Error(`No model configured for role ${role} in models.json`);
 }
 
 /** AWS_* values from the repo .env, without exposing anything else. */

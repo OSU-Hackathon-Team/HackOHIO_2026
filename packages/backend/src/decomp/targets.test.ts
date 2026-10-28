@@ -10,7 +10,7 @@ import type { DecompWorker } from "./ec2.js";
 
 test("the repository registry lists LibreOffice first and a command-line preset", () => {
   const targets = loadTargetRegistry(TARGET_REGISTRY);
-  assert.deepEqual(targets.map(t => [t.id, t.driver]), [["libreoffice-calc", "uno"], ["gnu-units", "cli"]]);
+  assert.deepEqual(targets.map(t => [t.id, t.driver]), [["libreoffice-calc", "uno"], ["gnu-bc-arith", "cli"], ["gnu-bc", "cli"], ["gnu-units", "cli"]]);
   for (const target of targets) assert.ok(fs.existsSync(path.join(TARGET_REGISTRY, "..", "..", "..", target.cases)), target.cases);
   // The public view never exposes install recipes, trace patterns or handoff folders.
   assert.deepEqual(Object.keys(publicTarget(targets[1])).sort(),
@@ -47,7 +47,7 @@ test("a run starts the worker with the selected target and its own budget rules"
   try {
     const service = new DecompRunService({ worker, stateDir, repoRoot: stateDir, targets,
       runnerScript: async () => "#!/bin/bash", buildPayload: async () => undefined, pollMs: 60_000 });
-    assert.deepEqual(service.targets().map(t => t.id), ["libreoffice-calc", "gnu-units"]);
+    assert.deepEqual(service.targets().map(t => t.id), ["libreoffice-calc", "gnu-bc-arith", "gnu-bc", "gnu-units"]);
     await assert.rejects(service.start({ target_id: "gnu-units", max_functions: 40, confirm_cost: true }), /must be one of 20, 30/);
     await assert.rejects(service.start({ target_id: "not-registered", max_functions: 20, confirm_cost: true }), /unknown target/);
     await service.start({ target_id: "gnu-units", max_functions: 30, confirm_cost: true });

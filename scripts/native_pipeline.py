@@ -60,9 +60,15 @@ def target_setup(target: dict, args: argparse.Namespace) -> tuple[dict, dict, di
         return install, {"suite": suite, **fields}, {
             "driver_factory": lambda: UnoDriver(install["soffice"], python=args.uno_python)}
     from engine.cli_target import (OBSERVATION_FORMAT, CliDriver, cli_case_input, cli_display,
-                                   cli_matches, ensure_cli_install, load_cli_cases)
+                                   cli_matches, ensure_cli_install, load_cli_cases,
+                                   materialize_scripts)
     suite, install = load_cli_cases(cases_path), ensure_cli_install(target)
     program = install["program"]
+    # A command-line target takes its input through the command line, so each case's
+    # program text becomes a content-addressed file the spawned process can read.
+    cases = materialize_scripts(suite["cases"], args.state / "cli-cases" /
+                               str(target["id"]))
+    suite = {**suite, "cases": cases}
     return install, {"suite": suite, "module": Path(program).name,
                      "case_input": cli_case_input,
                      "case_display": lambda case: cli_display(program, case),
@@ -102,8 +108,13 @@ def main() -> int:
     config = LoPipelineConfig(
         cases=suite["cases"], query=suite["query"], expected_observables=suite["expected_observables"],
         library=target["library"], frida_patterns=list(target["trace_patterns"]),
-        seed_source="runtime", max_functions=args.max_functions, max_depth=args.max_depth,
-        workers=args.workers, scoped_analysis=True, review_model_role=args.review_model_role,
+        seed_source=target.get("seed_source", "runtime"),
+        entry_seeds=tuple(target.get("entry_seeds", ())),
+        scoped_analysis=bool(target.get("scoped_analysis", True)),
+        spawn_tracer=target.get("spawn_tracer", "frida"),
+        spawn_duration_ms=int(target.get("spawn_duration_ms", 3000)),
+        max_functions=args.max_functions, max_depth=args.max_depth,
+        workers=args.workers, review_model_role=args.review_model_role,
         link_model_role=args.link_model_role, target_name=target["name"], **fields)
     deps = LoPipelineDeps(
         engine=engine, rea_factory=ReaSession.launch, worker=SemanticWorker(engine, args.opencode),

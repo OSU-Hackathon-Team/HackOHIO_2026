@@ -26,6 +26,7 @@ from typing import Callable
 
 from engine.analysis.rea import RuntimeTracer, ReaSession, spawn_triage, static_triage
 from engine.analysis.ghidra import file_hash
+from engine.scope import resolve_seed
 from engine.analysis.scoped import symbol_inventory, prepared_readers
 from engine.libreoffice import (UNO_DRIVER, UnoDriver, formula_input, matches, observe_cases,
                                 probe_report, resolve_targets, split_cases)
@@ -111,7 +112,8 @@ class LoPipelineConfig:
     library: str = "calc"
     module: str = "libsclo.so"
     frida_patterns: list[str] = field(default_factory=lambda: list(DEFAULT_FRIDA_PATTERNS))
-    seed_source: str = "runtime"            # "runtime" (Frida via REA) or "rea_static"
+    seed_source: str = "runtime"            # "runtime", "rea_static" or "entry"
+    entry_seeds: tuple[str, ...] = ()        # declared program entry symbols for "entry"
     static_patterns: list[str] = field(default_factory=list)
     max_seeds: int = 12
     max_functions: int = 60
@@ -131,6 +133,8 @@ class LoPipelineConfig:
     probe_adapter: Path | None = None       # hashed into probe records; None = the UNO driver
     driver_name: str = "uno"
     tracing: str = "attach"                 # "spawn": one Frida spawn per case (short-lived programs)
+    spawn_tracer: str = "frida"             # "frida": first-party spawn observation; "rea": MCP transport
+    spawn_duration_ms: int = 3000           # observation window per spawned case
     program: str | None = None              # the spawned program when tracing == "spawn"
     target_name: str = "LibreOffice Calc"
 
@@ -195,6 +199,11 @@ def _trace_cases(config: "LoPipelineConfig", deps: "LoPipelineDeps", cases: list
                  image_base: int, offsets: dict[str, str]) -> dict:
     """Runtime hits per case: attach once to a long-running program, or spawn one per case."""
     if config.tracing == "spawn":
+        if config.spawn_tracer == "frida":
+            from engine.analysis.frida import cases_triage
+            return cases_triage(cases, program=config.program, module=config.module,
+                                patterns=config.frida_patterns, image_base=image_base,
+                                offsets=offsets, duration_ms=config.spawn_duration_ms)
         with deps.rea_factory() as session:
             return spawn_triage(session, cases, program=config.program,
                                 argv_for=lambda case: case["args"], module=config.module,
@@ -288,6 +297,10 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
                     'entries': missing_extents, 'address_space': 'original ELF virtual addresses'})
             root_seeds = [s['entry'] for s in seeds_from_runtime(metadata_index, runtime_cases,
                                                                 max_seeds=config.max_seeds)]
+        elif config.seed_source == 'entry':
+            if not config.entry_seeds:
+                raise ValueError('entry seeding needs at least one declared entry symbol')
+            root_seeds = list(config.entry_seeds)
         elif config.seed_source == 'rea_static':
             # Resolve only sized symbols before launching REA's expensive native provider.
             patterns = [re.compile(p) for p in config.static_patterns]
@@ -333,6 +346,20 @@ def run_pipeline(config: LoPipelineConfig, install: dict, deps: LoPipelineDeps) 
         runtime_cases = triage["cases"]
         seeds = seeds_from_runtime(index, runtime_cases, max_seeds=config.max_seeds)
         summary["triage"] = {"hooked": triage["hooked"], "seeds": seeds}
+    elif config.seed_source == "entry":
+        # No runtime observation: the declared program entry roots the scope and the
+        # engine expands it over the analyzed call graph.
+        seeds = []
+        for name in config.entry_seeds:
+            matches = resolve_seed(name, index, manifest["campaign"])
+            if not matches:
+                raise RuntimeError(f"declared entry {name} is not in the analyzed program")
+            item = next((f for f in index["functions"] if f["entry"] == matches[0]["entry"]), None)
+            if item is None:
+                raise RuntimeError(f"declared entry {name} resolved outside the analyzed index")
+            seeds.append({"entry": item["entry"], "name": item["name"],
+                          "cases": [], "count": 0, "reason": f"declared_entry:{name}"})
+        summary["triage"] = {"hooked": None, "seeds": seeds, "source": "entry"}
     elif config.seed_source == "rea_static":
         log(f"[triage] REA static search on {library['path']}")
 

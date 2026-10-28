@@ -1,9 +1,15 @@
 /**
- * Reconstruction agent runtime.
+ * Reconstruction agent runtimes.
  *
- * The agent gets a workspace, file tools limited to that workspace, and the Oracle MCP server. It
- * has no shell, no network and no archive paths. Everything it knows about the original app comes
- * from the oracle tools. OpenCode is the only external dependency; the free model is the default.
+ * Two stages, two agents, deliberately asymmetric:
+ *
+ * - `spec` observes the original application through the oracle and writes a public
+ *   specification (channels, fixtures, arguments, numbered requirements, stateful sequences).
+ * - `implement` receives that specification and the public differential cases and writes feature
+ *   modules. It has no oracle, no archive path and no access to the original app.
+ *
+ * Splitting the stages is what makes the handoff testable: the implementer succeeding proves the
+ * specification was sufficient, not that a second probe session filled the gaps.
  */
 import fs from "node:fs";
 import fsp from "node:fs/promises";
@@ -13,160 +19,320 @@ import { finished } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { awsEnvironment, resolveModel } from "./models.mjs";
 
-const TOOLS = fileURLToPath(new URL("./agent-tools.mjs", import.meta.url));
+const TOOLS = {
+  spec: fileURLToPath(new URL("./agent-tools.mjs", import.meta.url)),
+  implement: fileURLToPath(new URL("./implement-tools.mjs", import.meta.url)),
+};
 const REPO_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const FILE_TOOLS = ["read", "list", "glob", "grep", "edit", "write"];
-const ORACLE_TOOLS = ["inventory", "probe", "find_fixture", "public_cases", "declare_contract", "verify", "candidate"];
-
-export function agentPrompt({ workspace, archiveName }) {
-  return `You are reconstructing a desktop Electron application from observed behavior. The original
-source is unavailable by design; do not ask for it and do not try to find it. Work only in this
-workspace: ${workspace}
-
-Target: ${archiveName}
-
-## How you learn the app
-
-The \`oracle\` MCP tools run the original app under a mocked Electron host:
-
-- \`oracle_inventory\` — package metadata, IPC channels with argument counts, preload bridge globals
-  and methods, renderer loads, assets.
-- \`oracle_probe\` — invoke IPC channels in a fresh app instance. Pass \`fixtures\` to create files
-  under \`userData\`, \`documents\`, \`logs\` or \`temp\`, then \`calls\`. The reply contains handler values
-  or errors, every persisted file after each call, and the file paths the app read or wrote. Use
-  it to discover argument shapes, storage layout, JSON formatting and error behavior. Probes are
-  isolated: nothing survives between calls to the tool.
-- \`oracle_find_fixture\` — when a probe fails because the fixture lacks a file or field, this
-  searches the fixture shape mechanically and returns the first version where the channel succeeds.
-  Use it instead of guessing; fixtures it returns are valid contract fixtures.
-- \`oracle_public_cases\` — the public cases your reconstruction must pass, with the original app's
-  exact observed outcomes. They appear after you declare a contract.
-- \`oracle_verify\` — assemble your workspace into a runnable Electron project and compare it to the
-  original on every public case.
-- \`oracle_candidate\` — run a free-form case against your current implementation.
-- \`oracle_declare_contract\` — save contract.json. It is also the input to case generation.
-
-## What to build
-
-Write one CommonJS module per IPC channel under \`features/\`. Each module exports either a function
-or \`{ handle }\` with the shape:
-
-\`\`\`js
-module.exports = async function handle(args, ctx) {
-  // args: the IPC arguments after the event (an array)
-  // ctx: { app, fs, path, userData, documents }
-  return result;
+const STAGE_TOOLS = {
+  spec: ["oracle_inventory", "oracle_probe", "oracle_file", "oracle_find_fixture", "oracle_declare_spec",
+    "oracle_public_cases"],
+  implement: ["implement_spec", "implement_public_summary", "implement_public_case", "implement_check",
+    "implement_run", "implement_refresh_public"],
 };
-\`\`\`
+const STAGE_FILE_TOOLS = {
+  /* OpenCode's `edit` permission covers edit, write and patch. The specification stage must not
+     write files at all: oracle_declare_spec is the only path to spec.json, so every declaration
+     is validated and coverage-checked by the driver. */
+  spec: FILE_TOOLS.filter(tool => tool !== "write" && tool !== "edit"),
+  implement: FILE_TOOLS,
+};
 
-Return the same value the original handler returns. Throw the same error type (name/code) the
-original throws. When the original writes files, write the same paths with the same exact bytes
-(including JSON indentation). Use \`ctx.fs\` (node:fs/promises), \`ctx.path\`, and
-\`ctx.userData\`/\`ctx.documents\`. You may add helper modules next to the features. Only Node
-built-ins are available; do not add dependencies.
+export function specPrompt({ workspace, archiveName, scope = null }) {
+  return `You are writing the behavioral specification for a desktop Electron application. You cannot
+see its source; that is deliberate. The packaged app is available only through the \`oracle\` tools,
+which run the real main process under a mocked Electron host.
 
-Then declare contract.json through \`oracle_declare_contract\`:
+Application: ${archiveName}
+Workspace: ${workspace}
+${scope ? `
+## This run covers one subsystem
+
+The application registers ${scope.total} IPC channels. This run specifies and verifies ${scope.channels.length}
+of them (\`${scope.label}\`):
+
+${scope.channels.map(channel => `- \`${channel}\``).join("\n")}
+
+That list is your whole job. The inventory reports the other channels as \`out_of_scope\`; they are
+neither specified nor verified here and no declaration about them is accepted. Do not exclude them
+either: this run's scope is a decision already made, and exclusions are for channels inside the
+subsystem that the feature contract cannot express. A smaller, complete subsystem is the point of
+the run — do not try to be exhaustive about the application.
+` : ""}
+
+## What you produce
+
+One JSON specification, declared with \`oracle_declare_spec\`, that lets another engineer rebuild
+every IPC channel without ever observing the original:
+
+- every original channel (the inventory is authoritative) implemented by a feature module path;
+- fixtures under \`userData\`/\`documents\`/\`logs\`/\`temp\` that make the channel reachable;
+- at least three argument samples that produce distinct outcomes;
+- numbered \`requirements\`: precise, observable rules — return values, error names/codes, file
+  paths, exact bytes, ordering, persistence across calls, edge conditions;
+- optional stateful \`sequences\`: fixture set plus an ordered list of calls that prove behavior
+  across several interactions.
+
+The driver generates differential cases from these declarations, runs them against the original,
+and only hands your specification to the implementation agent if every channel is reachable: at
+least one successful observation, and no case that the original refuses to answer.
+
+A channel that answers with a single outcome over varying inputs is reported as narrow rather than
+rejected — a version string has one answer however you call it. Narrow is acceptable only when the
+result genuinely does not depend on the arguments; where it does, add argument samples and
+fixtures until the outcomes differ, because the driver mutates every argument and fixture it is
+given and the implementation has to match those cases too.
+
+Shape (complete, version 2):
 
 \`\`\`json
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "application": {
+    "name": "app-name", "version": "1.2.3",
+    "scope": ["main-process IPC channels and their persisted files"],
+    "exclusions": ["renderer layout", "menus and tray"],
+    "blockers": [], "unresolved": [],
+    "environments": { "clock": "2026-10-25T12:00:00.000Z" }
+  },
   "channels": {
-    "some:channel": {
-      "feature": "features/some-channel.cjs",
-      "title": "Some feature",
-      "description": "What it does",
-      "fixtures": [
-        { "base": "userData", "path": "data/example.json", "content": { "items": [] } }
+    "example:channel": {
+      "feature": "features/example-channel.cjs",
+      "title": "Short user-facing name",
+      "description": "What the channel does",
+      "params": [{ "name": "id", "type": "string", "example": "sample" }],
+      "fixtures": [{ "base": "userData", "path": "data/items.json", "content": { "items": [] } }],
+      "args": [["sample"], ["missing"], [null]],
+      "requirements": [
+        "Returns the matching record as { id, count } and writes userData/data/items.json with two-space JSON.",
+        "Throws Error with code ENOENT when data/items.json is absent and does not create it."
       ],
-      "args": [["example", 1], ["example", 2]],
-      "params": [
-        { "name": "name", "type": "string", "example": "example" },
-        { "name": "count", "type": "number", "example": 1 }
+      "sequences": [
+        { "description": "the second call sees the first call's write",
+          "calls": [{ "channel": "example:channel", "args": ["sample"] },
+                    { "channel": "example:channel", "args": ["sample"] }] }
       ]
     }
   }
 }
 \`\`\`
 
-Every original channel must be declared. Fixtures must make the channel reachable and \`args\` must
-cover at least three distinct behaviors. Declaration is rejected while any channel has a coverage
-gap: at least one generated case must succeed against the original and at least three distinct
-outcomes must be observed. An implementation that reproduces only errors is not a reconstruction.
-Use \`oracle_probe\` to find a fixture shape that succeeds before declaring it. The driver expands
-these into a larger set of mutated cases, so generalized behavior is required — special-casing the
-sample arguments will fail.
+You have no file-write tools: \`oracle_declare_spec\` is the only way to save the specification,
+and it validates the result. A specification the driver cannot tie to a declaration is ignored.
+
+### Declaring a large application in batches
+
+Declarations merge into \`spec.json\`; they do not replace it. Describe the channels you have
+fully learned in one call (three or four at a time is a healthy batch), then declare the next
+batch. Every reply reports \`remaining_channels\`, validation problems, coverage gaps and whether
+the specification is \`complete\`. Never stop while \`remaining_channels\` is non-empty or
+\`complete\` is false.
+
+## How to observe
+
+- \`oracle_inventory\` — channels with arity, preload bridges, renderer loads, modules, diagnostics.
+- \`oracle_probe\` — run the original with fixtures and calls. The reply has handler values or
+  errors, each call's changed and removed files, and every file's size and digest. Changed
+  content is capped at 4000 characters and marked \`truncated\`, so the reply stays small. Probe
+  one interaction per call; use \`calls\` for stateful behavior.
+- \`oracle_file\` — the exact bytes of one persisted file after a chosen call, re-running the same
+  probe. Use it whenever a requirement has to state a file's contents precisely.
+- \`oracle_find_fixture\` — when a probe fails on a missing file or object field, this searches the
+  fixture shape mechanically. Use it instead of guessing structural details.
+- \`oracle_declare_spec\` — validate and save the specification. It returns coverage gaps; a spec
+  with gaps is not accepted.
+- \`oracle_public_cases\` — after a successful declaration, the generated public cases and the
+  original outcomes. Re-read them to confirm your requirements explained what was observed.
+
+## What good requirements look like
+
+Write the rule an implementer needs, not a transcript of one probe:
+
+- "grade below 3 resets repetitions to 0 and sets interval to null" — good.
+- "returns the card" — too vague; list every field and its value.
+- Mention error names and codes, whether a missing file is created, JSON indentation and key
+  order when files are compared byte for byte, and what the second call sees after the first.
+- Probe boundary values (0, 1, negative, empty string, whitespace, unicode), missing fixture
+  fields and repeated calls. The driver mutates your fixtures and arguments mechanically, so
+  rules that only cover one sample will fail.
+- Record genuine blockers in \`application.blockers\` rather than guessing.
+
+## How cases are generated (the evaluation domain)
+
+The driver builds cases mechanically from your declarations, in these shape families:
+
+- \`base\`: your fixtures and the first argument sample, unchanged.
+- \`fixture-mutation\`: each fixture key removed; arrays emptied, reversed, duplicated or given a
+  repeated item; object values replaced with \`{}\`; scalars changed.
+- \`args\`: every argument replaced by the value pools — strings \`""\`, \`"missing"\`, \`"Alpha"\`,
+  \`"zz"\`; numbers \`-1, 0, 1, 2, 3, 4, 5, 6, 9, 0.5\`; booleans both ways; empty and duplicated
+  arrays; \`{}\`.
+- \`cold\`: no fixtures at all, so files the app writes are absent.
+- \`repeat\`: the same call twice in one process.
+- \`sequence\`: each sequence you declare.
+
+A public case from every shape family is always visible to the implementer, but the values differ
+in held-out cases. So the requirements must state what happens for each family — for example what
+the app does when a required array is missing from a fixture, when a file is absent, or when a
+number is negative — not only for the sample you happened to type.
+
+## Channels that cannot be reimplemented
+
+The implementation contract gives a feature module only \`{ app, fs, path, userData, documents }\`.
+A channel whose result depends on a host object the module cannot see — which window invoked it,
+window bounds or focus, menus, tray icons, dialogs, notifications, protocol handlers, the
+updater, network responses — cannot be reproduced from a specification. Do not guess its values
+and do not describe mock behavior as app behavior. Declare it in \`channel_exclusions\` instead:
+
+\`\`\`json
+"channel_exclusions": [
+  { "channel": "get-window-bounds", "reason": "result depends on the invoking window's bounds, which the feature contract does not expose" }
+]
+\`\`\`
+
+Every original channel must be either implemented or explicitly excluded with a reason. Exclusions
+are reported to the reader and prevent a whole-app readiness claim, so exclude only what genuinely
+cannot be expressed, never a channel that is merely inconvenient. The driver also replays the
+generated cases under a second mocked host (different window bounds and display size) and excludes
+any channel whose result changes there: an answer that follows the host is not your behavior to
+specify, and describing it would only be describing this mock.
+
+Exclusion is the last resort, not an escape hatch. If a channel only fails because a fixture is
+unreachable, that is a fixture problem: call \`oracle_find_fixture\`, then probe the repaired
+fixtures. A channel that reads values or files is always implementable from a specification.
+Excluding every channel is rejected outright.
+
+The generated cases freeze the clock at 2026-10-25T12:00:00.000Z; pass \`fixed_time\` to probes
+whenever a handler reads the clock, and declare it per channel if needed.
 
 ## Rules
 
-- Match exact values, error names/codes, persisted file contents and paths.
-- Generated cases freeze the clock at 2026-10-25T12:00:00.000Z. Pass the same \`fixed_time\` to
-  \`oracle_probe\` whenever a handler reads the current time; otherwise results drift.
-- If every probe of a channel fails with a missing-file or undefined-property error, call
-  \`oracle_find_fixture\` with the same channel, args and fixtures. Build the contract from the
-  fixtures that actually made the original succeed.
-- Edge cases are graded: whitespace-only and empty strings, unicode, duplicate fixture entries,
-  missing files, boundary numbers and repeated calls. Probe them on purpose; behavioral quirks in
-  the original must be reproduced, not corrected.
-- Budget your probing: learn a channel with a handful of targeted probes, implement it, then use
-  verification failures to focus further probing. Do not exhaust the round on exploration.
-- Never copy original source. You cannot see it, and hidden files must not be requested.
-- Do not use shell, network, or package installation; those tools are denied.
-- Iterate: probe, implement, verify, fix. Stop only after \`oracle_verify\` reports every public case
-  passing and the declared contract has no problems.`;
+- Never request, infer from shell output, or reproduce original source. You have no shell.
+- Do not implement the channels; feature modules are written by a different agent from your
+  specification alone.
+- Do not add dependencies.
+- Iterate until \`oracle_declare_spec\` reports no problems and no coverage gaps.`;
 }
 
-export async function runAgent({ workspace, stateDir, appDir, archiveName, analysisFile, publicFile, candidateDir,
-  model = process.env.ELECTRON_AGENT_MODEL || resolveModel(),
-  timeout = Number(process.env.ELECTRON_AGENT_TIMEOUT || 1200), round = 1, feedback = "", log }) {
+export function implementationPrompt({ workspace, archiveName }) {
+  return `You are implementing a desktop Electron application from a written specification. There is
+no original application available to you and no oracle: \`SPEC.md\`, \`spec.json\` and
+\`public-cases.json\` in ${workspace} are the complete handoff.
+
+Application: ${archiveName}
+
+## Your job
+
+Read \`SPEC.md\` first. For every channel it lists, write the feature module at the declared path
+(usually under \`features/\`). Channels listed as excluded are not part of your job. Each module is
+CommonJS and exports a function or \`{ handle }\`:
+
+\`\`\`js
+module.exports = async function handle(args, ctx) {
+  // args: IPC arguments after the event, as an array
+  // ctx: { app, fs, path, userData, documents, channel }
+  return value;
+};
+\`\`\`
+
+A specification may declare one module for several channels; \`ctx.channel\` names the channel
+being invoked, so such a module can answer each one correctly. Nothing else about the original is
+reachable from a module: there is no window, no display, no archive and no oracle.
+
+Implement the stated requirements. Match returned JSON exactly (including key presence,
+\`undefined\` versus \`null\`, and non-finite numbers), throw the same error names and codes,
+write the same files with the same bytes, and persist state between calls.
+
+## Checking
+
+- \`implement_public_summary\` — the public cases with their original outcomes, compact.
+- \`implement_public_case\` — full fixtures and expected effects for one named case.
+- \`implement_check\` — assemble the workspace and run every public case, plus repair cases once
+  they are visible. This is the same differential comparison the driver uses.
+- \`implement_run\` — run a single free-form case against your build, for debugging.
+
+Run \`implement_check\` early (a failing build is informative), then after each module, and keep
+fixing until every partition reports \`passed === total\` and no coverage gaps. If a case fails,
+read its name in the failure, inspect it with \`implement_public_case\`, and fix the rule.
+
+## Rules
+
+- Implement the behavior, not the samples. Held-out cases use the same requirements with
+  different inputs; special-casing argument values will fail.
+- Only Node built-ins are available.
+- A workspace file may not live outside the workspace; feature paths come from the specification.
+- Do not stop while \`implement_check\` reports a failure or an unaddressed public case.`;
+}
+
+function limitsFor(model) {
+  return { context: Number(process.env.ELECTRON_AGENT_CONTEXT ?? 196608),
+    output: Number(process.env.ELECTRON_AGENT_OUTPUT ?? 16384) };
+}
+
+export async function runAgent({ stage = "spec", workspace, stateDir, appDir, archiveName, analysisFile,
+  publicFile, candidateDir, model, timeout = Number(process.env.ELECTRON_AGENT_TIMEOUT || 1200),
+  round = 1, feedback = "", log, scope = null }) {
+  if (!STAGE_TOOLS[stage]) throw new Error(`Unknown agent stage ${stage}`);
   workspace = path.resolve(workspace);
   stateDir = path.resolve(stateDir);
-  appDir = path.resolve(appDir);
   analysisFile = path.resolve(analysisFile);
-  publicFile = path.resolve(publicFile);
-  candidateDir = path.resolve(candidateDir);
+  const role = stage === "spec" ? "electron_spec_writer" : "electron_implementer";
+  model = model ?? process.env[`MODEL_${role.toUpperCase()}`] ?? resolveModel(role);
+  const allowed = [...STAGE_FILE_TOOLS[stage], ...STAGE_TOOLS[stage]];
+  const permission = { "*": "deny", ...Object.fromEntries(allowed.map(tool => [tool, "allow"])) };
+  const mcp = stage === "spec" ? {
+    oracle: {
+      type: "local", enabled: true,
+      command: [process.execPath, TOOLS.spec, "--app-dir", path.resolve(appDir),
+        "--workspace", workspace, "--analysis", analysisFile,
+        "--public-cases", publicFile ? path.resolve(publicFile) : "",
+        "--scope", scope ? JSON.stringify(scope.channels) : "",
+        "--candidate", path.resolve(candidateDir ?? path.join(stateDir, "candidate"))],
+      timeout: 600000,
+    },
+  } : {
+    implement: {
+      type: "local", enabled: true,
+      command: [process.execPath, TOOLS.implement, "--workspace", workspace,
+        "--analysis", analysisFile, "--public-cases", path.resolve(publicFile),
+        "--candidate", path.resolve(candidateDir)],
+      timeout: 600000,
+    },
+  };
   const config = {
     $schema: "https://opencode.ai/config.json",
     model,
     small_model: model,
-    permission: { "*": "deny", ...Object.fromEntries([...FILE_TOOLS, ...ORACLE_TOOLS.map(tool => `oracle_${tool}`)]
-      .map(tool => [tool, "allow"])) },
+    permission,
     agent: {
-      reconstruct: {
+      [stage]: {
         mode: "primary", model,
-        prompt: "Reconstruct an Electron app from oracle observations. Use the oracle tools; never ask for source.",
-        permission: { "*": "deny", ...Object.fromEntries([...FILE_TOOLS, ...ORACLE_TOOLS.map(tool => `oracle_${tool}`)]
-          .map(tool => [tool, "allow"])) },
+        prompt: stage === "spec"
+          ? "Write an application's behavioral specification from oracle observations; never request source."
+          : "Implement the application from the written specification; never request the original app.",
+        permission,
       },
     },
-    mcp: {
-      oracle: {
-        type: "local", enabled: true,
-        command: [process.execPath, TOOLS, "--app-dir", appDir, "--workspace", workspace,
-          "--analysis", analysisFile, "--public-cases", publicFile, "--candidate", candidateDir],
-        timeout: 600000,
-      },
-    },
+    mcp,
   };
   if (model.startsWith("amazon-bedrock/")) {
     const modelId = model.slice("amazon-bedrock/".length);
     config.provider = {
       "amazon-bedrock": {
-        models: {
-          [modelId]: {
-            name: modelId, id: modelId, status: "active",
-            provider: { npm: "@ai-sdk/amazon-bedrock" },
-            limit: { context: 32768, output: 4000 },
-          },
-        },
+        models: { [modelId]: { name: modelId, id: modelId,
+          provider: { npm: "@ai-sdk/amazon-bedrock" }, limit: limitsFor(model) } },
       },
     };
   }
-  const configPath = path.join(stateDir, `opencode-round-${round}.json`);
+  const configPath = path.join(stateDir, `opencode-${stage}-round-${round}.json`);
   await fsp.writeFile(configPath, JSON.stringify(config, null, 2) + "\n");
-  const eventsPath = path.join(stateDir, `agent-round-${round}.events.jsonl`);
-  const stderrPath = path.join(stateDir, `agent-round-${round}.stderr.log`);
-  const prompt = agentPrompt({ workspace, archiveName: archiveName ?? path.basename(appDir) }) +
-    (feedback ? `\n\n## Verification feedback from the previous round\n${feedback}\n` : "");
+  const eventsPath = path.join(stateDir, `agent-${stage}-round-${round}.events.jsonl`);
+  const stderrPath = path.join(stateDir, `agent-${stage}-round-${round}.stderr.log`);
+  const prompt = (stage === "spec"
+    ? specPrompt({ workspace, archiveName: archiveName ?? path.basename(stateDir), scope })
+    : implementationPrompt({ workspace, archiveName: archiveName ?? path.basename(stateDir) })) +
+    (feedback ? `\n\n## Previous round feedback\n${feedback}\n` : "");
   const opencode = process.env.OPENCODE_BIN || "opencode";
   const env = { ...process.env, OPENCODE_CONFIG: configPath, PWD: workspace,
     OPENCODE_DISABLE_AUTOUPDATE: "true", OPENCODE_DISABLE_EXTERNAL_SKILLS: "true" };
@@ -177,10 +343,13 @@ export async function runAgent({ workspace, stateDir, appDir, archiveName, analy
   }
   const events = fs.createWriteStream(eventsPath);
   const stderr = fs.createWriteStream(stderrPath);
-  log?.(`agent round ${round}: ${model}`);
+  log?.(`agent ${stage} round ${round}: ${model}`);
   const completed = await new Promise(resolve => {
-    const child = spawn(opencode, ["run", "--print-logs", "--title", "electron-reconstruct",
-      "--agent", "reconstruct", "--model", model, "--format", "json", prompt],
+    /* --standalone gives each round a private server that loads this round's config. Reusing
+       OpenCode's background service keeps the first run's agent list and MCP servers, which
+       makes a later stage fail with "Agent not found". */
+    const child = spawn(opencode, ["run", "--standalone", "--print-logs", "--title", `electron-${stage}`,
+      "--agent", stage, "--model", model, "--format", "json", prompt],
     { cwd: workspace, env, stdio: ["ignore", "pipe", "pipe"] });
     const timer = setTimeout(() => { child.kill("SIGKILL"); resolve({ code: null, timedOut: true }); }, timeout * 1000);
     child.stdout.pipe(events);
@@ -196,9 +365,10 @@ export async function runAgent({ workspace, stateDir, appDir, archiveName, analy
   const texts = rows.filter(row => row.type === "text").map(row => row.part?.text ?? "");
   const toolCalls = rows.filter(row => row.type === "tool_use")
     .map(row => ({ tool: row.part?.tool, status: row.part?.state?.status }));
-  const errors = rows.filter(row => row.type === "error").map(row => row.error?.data?.message ?? row.error?.name ?? "error");
+  const errors = rows.filter(row => row.type === "error")
+    .map(row => row.error?.data?.message ?? row.error?.name ?? "error");
   const usage = rows.filter(row => row.type === "step_finish").map(row => row.part?.tokens?.total ?? 0);
-  return { round, model, exitCode: completed.code, timedOut: completed.timedOut, error: completed.error?.message,
-    eventsPath, stderrPath, text: texts.join("\n").trim(), toolCalls, errors: errors.slice(0, 20),
-    tokens: usage.reduce((sum, value) => sum + value, 0) };
+  return { stage, round, model, exitCode: completed.code, timedOut: completed.timedOut,
+    error: completed.error?.message, eventsPath, stderrPath, text: texts.join("\n").trim(),
+    toolCalls, errors: errors.slice(0, 20), tokens: usage.reduce((sum, value) => sum + value, 0) };
 }

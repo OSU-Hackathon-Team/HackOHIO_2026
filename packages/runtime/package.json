@@ -1,0 +1,27 @@
+{
+  "name": "@splice/runtime",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc && cp src/jsSidecarRunner.mjs dist/jsSidecarRunner.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@splice/contracts": "*"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15",
+    "typescript": "^5.7.3"
+  }
+}

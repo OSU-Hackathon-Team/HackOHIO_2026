@@ -189,26 +189,44 @@ if (targets.size === 0) {
 }
 let counts = {};
 let seq = 0;
+let pending = null;
+let lastFlush = -1e9;  // the first entry reports synchronously
+
 const names = {};
 for (const address of targets.values()) {
   const offset = "0x" + address.sub(mod.base).toString(16);
   names[offset] = OFFSETS[offset] || DebugSymbol.fromAddress(address).name || offset;
   try {
-    Interceptor.attach(address, { onEnter() { counts[offset] = (counts[offset] || 0) + 1; } });
+    Interceptor.attach(address, { onEnter() { counts[offset] = (counts[offset] || 0) + 1; schedule(); } });
   } catch (e) { delete names[offset]; }
 }
-const flush = () => {
+function flush() {
+  pending = null;
+  lastFlush = Date.now();
   if (Object.keys(counts).length === 0) return;
   seq += 1;
   send({ type: "hits", seq: seq, hits: counts });
   counts = {};
-};
+}
+// Leading-edge throttle: a short-lived program must report its first entries
+// immediately, because it can exit before the next interval tick.
+function schedule() {
+  if (pending !== null) return;
+  const wait = Math.max(0, __FLUSH_MS__ - (Date.now() - lastFlush));
+  if (wait === 0) {
+    flush();
+  } else {
+    pending = setTimeout(flush, wait);
+  }
+}
 setInterval(flush, __FLUSH_MS__);
 // A short-lived spawned program can exit between intervals; flush its last counts on the way out.
 for (const name of ["exit", "_exit"]) {
   try {
     const f = Module.findGlobalExportByName ? Module.findGlobalExportByName(name) : Module.findExportByName(null, name);
-    if (f) Interceptor.attach(f, { onEnter: flush });
+    // Report synchronously and stay alive briefly so the host receives the last
+    // counts before the process is torn down under the message.
+    if (f) Interceptor.attach(f, { onEnter() { flush(); Thread.sleep(0.15); } });
   } catch (e) {}
 }
 send({ type: "ready", hooked: Object.keys(names).length, names: names });

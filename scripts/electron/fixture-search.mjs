@@ -67,11 +67,16 @@ function missingPath(error) {
   const message = String(error?.message ?? "");
   const match = /ENOENT: no such file or directory, (?:open|stat) '([^']+)'/.exec(message);
   if (!match) return null;
+  /* The oracle reports paths relative to their storage root, so the named file may appear either as
+     an absolute path or already as `userData/notes/x.txt`. */
+  const file = match[1].replace(/\\/g, path.sep);
   for (const base of BASES) {
     const token = `${path.sep}${base}${path.sep}`;
-    const index = match[1].lastIndexOf(token);
+    const index = file.lastIndexOf(token);
     if (index >= 0)
-      return { base, path: match[1].slice(index + token.length).split(path.sep).join("/") };
+      return { base, path: file.slice(index + token.length).split(path.sep).join("/") };
+    if (file.startsWith(`${base}${path.sep}`))
+      return { base, path: file.slice(base.length + 1).split(path.sep).join("/") };
   }
   return null;
 }

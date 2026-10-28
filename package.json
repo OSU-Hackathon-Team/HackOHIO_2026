@@ -11,7 +11,7 @@
   },
   "scripts": {
     "build:contracts": "npm run build --workspace=@splice/contracts",
-    "build:backend": "npm run build --workspace=@splice/backend",
+    "build:backend": "npm run build --workspace=@splice/runtime && npm run build --workspace=@splice/backend",
     "build:frontend": "npm run build --workspace=@splice/frontend",
     "build": "npm run build:contracts && npm run build:backend && npm run build:frontend",
     "dev:backend": "npm run dev --workspace=@splice/backend",
@@ -30,7 +30,16 @@
     "test:all": "npm run test && npm run test:python",
     "start": "npm run start --workspace=@splice/backend",
     "build:targets": "node scripts/build-targets.mjs",
-    "test:studio": "playwright test"
+    "test:studio": "playwright test",
+    "test:recombination:desktop": "npm run build:contracts && npm run build --workspace=@splice/runtime && xvfb-run -a node --import tsx scripts/testRecombinationDesktop.mjs",
+    "package:recombination:linux": "node --import tsx scripts/packageRecombinationLinux.mjs",
+    "test:recombination:linux-package": "npm run build:contracts && npm run build --workspace=@splice/runtime && xvfb-run -a node --import tsx scripts/testRecombinationLinuxPackage.mjs",
+    "test:recombination:linux-package:performance": "SPLICE_TEST_PACKAGED_PERFORMANCE=1 npm run test:recombination:linux-package",
+    "test:recombination:linux-clean": "SPLICE_TEST_CLEAN_CONTAINER=1 npm run test:recombination:linux-package",
+    "test:recombination:linux-vm": "node scripts/testRecombinationLinuxVm.mjs",
+    "test:recombination:studio": "npm run build && node --import tsx scripts/testRecombinationStudio.mjs",
+    "test:recombination:performance": "npm run build:contracts && npm run build:backend && node --import tsx scripts/benchmarkRecombination.mjs",
+    "test:recombination:transcription:live": "npm run build:backend && node --import tsx scripts/testAwsTranscribeLive.mjs"
   },
   "devDependencies": {
     "tsx": "^4",

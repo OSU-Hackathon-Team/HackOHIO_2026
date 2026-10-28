@@ -716,7 +716,7 @@ sync is blocked. Only the two sample implementations can be reused. Reviews depe
 
 - `BuilderBlock`: unique `id`, `kind` (`notes`, `backlinks`, `reviews`, `text`), `title`,
   `description`, `visible`, and `width` (`full` / `half`). A layout has at most 24 sections.
-- `BuilderEditRequest`: nonnegative `revision`, 1�2000 character `instruction`, nullable
+- `BuilderEditRequest`: nonnegative `revision`, 1�2000 character `instruction`, nullable
   `selectedBlockId`, enabled `featureIds`, and current `layout`. All objects are strict.
 - `BuilderOperation`: `type` (`add`, `update`, `remove`, `move`), `blockId`, zero-based `index`,
   and nullable complete `block`. Updates preserve ID and kind. Moves use the destination index
@@ -801,8 +801,135 @@ Schemas: `nativeLibrary.ts`, `nativeExtraction.ts`, `decompTarget.ts`, `decompRu
   is one of those cases; otherwise it must stay `draft`. Extractions saved earlier are unchanged.
 - `DecompTargetSpec`: registry entry `fixtures/decomp/targets/<id>.json` with driver `uno` or `cli`,
   install recipe (cli: apt package and `/usr/{bin,sbin,lib}` binary), case suite path, trace patterns,
-  budgets with cost and depth per budget, handoff folder. Strict; a malformed entry fails startup.
+  optional `scoped_analysis` analysis profile, budgets with cost and depth per budget, handoff folder.
+  Strict; a malformed entry fails startup.
 - `DecompTarget.driver?`: public view of the registry entry for the Studio selector.
 
 The native adapter (Engineer 2) now turns each example into a `deepEqual` assertion on the single
 engine export instead of `assert.ok(true)`. Draft refusal is unchanged.
+
+---
+
+## Downstream recombination contracts (additive, 2026-10-27)
+
+Schemas: `packages/contracts/src/{wire,canonical,capability,composition}.ts`. These do not change
+`FeatureSpec`, `NativeSubsystemSpec`, the Electron handoff, or any existing endpoint. They add the
+downstream capability/composition layer described in
+[`docs/RECOMBINATION_PLAN.md`](../docs/RECOMBINATION_PLAN.md). When this section and the zod schemas
+disagree, the zod schemas are normative for field names; both change in the same commit.
+
+**Wire schemas (`wire.ts`).** `WireType` is a closed, machine-readable type: null, bool,
+sized/signed integers (8/16/32/64), floats (32/64), bounded strings, bytes, unix timestamps,
+arrays/maps, strict objects (`additional: false`), enums, tagged unions, blob references and scoped
+handles. There is deliberately no `any`/unknown/`additionalProperties: true` branch: an ambiguous
+boundary is an intake blocker. `encodeWireValue`/`decodeWireValue` preserve int64 (always
+`{"$int":"…"}`), NaN/±Infinity (`{"$float":…}`), bytes (`{"$bytes":base64}`), blob refs
+(`{"$blob":id,"size":n}`) and handles (`{"$handle":id}`). `wireSchemaProblems` rejects empty
+objects, duplicate/reserved (`$…`) field names and unbounded strings. `canonicalJson` sorts keys and
+rejects undefined/non-finite numbers for content hashing.
+
+**`CapabilityDefinition`.** Stable id/version, origin artifact hash and stage, selected behavior and
+exclusions, `OperationSpec[]` (request/result/error wire objects, idempotent/cancellable/timeout,
+optional ordered event stream, declared host effects), provided/required ports with a `Meaning`
+(units, id domain, timezone, ordering, null semantics, cardinality, value scale), package or
+composition state ownership, lifecycle, host-effect declarations, assumptions, preferred runtime and
+public test metadata. Intake rejects definitions whose operations use an undeclared host effect or
+an empty/composition-owned state without a schema.
+
+**`Readiness` / `VerificationReport`.** Five independent dimensions (`upstream_review`,
+`implementation_checks`, `independent_behavior_checks`, `composition_checks`, `packaging_checks`)
+each `passed | failed | not_run | unknown | not_applicable`. A report records per-test
+`assertions`/`calls` counts, mutation kills and survivors, purity/type/boundary results, blockers and
+its own hash. `CapabilityPackage` pins definition/implementation/build hashes, entrypoints, protocol,
+platforms, toolchain, artifact hashes, dependency lock and readiness. `package_id` is derived
+server-side (`pkg_<32 hex>`), never uploaded. On the current Linux runtime, both
+`ts_worker`/`node_worker` and `native_sidecar` packages execute in supervised bubblewrap
+processes with read-only package mounts and no network access. The runtime-kind names remain
+contract identifiers; they do not promise an in-process Node worker thread.
+
+**Intake.** `CapabilityIntakeRequest` couples a definition to its origin artifact, optional review
+attestation, implementation source (TypeScript files, C files + compiler flags, or a legacy
+blueprint), executable public test cases and an optional independent verdict.
+`CapabilityIntakeRecord` stores the outcome plus `IntakeBlocker[]` with an owner and precise question.
+Drafts, unapproved native/Electron review, no-op test bodies, missing identity, tampered artifact
+hashes and `any` interfaces cannot be accepted. `electronSpec.ts` reads the frozen behavioral
+handoff (`spec.json`, schema 2: application scope/exclusions/blockers, per-channel requirements,
+declared channel exclusions) so intake can verify it without importing the reconstruction pipeline.
+An Electron contract therefore needs an artifact-bound approval as well, and a handoff that still
+declares blockers or unresolved questions stays blocked; `capabilities/fromElectronContract.ts`
+requires an explicit channel → operation mapping instead of deriving one from IPC names.
+
+**`CompositionPlan`.** Pinned package instances, explicit bindings (provided → required port with
+field mappings and an optional declared unit bridge), composition-owned documents with revisions,
+workflows (DAG of operations with input mappings, timeouts, retries, idempotency, cancellation,
+failure propagation, stale guards and transactional `writes` projections into revisioned documents),
+UI surfaces/actions, permissions, provider configuration and machine-executable acceptance
+scenarios. Structural and meaning compatibility are checked by the server; two same-named fields
+are not automatically compatible. A step input may read an explicit binding output through
+`$bindings.<binding_id>.<field>` after its source step completes. Each `writes` entry identifies
+a document, a field path and a source path such as `$steps.<step_id>.<field>` or `$input.<field>`;
+the workflow engine applies them with optimistic document revisions.
+
+**`ApplicationBundle`.** Plan hash, app hash, revision, package lock with artifact hashes,
+renderer/host/worker/migration files (binary files by hash), launch command and provider env
+placeholders, platform matrix, three verification reports, and the previous revision. A failed
+build never replaces the active verified revision. `ApplicationRevisionListResponse` lists stored
+revisions and the durable active revision. Activation returns an `ApplicationRecord`; data schema
+and migration compatibility are checked before switching.
+
+**Jobs.** `JobRecord` persists queued/running/succeeded/failed/cancelled work with a checkpoint and
+request hash; `JobEvent` reports `stage`, `log`, `result`, `error` and terminal `done` over POST-SSE
+or polling. `PreviewRequest/Response` execute a workflow against real stored documents and list
+explicitly unsupported operations instead of simulating them.
+
+**Live transcription.** `TranscriptionAvailabilityResponse` reports whether the optional AWS
+Transcribe Streaming adapter is configured. `TranscriptionEvent` is a POST-SSE stream with
+`started` (provider, hash-addressed uploaded audio and sample rate), timestamped partial/final
+`segment` updates keyed by stable index, terminal `done` and typed `error`. This is a
+downstream provider substitution, not recovered Notion transcription behavior.
+The opt-in provider requires a separate workspace access token before accepting billable uploads.
+
+**Durable transcription state.** `TranscriptionSegment` gives each ordered partial/final segment
+an index, millisecond bounds and text. `TranscriptionSession` pins the hash-addressed audio,
+provider, sample rate, language, job ID, attempt, status and latest segments. A restarted
+provider attempt replaces the preceding attempt's segments; stale attempts cannot update it.
+The session record is independent of an SSE observer and is stored by SQLite migration 6.
+
+**Durable transcription jobs.** `JobKind` includes `transcription`. `JobEvent` adds
+`transcription_reset` (attempt boundary) and `transcription_segment` (partial or final update)
+to the existing stage/result/error/done events. `TranscriptionStartResponse` returns the
+persisted `TranscriptionSession` and its `JobRecord`. The authenticated session routes provide
+snapshots, replayable events and cancellation; generic job routes do not expose transcription
+jobs. A disconnected SSE observer does not cancel the provider job. The older direct
+`TranscriptionEvent` POST-SSE route remains ephemeral for compatibility.
+
+**Provider document projection.** A composition-owned `DocumentDef` may declare an `initial`
+JSON value checked against its wire schema. `ProviderConfig.document_projection` explicitly
+names a revisioned document, transcript array path and stable segment ID prefix. A durable
+`TranscriptionSession.projection` records the app/provider binding and expected document revision;
+SQLite migration 7 persists it. An authenticated job upload may name the app and provider through
+`X-Splice-App-Id` and `X-Splice-Provider-Id`. Each accepted partial/final segment updates the
+session snapshot and composition document in one SQLite transaction. An intervening document
+revision fails the provider job without replacing the edit. A restarted attempt clears the old
+segments and document projection under the same revision guard. Uploads without an app binding
+retain session-only behavior.
+
+**Exported application transcription.** `ProviderConfig.workflow_input` names a declared
+workflow and transcript-array input path; the generated renderer fills that path with finalized
+segments from the same provider session. The exported Electron host keeps AWS credentials in its
+process environment and accepts only bounded WAV bytes through a context-isolated preload API.
+It exposes provider availability, session snapshots, start, cancel and event notifications to
+the renderer. `DesktopTranscription` uses the same `TranscriptionStore` and document projection
+rule as Studio, resumes unfinished sessions from saved audio on launch, and leaves interrupted
+work replayable when the app closes. The Studio access key is not part of an exported app.
+
+**Additive document migrations.** `CompositionPlan.document_migrations` optionally declares a
+`DocumentMigration` with a stable ID, source and target hashes of the sorted document
+schema/owner/revision signature, and the exact IDs of added documents. Added documents must
+be composition-owned, revisioned, and have schema-checked initial values. Build and activation
+apply the declared addition in the same state transaction as the application revision change.
+Older stored revisions may hide newer documents while preserving their data; undeclared schema
+changes and document removal remain incompatible. The generated Electron host initializes
+explicit document defaults on launch and offers revision-checked, schema-validated edits to
+composition-owned documents through the preload bridge. The authored notebook uses this to
+store confirmed numeric workbook cells, which its formula workflow reads from durable state.

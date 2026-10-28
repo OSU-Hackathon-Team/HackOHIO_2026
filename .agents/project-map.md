@@ -56,7 +56,7 @@ packages/backend/src/decomp/ Studio run import, S3 catalog publication and worke
 | `typecheck/virtualTsc.ts` | Eng 3 | `03_bundle_validator.md` |
 | `routes/step3/` (`/api/implement`, `/api/blueprints`, `/api/synthesize`, `/api/refine`) | Eng 3 | `01_*` §6, `02_*` §7, `04_*` |
 | `scripts/*.ts` | owner named in each header | each runs one module alone (see `build-and-run.md`) |
-| `scripts/electron/` | Electron track | `analyze-archive.mjs` (inventory), `oracle.mjs` (mock host), `cases.mjs` (public/held-out cases), `fixture-search.mjs`, `agent-tools.mjs` + `agent.mjs` (OpenCode agent), `project.mjs` (assembly), `pipeline.mjs` (end-to-end). `recreate-project.mjs` is the offline blueprint workbench fallback. See `docs/electron-generalization.md` |
+| `scripts/electron/` | Electron track | `analyze-archive.mjs` (inventory), `oracle.mjs` (mock host), `cases.mjs` (case generation, coverage, partitions), `spec.mjs` (specification validation and public handoff), `fixture-search.mjs`, `agent-tools.mjs` (specification-stage oracle server), `implement-tools.mjs` (implementation-stage server, no oracle), `agent.mjs` (both OpenCode stages), `project.mjs` (assembly), `pipeline.mjs` (two-stage orchestration). `recreate-project.mjs` is the offline blueprint workbench fallback. See `docs/electron-generalization.md` |
 
 ## Frontend (`packages/frontend/src/`), all Eng 3
 

@@ -78,6 +78,7 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   plus a Converse path for `splice_compatible` non-Claude models). **Splice defaults:** all four roles use Qwen3 Coder 480B over Converse. All three primary role smoke tests returned 391 in 0.5–0.6 seconds on this account. Claude overrides remain available but account access is blocked (see `gotchas.md`).
 - **Studio core:** typed POST-SSE client, Zustand orchestration, development adapter, pantry, activity terminal, cards/X-Ray, evidence drawer, fusion, and Sandpack preview/code are implemented. Use `?mode=development` or `VITE_API_MODE=mock`. Authored `_seed` fixtures have real local engine checks and unrun original-code oracle; simulated activity is labeled development data. Electron source export is available; original-app platform parity remains outside the pure-engine pipeline.
 - **Electron project export:** A ready synthesis bundle can be downloaded as a runnable Electron source ZIP, with the checked engine files preserved byte-for-byte and a locally built React renderer. See `docs/electron-export.md` for the run command and the platform-behavior boundary.
+- **Downstream recombination (`feat/recombination-runtime`):** A separate capability package, composition, SQLite, Studio and Electron export path runs authored notebook and budget-board recipes. The notebook has a durable confirmed-cell workbook and optional AWS transcription in Studio and the exported host, with durable sessions, document projection and restart replay. An opt-in Ubuntu x64 `.deb` installs and runs without the Splice server. A fresh Debian bookworm container without Node or a repo checkout ran its workbook, formula, note and authored native sidecar workflows. A clean Ubuntu 24.04.5 VM installed the package, but its default AppArmor policy blocked bubblewrap; the workflows and restart passed after the VM administrator enabled Ubuntu's optional bubblewrap profile. Default-policy workflow execution, other platforms and delivery updates remain open. This branch also carries the two upstream spec pipelines whose public artifacts it consumes: the native spec generator (`engine/specification.py`, `launch.py spec`) and the Electron behavioral handoff (`scripts/electron/spec.mjs`). Generated native specs parse as `NativeSubsystemSpec` and generated Electron handoffs parse as `ElectronContractSpec`; `capabilities/fromElectronContract.ts` admits an approved handoff through intake with an explicit channel → operation mapping. No real application handoff has been approved and built as a package yet, so approved upstream native/Electron-origin packages, human-audio quality and deployment gates remain open. See `docs/RECOMBINATION_IMPLEMENTATION.md`.
 - **Eng 1 helpers landed:** configuration, SSE, archive/REA bridge and collector, record/replay, pantry and schema-shaped health are implemented. Existing Step 1 tests cover these modules; live REA acceptance is separate.
 - **Remaining stubs:** Eng 2 sandbox and requirements extraction. No live pipeline end to end yet; Step 3 deps remain null until the sandbox is available. Its 503 diagnostic now names only the missing sandbox.
 - **Decompilation engine:** the `engine/` package runs native evidence export, scopes,
@@ -145,15 +146,19 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   blocks** (`spec/discovery.ts`) proposes up to five capabilities from supported claims and writes
   one draft spec per capability with Engineer 2's native writer. Drafts stay draft-only, and
   adding one to App library is an explicit user action. See `docs/native-library.md`.
-- **Electron reconstruction workflow (behavioral, target-neutral):** `npm run electron:reconstruct --
-  <app.asar> <out>` analyzes the archive, then an OpenCode agent with a black-box IPC oracle learns
-  channels, fixtures, errors and file effects, writes feature modules and declares a contract. The
-  driver generates public, held-out and final-held-out cases from that contract, assembles a runnable
-  Electron project (`main`, sandboxed preload, renderer, manifest) and verifies values, error
-  names/codes and persisted bytes against the original. Coverage gates reject contracts that only
-  reach error paths. There are no per-app adapters, templates, blueprints or scenarios in the
-  reconstruction path. The model role is `electron_reconstructor` in `models.json`. See
-  `docs/electron-generalization.md`.
+- **Electron reconstruction workflow (behavioral, target-neutral, two stages):** `npm run
+  electron:reconstruct -- <app.asar> <out>` runs a **specification agent** with the black-box IPC
+  oracle. It writes `spec.json` — every channel, reachable fixtures, argument samples, numbered
+  requirements and stateful sequences — and the driver rejects coverage that only reaches error
+  paths. A **different implementation agent** then gets only `SPEC.md`, `spec.json` and the public
+  differential cases: no oracle, no archive. The driver partitions observed cases into public,
+  repair and final held-out sets with per-channel success coverage, assembles a runnable Electron
+  project and compares values, error names/codes, intermediate file effects and bytes against the
+  original. Repair cases appear only after a failed round; final failures never feed back. The
+  report (`reconstruction-report.json`, schema 2) records partitions, observation failures and an
+  explicit `readiness` verdict. Roles: `electron_spec_writer`, `electron_implementer` (fallback
+  `electron_reconstructor`) in `models.json`. There are no per-app adapters, templates, blueprints
+  or scenarios in the reconstruction path. See `docs/electron-generalization.md`.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
   `trace_application_feature` and `binary_session` (live probe; catalog and samples in `fixtures/rea/`),

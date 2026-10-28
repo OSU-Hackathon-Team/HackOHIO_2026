@@ -16,6 +16,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     make \
     g++ \
+    bubblewrap \
+    util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 # 1. Install pinned rea-agents globally; the MCP server is the `mcp` subcommand (`rea-agents mcp`)
@@ -38,6 +40,8 @@ COPY package.json package-lock.json* ./
 COPY packages/contracts/package.json ./packages/contracts/
 COPY packages/backend/package.json ./packages/backend/
 COPY packages/frontend/package.json ./packages/frontend/
+COPY packages/runtime/package.json ./packages/runtime/
+COPY packages/desktop-host/package.json ./packages/desktop-host/
 
 # Install the committed dependency tree across all workspaces.
 RUN npm ci
@@ -47,6 +51,8 @@ COPY tsconfig*.json ./
 COPY packages/contracts ./packages/contracts
 COPY packages/backend ./packages/backend
 COPY packages/frontend ./packages/frontend
+COPY packages/runtime ./packages/runtime
+COPY packages/desktop-host ./packages/desktop-host
 COPY fixtures ./fixtures
 COPY targets/manifest.json ./targets/manifest.json
 
@@ -56,6 +62,7 @@ COPY targets/manifest.json ./targets/manifest.json
 # 3. frontend (the active App.tsx entry point; currently the chat/library workspace).
 # Host dist folders are excluded by .dockerignore, so this always builds source from this checkout.
 RUN npm run build --workspace=@splice/contracts \
+    && npm run build --workspace=@splice/runtime \
     && npm run build --workspace=@splice/backend \
     && npm run build --workspace=@splice/frontend
 
@@ -76,6 +83,8 @@ COPY package.json package-lock.json* ./
 COPY packages/contracts/package.json ./packages/contracts/
 COPY packages/backend/package.json ./packages/backend/
 COPY packages/frontend/package.json ./packages/frontend/
+COPY packages/runtime/package.json ./packages/runtime/
+COPY packages/desktop-host/package.json ./packages/desktop-host/
 
 # Install all dependencies including dev tooling
 RUN npm ci
@@ -118,6 +127,14 @@ COPY --from=builder /app/packages/contracts/dist ./packages/contracts/dist
 # Copy package.json and compiled dist for backend
 COPY --from=builder /app/packages/backend/package.json ./packages/backend/
 COPY --from=builder /app/packages/backend/dist ./packages/backend/dist
+# The Electron export compiler bundles its host template against these TypeScript modules.
+COPY --from=builder /app/packages/backend/src ./packages/backend/src
+COPY --from=builder /app/packages/runtime/package.json ./packages/runtime/
+COPY --from=builder /app/packages/runtime/dist ./packages/runtime/dist
+# The application compiler bundles these source templates when a build job runs in production.
+COPY --from=builder /app/packages/runtime/src/jsSidecarRunner.mjs ./packages/runtime/src/jsSidecarRunner.mjs
+COPY --from=builder /app/packages/desktop-host/package.json ./packages/desktop-host/
+COPY --from=builder /app/packages/desktop-host/src ./packages/desktop-host/src
 # UI skills the synthesis model chooses from (read at runtime, not compiled)
 COPY --from=builder /app/packages/backend/skills ./packages/backend/skills
 

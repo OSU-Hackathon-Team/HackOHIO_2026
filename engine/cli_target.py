@@ -8,6 +8,7 @@ shape, so the dossier, case links and handoff consume them unchanged.
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -39,6 +40,12 @@ def load_cli_cases(path: Path) -> dict:
         ids.add(case["id"])
         if not isinstance(case.get("args"), list) or not all(isinstance(a, str) for a in case["args"]):
             raise ValueError(f"{case['id']}: args must be a list of strings")
+        if "stdin" in case and not isinstance(case["stdin"], str):
+            raise ValueError(f"{case['id']}: stdin must be a string when present")
+        if "script" in case and not isinstance(case["script"], str):
+            raise ValueError(f"{case['id']}: script must be a string when present")
+        if "stdin" not in case and not case["args"] and "script" not in case:
+            raise ValueError(f"{case['id']}: a case needs arguments, a script or stdin")
         if "expected" in case:
             raise ValueError(f"{case['id']}: expected results come from running the program, not the suite")
     return suite
@@ -87,15 +94,69 @@ def ensure_cli_install(target: dict, *, run=subprocess.run) -> dict:
                                               "symbols": symbol_state(binary)}}}
 
 
+SCRIPT_PLACEHOLDER = "{script}"
+
+
+def materialize_scripts(cases: list[dict], root: Path) -> list[dict]:
+    """Write each case's program text to a content-addressed file and point its args at it.
+
+    A file argument is what makes per-case runtime observation possible: the spawned
+    process inherits the case's input without a terminal. The path is stable for the
+    same program text, so probe records and replays stay reproducible.
+    """
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    materialized = []
+    for case in cases:
+        if "script" not in case:
+            materialized.append(dict(case))
+            continue
+        digest = hashlib.sha256(case["script"].encode()).hexdigest()[:16]
+        path = root / f"{case['id'].replace('/', '_')}-{digest}.bc"
+        if not path.exists() or path.read_text() != case["script"]:
+            path.write_text(case["script"])
+        args = [arg.replace(SCRIPT_PLACEHOLDER, str(path)) for arg in case["args"]]
+        materialized.append({**case, "args": args, "script_path": str(path)})
+    return materialized
+
+
 def cli_case_input(case: dict) -> dict:
-    return {"args": list(case["args"])}
+    """What the oracle ran: the argument list, the fed program text, and the input.
+
+    The program text is recorded even when the case is driven through a file, because the
+    path alone does not describe what the original program was asked to do. That path is a
+    host location, so it is recorded as the suite's declared placeholder instead: the
+    recorded invocation stays a description the published spec can carry.
+    """
+    script_path = case.get("script_path")
+    args = [arg.replace(script_path, SCRIPT_PLACEHOLDER) if script_path and script_path in arg
+            else arg for arg in case["args"]]
+    return {"args": args,
+            **({"stdin": case["stdin"]} if "stdin" in case else {}),
+            **({"program_text": case["script"]} if "script" in case else {})}
 
 
 def cli_display(program: str, case: dict) -> str:
-    return shlex.join([Path(program).name, *case["args"]])
+    invocation = shlex.join([Path(program).name, *case["args"]])
+    if "stdin" in case:
+        return invocation + " <<'BC'\n" + case["stdin"].rstrip("\n") + "\nBC"
+    if "script" in case:
+        return f"{invocation} reads a program that says:\n" + case["script"].rstrip("\n")
+    return invocation
 
 
-def _number(text: str) -> float | None:
+DECIMAL = re.compile(r"^[+-]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?$")
+
+
+def _decimal(text: str) -> float | None:
+    """A floating-point result, which may be compared with a tolerance.
+
+    A plain integer is exact: the calculator's whole point is arbitrary-precision results,
+    so 299999999999999999997 and 300000000000000000000 are different answers however
+    close their floating-point approximations are.
+    """
+    if not DECIMAL.match(text) or not any(marker in text for marker in ".eE"):
+        return None
     try:
         return float(text)
     except ValueError:
@@ -115,7 +176,7 @@ def cli_matches(predicted: dict, observed: dict | None) -> bool:
     want, got = str(predicted["stdout"]).strip(), str(observed.get("stdout", "")).strip()
     if want == got:
         return True
-    a, b = _number(want), _number(got)
+    a, b = _decimal(want), _decimal(got)
     return a is not None and b is not None and math.isclose(a, b, rel_tol=1e-12, abs_tol=1e-12)
 
 
@@ -136,8 +197,11 @@ class CliDriver:
 
     def evaluate(self, case: dict) -> dict:
         try:
-            done = subprocess.run([self.program, *case["args"]], capture_output=True, text=True,
-                                  timeout=self.timeout, stdin=subprocess.DEVNULL,
+            # ``stdin`` is the program text for interactive targets (bc and friends);
+            # without it the program sees an empty stream, never a terminal.
+            done = subprocess.run([self.program, *case["args"]], input=case.get("stdin", ""),
+                                  capture_output=True, text=True,
+                                  timeout=self.timeout,
                                   env={"LANG": "C", "LC_ALL": "C", "PATH": "/usr/bin:/bin"})
         except subprocess.TimeoutExpired:
             return {"id": case["id"], "observed": None, "error": f"timed out after {self.timeout} s"}

@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "id": "gnu-bc-arith",
+  "name": "GNU bc arithmetic",
+  "description": "Bounded subsystem over the real /usr/bin/bc: integer and decimal arithmetic, the scale setting and result formatting, with the real program as the oracle.",
+  "driver": "cli",
+  "library": "bc",
+  "install": { "apt": "bc", "binary": "/usr/bin/bc" },
+  "cases": "fixtures/decomp/cli/bc_arith_cases.json",
+  "trace_patterns": ["*"],
+  "scoped_analysis": false,
+  "function_budgets": [16, 24],
+  "estimated_cost_usd": { "16": 0.4, "24": 0.6 },
+  "depth_by_budget": { "16": 2, "24": 2 },
+  "handoff": "gnu-bc-arith"
+}

@@ -60,10 +60,10 @@ Each script runs one module alone. "Done" for a module means its script passes.
 | Script | Checks |
 |---|---|
 | `npm run electron:analyze -- <app.asar>` | Static archive inventory (entries, IPC arity, bridges, assets) |
-| `npm run electron:reconstruct -- <app.asar> <out>` | Full behavior pipeline: oracle, agent, public/held-out verification, project assembly. Needs Bedrock credentials; model comes from the `electron_reconstructor` role |
+| `npm run electron:reconstruct -- <app.asar> <out>` | Full two-stage pipeline: oracle → specification agent → public handoff → implementation agent → public/repair/final verification → project assembly. Needs Bedrock credentials; roles are `electron_spec_writer` and `electron_implementer`. Options include `--spec-rounds`, `--impl-rounds`, `--spec-timeout`, `--impl-timeout`, `--state <dir>`, and `--only <channel[,channel|*]>` with `--scope-label <text>` to reconstruct one subsystem instead of the whole application (the report then says `readiness.scoped` and keeps `whole_app_ready` false) |
 | `npm run electron:verify -- <app.asar> <project> <scenario.json>` | Differential comparison for an explicit scenario |
 | `npm run electron:workbench -- <app.asar> <out>` | Offline function workbench from a verified blueprint (not app reconstruction) |
-| `npm run test:electron-general` | Oracle, case generation, fixture search, assembly, differential verification and MCP tool tests. No credentials needed |
+| `npm run test:electron-general` | Oracle, case generation and partitioning, specification validation, both agent tool servers, handoff isolation, assembly, differential verification and MCP tool tests. No credentials needed; CI runs it |
 
 ## Runtime modes (backend `.env`)
 
@@ -134,7 +134,32 @@ Inside the container the agent edits `candidate.c`, runs `./run_tests.sh`, and u
 public mismatch is ambiguous. The broker socket is the only path to the decompilation side;
 audit records live outside the workspace. The driver validates public cases again, rejects a
 tampered harness, and runs held-out cases only after the container exits. `--workbench` is
-opt-in; the existing no-tools prompt loop remains the fallback. Run
+opt-in; the existing no-tools prompt loop remains the fallback.
+
+A command-line target uses the same workbench with an executable interface: the harness
+builds `candidate.c` into a program (`cc -std=gnu11 -O2 -o candidate candidate.c -lm`),
+writes each public case's program text into `case_scripts/`, and runs the program once per
+case, comparing standard output, standard error and exit status. There is no adapter and no
+broker for that interface.
+
+```bash
+docker build -t splice-cleanroom-implementer:local -f implementer.Dockerfile .
+python scripts/run_executable_c_e2e.py --state decomp-state --allow-draft \
+  --spec-artifact <spec> --public-report-artifact <public-report> \
+  --full-report-artifact <full-report> --workbench --workbench-runtime docker \
+  --opencode /path/to/opencode
+```
+
+The container reaches the model provider itself, so the driver passes the credentials this
+host resolves (environment, env file, or the shared credentials file) and the region into
+the sandbox — those keys are the only environment it receives. The gate is still the host's:
+the agent's exit status is not the result. On the GNU bc arithmetic suite (16 public, 10
+held-out cases) one agent session reached 16/16 public and 1/10 held-out, because the agent
+hardcoded the public program texts it could now run — the no-tools loop reached 15/16 public
+and 6/10 held-out on the same suite. A green public harness with tools is not evidence of
+rule-level behavior, which is what the single held-out pass exists to measure.
+
+Run
 `python3 -m unittest discover -s tests -p "test_cleanroom.py"` for the broker, disclosure,
 segregation, and self-test checks. `python scripts/check_cleanroom.py --container` additionally
 runs the real implementer image with a scripted agent (no model call); it needs the image

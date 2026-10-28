@@ -24,6 +24,13 @@ WRITER_INPUTS = (SCRIPT, ROOT / "packages/backend/src/spec/nativeDraft.ts",
                  ROOT / "packages/contracts/src/nativeSpec.ts",
                  ROOT / "models.json", Path(__file__))
 
+# The writer itself retries a rejected draft, so the subprocess budget must cover several
+# model turns over a handoff with scores of claims. Each part of a large handoff gets that
+# budget, because a part is one writer invocation with its own retries.
+WRITER_TIMEOUT = int(os.environ.get("SPEC_WRITER_TIMEOUT", "900"))
+# Claims per writer call, and the cap that keeps one merged section readable after assembly.
+SPEC_PART_CLAIMS, SPEC_PART_SECTION_LIMIT = int(os.environ.get("SPEC_PART_CLAIMS", "20")), 24
+
 
 def writer_revision() -> str:
     digest = hashlib.sha256()
@@ -31,6 +38,9 @@ def writer_revision() -> str:
         digest.update(str(path.relative_to(ROOT)).encode())
         digest.update(path.read_bytes())
     digest.update(os.environ.get("MODEL_SPEC_WRITER", "").encode())
+    # The part size is part of the produced spec's identity: a cached pointer must not
+    # stand for a spec written with a different partitioning.
+    digest.update(str(SPEC_PART_CLAIMS).encode())
     return digest.hexdigest()
 
 
@@ -51,6 +61,25 @@ def _write_atomic(path: Path, content: str) -> None:
         temporary.unlink(missing_ok=True)
 
 
+# The published-text contract, mirroring packages/backend/src/spec/nativeSafety.ts. The
+# TypeScript writer repairs a draft against exactly this rule, so the checker must stay a
+# mirror of it rather than a stricter surprise the writer cannot be told about.
+PUBLISHED_TEXT = re.compile(
+    r"\b_Z[A-Za-z0-9_]+\b|\b[A-Za-z_]\w*::[A-Za-z_]\w*|"
+    r"```|</?(?:source|code)|"
+    r"\b(?:MOVAPS|MOVUPS|PXOR|JBE|CMP|RDI|XMM\d+|param_\d+)\b|"
+    r"\b0x[0-9a-f]{6,}\b|\b[0-9a-f]{64}\b|"
+    r"\b(?:decompil|disassembl|review_state|unmapped|artifact|unknown|TODO|dossier|"
+    r"claim|probe|source|vtable|vptr|RTTI|typeinfo)\w*\b|\bsrc/|[{};`]|"
+    r"\b(?:function|const|let|return|if)\s*\(|=>|"
+    r"(?:^|\s)[A-Za-z_]\w*(?:\[[^\]]+\])?\s*(?:\+=|-=|==|=)\s*\S|"
+    r"^\s*[A-Za-z_]\w*\s*:\s*(?:u?int\d+|boolean|number|string|bool)\b",
+    re.I,
+)
+
+# Engine-side additions: decompiler prose that reads like a disassembly summary. Claim
+# statements carry these into requirements verbatim, so they are refused at admission
+# instead of at publication, where the writer would have to rewrite supplied evidence.
 SOURCE_SHAPED = re.compile(
     r"\b(?:param_\d+|_?DAT_[0-9a-f]+|RDI|RAX|EAX|XMM\d+|MOVAPS|MOVUPS|PXOR)\b|"
     r"\b0x[0-9a-f]{6,}\b|\bat address\s+[0-9a-f]{6,}\b|"
@@ -58,6 +87,14 @@ SOURCE_SHAPED = re.compile(
     r"result of the comparison|several bytes and a constant|predefined global variables)\b",
     re.I,
 )
+
+
+def unpublishable(text: str) -> str | None:
+    """The first fragment that would keep text out of the published spec, if any."""
+    if "\n" in text:
+        return "newline"
+    match = PUBLISHED_TEXT.search(text) or SOURCE_SHAPED.search(text)
+    return match.group(0) if match else None
 
 
 def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
@@ -83,7 +120,7 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
               if c.get("review_state") == "supported_static" and c.get("evidence")
               and c.get("reviews") and isinstance(c.get("statement"), str)
               and c not in structural
-              and not SOURCE_SHAPED.search(c["statement"])
+              and not unpublishable(c["statement"])
               and c.get("execution_state") != "case_disagreement"
               and all(_link_ok(link) for link in c.get("probe_links", []))]
     selected_ids = {id(c) for c in claims}
@@ -126,11 +163,11 @@ def prepare_handoff(dossier: dict, dossier_artifact: str) -> tuple[dict, dict]:
                 case.get("observed") is None):
             continue
         key = json.dumps([case.get("input"), case.get("observed")], sort_keys=True)
-        cases.setdefault(key, {"name": case["case_id"], "input": case["input"],
+        cases.setdefault(key, {"name": case["case_id"], "input": _example_data(case["input"]),
                                "input_description": case.get("input_description"),
                                **({"observation_kind": case["kind"]}
                                   if case.get("kind") in {"executable", "shared"} else {}),
-                               "expected_output": case["observed"]})
+                               "expected_output": _example_data(case["observed"])})
     verified = verified and bool(cases) and all(
         case.get("outcome") == "observed" and case.get("expected") is None and
         case.get("execution_mode", "original") == "original" and
@@ -191,6 +228,8 @@ def _synthesize_cleanroom_draft(handoff: dict) -> dict:
     # query, expected observables, dependency contracts, and claim statements.
     # No subsystem-specific text lives here by design.
     feature = (handoff.get("feature") or "the analyzed subsystem").strip()
+    if not feature or unpublishable(feature):
+        feature = "the analyzed subsystem"
     dep_contracts = [d for d in handoff.get("dependency_contracts", [])
                      if isinstance(d, str) and d.strip()]
     title = f"Cleanroom behavioral specification for {feature}"
@@ -216,7 +255,12 @@ def _synthesize_cleanroom_draft(handoff: dict) -> dict:
     for exc in handoff.get("excluded_behavior", []):
         name = exc.get("name") or "boundary"
         reason = exc.get("reason") or "outside scope"
-        exclusions.append(f"Function {name} is excluded from the subsystem boundary due to {reason}.")
+        sentence = f"Function {name} is excluded from the subsystem boundary due to {reason}."
+        # A symbol or reason the published-text rule refuses is left out rather than
+        # quoted: the fallback must produce a publishable draft for whatever handoff it gets.
+        if unpublishable(sentence):
+            continue
+        exclusions.append(sentence)
     draft = {
         "title": title,
         "purpose": purpose,
@@ -230,17 +274,115 @@ def _synthesize_cleanroom_draft(handoff: dict) -> dict:
     return {"draft": draft, "model": "cleanroom-spec-synthesizer"}
 
 
+def spec_parts(handoff: dict, size: int = SPEC_PART_CLAIMS) -> list[dict]:
+    """The handoff in claim-sized parts, each part still describing the whole subsystem.
+
+    One answer has to cover every claim id it is given, and a single reply stops covering a
+    large claim set reliably: the writer then fails its own coverage check three times and the
+    dossier falls back to the generic draft. Claims are partitioned by function so each part
+    is a coherent requirement set, while title, purpose, interface and the process sections
+    describe the whole subsystem in every part, because the parts are reassembled into one
+    spec. A handoff that already fits stays a single part.
+    """
+    claims = handoff["claims"]
+    if len(claims) <= size:
+        return [handoff]
+    by_name = {function["name"]: function for function in handoff["functions"]}
+    count = (len(claims) + size - 1) // size
+    parts = []
+    for index, start in enumerate(range(0, len(claims), size)):
+        subset = claims[start:start + size]
+        named = {claim["function"] for claim in subset}
+        parts.append({**handoff, "claims": subset,
+                      "functions": [by_name[name] for name in by_name if name in named]
+                      or handoff["functions"],
+                      "part": {
+                          "index": index + 1, "count": count,
+                          "note": "You are writing one part of the specification for the whole "
+                                  "subsystem described here. Title, purpose, interface, behavior "
+                                  "steps and acceptance criteria describe the whole subsystem. "
+                                  "The requirements cover only the claims supplied in this part; "
+                                  "the other parts cover the remaining claims."}})
+    return parts
+
+
+def _merge_items(groups: list[list[str]], limit: int = SPEC_PART_SECTION_LIMIT) -> list[str]:
+    """Items from every part in order, without repeats, bounded so a section stays readable."""
+    merged, seen = [], set()
+    for group in groups:
+        for item in group:
+            key = item.strip().casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+    return merged[:limit]
+
+
+def assemble_parts(drafts: list[dict]) -> dict:
+    """One draft from per-part drafts, with requirements re-numbered over the claim partition.
+
+    Each claim belongs to exactly one part, so a claim with two requirements is the writer
+    contradicting itself and fails the spec rather than publishing a doubled fact.
+    """
+    requirements, covered = [], set()
+    for draft in drafts:
+        for requirement in draft["requirements"]:
+            for claim_id in requirement["claim_ids"]:
+                _require(claim_id not in covered, f"claim {claim_id} has more than one requirement")
+                covered.add(claim_id)
+            requirements.append({"id": f"REQ-{len(requirements) + 1}",
+                                 "statement": requirement["statement"],
+                                 "claim_ids": list(requirement["claim_ids"])})
+    primary = max(enumerate(drafts), key=lambda item: (len(item[1]["requirements"]), -item[0]))[1]
+    return {
+        "title": primary["title"], "purpose": primary["purpose"],
+        "interface": {key: _merge_items([draft["interface"][key] for draft in drafts])
+                      for key in ("inputs", "outputs", "state")},
+        "requirements": requirements,
+        "behavior_steps": _merge_items([draft["behavior_steps"] for draft in drafts]),
+        "acceptance_criteria": _merge_items([draft["acceptance_criteria"] for draft in drafts]),
+        "deviations": _merge_items([draft["deviations"] for draft in drafts]),
+        "exclusions": _merge_items([draft["exclusions"] for draft in drafts]),
+    }
+
+
 def _write_with_regular_engine(handoff: dict) -> dict:
+    """The model writer's draft, or the deterministic draft plus the reason it was needed.
+
+    A part the writer cannot deliver falls back to its own claim statements rather than
+    discarding the parts it did deliver: the assembled spec stays complete and publishable,
+    and the audit records which part needed the deterministic text.
+    """
+    parts = spec_parts(handoff)
+    failure = "the spec writer entry point is unavailable"
     if WRITER.exists() and SCRIPT.exists():
-        try:
-            result = subprocess.run([str(WRITER), str(SCRIPT)], cwd=ROOT,
-                                    input=json.dumps(handoff), text=True, capture_output=True,
-                                    timeout=180, check=False)
-            if result.returncode == 0:
-                return json.loads(result.stdout)
-        except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError):
-            pass
-    return _synthesize_cleanroom_draft(handoff)
+        drafts, failures, model = [], [], None
+        for index, part in enumerate(parts, 1):
+            try:
+                result = subprocess.run([str(WRITER), str(SCRIPT)], cwd=ROOT,
+                                        input=json.dumps(part), text=True, capture_output=True,
+                                        timeout=WRITER_TIMEOUT, check=False)
+                if result.returncode:
+                    raise ValueError(f"the spec writer exited {result.returncode}: "
+                                     f"{(result.stderr or '').strip()[-400:]}")
+                written = json.loads(result.stdout)
+                drafts.append(written["draft"])
+                model = written.get("model") or model
+            except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError,
+                    ValueError, KeyError, TypeError) as error:
+                failures.append((index, f"{type(error).__name__}: {error}"))
+                drafts.append(_synthesize_cleanroom_draft(part)["draft"])
+        if model:
+            where = ", ".join(f"part {index} of {len(parts)}" for index, _ in failures)
+            detail = "; ".join(message for _, message in failures)
+            return {"draft": assemble_parts(drafts), "model": model, "parts": len(parts),
+                    "part_fallbacks": [index for index, _ in failures],
+                    "writer_failure": (f"the spec writer failed for {where}: {detail}" if
+                                       failures else None)}
+        failure = (f"the spec writer failed (part 1 of {len(parts)}): {failures[0][1]}" if
+                   failures else failure)
+    return {**_synthesize_cleanroom_draft(handoff), "writer_failure": failure}
 
 
 def validate_draft(draft: dict, handoff: dict) -> None:
@@ -273,37 +415,71 @@ def validate_draft(draft: dict, handoff: dict) -> None:
             draft["acceptance_criteria"] + draft["deviations"] + draft["exclusions"])
     for value in text:
         _require(isinstance(value, str) and bool(value.strip()), "empty spec text")
-        _require(not re.search(
-            r"```|</?(?:source|code)|\b(?:MOVAPS|MOVUPS|PXOR|JBE|CMP|RDI|XMM\d+|param_\d+)\b|"
-            r"\b0x[0-9a-f]{6,}\b|\b[0-9a-f]{64}\b|\b(?:decompil|disassembl|review_state|unmapped|artifact|unknown|TODO|dossier|claim|probe|source|vtable|vptr|RTTI|typeinfo)\w*\b|\bsrc/|"
-            r"\b(?:function|const|let|return|if)\s*\(|=>|[{};`]|"
-            r"(?:^|\s)[A-Za-z_]\w*(?:\[[^\]]+\])?\s*(?:\+=|-=|==|=)\s*\S|"
-            r"^\s*[A-Za-z_]\w*\s*:\s*(?:u?int\d+|boolean|number|string|bool)\b|\n",
-            value, re.I),
-            "spec contains source-like or report-card text")
+        _require("\n" not in value and not PUBLISHED_TEXT.search(value),
+                 "spec contains source-like or report-card text")
+
+
+EXAMPLE_TEXT = re.compile(
+    r"```|/\*|\*/|//|\b(?:function|class|const|import|export)\s+\w+|"
+    r"\b(?:MOVAPS|MOVUPS|PXOR|JBE|CMP)\b|\b0x[0-9a-f]{6,}\b|"
+    r"\b(?:return|const|let|import|export)\s+\w+|=>|\{\s*\w+\s*[:=]",
+    re.I,
+)
+EXAMPLE_TEXT_LIMIT = 256
+
+
+def example_text_problem(text: str) -> str | None:
+    """Why one string cannot be published as original example data, if it cannot."""
+    if len(text) > EXAMPLE_TEXT_LIMIT:
+        return "oversized text"
+    match = EXAMPLE_TEXT.search(text)
+    return match.group(0) if match else None
+
+
+def _example_problem_message(problem: str | None) -> str:
+    return ("original example contains source-like or oversized text"
+            if problem != "invalid original example data" else problem)
+
+
+def _example_problem(value) -> str | None:
+    if isinstance(value, str):
+        return example_text_problem(value)
+    if isinstance(value, list):
+        for item in value:
+            problem = _example_problem(item)
+            if problem:
+                return problem
+        return None
+    if isinstance(value, dict):
+        for key, item in value.items():
+            problem = _example_problem(key) or _example_problem(item)
+            if problem:
+                return problem
+        return None
+    if value is None or isinstance(value, (int, float, bool)):
+        return None
+    return "invalid original example data"
+
+
+def _example_data(value):
+    """Publish observed text line by line: the example gate refuses embedded newlines, and a
+    line per entry keeps an original observation exact while staying publishable. Evidence
+    that still trips the gate fails the spec instead of being dropped, so a case suite whose
+    public cases cannot be published is fixed there."""
+    if isinstance(value, str) and "\n" in value:
+        return value.splitlines()
+    if isinstance(value, list):
+        return [_example_data(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _example_data(item) for key, item in value.items()}
+    return value
 
 
 def _validate_examples(examples: list[dict]) -> None:
     """Original test data may itself contain source; keep that out of the public artifact."""
-    def inspect(value) -> None:
-        if isinstance(value, str):
-            _require(len(value) <= 256 and not re.search(
-                r"```|/\*|\*/|//|\b(?:function|class|const|import|export)\s+\w+|"
-                r"\b(?:MOVAPS|MOVUPS|PXOR|JBE|CMP)\b|\b0x[0-9a-f]{6,}\b|"
-                r"\b(?:return|const|let|import|export)\s+\w+|=>|\{\s*\w+\s*[:=]|\n",
-                value, re.I), "original example contains source-like or oversized text")
-        elif isinstance(value, list):
-            for item in value:
-                inspect(item)
-        elif isinstance(value, dict):
-            for key, item in value.items():
-                inspect(key)
-                inspect(item)
-        else:
-            _require(value is None or isinstance(value, (int, float, bool)),
-                     "invalid original example data")
     for example in examples:
-        inspect(example)
+        problem = _example_problem(example)
+        _require(problem is None, _example_problem_message(problem))
 
 
 def generate_spec(dossier: dict, dossier_artifact: str, *, writer=None) -> tuple[dict, dict]:
@@ -327,6 +503,9 @@ def generate_spec(dossier: dict, dossier_artifact: str, *, writer=None) -> tuple
     _validate_examples(spec["examples"])
     audit["requirement_sources"] = {r["id"]: r["claim_ids"] for r in draft["requirements"]}
     audit["model"] = result.get("model")
+    audit["writer_failure"] = result.get("writer_failure")
+    audit["spec_parts"] = result.get("parts")
+    audit["spec_part_fallbacks"] = result.get("part_fallbacks")
     return spec, audit
 
 

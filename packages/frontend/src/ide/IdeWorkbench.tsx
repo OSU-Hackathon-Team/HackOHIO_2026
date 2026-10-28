@@ -18,12 +18,14 @@ import {
   Undo2,
   Redo2,
   FlaskConical,
+  Workflow,
 } from "lucide-react";
 import { useIdeStore } from "./store/useIdeStore";
 import { WorkspaceButton } from "./WorkspaceButton";
 import { ChatPage } from "./ChatPage";
 import { AppLibrary } from "./AppLibrary";
 import { StudioView } from "./views/StudioView";
+import { RecombinationView } from "../recombination/RecombinationView";
 import { PipelineTest } from "./PipelineTest";
 import { cn } from "../lib/cn";
 
@@ -32,6 +34,7 @@ const destinations = [
   { id: "library", label: "App library", icon: AppWindow },
   { id: "app", label: "My app", icon: PanelsTopLeft },
   { id: "pipeline", label: "Pipeline test", icon: FlaskConical },
+  { id: "recombination", label: "Recombine", icon: Workflow },
 ] as const;
 export function IdeWorkbench() {
   const state = useIdeStore();
@@ -115,6 +118,9 @@ export function IdeWorkbench() {
         </div>
         <div hidden={state.workspacePage !== "pipeline"} className="h-full">
           <PipelineTest />
+        </div>
+        <div hidden={state.workspacePage !== "recombination"} className="h-full">
+          <RecombinationView />
         </div>
         <div hidden={state.workspacePage !== "app"} className="h-full">
           <div className="flex h-full flex-col">
