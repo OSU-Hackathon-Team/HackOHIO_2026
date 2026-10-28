@@ -162,8 +162,10 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   Studio's Recombine view exposes archive upload, runtime IPC inventory and scoped run jobs
   through `/api/electron/*`. A live Obsidian vault run passed public and repair checks but failed
   final parity (13/16). Renderer discovery now runs a separate UI-only specification worker through
-  the same client API. It reached the real original welcome screen; editor reachability,
-  independent replay and implementation remain open. See `docs/obsidian-calc-demo-gap-log.md`.
+  the same client API. It now follows replacement windows and reached the real original editor:
+  the model created a vault/note and observed live Markdown rendering. A 10-requirement draft
+  exists; reading-mode reachability, precise replayable requirements, independent replay and
+  implementation remain open. See `docs/obsidian-calc-demo-gap-log.md`.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,
   `trace_application_feature` and `binary_session` (live probe; catalog and samples in `fixtures/rea/`),
