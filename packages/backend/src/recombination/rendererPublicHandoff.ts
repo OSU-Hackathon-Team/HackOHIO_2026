@@ -33,6 +33,8 @@ function object(value: unknown): Record<string, unknown> {
 
 function publicAction(value: unknown, workspaceRoot: string) {
   const action = object(value);
+  if (action.action === "capture_case") return { kind: "renderer_case", case_id: action.case_id,
+    input_markdown: publicText(action.value, workspaceRoot, 100_000) };
   if (typeof action.fixture === "string") {
     const relative = action.fixture.replaceAll("\\", "/").split("/").filter(part => part && part !== "." && part !== "..").join("/");
     return {
@@ -108,6 +110,16 @@ export function buildRendererPublicHandoff(discoveryId: string, rawSource: unkno
       observed_output: publicObservationResult(observation.result, source.workspace_root),
     };
   });
+  const cases = source.observations.flatMap(observation => {
+    const action = object(observation.action), result = object(observation.result);
+    if (action.action !== "capture_case" || result.input_verified !== true || checkById.get(observation.id)?.status !== "passed") return [];
+    if (typeof action.value !== "string" || typeof result.rendered !== "string" || typeof action.case_id !== "string")
+      throw new Error("Renderer case has incomplete original evidence");
+    const input = publicText(action.value, source.workspace_root, 100_000);
+    const output = publicText(result.rendered, source.workspace_root, 100_000);
+    if (input !== action.value || output !== result.rendered) throw new Error("Renderer case contains local paths or exceeds the public evidence limit");
+    return [{ case_id: action.case_id, observation_id: observation.id, input_markdown: input, expected_html: output }];
+  });
 
   return {
     schema: 1,
@@ -129,5 +141,6 @@ export function buildRendererPublicHandoff(discoveryId: string, rawSource: unkno
     },
     requirements,
     observations,
+    cases,
   };
 }

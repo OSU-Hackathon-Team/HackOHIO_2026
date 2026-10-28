@@ -172,6 +172,9 @@ engine track (see the table above). The root `Dockerfile` builds the **Node app*
   model calls through `POST /api/decomp/runs` in `public_oracle` mode. A live client job recorded
   six public table outputs, including working range sorts after the UNO struct-sequence repair.
   These are observations, not approved specifications or candidate parity.
+  Renderer discovery also supports `capture_cases:true`, requiring exact editor-input/original-DOM
+  pairs and original replay. Its first live capture run failed on selector/mode preconditions;
+  generic control-ref resolution and editable-control guidance are implemented for the next run.
   See `docs/obsidian-calc-demo-gap-log.md`.
 - **Not yet installed:** esbuild, `rea-agents`, jszip and other dependencies for remaining modules. Bedrock SDKs, Zustand, Playwright, `@electron/asar` and Step 3 type-check dependencies are installed.
 - **Verified (2026-10-24):** REA launch + arguments for `analyze_javascript_application`,

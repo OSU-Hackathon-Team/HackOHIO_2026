@@ -65,6 +65,20 @@ Full observations remain in the audit files and are used for replay comparisons;
 are never used as the replay oracle. This prevents repeated DOM snapshots from exhausting the
 model context without erasing evidence.
 
+Set `capture_cases:true` in the discovery request (or Studio's executable-case checkbox) to
+require at least three distinct Markdown cases. The model's `render_case` tool fills a selected
+original editor, verifies the exact text, clicks a selected view control, and records settled DOM
+from a selected rendered-document element. It strips scripts, styles, SVG controls and event
+attributes; it never invents expected HTML. Captures are frozen actions replayed against a fresh
+original workspace. Each successful case needs a requirement citation. The public handoff adds
+`cases:[{case_id,observation_id,input_markdown,expected_html}]` only for captures confirmed by replay,
+and rejects case exports requiring local-path redaction. Case capture remains specification
+evidence; implementation, independent held-out evaluation and approval are separate gates.
+Editor and view controls can be selected with current snapshot refs; the host freezes them as
+structural DOM paths before capture so replay does not depend on the model guessing selectors.
+Compact snapshots retain a separate editable-control list without changing existing control-ref
+ordering. Failed captures report mode/selector guidance and cannot satisfy the case-count gate.
+
 This opt-in path currently requires Linux, Xvfb, xdotool, and Electron with a correctly configured
 sandbox helper. `SPLICE_RENDERER_ORIGINAL_EXECUTABLE` selects an installed source-app executable;
 its adjacent resources must contain the uploaded archive hash. It is observed through Chromium

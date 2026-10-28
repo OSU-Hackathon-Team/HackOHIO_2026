@@ -10,6 +10,7 @@ import { z } from "zod";
 import { continueWith, structuredCall, type AssistTool, type StructuredCallOpts } from "../llm/llm.js";
 import { RendererReplaySource, replayRendererTrace } from "./rendererReplay.js";
 import { compactRendererResult } from "./rendererContext.js";
+import { captureRendererCase, RendererCaseInput, rendererControlMetadata } from "./rendererCases.js";
 
 const Answer = z.object({
   summary: z.string(), requirements: z.array(z.object({ id: z.string(), statement: z.string(), observation_ids: z.array(z.number().int()) })),
@@ -40,8 +41,20 @@ const RENDERED_MARKDOWN_EXPECTATIONS: RenderedMarkdownExpectation[] = [
 ];
 
 export function rendererDraftProblems(draft: z.infer<typeof Answer>, observations: Array<{ id: number; action: unknown; result: unknown }>,
-  options: { requireRenderedMarkdownOutput?: boolean } = {}): string[] {
+  options: { requireRenderedMarkdownOutput?: boolean; requireCases?: boolean } = {}): string[] {
   const problems: string[] = [];
+  if (options.requireCases) {
+    const capturedInputs = new Set(observations.filter(item => {
+      const action = item.action as Record<string, unknown>, result = item.result as Record<string, unknown>;
+      return action.action === "capture_case" && result.input_verified === true && typeof result.rendered === "string" && result.rendered.length > 0 && !result.error;
+    }).map(item => (item.action as Record<string, unknown>).value));
+    if (capturedInputs.size < 3) problems.push("Capture at least three distinct Markdown inputs with render_case before declaring a draft");
+    for (const observation of observations) {
+      if ((observation.action as Record<string, unknown>).action === "capture_case" && (observation.result as Record<string, unknown>).input_verified === true &&
+        !draft.requirements.some(requirement => requirement.observation_ids.includes(observation.id)))
+        problems.push(`Captured case observation ${observation.id} needs a requirement citation`);
+    }
+  }
   const ids = new Set<string>();
   for (const requirement of draft.requirements) {
     if (ids.has(requirement.id)) problems.push(`${requirement.id} is duplicated`);
@@ -81,6 +94,7 @@ export async function discoverRenderer(options: { archive: string; directory: st
   resources?: Array<{ archive: string; name: string }>; entryResource?: string;
   replay?: RendererReplaySource;
   recapture?: boolean; replay_source_id?: string;
+  capture_cases?: boolean;
   emit: (event: { type: string; [key: string]: unknown }) => void }) {
   const { archive, directory, task, signal, emit } = options;
   const archiveHash = createHash("sha256").update(await fs.readFile(archive)).digest("hex");
@@ -182,10 +196,7 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
           ? 0 : n.matches("input,textarea,button,[contenteditable=true],[role=button],[role=link],[role=treeitem],a[href]") ? 1 : 2,
       })) })))).filter(item => item.state.visible);
       controls = visible.sort((a, b) => a.state.priority - b.state.priority).slice(0, 100).map(item => item.control);
-      return Promise.all(controls.map(async (control, ref) => ({ ref: `@${ref}`, ...await control.evaluate((n: any) => ({
-        tag: n.tagName, id: n.id, class: n.getAttribute("class"), role: n.getAttribute("role"), label: n.getAttribute("aria-label"),
-        placeholder: n.getAttribute("placeholder"), text: (n.innerText || "").slice(0, 120), type: n.getAttribute("type"),
-      })) })));
+      return Promise.all(controls.map(async (control, ref) => ({ ref: `@${ref}`, ...await control.evaluate(rendererControlMetadata) })));
     };
     const windows = () => (browser ? browser.contexts().flatMap(context => context.pages()) : electron!.windows()).filter(window => !window.isClosed());
     const ensurePage = async () => {
@@ -260,6 +271,30 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
           return await record(action, await snapshot());
         } catch (error) { return record(action, { error: (error as Error).message }); }
       },
+    }, { name: "render_case", description: "Capture an executable public Markdown case on the original app. First open a note in EDITING mode; do NOT switch to reading before calling this tool. Supply a unique case_id, complete Markdown, the editable control ref (such as @12) from a fresh snapshot, a view-toggle control ref (such as @26), and a CSS selector scoped to the rendered document body. Input/view selectors may also be exact CSS. Control refs are converted to structural CSS paths for frozen replay. The host fills the exact input, checks editor text, clicks the view control, and records settled DOM output. After capture the note is in rendered mode; switch back to editing before another capture. The result is original evidence, never an authored expectation. Use observation to read full HTML when excerpts are truncated.",
+      inputSchema: { type: "object", additionalProperties: false, required: ["case_id", "markdown", "input_selector", "render_selector", "output_selector"], properties: {
+        case_id: { type: "string" }, markdown: { type: "string" }, input_selector: { type: "string" }, render_selector: { type: "string" }, output_selector: { type: "string" },
+      } },
+      async run(value) {
+        signal.throwIfAborted();
+        const item = RendererCaseInput.parse(value);
+        for (const field of ["input_selector", "render_selector"] as const) {
+          const ref = /^@(\d+)$/.exec(item[field]);
+          if (ref) {
+            const control = controls[Number(ref[1])];
+            if (!control) throw new Error("Case control ref is unavailable; request a fresh snapshot");
+            item[field] = (await control.evaluate(rendererControlMetadata)).selector;
+          }
+        }
+        const action = { action: "capture_case", case_id: item.case_id, value: item.markdown,
+          input_selector: item.input_selector, render_selector: item.render_selector, output_selector: item.output_selector };
+        try {
+          if (observations.some(o => (o.action as Record<string, unknown>).case_id === item.case_id && (o.result as Record<string, unknown>).input_verified))
+            throw new Error("Choose a unique case_id for each captured case");
+          await ensurePage();
+          return await record(action, await captureRendererCase(page, item));
+        } catch (error) { return record(action, { error: (error as Error).message }); }
+      },
     }, { name: "fixture", description: "Create a UTF-8 test note or folder under the isolated workspace. An empty content creates an empty file; directory=true creates a folder. Returned paths can be typed into the app's folder picker. Never access source or host files.",
       inputSchema: { type: "object", additionalProperties: false, required: ["path", "content", "directory"], properties: { path: { type: "string" }, content: { type: "string" }, directory: { type: "boolean" } } },
       async run(value) {
@@ -318,6 +353,9 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
         if (typeof action.fixture === "string") {
           if (typeof action.content !== "string" || typeof action.directory !== "boolean") throw new Error("Fixture content is missing from the source trace");
           name = "fixture"; input = { path: action.fixture, content: action.content, directory: action.directory };
+        } else if (action.action === "capture_case") {
+          name = "render_case"; input = { case_id: action.case_id, markdown: action.value,
+            input_selector: action.input_selector, render_selector: action.render_selector, output_selector: action.output_selector };
         } else if (action.host_input) { name = "native_dialog"; input = action.host_input; }
         else { name = "ui"; input = action; }
         await tools.find(tool => tool.name === name)!.run(input);
@@ -342,7 +380,7 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
       }
       return report;
     }
-    let messages: StructuredCallOpts<z.infer<typeof Answer>>["messages"] = [{ role: "user", content: `Task: ${task}\nIsolated fixture root: ${workspace}\nStartup observation: ${initial}` }];
+    let messages: StructuredCallOpts<z.infer<typeof Answer>>["messages"] = [{ role: "user", content: `Task: ${task}\n${options.capture_cases ? "Use render_case to capture at least THREE distinct Markdown inputs and their original rendered document HTML. Before EVERY capture: put the note in EDITING mode, request a fresh snapshot, use an editable_controls ref as input_selector and the editing-to-reading view-control ref as render_selector. Do NOT click the reading control yourself immediately before capture: render_case fills FIRST and then clicks it. Use a scoped CSS output_selector discovered from the original reading view. After capture you are in reading mode; return to editing before another case. These public executable cases are required before declaring the draft. Cite captured cases in rendering requirements. Capture exact editing effects rather than assuming fill appends text." : ""}\nIsolated fixture root: ${workspace}\nStartup observation: ${initial}` }];
     const call = () => structuredCall({ role: "spec_writer", signal, tools, maxToolTurns: 40, maxTokens: 4_000,
       system: "You are a behavioral specification agent. Observe the original app only through UI and fixture tools. Write precise requirements only for behavior you actually reached; cite observation IDs. Each requirement must state a concrete input, action and visible result directly, never use generalized 'user can' phrasing or merely say that something works correctly. For claims about Markdown syntax, raw text in an editor is not rendered output: enter the syntax, switch to reading mode, inspect the resulting DOM, and cite a successful snapshot containing the corresponding HTML element. If fill replaces content, use one complete note or separate reading-mode snapshots so every claimed syntax has rendered evidence. Use ui inspect on specific rendered elements and on [aria-label] controls to obtain exact outputs and available actions. Explore varied inputs, syntax boundaries and edit/read transitions. Verify each UI transition before assuming it succeeded; fixture creation and native-dialog typing do not prove a vault opened. If a click leaves the same screen, target an actual interactive control precisely rather than its heading. Do not invent behavior from product familiarity. Do not implement anything. Record unreachable task requirements as blockers. Your output is a draft, never an approval. No original source is available.",
       messages,
@@ -350,7 +388,7 @@ if(typeof entry==='function') entry(${JSON.stringify(original)},new (require('no
     });
     let response = await call();
     for (let attempt = 0; ; attempt++) {
-      const invalid = rendererDraftProblems(response.value, observations, { requireRenderedMarkdownOutput: true });
+      const invalid = rendererDraftProblems(response.value, observations, { requireRenderedMarkdownOutput: true, requireCases: options.capture_cases });
       if (!invalid.length) break;
       await fs.writeFile(path.join(directory, `rejected-draft-${attempt + 1}.json`), JSON.stringify(response.value, null, 2));
       if (attempt === 2) throw new Error(invalid.join("; "));

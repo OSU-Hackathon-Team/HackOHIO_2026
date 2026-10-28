@@ -322,6 +322,13 @@ public inputs, observed outputs, per-case execution errors and bounded sort desc
 The backend rechecks case membership and exact inputs against the public partition before exposing
 the report. This recording does not declare expectation agreement or implementation readiness.
 
+Renderer discovery accepts optional `capture_cases:true` through
+`POST /api/electron/archives/:id/renderer-discovery`. This requires three distinct original
+Markdown input/rendered-DOM captures with requirement citations. The host verifies editor input
+and replays capture actions. `GET /api/electron/renderer-discoveries/:id/public-handoff` adds
+replay-confirmed `cases` with exact `input_markdown` and original `expected_html`; selectors and
+local paths are excluded. The handoff stays draft with `implementation_ready:false`.
+
 ---
 
 ## 5. `src/blueprint.ts` — output of Step 3a (engine), consumed by synthesis + UI

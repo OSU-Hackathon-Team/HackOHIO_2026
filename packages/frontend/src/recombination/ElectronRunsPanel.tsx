@@ -32,6 +32,7 @@ export function ElectronRunsPanel() {
   const [entryResource, setEntryResource] = useState("");
   const [replayDiscovery, setReplayDiscovery] = useState("");
   const [recapture, setRecapture] = useState(false);
+  const [captureCases, setCaptureCases] = useState(false);
 
   async function refresh() {
     const [catalog, history] = await Promise.all([
@@ -126,6 +127,7 @@ export function ElectronRunsPanel() {
     {archive && <div className="mt-4 rounded border border-stone-700 p-3">
       <label className="block text-sm">Renderer behavior to discover<textarea aria-label="Renderer discovery task" value={rendererTask} onChange={event => setRendererTask(event.target.value)} placeholder="Describe the editing and rendering behavior to recover from the original app" className="mt-2 h-24 w-full rounded border border-stone-600 bg-[#141210] p-2 text-sm" /></label>
       <p className="mt-1 text-xs text-stone-400">The specification model operates the original app, then the host replays its recorded actions in a fresh workspace. Drafts and replay reports remain separate from implementation approval.</p>
+      <label className="mt-2 flex gap-2 text-xs text-stone-400"><input type="checkbox" checked={captureCases} onChange={event => setCaptureCases(event.target.checked)} />Require three executable public Markdown cases with exact input and original rendered DOM.</label>
       <label className="mt-2 block text-xs text-stone-400">Saved discovery ID to replay without model calls (optional)<input aria-label="Renderer replay discovery ID" value={replayDiscovery} onChange={event => setReplayDiscovery(event.target.value)} placeholder="renderer-…" className="mt-1 w-full rounded border border-stone-600 bg-[#141210] p-2" /></label>
       <label className="mt-2 flex gap-2 text-xs text-stone-400"><input type="checkbox" disabled={!replayDiscovery} checked={recapture} onChange={event => setRecapture(event.target.checked)} />Record a new original revision after host observation changes, then replay it. Earlier evidence and failures are preserved.</label>
       <details className="mt-2 text-xs text-stone-400"><summary>Companion archives for packaged applications</summary>
@@ -138,6 +140,7 @@ export function ElectronRunsPanel() {
         void (async () => { await streamPost(`/api/electron/archives/${archive}/renderer-discovery`, { task: rendererTask || "Replay saved original observations", confirm_cost: true,
           ...(replayDiscovery ? { replay_discovery_id: replayDiscovery } : {}),
           recapture: Boolean(replayDiscovery && recapture),
+          capture_cases: captureCases,
           resource_archives: JSON.parse(resourceText), ...(entryResource ? { entry_resource: entryResource } : {}) },
           event => {
             setRendererActivity(previous => [...previous, JSON.stringify(event)].slice(-100));

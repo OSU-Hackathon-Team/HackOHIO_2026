@@ -170,6 +170,7 @@ export function electronRunsRouter(stateDir = path.resolve(process.env.SPLICE_ST
       entry_resource: z.string().regex(/^[a-zA-Z0-9_.-]+\.asar$/).optional(),
       replay_discovery_id: z.string().regex(/^renderer-[a-f0-9-]{36}$/).optional(),
       recapture: z.boolean().default(false),
+      capture_cases: z.boolean().default(false),
     }).strict().safeParse(req.body);
     if (!request.success) return res.status(400).json({ error: "A task and model-cost confirmation are required" });
     if (!/^[a-f0-9]{64}$/.test(req.params.id) || !fs.existsSync(archivePath(req.params.id)))
@@ -195,7 +196,7 @@ export function electronRunsRouter(stateDir = path.resolve(process.env.SPLICE_ST
       const signal = AbortSignal.any([sse.signal, AbortSignal.timeout(20 * 60_000)]);
       const child = spawn(process.execPath, [...(worker.endsWith(".ts") ? ["--import", "tsx"] : []), worker,
         archivePath(req.params.id), path.join(root, "renderer-discoveries", id), request.data.task,
-        JSON.stringify({ resources: request.data.resource_archives.map(item => ({ archive: archivePath(item.archive_id), name: item.name })), entryResource: request.data.entry_resource, replay, recapture: request.data.recapture, replay_source_id: request.data.replay_discovery_id })],
+        JSON.stringify({ resources: request.data.resource_archives.map(item => ({ archive: archivePath(item.archive_id), name: item.name })), entryResource: request.data.entry_resource, replay, recapture: request.data.recapture, replay_source_id: request.data.replay_discovery_id, capture_cases: request.data.capture_cases })],
       { cwd: REPO_ROOT, detached: true, env: { ...process.env, AWS_REGION: config.awsRegion }, stdio: ["ignore", "pipe", "pipe"] });
       const stop = () => { if (child.pid) { try { process.kill(-child.pid, "SIGTERM"); } catch {} } };
       signal.addEventListener("abort", stop, { once: true });
