@@ -21,7 +21,7 @@ export function compactRendererResult(value: unknown): unknown {
       .filter((c: Record<string, unknown>) => /\b(read(?:ing)?|edit(?:ing)?|preview|source)\b/i.test(String(c.label || c.text || "")))
       .slice(0, 4).map((c: Record<string, unknown>) => ({ ref: c.ref, name: String(c.label || c.text || "").slice(0, 80) })) : [],
     rendered_documents: Array.isArray(result.rendered_documents) ? result.rendered_documents.slice(0, 6)
-      .map((r: Record<string, unknown>) => ({ ref: r.ref, class: String(r.class ?? "").slice(0, 90), elements: r.elements })) : [],
+      .map((r: Record<string, unknown>) => ({ index: r.index, ref: r.ref, class: String(r.class ?? "").slice(0, 90), elements: r.elements })) : [],
     windows: Array.isArray(result.windows) ? result.windows.slice(0, 8).map((item: Record<string, unknown>) => ({ index: item.index, title: String(item.title ?? "").slice(0, 100) })) : [], text: result.text.slice(0, 1000),
     rendered_excerpt: String(result.rendered ?? "").slice(0, 400), controls,
     note: "Snapshot excerpts may be truncated. Use observation tool fields or UI inspect for exact evidence and remaining controls." };

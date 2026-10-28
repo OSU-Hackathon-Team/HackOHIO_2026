@@ -4,7 +4,7 @@ import { chromium } from "playwright";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { captureRendererCase, observedRenderedDocuments, readCapturedDocument, rendererControlMetadata } from "./rendererCases.js";
+import { captureRendererCase, observedRenderedDocuments, readCapturedDocument, RendererAgentCaseInput, rendererControlMetadata } from "./rendererCases.js";
 import { rendererDraftProblems } from "./rendererDiscovery.js";
 import { buildRendererPublicHandoff } from "./rendererPublicHandoff.js";
 
@@ -76,6 +76,10 @@ test("saved-document verification reads only fixture Markdown and rejects paths 
 });
 
 test("renderer drafts require distinct executed cases and the public projection uses only replayed case outputs", () => {
+  const choice = { case_id: "fixture", markdown: "text", input_selector: "@1", render_selector: "@2", output_document: 0 };
+  assert.equal(RendererAgentCaseInput.safeParse(choice).success, true);
+  assert.equal(RendererAgentCaseInput.safeParse({ ...choice, output_document: ".r0" }).success, false);
+  assert.equal(RendererAgentCaseInput.safeParse({ ...choice, output_document: 12 }).success, false);
   const observations = [1, 2, 3, 4].map(id => ({ id, action: { action: "capture_case", case_id: `case-${id}`, value: `input ${id}` },
     result: { input_verified: true, rendered: `<p>original ${id}</p>` } }));
   const draft = { summary: "Fixture draft", blockers: [], requirements: [{ id: "R1", statement: "The fixture input yields the recorded paragraph.", observation_ids: [1, 2, 3] }] };

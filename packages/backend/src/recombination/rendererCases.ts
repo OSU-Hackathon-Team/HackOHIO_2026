@@ -10,6 +10,9 @@ export const RendererCaseInput = z.object({
   input_method: z.enum(["fill", "keyboard"]).default("fill"),
   document_path: z.string().max(500).default(""),
 }).strict();
+export const RendererAgentCaseInput = RendererCaseInput.omit({ output_selector: true }).extend({
+  output_document: z.number().int().min(0).max(11),
+});
 
 /** Only original fixture Markdown is readable; source archives and host files stay outside. */
 export async function readCapturedDocument(workspace: string, relative: string): Promise<string> {
