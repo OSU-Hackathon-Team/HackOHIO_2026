@@ -9,6 +9,7 @@ engine state, original binary, dossier, or held-out cases.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 from pathlib import Path
@@ -33,13 +34,21 @@ PRIVATE_KEYS = {
     "source_artifact", "audit_artifact", "dossier_artifact", "campaign",
     "prompt_artifact", "hidden_result_artifacts", "result_artifacts",
 }
-UNSAFE_C_CALL = re.compile(
-    r"\b(?:system|popen|dlopen|dlsym|fork|vfork|exec[a-z]*|posix_spawn|socket|connect|"
-    r"bind|listen|accept|fopen|freopen|open|openat|read|write|remove|rename|unlink|"
-    r"mkdir|rmdir|getenv|setenv|putenv|chdir|getcwd|syscall|ptrace|mount|umount|"
-    r"chroot|setuid|setgid|unshare|clone)\s*\(",
-    re.I,
+# Process creation, dynamic loading, the network, and privilege or namespace changes are
+# refused for every candidate, in-process or executable.
+PROCESS_ESCAPE = (
+    r"system|popen|dlopen|dlsym|fork|vfork|exec[a-z]*|posix_spawn|socket|connect|"
+    r"bind|listen|accept|syscall|ptrace|mount|umount|chroot|setuid|setgid|unshare|clone"
 )
+# A shared-library candidate runs inside the probe process, so the harness's own files, the
+# environment and the process working directory are off limits as well. An executable
+# candidate is its own process: reading its input and writing its output is its interface.
+LIBRARY_ESCAPE = (
+    r"fopen|freopen|open|openat|read|write|remove|rename|unlink|mkdir|rmdir|"
+    r"getenv|setenv|putenv|chdir|getcwd"
+)
+UNSAFE_C_CALL = re.compile(rf"\b(?:{PROCESS_ESCAPE}|{LIBRARY_ESCAPE})\s*\(", re.I)
+EXECUTABLE_UNSAFE_C_CALL = re.compile(rf"\b(?:{PROCESS_ESCAPE})\s*\(", re.I)
 UNSAFE_C_ATTRIBUTE = re.compile(
     r"__attribute__\s*\(\s*\(\s*constructor|__asm__|\basm\s*\(", re.I)
 FORBIDDEN_WORKSPACE = re.compile(
@@ -150,6 +159,147 @@ if __name__ == "__main__":
     raise SystemExit(main())
 '''
 
+# A command-line candidate's interface is its process: argv, standard input, standard output,
+# standard error and exit status. This harness builds candidate.c into a program and runs it
+# once per public case, writing each case's program text where the original read it from.
+EXECUTABLE_CHECK_SCRIPT = r'''#!/usr/bin/env python3
+"""Build candidate.c as a program and compare it with every public original observation."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parent
+SOURCE = ROOT / "candidate.c"
+PROGRAM = ROOT / "candidate"
+CASES = ROOT / "public_cases.json"
+SCRIPTS = ROOT / "case_scripts"
+DECIMAL = re.compile(r"^[+-]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?$")
+
+
+def build() -> str | None:
+    if not SOURCE.is_file():
+        return "candidate.c is missing"
+    done = subprocess.run(
+        ["cc", "-std=gnu11", "-O2", "-Wall", "-Wextra", "-o", str(PROGRAM),
+         str(SOURCE), "-lm"],
+        capture_output=True, text=True, timeout=180, check=False)
+    if done.returncode:
+        return "compilation failed:\n" + done.stderr[-4000:]
+    return None
+
+
+def script_for(case: dict) -> Path | None:
+    """Write this case's program text where its recorded argument list expects it."""
+    text = (case.get("input") or {}).get("program_text")
+    if not isinstance(text, str):
+        return None
+    SCRIPTS.mkdir(exist_ok=True)
+    path = SCRIPTS / (case["case_id"].replace("/", "_") + ".bc")
+    path.write_text(text)
+    return path
+
+
+def invocation(case: dict, script: Path | None) -> list[str]:
+    declared = [str(argument) for argument in (case.get("input") or {}).get("args") or []]
+    if script is None:
+        return declared
+    return [str(script) if argument == "{script}" else argument for argument in declared]
+
+
+def decimal(text: str) -> float | None:
+    """A floating-point result, which the host compares with a tolerance."""
+    if not DECIMAL.match(text) or not any(marker in text for marker in ".eE"):
+        return None
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def matches(expected: dict, observed: dict) -> bool:
+    """Exit status, stderr and stdout must agree, with float noise and padding ignored."""
+    if expected.get("exit_code", 0) != observed.get("exit_code"):
+        return False
+    if str(expected.get("stderr", "")).strip() != str(observed.get("stderr", "")).strip():
+        return False
+    want = str(expected.get("stdout", "")).strip()
+    got = str(observed.get("stdout", "")).strip()
+    if want == got:
+        return True
+    a, b = decimal(want), decimal(got)
+    return a is not None and b is not None and math.isclose(a, b, rel_tol=1e-12, abs_tol=1e-12)
+
+
+def run_case(case: dict) -> dict:
+    script = script_for(case)
+    fed = (case.get("input") or {}).get("stdin")
+    try:
+        done = subprocess.run(
+            [str(PROGRAM), *invocation(case, script)],
+            input=fed if isinstance(fed, str) else "", capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=20, check=False)
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+    observed = {"stdout": done.stdout, "stderr": done.stderr, "exit_code": done.returncode}
+    return {"observed": observed, "match": matches(case["observed"], observed)}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--list", action="store_true", help="list public case ids")
+    parser.add_argument("--case", action="append", help="run only this case id")
+    args = parser.parse_args()
+    cases = json.loads(CASES.read_text())
+    if args.list:
+        for case in cases:
+            print(case["case_id"])
+        return 0
+    if args.case:
+        wanted = set(args.case)
+        selected = [case for case in cases if case["case_id"] in wanted]
+        missing = wanted - {case["case_id"] for case in selected}
+        if missing:
+            print(f"unknown case ids: {sorted(missing)}")
+            return 2
+    else:
+        selected = cases
+    problem = build()
+    if problem:
+        print(problem)
+        print(f"PUBLIC TESTS: 0/{len(selected)} passed")
+        return 1
+    failures = []
+    for case in selected:
+        result = run_case(case)
+        if result.get("error") or not result.get("match"):
+            failures.append({"case_id": case["case_id"], "expected": case["observed"],
+                             **result})
+    for failure in failures[:8]:
+        print(f"FAIL {failure['case_id']}")
+        if failure.get("error"):
+            print("  " + failure["error"])
+        else:
+            print("  expected output: " + json.dumps(failure["expected"], sort_keys=True))
+            print("  program output:  " + json.dumps(failure["observed"], sort_keys=True))
+    passed = len(selected) - len(failures)
+    print(f"PUBLIC TESTS: {passed}/{len(selected)} passed")
+    if failures:
+        print("Every public case is an observation of the original program: your program must")
+        print("write the same standard output and standard error and exit with the same status.")
+    return 0 if not failures else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'''
+
 
 def _strip_private(value):
     if isinstance(value, dict):
@@ -187,15 +337,17 @@ def canonical_cases(rows: Iterable[dict]) -> list[dict]:
     return cases
 
 
-def validate_candidate_source(source: object) -> str:
+def validate_candidate_source(source: object, *, executable: bool = False) -> str:
     """Reject a candidate that could reach outside the probe process on the host."""
     if not isinstance(source, str) or not source.strip():
         raise ValueError("candidate source is empty")
     if len(source) > 262144:
         raise ValueError("candidate source exceeds 256 KiB")
-    call = UNSAFE_C_CALL.search(source)
+    call = (EXECUTABLE_UNSAFE_C_CALL if executable else UNSAFE_C_CALL).search(source)
     if call:
-        raise ValueError(f"candidate tries to invoke an external or I/O function: {call.group(0)}")
+        reason = ("reach outside the candidate process" if executable
+                  else "invoke an external or I/O function")
+        raise ValueError(f"candidate tries to {reason}: {call.group(0)}")
     attribute = UNSAFE_C_ATTRIBUTE.search(source)
     if attribute:
         raise ValueError(f"candidate uses a constructor or inline assembly: {attribute.group(0)}")
@@ -212,7 +364,7 @@ def _write(path: Path, text: str, *, executable: bool = False) -> None:
         path.chmod(0o755)
 
 
-def _readme(broker_enabled: bool) -> str:
+def _readme(broker_enabled: bool, executable: bool = False) -> str:
     broker = (
         "\nWhen a public test fails and the specification is ambiguous, ask the broker:\n\n"
         "    ./ask_broker \"What happens when finalize is followed by add_double?\"\n\n"
@@ -220,8 +372,22 @@ def _readme(broker_enabled: bool) -> str:
         "decompilation, disassembly, bytes, addresses, symbols, or implementation mechanics.\n"
         "If it refuses, rephrase the question as behavior.\n"
     ) if broker_enabled else "\nNo broker is available for this run; work from the public materials.\n"
-    return (
-        "# Cleanroom implementation workbench\n\n"
+    deliverable = (
+        "You are the independent implementer. Implement the public contract as a complete\n"
+        "command-line program in `candidate.c`.\n"
+        "You have full shell access inside this container. The only materials present are\n"
+        "public: `spec.json`, `contract.md`, `public_cases.json`, `candidate.c`, and this\n"
+        "harness.\n\n"
+        "## Work loop\n\n"
+        "1. Read `spec.json` and `contract.md`.\n"
+        "2. Implement the program in `candidate.c`.\n"
+        "3. Run `./run_tests.sh`. It builds the candidate with\n"
+        "   `cc -std=gnu11 -O2 -o candidate candidate.c -lm`, writes each case's program\n"
+        "   text into `case_scripts/`, runs the candidate once per case, and compares\n"
+        "   standard output, standard error and exit status.\n"
+        "4. Fix every mismatch and rerun. Use `./run_tests.sh --case <id>` for one case.\n"
+        "5. Finish only when `./run_tests.sh` exits 0.\n"
+    ) if executable else (
         "You are the independent implementer. Implement the public contract in `candidate.c`.\n"
         "You have full shell access inside this container. The only materials present are\n"
         "public: `spec.json`, `contract.md`, `public_cases.json`, `candidate.c`, the public\n"
@@ -232,8 +398,17 @@ def _readme(broker_enabled: bool) -> str:
         "3. Run `./run_tests.sh`. It compiles the candidate and compares every public case.\n"
         "4. Fix every mismatch and rerun. Use `./run_tests.sh --case <id>` for one case.\n"
         "5. Finish only when `./run_tests.sh` exits 0.\n"
-        + broker +
-        "\n## Rules\n\n"
+    )
+    rules = (
+        "- Do not modify `check.py`, `public_cases.json`, `spec.json`, `contract.md`,\n"
+        "  `README.md`, or `run_tests.sh`. The host verifies their hashes and rejects a\n"
+        "  tampered result.\n"
+        "- Do not attempt to locate the original program, its source, the analyst dossier, or\n"
+        "  held-out cases. None is mounted here.\n"
+        "- `candidate.c` is the deliverable: one self-contained C11 program that links only\n"
+        "  against the C library and libm. Do not start other programs, load libraries, or\n"
+        "  use the network.\n"
+    ) if executable else (
         "- Do not modify `check.py`, `public_cases.json`, `spec.json`, `contract.md`,\n"
         "  `README.md`, `run_tests.sh`, `ask_broker.sh`, or the adapter. The host verifies\n"
         "  their hashes and rejects a tampered result.\n"
@@ -241,53 +416,64 @@ def _readme(broker_enabled: bool) -> str:
         "  held-out cases. None is mounted here.\n"
         "- `candidate.c` is the deliverable. Keep it a self-contained C11 translation unit.\n"
     )
+    return (
+        "# Cleanroom implementation workbench\n\n" + deliverable + broker +
+        "\n## Rules\n\n" + rules
+    )
 
 
 def materialize_workspace(directory: Path, *, spec: dict, cases: Iterable[dict],
-                          contract: str, adapter: Path,
+                          contract: str, adapter: Path | None = None,
                           broker_client: Path | None = None,
                           candidate: str | None = None,
-                          broker_enabled: bool = True) -> dict:
+                          broker_enabled: bool = True,
+                          executable: bool = False) -> dict:
     """Create a workspace and return hashes of the files that must stay unchanged."""
     directory = Path(directory)
     if directory.exists() and any(directory.iterdir()):
         raise ValueError("workbench directory must be empty")
     directory.mkdir(parents=True, exist_ok=True)
     public = canonical_cases(cases)
-    adapter_path = Path(adapter)
-    if not adapter_path.is_file():
+    adapter_path = Path(adapter) if adapter is not None else None
+    if adapter_path is None and not executable:
+        raise ValueError("the in-process interface needs a public adapter")
+    if adapter_path is not None and not adapter_path.is_file():
         raise FileNotFoundError(f"public adapter not found: {adapter_path}")
     _write(directory / "spec.json",
            json.dumps(public_spec(spec), indent=2, sort_keys=True) + "\n")
     _write(directory / "public_cases.json",
            json.dumps(public, indent=2, sort_keys=True) + "\n")
     _write(directory / "contract.md", contract.rstrip() + "\n")
-    _write(directory / "README.md", _readme(broker_enabled))
-    (directory / "adapters").mkdir()
-    shutil.copy2(adapter_path, directory / "adapters" / adapter_path.name)
-    (directory / "adapters" / "__init__.py").write_text("")
+    _write(directory / "README.md", _readme(broker_enabled, executable))
+    if adapter_path is not None:
+        (directory / "adapters").mkdir()
+        shutil.copy2(adapter_path, directory / "adapters" / adapter_path.name)
+        (directory / "adapters" / "__init__.py").write_text("")
     if broker_client is not None:
         (directory / "broker").mkdir()
         shutil.copy2(Path(broker_client), directory / "broker" / "ask.py")
     _write(directory / "candidate.c",
            candidate if candidate is not None else
            "/* Implement the public contract here. Run ./run_tests.sh. */\n")
-    check = CHECK_SCRIPT.replace("__ADAPTER__", adapter_path.name)
+    check = (EXECUTABLE_CHECK_SCRIPT if executable else
+             CHECK_SCRIPT.replace("__ADAPTER__", adapter_path.name))
     _write(directory / "check.py", check, executable=True)
     _write(directory / "run_tests.sh",
            '#!/bin/sh\nset -eu\ncd "$(dirname "$0")"\nexec python3 check.py "$@"\n',
            executable=True)
-    _write(directory / "ask_broker.sh",
-           '#!/bin/sh\nset -eu\ncd "$(dirname "$0")"\n'
-           'if [ "$#" -lt 1 ]; then echo \'usage: ./ask_broker "behavior question"\' >&2; exit 2; fi\n'
-           'context=$(./run_tests.sh 2>&1 | tail -30 | head -c 3500 || true)\n'
-           'exec python3 broker/ask.py "$1" --context "$context"\n',
-           executable=True)
     immutable = {"spec.json", "public_cases.json", "contract.md", "check.py",
-                 "README.md", "run_tests.sh", "ask_broker.sh",
-                 f"adapters/{adapter_path.name}"}
+                 "README.md", "run_tests.sh"}
+    if adapter_path is not None:
+        immutable.add(f"adapters/{adapter_path.name}")
     if broker_client is not None:
-        immutable.add("broker/ask.py")
+        _write(directory / "ask_broker.sh",
+               '#!/bin/sh\nset -eu\ncd "$(dirname "$0")"\n'
+               'if [ "$#" -lt 1 ]; then echo \'usage: ./ask_broker "behavior question"\' >&2;'
+               ' exit 2; fi\n'
+               'context=$(./run_tests.sh 2>&1 | tail -30 | head -c 3500 || true)\n'
+               'exec python3 broker/ask.py "$1" --context "$context"\n',
+               executable=True)
+        immutable |= {"ask_broker.sh", "broker/ask.py"}
     assert_public_workspace(directory)
     hashes = {name: _sha256(directory / name) for name in sorted(immutable)}
     return {"directory": str(directory), "files": hashes, "public_cases": len(public)}
@@ -388,7 +574,7 @@ def write_agent_config(directory: Path, model: str,
 
 
 def build_prompt(*, contract: str, case_count: int,
-                 broker_enabled: bool = True) -> str:
+                 broker_enabled: bool = True, executable: bool = False) -> str:
     broker = (
         "If a public test fails and the spec is ambiguous, ask the broker with\n"
         "`./ask_broker \"question\"`. Do not read the entire public_cases.json one case at a\n"
@@ -396,6 +582,24 @@ def build_prompt(*, contract: str, case_count: int,
         "caller-visible behavior only and may refuse.\n"
         if broker_enabled else "No broker is available; rely on the public materials.\n"
     )
+    if executable:
+        return (
+            "You are the independent cleanroom implementer for a command-line program.\n"
+            "Implement the public contract as a complete program in candidate.c, inside this\n"
+            "workspace. You have full shell access. The public materials are spec.json,\n"
+            "contract.md, public_cases.json, and the self-test harness. Workbench mode\n"
+            "overrides any earlier instruction to return code in the reply: the deliverable is\n"
+            "the file candidate.c, built as `cc -std=gnu11 -O2 -o candidate candidate.c -lm`.\n\n"
+            f"Contract:\n{contract.strip()}\n\n"
+            f"There are {case_count} public original observations. Implement; run\n"
+            "`./run_tests.sh`; inspect the mismatch; fix; repeat until it exits 0. Derive the\n"
+            "general rules (representation, operator semantics, state, input and output bases,\n"
+            "builtins) instead of encoding the observations.\n" + broker +
+            "\nDo not modify the harness, public cases, spec, contract, README, or run_tests.sh.\n"
+            "Do not seek the original program, its source, the dossier, or held-out cases; none\n"
+            "is present. Leave the final program in candidate.c and finish only after the\n"
+            "public tests pass.\n"
+        )
     return (
         "You are the independent cleanroom implementer for a native subsystem. Implement\n"
         "the public contract in candidate.c, inside this workspace. You have full shell\n"
@@ -414,7 +618,7 @@ def build_prompt(*, contract: str, case_count: int,
     )
 
 
-def container_command(*, image: str, workspace: Path, broker_dir: Path,
+def container_command(*, image: str, workspace: Path, broker_dir: Path | None,
                       opencode: Path, model: str, auth_file: Path | None = None,
                       agent_name: str = "cleanroom-implementer",
                       runtime: str = "podman", container_name: str | None = None,
@@ -430,13 +634,14 @@ def container_command(*, image: str, workspace: Path, broker_dir: Path,
         "--pids-limit", str(pids), "--memory", memory, "--cpus", str(cpus),
         "--label", "splice.cleanroom=1", "--workdir", "/cleanroom",
         "--volume", f"{Path(workspace).resolve()}:/cleanroom:rw",
-        "--volume", f"{Path(broker_dir).resolve()}:/broker:rw",
         "--volume", f"{Path(opencode).resolve()}:/usr/local/bin/opencode:ro",
         "--env", "HOME=/root",
         "--env", "OPENCODE_CONFIG=/cleanroom/opencode.json",
         "--env", "OPENCODE_DISABLE_AUTOUPDATE=true",
         "--env", "OPENCODE_DISABLE_EXTERNAL_SKILLS=true",
     ]
+    if broker_dir is not None:
+        command += ["--volume", f"{Path(broker_dir).resolve()}:/broker:rw"]
     if auth_file is not None and Path(auth_file).is_file():
         command += ["--volume",
                     f"{Path(auth_file).resolve()}:/root/.local/share/opencode/auth.json:ro"]
@@ -455,11 +660,12 @@ def container_command(*, image: str, workspace: Path, broker_dir: Path,
 
 
 def assert_container_isolation(command: list[str], *, workspace: Path,
-                               broker_dir: Path, opencode: Path,
+                               broker_dir: Path | None, opencode: Path,
                                auth_file: Path | None = None) -> None:
     """Reject any mount outside the public workspace, broker socket, and agent runtime."""
-    allowed = {str(Path(workspace).resolve()), str(Path(broker_dir).resolve()),
-               str(Path(opencode).resolve())}
+    allowed = {str(Path(workspace).resolve()), str(Path(opencode).resolve())}
+    if broker_dir is not None:
+        allowed.add(str(Path(broker_dir).resolve()))
     if auth_file is not None:
         allowed.add(str(Path(auth_file).resolve()))
     for index, argument in enumerate(command):
@@ -486,31 +692,39 @@ def build_image(*, runtime: str, image: str, dockerfile: Path = Path("implemente
         raise RuntimeError("implementer image build failed: " + completed.stderr[-2000:])
 
 
-def run_workbench(*, workspace: Path, broker: Broker, image: str, opencode: Path,
-                  model: str, auth_file: Path | None = None, timeout: int = 900,
-                  runtime: str = "podman", agent_name: str = "cleanroom-implementer",
+def run_workbench(*, workspace: Path, broker: Broker | None = None, image: str,
+                  opencode: Path, model: str, auth_file: Path | None = None,
+                  timeout: int = 900, runtime: str = "podman",
+                  agent_name: str = "cleanroom-implementer",
                   env: dict | None = None, network: str | None = None,
                   private_markers: Iterable[str] = (),
                   immutable: dict | None = None,
                   audit_path: Path | None = None,
                   broker_dir: Path | None = None,
-                  runner=subprocess.run,
+                  runner=subprocess.run, executable: bool = False,
                   container_name: str | None = None) -> dict:
-    """Run one agent session in the sandbox and return its candidate and audit summary."""
+    """Run one agent session in the sandbox and return its candidate and audit summary.
+
+    The broker is optional: a run without one gives the agent its own harness only, which
+    is the whole public package for a target whose spec is already the public contract.
+    """
     workspace = Path(workspace).resolve()
     assert_public_workspace(workspace, private_markers)
     run_root = workspace.parent
-    # A Unix socket path is limited to roughly 108 bytes. The run directory can be
-    # deep (state/cleanroom/<run-key>/attempt-N), so the socket lives under /tmp
-    # unless a caller supplies a short directory explicitly.
-    owns_broker_dir = broker_dir is None
-    broker_dir = (Path(broker_dir) if broker_dir is not None else
-                  Path(tempfile.mkdtemp(prefix="splice-broker-")))
-    broker_dir.mkdir(parents=True, exist_ok=True)
-    audit = Path(audit_path) if audit_path else run_root / f"{workspace.name}.broker-audit.jsonl"
-    if workspace == audit or workspace in audit.resolve().parents:
-        raise ValueError("broker audit must live outside the sandbox workspace")
-    broker.audit_path = audit
+    owns_broker_dir = broker is not None and broker_dir is None
+    audit = None
+    if broker is not None:
+        # A Unix socket path is limited to roughly 108 bytes. The run directory can be
+        # deep (state/cleanroom/<run-key>/attempt-N), so the socket lives under /tmp
+        # unless a caller supplies a short directory explicitly.
+        broker_dir = (Path(broker_dir) if broker_dir is not None else
+                      Path(tempfile.mkdtemp(prefix="splice-broker-")))
+        broker_dir.mkdir(parents=True, exist_ok=True)
+        audit = (Path(audit_path) if audit_path else
+                 run_root / f"{workspace.name}.broker-audit.jsonl")
+        if workspace == audit or workspace in audit.resolve().parents:
+            raise ValueError("broker audit must live outside the sandbox workspace")
+        broker.audit_path = audit
     write_agent_config(workspace, model, agent_name)
     if immutable is None:
         immutable = {}
@@ -519,6 +733,8 @@ def run_workbench(*, workspace: Path, broker: Broker, image: str, opencode: Path
             path = workspace / relative
             if path.is_file():
                 immutable[relative] = _sha256(path)
+        for relative in sorted(path.name for path in (workspace / "adapters").glob("*")):
+            immutable[f"adapters/{relative}"] = _sha256(workspace / "adapters" / relative)
     command = container_command(
         image=image, workspace=workspace, broker_dir=broker_dir,
         opencode=opencode, model=model, auth_file=auth_file,
@@ -531,8 +747,10 @@ def run_workbench(*, workspace: Path, broker: Broker, image: str, opencode: Path
     started = time.monotonic()
     timed_out = False
     completed = None
+    host = (BrokerHost(broker, broker_dir / "broker.sock") if broker is not None
+            else contextlib.nullcontext())
     try:
-        with BrokerHost(broker, broker_dir / "broker.sock"):
+        with host:
             try:
                 completed = runner(command, capture_output=True, text=True,
                                    timeout=timeout, check=False)
@@ -555,11 +773,11 @@ def run_workbench(*, workspace: Path, broker: Broker, image: str, opencode: Path
     candidate_error = None
     if candidate is not None:
         try:
-            candidate = validate_candidate_source(candidate)
+            candidate = validate_candidate_source(candidate, executable=executable)
         except ValueError as exc:
             candidate, candidate_error = None, str(exc)
     integrity = verify_immutable(workspace, immutable)
-    records = broker.records
+    records = broker.records if broker is not None else []
     counts: dict[str, int] = {}
     for record in records:
         counts[record["status"]] = counts.get(record["status"], 0) + 1
@@ -575,7 +793,7 @@ def run_workbench(*, workspace: Path, broker: Broker, image: str, opencode: Path
         "candidate_present": candidate is not None,
         "immutable": integrity,
         "broker": {"exchanges": len(records), "counts": counts,
-                   "audit_path": str(audit)},
+                   "audit_path": str(audit) if audit is not None else None},
         "events_path": str(events_path),
         "stderr_path": str(stderr_path),
         "elapsed_seconds": round(time.monotonic() - started, 1),

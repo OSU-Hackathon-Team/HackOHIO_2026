@@ -134,7 +134,32 @@ Inside the container the agent edits `candidate.c`, runs `./run_tests.sh`, and u
 public mismatch is ambiguous. The broker socket is the only path to the decompilation side;
 audit records live outside the workspace. The driver validates public cases again, rejects a
 tampered harness, and runs held-out cases only after the container exits. `--workbench` is
-opt-in; the existing no-tools prompt loop remains the fallback. Run
+opt-in; the existing no-tools prompt loop remains the fallback.
+
+A command-line target uses the same workbench with an executable interface: the harness
+builds `candidate.c` into a program (`cc -std=gnu11 -O2 -o candidate candidate.c -lm`),
+writes each public case's program text into `case_scripts/`, and runs the program once per
+case, comparing standard output, standard error and exit status. There is no adapter and no
+broker for that interface.
+
+```bash
+docker build -t splice-cleanroom-implementer:local -f implementer.Dockerfile .
+python scripts/run_executable_c_e2e.py --state decomp-state --allow-draft \
+  --spec-artifact <spec> --public-report-artifact <public-report> \
+  --full-report-artifact <full-report> --workbench --workbench-runtime docker \
+  --opencode /path/to/opencode
+```
+
+The container reaches the model provider itself, so the driver passes the credentials this
+host resolves (environment, env file, or the shared credentials file) and the region into
+the sandbox — those keys are the only environment it receives. The gate is still the host's:
+the agent's exit status is not the result. On the GNU bc arithmetic suite (16 public, 10
+held-out cases) one agent session reached 16/16 public and 1/10 held-out, because the agent
+hardcoded the public program texts it could now run — the no-tools loop reached 15/16 public
+and 6/10 held-out on the same suite. A green public harness with tools is not evidence of
+rule-level behavior, which is what the single held-out pass exists to measure.
+
+Run
 `python3 -m unittest discover -s tests -p "test_cleanroom.py"` for the broker, disclosure,
 segregation, and self-test checks. `python scripts/check_cleanroom.py --container` additionally
 runs the real implementer image with a scripted agent (no model call); it needs the image

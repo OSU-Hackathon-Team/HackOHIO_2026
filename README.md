@@ -253,6 +253,15 @@ python scripts/run_native_c_candidate.py \
   --spec-artifact <spec-sha256> \
   --probe-report-artifact <probes-sha256> \
   --workbench
+
+# 4. The same workbench for a command-line target: the harness builds the candidate
+#    into a program and runs the public cases through its command line
+python scripts/run_executable_c_e2e.py \
+  --state decomp-state --allow-draft \
+  --spec-artifact <spec-sha256> \
+  --public-report-artifact <public-report-sha256> \
+  --full-report-artifact <full-report-sha256> \
+  --workbench --workbench-runtime docker
 ```
 
 <details>

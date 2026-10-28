@@ -1,0 +1,274 @@
+{
+  "schema": 1,
+  "kind": "cli",
+  "query": "arbitrary-precision arithmetic evaluation in the command-line calculator: integer and decimal operands, the four operators, remainder and exponentiation, the scale setting, result formatting and operator precedence",
+  "expected_observables": [
+    "one line of output per evaluated expression on stdout",
+    "the printed form uses the number's scale, including a leading decimal point below one",
+    "division and remainder follow the current scale and truncate toward zero",
+    "negative operands follow the calculator's sign rules for quotient and remainder",
+    "operands and results are arbitrary precision, not machine integers"
+  ],
+  "cases": [
+    {
+      "id": "add_int",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "1+2\nquit\n",
+      "input_description": "Integer addition",
+      "held_out": false
+    },
+    {
+      "id": "sub_borrow",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "100-45\nquit\n",
+      "input_description": "Subtraction that borrows",
+      "held_out": false
+    },
+    {
+      "id": "mul_int",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "12*12\nquit\n",
+      "input_description": "Integer multiplication",
+      "held_out": false
+    },
+    {
+      "id": "div_truncate",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "10/3\nquit\n",
+      "input_description": "Division truncates at the default scale",
+      "held_out": false
+    },
+    {
+      "id": "div_negative",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "-7/2\nquit\n",
+      "input_description": "Division with a negative dividend",
+      "held_out": false
+    },
+    {
+      "id": "mod_int",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "7%3\nquit\n",
+      "input_description": "Integer remainder",
+      "held_out": false
+    },
+    {
+      "id": "mod_negative",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "-7%3\nquit\n",
+      "input_description": "Remainder with a negative dividend",
+      "held_out": false
+    },
+    {
+      "id": "pow_small",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "2^10\nquit\n",
+      "input_description": "Exponentiation",
+      "held_out": false
+    },
+    {
+      "id": "decimal_add",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "3.5+1.25\nquit\n",
+      "input_description": "Decimal addition with different scales",
+      "held_out": false
+    },
+    {
+      "id": "decimal_sub",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "10.5-0.25\nquit\n",
+      "input_description": "Decimal subtraction",
+      "held_out": false
+    },
+    {
+      "id": "decimal_mul",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "1.5*2\nquit\n",
+      "input_description": "Multiplication keeps the operand scales",
+      "held_out": false
+    },
+    {
+      "id": "scale_divide",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "scale=5\n1/3\nquit\n",
+      "input_description": "Division at an explicit scale",
+      "held_out": false
+    },
+    {
+      "id": "scale_zero",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "scale=0\n10/3\nquit\n",
+      "input_description": "Division with the scale set to zero",
+      "held_out": false
+    },
+    {
+      "id": "precedence",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "1+2*3\nquit\n",
+      "input_description": "Operator precedence without parentheses",
+      "held_out": false
+    },
+    {
+      "id": "parens",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "(1+2)*3\nquit\n",
+      "input_description": "Parentheses override precedence",
+      "held_out": false
+    },
+    {
+      "id": "leading_dot",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": ".5*2\nquit\n",
+      "input_description": "A number written with a leading decimal point",
+      "held_out": false
+    },
+    {
+      "id": "big_mul",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "99999999999999999999*3\nquit\n",
+      "input_description": "Multiplication beyond machine integers",
+      "held_out": true
+    },
+    {
+      "id": "big_div",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "100000000000000000000/7\nquit\n",
+      "input_description": "Division beyond machine integers",
+      "held_out": true
+    },
+    {
+      "id": "scale_seven",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "scale=7\n2/3\nquit\n",
+      "input_description": "Division at a longer explicit scale",
+      "held_out": true
+    },
+    {
+      "id": "neg_mul",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "-1.5*4\nquit\n",
+      "input_description": "Multiplication with a negative decimal",
+      "held_out": true
+    },
+    {
+      "id": "neg_sub",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "3-10\nquit\n",
+      "input_description": "Subtraction that produces a negative result",
+      "held_out": true
+    },
+    {
+      "id": "pow_zero",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "5^0\nquit\n",
+      "input_description": "Exponent zero",
+      "held_out": true
+    },
+    {
+      "id": "pow_three",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "3^3\nquit\n",
+      "input_description": "Exponent above two",
+      "held_out": true
+    },
+    {
+      "id": "mod_large",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "123456789%1000\nquit\n",
+      "input_description": "Remainder of a large dividend",
+      "held_out": true
+    },
+    {
+      "id": "decimal_div",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "1.5/2\nquit\n",
+      "input_description": "Division of a decimal by an integer",
+      "held_out": true
+    },
+    {
+      "id": "scale_add",
+      "args": [
+        "-q",
+        "{script}"
+      ],
+      "script": "scale=4\n1.25+2.5\nquit\n",
+      "input_description": "Addition after the scale is set",
+      "held_out": true
+    }
+  ]
+}

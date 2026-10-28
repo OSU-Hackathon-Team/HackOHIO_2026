@@ -7,9 +7,16 @@ import os
 from pathlib import Path
 import subprocess
 
+# Evidence-only calls answer with one schema-shaped JSON object and stay small. Callers that
+# need a whole program or patch (the executable implementer) ask for the Converse ceiling.
+# Requests above the ceiling are refused by Bedrock, so the bound is checked here.
+CONVERSE_DEFAULT_TOKENS, CONVERSE_MAX_TOKENS = 4096, 16_384
+DEFAULT_REGION = "us-east-2"
+
 
 def _invoke_bedrock(folder: Path, prompt: str, *, model: str, timeout: int,
-                    env_file: Path, agent_instruction: str) -> dict:
+                    env_file: Path, agent_instruction: str,
+                    max_tokens: int = CONVERSE_DEFAULT_TOKENS) -> dict:
     import boto3
     from botocore.config import Config
 
@@ -29,13 +36,13 @@ def _invoke_bedrock(folder: Path, prompt: str, *, model: str, timeout: int,
                    else boto3.Session())
     client = session.client(
         "bedrock-runtime", region_name=env.get("AWS_REGION") or
-        env.get("AWS_DEFAULT_REGION") or "us-east-2",
+        env.get("AWS_DEFAULT_REGION") or DEFAULT_REGION,
         config=Config(connect_timeout=10, read_timeout=timeout,
                       retries={"mode": "standard", "max_attempts": 3}))
     response = client.converse(
         modelId=model.removeprefix("amazon-bedrock/"),
         messages=[{"role": "user", "content": [{"text": agent_instruction + "\n" + prompt}]}],
-        inferenceConfig={"maxTokens": 4096})
+        inferenceConfig={"maxTokens": max_tokens})
     pieces = [part["text"] for part in response["output"]["message"]["content"]
               if "text" in part]
     if not pieces:
@@ -73,14 +80,47 @@ def add_aws_env(env: dict[str, str], env_file: Path) -> None:
         env.setdefault(key, value)
 
 
+def effective_aws_env(env: dict | None = None) -> dict:
+    """The credentials this process would use, as environment variables for a container.
+
+    A sandboxed implementer calls the model provider itself, so it needs the same
+    credentials the host resolves, which may live in a shared credentials file rather than
+    in the process environment. Values already in ``env`` win; nothing else is copied.
+    """
+    source = dict(env or {})
+    resolved = {key: source.get(key) for key in
+                ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN")}
+    if not resolved["AWS_ACCESS_KEY_ID"] or not resolved["AWS_SECRET_ACCESS_KEY"]:
+        import boto3
+        credentials = boto3.Session().get_credentials()
+        if credentials is None:
+            return {}
+        frozen = credentials.get_frozen_credentials()
+        resolved = {"AWS_ACCESS_KEY_ID": frozen.access_key,
+                    "AWS_SECRET_ACCESS_KEY": frozen.secret_key,
+                    "AWS_SESSION_TOKEN": frozen.token}
+    result = {key: value for key, value in resolved.items() if value}
+    for key in ("AWS_REGION", "AWS_DEFAULT_REGION"):
+        value = source.get(key) or os.environ.get(key)
+        if value:
+            result[key] = value
+    # The sandbox provider needs a region; use the same default the host calls assume.
+    result.setdefault("AWS_REGION", DEFAULT_REGION)
+    return result
+
+
 def invoke_opencode(opencode: Path, folder: Path, prompt: str, *, model: str,
                     timeout: int, env_file: Path, agent_name: str,
                     agent_instruction: str, mcp: dict | None = None,
-                    allow_tools: tuple[str, ...] = ()) -> dict:
+                    allow_tools: tuple[str, ...] = (),
+                    max_tokens: int = CONVERSE_DEFAULT_TOKENS) -> dict:
+    if not 1 <= max_tokens <= CONVERSE_MAX_TOKENS:
+        raise ValueError(f"max_tokens must be between 1 and {CONVERSE_MAX_TOKENS}")
     # Direct Converse has no tools; tool-using agents (the investigator) need OpenCode.
     if model.startswith("amazon-bedrock/") and not mcp and not allow_tools:
         return _invoke_bedrock(folder, prompt, model=model, timeout=timeout,
-                               env_file=env_file, agent_instruction=agent_instruction)
+                               env_file=env_file, agent_instruction=agent_instruction,
+                               max_tokens=max_tokens)
     version = subprocess.run([str(opencode), "--version"], capture_output=True,
                              text=True, check=True, timeout=10).stdout.strip()
     ambient = model == "opencode/ambient"
@@ -117,7 +157,7 @@ def invoke_opencode(opencode: Path, folder: Path, prompt: str, *, model: str,
             config["provider"] = {provider: {"models": {model_id: {
                 "name": model_id, "id": model_id, "status": "active",
                 "provider": {"npm": "@ai-sdk/amazon-bedrock"},
-                "limit": {"context": 32768, "output": 4000},
+                "limit": {"context": 32768, "output": max_tokens},
             }}}}
         if mcp:
             config["mcp"] = mcp
