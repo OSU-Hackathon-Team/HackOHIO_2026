@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createCapabilityClient } from "@splice/runtime";
 import { encodeWireValue } from "@splice/contracts";
 import type { ApplicationPlanManifest } from "./manifest.js";
@@ -21,6 +21,12 @@ const clients: Array<{ dispose(): Promise<void> }> = [];
 function ready() {
   if (!manifest || !engine || !store || !transcription) throw new Error("Application runtime is not ready");
   return { manifest, engine, store, transcription };
+}
+
+function assertTrustedWindow(event: { sender: unknown; senderFrame: unknown }): void {
+  if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) {
+    throw new Error("Unexpected application renderer caller");
+  }
 }
 
 async function loadManifest(): Promise<ApplicationPlanManifest> {
@@ -52,23 +58,26 @@ async function startRuntime(): Promise<void> {
   transcription = new DesktopTranscription(store, manifest.app_id, manifest.plan, path.join(userData, "splice-audio"), (session) => {
     window?.webContents.send("splice:transcription-event", session);
   });
-  ipcMain.handle("splice:workflows", () => {
+  ipcMain.handle("splice:workflows", (event) => {
+    assertTrustedWindow(event);
     const runtime = ready();
     return runtime.manifest.plan.workflows.map((workflow) => ({ id: workflow.id, name: workflow.name, input: workflow.input }));
   });
-  ipcMain.handle("splice:run", async (_event, workflowId: unknown, input: unknown) => {
+  ipcMain.handle("splice:run", async (event, workflowId: unknown, input: unknown) => {
+    assertTrustedWindow(event);
     const runtime = ready();
     if (typeof workflowId !== "string" || !runtime.manifest.plan.workflows.some((workflow) => workflow.id === workflowId)) throw new Error("Workflow is not declared in this application");
     if (typeof input !== "object" || input === null || Array.isArray(input)) throw new Error("Workflow input must be an object");
     return runtime.engine.run(runtime.manifest.plan, workflowId, input as Record<string, unknown>);
   });
-  ipcMain.handle("splice:document", (_event, documentId: unknown) => {
+  ipcMain.handle("splice:document", (event, documentId: unknown) => {
+    assertTrustedWindow(event);
     const runtime = ready();
     if (typeof documentId !== "string" || !runtime.manifest.plan.documents.some((document) => document.id === documentId)) throw new Error("Document is not declared in this application");
     return runtime.store.getDocument(documentId);
   });
   ipcMain.handle("splice:document-save", (event, documentId: unknown, value: unknown, expectedRevision: unknown) => {
-    if (event.sender !== window?.webContents) throw new Error("Unexpected document caller");
+    assertTrustedWindow(event);
     const runtime = ready();
     const definition = runtime.manifest.plan.documents.find((document) => document.id === documentId);
     if (!definition || definition.owner_instance !== null) throw new Error("Document is not editable in this application");
@@ -77,25 +86,25 @@ async function startRuntime(): Promise<void> {
     return runtime.store.putDocument(definition.id, encoded, expectedRevision as number | null);
   });
   ipcMain.handle("splice:transcription-availability", (event) => {
-    if (event.sender !== window?.webContents) throw new Error("Unexpected transcription caller");
+    assertTrustedWindow(event);
     return ready().transcription.availability();
   });
   ipcMain.handle("splice:transcriptions", (event) => {
-    if (event.sender !== window?.webContents) throw new Error("Unexpected transcription caller");
+    assertTrustedWindow(event);
     return ready().transcription.list();
   });
   ipcMain.handle("splice:transcription", (event, sessionId: unknown) => {
-    if (event.sender !== window?.webContents) throw new Error("Unexpected transcription caller");
+    assertTrustedWindow(event);
     if (typeof sessionId !== "string") throw new Error("Transcription ID must be a string");
     return ready().transcription.get(sessionId);
   });
   ipcMain.handle("splice:transcription-start", async (event, bytes: unknown, providerId: unknown, language: unknown) => {
-    if (event.sender !== window?.webContents) throw new Error("Unexpected transcription caller");
+    assertTrustedWindow(event);
     if (!(bytes instanceof Uint8Array) || typeof providerId !== "string" || typeof language !== "string") throw new Error("Invalid transcription request");
     return ready().transcription.startWav(bytes, providerId, language);
   });
   ipcMain.handle("splice:transcription-cancel", async (event, sessionId: unknown) => {
-    if (event.sender !== window?.webContents) throw new Error("Unexpected transcription caller");
+    assertTrustedWindow(event);
     if (typeof sessionId !== "string") throw new Error("Transcription ID must be a string");
     return ready().transcription.cancel(sessionId);
   });
@@ -103,6 +112,8 @@ async function startRuntime(): Promise<void> {
 }
 
 async function openWindow(): Promise<void> {
+  const rendererPath = path.join(app.getAppPath(), "renderer", "index.html");
+  const rendererUrl = pathToFileURL(rendererPath).href;
   window = new BrowserWindow({
     width: 1100,
     height: 800,
@@ -113,7 +124,11 @@ async function openWindow(): Promise<void> {
       sandbox: true,
     },
   });
-  await window.loadFile(path.join(app.getAppPath(), "renderer", "index.html"));
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.webContents.on("will-frame-navigate", (event) => {
+    if (!event.isMainFrame || event.url !== rendererUrl) event.preventDefault();
+  });
+  await window.loadFile(rendererPath);
   window.on("closed", () => { window = null; });
 }
 
