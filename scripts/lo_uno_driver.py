@@ -103,6 +103,64 @@ def evaluate(doc, sheet, formula, cells):
     return {"value": target.getValue()}
 
 
+def read_matrix(sheet, range_name):
+    return [list(row) for row in sheet.getCellRangeByName(range_name).getDataArray()]
+
+
+def operate(doc, sheet, operation, cells):
+    sheet.getCellRangeByName("A1:Z200").clearContents(CLEAR_ALL)
+    for name, value in cells.items():
+        cell = sheet.getCellRangeByName(name)
+        if isinstance(value, str) and value.startswith("="):
+            cell.setFormula(value)
+        elif isinstance(value, str):
+            cell.setString(value)
+        else:
+            cell.setValue(float(value))
+
+    kind = operation["type"]
+    if kind == "sort_range":
+        fields = []
+        for key in operation["keys"]:
+            field = uno.createUnoStruct("com.sun.star.table.TableSortField")
+            field.Field = key["column"]
+            field.IsAscending = key["ascending"]
+            fields.append(field)
+        props = (
+            PropertyValue("SortFields", 0, tuple(fields), 0),
+            PropertyValue("ContainsHeader", 0, operation["contains_header"], 0),
+        )
+        sheet.getCellRangeByName(operation["range"]).sort(props)
+        output_range = operation.get("output_range", operation["range"])
+    elif kind == "insert_rows":
+        sheet.Rows.insertByIndex(operation["index"], operation["count"])
+        output_range = operation["output_range"]
+    elif kind == "delete_rows":
+        sheet.Rows.removeByIndex(operation["index"], operation["count"])
+        output_range = operation["output_range"]
+    elif kind == "insert_columns":
+        sheet.Columns.insertByIndex(operation["index"], operation["count"])
+        output_range = operation["output_range"]
+    elif kind == "delete_columns":
+        sheet.Columns.removeByIndex(operation["index"], operation["count"])
+        output_range = operation["output_range"]
+    elif kind == "copy_range":
+        destination = sheet.getCellRangeByName(operation["destination_cell"]).getRangeAddress()
+        source = sheet.getCellRangeByName(operation["source_range"]).getRangeAddress()
+        sheet.copyRange(destination, source)
+        output_range = operation["output_range"]
+    else:  # clear_range
+        sheet.getCellRangeByName(operation["range"]).clearContents(CLEAR_ALL)
+        output_range = operation["output_range"]
+    doc.calculateAll()
+    return {"cells": read_matrix(sheet, output_range)}
+
+
+def new_document(desktop):
+    hidden = PropertyValue("Hidden", 0, True, 0)
+    return desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, (hidden,))
+
+
 def main():
     soffice = sys.argv[1]
     pipe = "splice_" + uuid.uuid4().hex
@@ -111,8 +169,7 @@ def main():
     try:
         process, ctx = connect(soffice, profile, pipe)
         desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
-        hidden = PropertyValue("Hidden", 0, True, 0)
-        doc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, (hidden,))
+        doc = new_document(desktop)
         sheet = doc.Sheets.getByIndex(0)
         emit({"op": "ready", "pid": find_pid(pipe) or process.pid, "version": product_version(ctx)})
         for line in sys.stdin:
@@ -120,7 +177,14 @@ def main():
             if request.get("op") == "quit":
                 break
             try:
-                observed = evaluate(doc, sheet, request["formula"], request.get("cells") or {})
+                if request.get("op") == "operation":
+                    # Structural edits persist across Calc requests; isolate each operation case.
+                    doc.close(True)
+                    doc = new_document(desktop)
+                    sheet = doc.Sheets.getByIndex(0)
+                    observed = operate(doc, sheet, request["operation"], request.get("cells") or {})
+                else:
+                    observed = evaluate(doc, sheet, request["formula"], request.get("cells") or {})
                 emit({"id": request["id"], "observed": observed})
             except Exception as error:  # report per case; LibreOffice keeps running
                 emit({"id": request["id"], "observed": None, "error": str(error)})

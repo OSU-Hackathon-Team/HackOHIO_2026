@@ -279,7 +279,9 @@ review still gates every fact.
   script are in the payload whitelist.
 
 **Drivers:**
-- **`uno`:** LibreOffice Calc, unchanged.
+- **`uno`:** LibreOffice Calc formulas and bounded table/range operations over UNO. Formula cases may
+  include analyst expectations that the oracle compares; operation cases can omit expectations so
+  the original Calc output is stored as `observed` and cannot be mistaken for a passed hypothesis.
 - **`cli`:** a packaged command-line program (`engine/cli_target.py`).
   - The worker installs the apt package if it's missing, then fetches the binary's debug file from
     `debuginfod.ubuntu.com` by build-id.

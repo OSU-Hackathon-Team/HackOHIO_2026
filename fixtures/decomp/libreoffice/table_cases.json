@@ -1,0 +1,114 @@
+{
+  "schema": 1,
+  "subsystem": "LibreOffice Calc range operations (libsclo.so)",
+  "notes": "Inputs are operation requests and workbook cells only. No expected outputs are authored; each output must be recorded from the original LibreOffice Calc oracle. Held-out cases stay hidden from the spec writer and implementer.",
+  "query": "LibreOffice Calc table and range operations: sort selected ranges, insert or delete rows and columns, copy ranges, and clear contents while preserving the remaining cell data",
+  "expected_observables": [
+    "Cell values and ordering after a range sort",
+    "Cell values and blank regions after row or column insertion and deletion",
+    "Copied values and recalculated formulas in a destination range",
+    "Cell values after clearing a selected range"
+  ],
+  "cases": [
+    {
+      "id": "table_sort_text_ascending",
+      "operation": {
+        "type": "sort_range",
+        "range": "A1:B4",
+        "keys": [{ "column": 0, "ascending": true }],
+        "contains_header": true
+      },
+      "cells": {
+        "A1": "Product", "B1": "Units",
+        "A2": "Pear", "B2": 3,
+        "A3": "Apple", "B3": 2,
+        "A4": "Peach", "B4": 5
+      },
+      "input_description": "Sort a two-column range by its first column in ascending order while retaining its header row.",
+      "held_out": false
+    },
+    {
+      "id": "table_sort_multikey_descending",
+      "operation": {
+        "type": "sort_range",
+        "range": "A1:C5",
+        "keys": [{ "column": 2, "ascending": false }, { "column": 0, "ascending": true }],
+        "contains_header": true
+      },
+      "cells": {
+        "A1": "Item", "B1": "Zone", "C1": "Count",
+        "A2": "Bolt", "B2": "East", "C2": 4,
+        "A3": "Nut", "B3": "West", "C3": 7,
+        "A4": "Clip", "B4": "East", "C4": 7,
+        "A5": "Washer", "B5": "North", "C5": 2
+      },
+      "input_description": "Sort a table by count descending, then by item ascending for tied counts.",
+      "held_out": false
+    },
+    {
+      "id": "table_insert_row_middle",
+      "operation": { "type": "insert_rows", "index": 2, "count": 1, "output_range": "A1:B4" },
+      "cells": {
+        "A1": "Name", "B1": "Score",
+        "A2": "Ada", "B2": 8,
+        "A3": "Sam", "B3": 5
+      },
+      "input_description": "Insert one row between two data rows and observe the resulting four-row range.",
+      "held_out": false
+    },
+    {
+      "id": "table_delete_row_middle",
+      "operation": { "type": "delete_rows", "index": 2, "count": 1, "output_range": "A1:B3" },
+      "cells": {
+        "A1": "Name", "B1": "Score",
+        "A2": "Ada", "B2": 8,
+        "A3": "Sam", "B3": 5,
+        "A4": "Lee", "B4": 9
+      },
+      "input_description": "Delete the middle data row and observe the remaining range.",
+      "held_out": false
+    },
+    {
+      "id": "table_insert_column_middle",
+      "operation": { "type": "insert_columns", "index": 1, "count": 1, "output_range": "A1:D2" },
+      "cells": {
+        "A1": "Name", "B1": "Score", "C1": "Group",
+        "A2": "Ada", "B2": 8, "C2": "A"
+      },
+      "input_description": "Insert a column between the first and second columns and observe shifted values and the blank column.",
+      "held_out": false
+    },
+    {
+      "id": "table_delete_column_middle",
+      "operation": { "type": "delete_columns", "index": 1, "count": 1, "output_range": "A1:C2" },
+      "cells": {
+        "A1": "Name", "B1": "Score", "C1": "Group",
+        "A2": "Ada", "B2": 8, "C2": "A"
+      },
+      "input_description": "Delete the second column and observe how the remaining columns shift.",
+      "held_out": false
+    },
+    {
+      "id": "table_copy_formula_range",
+      "operation": { "type": "copy_range", "source_range": "A1:B3", "destination_cell": "D1", "output_range": "A1:E3" },
+      "cells": {
+        "A1": "Item", "B1": "Double",
+        "A2": 4, "B2": "=A2*2",
+        "A3": 7, "B3": "=A3*2"
+      },
+      "input_description": "Copy a range containing formulas to a new location and observe copied values and formula recalculation.",
+      "held_out": true
+    },
+    {
+      "id": "table_clear_selected_range",
+      "operation": { "type": "clear_range", "range": "B2:C3", "output_range": "A1:C3" },
+      "cells": {
+        "A1": "Name", "B1": "Value", "C1": "Note",
+        "A2": "Ada", "B2": 8, "C2": "keep?",
+        "A3": "Sam", "B3": 5, "C3": "keep?"
+      },
+      "input_description": "Clear the selected interior range and observe the remaining first column and header.",
+      "held_out": true
+    }
+  ]
+}

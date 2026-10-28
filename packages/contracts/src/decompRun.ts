@@ -34,7 +34,8 @@ export const DecompRunResult = z.object({
   spec_error: z.string().nullable(),
   claim_outcomes: z.record(z.string(), z.number()),
   functions: z.object({ included: z.number().int(), drafted: z.number().int(), reviewed: z.number().int() }),
-  oracle: z.object({ public_agreement: z.number().int(), held_out_agreement: z.number().int() }),
+  oracle: z.object({ public_agreement: z.number().int(), held_out_agreement: z.number().int(),
+    public_observed: z.number().int().default(0), held_out_observed: z.number().int().default(0) }),
   handoff_path: z.string().nullable(), // repo-relative folder with README.md + evidence.json
   tokens: z.object({ input: z.number().int(), output: z.number().int() }),
 });

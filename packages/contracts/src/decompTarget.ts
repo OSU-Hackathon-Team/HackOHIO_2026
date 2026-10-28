@@ -2,7 +2,7 @@ import { z } from "zod";
 
 // A registered native decompilation target: fixtures/decomp/targets/<id>.json.
 // The driver decides how cases run on the worker (scripts/native_pipeline.py):
-//   uno  LibreOffice over UNO; cases are formulas with analyst expectations checked against it.
+//   uno  LibreOffice over UNO; cases are formulas or bounded table operations, observed from Calc.
 //   cli  an apt-installed command-line program; cases are argument lists, and the program's
 //        own stdout, stderr and exit code are the oracle.
 const budgetKeyed = z.record(z.string().regex(/^\d+$/), z.number().nonnegative());

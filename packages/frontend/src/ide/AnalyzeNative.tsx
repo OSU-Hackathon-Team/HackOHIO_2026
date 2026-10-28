@@ -177,8 +177,9 @@ export function AnalyzeNative() {
             <div className="mt-3 space-y-1 text-stone-300">
               <p>
                 Evidence <strong>{run.result.readiness ?? "unknown"}</strong>
-                {" · "}The original program confirmed {run.result.oracle.public_agreement} public and{" "}
-                {run.result.oracle.held_out_agreement} held-out cases
+                {" · "}Original oracle: {run.result.oracle.public_agreement} public and {run.result.oracle.held_out_agreement} held-out expectation matches
+                {(run.result.oracle.public_observed + run.result.oracle.held_out_observed) > 0 &&
+                  <>; {run.result.oracle.public_observed} public and {run.result.oracle.held_out_observed} held-out outputs recorded without expectations</>}
               </p>
               <p className="tabular-nums">
                 Claims: {Object.entries(run.result.claim_outcomes).map(([k, v]) => `${k.replace("_static", "")} ${v}`).join(", ") || "none"}

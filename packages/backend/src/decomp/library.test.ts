@@ -16,7 +16,8 @@ import type { writeNativeDraft, NativeDraft } from "../spec/nativeDraft.js";
 const summary = { id: "run-library-test", target_id: "libreoffice-calc", title: "LibreOffice Calc", created_at: 1,
   binary_sha256: "b".repeat(64), result: { readiness: "partial", spec_artifact: null, spec_status: null,
     spec_writer: null, spec_error: "spec rejected", claim_outcomes: { supported_static: 1 },
-    functions: { included: 1, drafted: 1, reviewed: 1 }, oracle: { public_agreement: 1, held_out_agreement: 1 },
+    functions: { included: 1, drafted: 1, reviewed: 1 }, oracle: { public_agreement: 1, held_out_agreement: 1,
+      public_observed: 0, held_out_observed: 0 },
     handoff_path: "docs/handoff", tokens: { input: 2, output: 1 } } };
 const analysis = SavedAnalysis.parse({ ...summary, schema: 1, spec: null,
   functions: [{ entry: "00100000", name: "f", draft_state: "unreviewed", review_state: "reviewed", decompilation: "int f() { return 1; }",

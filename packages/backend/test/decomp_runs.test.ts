@@ -108,7 +108,8 @@ describe("decomp runs: import", () => {
       assert.equal(result.spec_status, "draft");
       assert.equal(result.readiness, "partial");
       assert.deepEqual(result.functions, { included: 40, drafted: 38, reviewed: 37 });
-      assert.deepEqual(result.oracle, { public_agreement: 22, held_out_agreement: 10 });
+      assert.deepEqual(result.oracle, { public_agreement: 22, held_out_agreement: 10,
+        public_observed: 0, held_out_observed: 0 });
       assert.deepEqual(result.tokens, { input: 1000, output: 100 });
       assert.equal(result.handoff_path, "docs/handoffs/lo");
       await fs.access(path.join(stateDir, "artifacts", artifact.slice(0, 2), artifact));

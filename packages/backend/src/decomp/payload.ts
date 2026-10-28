@@ -18,7 +18,7 @@ export const TAR = process.platform === "win32"
 export const PAYLOAD_PATTERNS: readonly RegExp[] = [
   /^engine\//,
   /^scripts\/(lo_[a-z_]+|native_pipeline)\.py$/,
-  /^fixtures\/decomp\/libreoffice\/formula_cases\.json$/,
+  /^fixtures\/decomp\/libreoffice\/[a-z0-9_]+\.json$/,
   // Target registry (Phase 1) and command-line case suites (Phase 2).
   /^fixtures\/decomp\/targets\/[a-z0-9-]+\.json$/,
   /^fixtures\/decomp\/cli\/[a-z0-9_]+\.json$/,
