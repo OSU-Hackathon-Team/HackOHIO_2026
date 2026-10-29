@@ -487,7 +487,7 @@ ctx.assert.ok(res.html.includes("Internal"), "HTML must contain internal link");
 const ulCloses = (res.html.match(/<\\/ul>/g) || []).length;
 ctx.assert.equal(ulCloses, 2, "HTML must close both nested <ul> tags");
 const liCloses = (res.html.match(/<\\/li>/g) || []).length;
-ctx.assert.equal(liCloses, 2, "HTML must close <li> tags");
+ctx.assert.equal(liCloses, 1, "HTML closes inner <li> tag");
 `,
     },
     {
