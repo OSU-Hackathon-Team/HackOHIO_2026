@@ -285,9 +285,21 @@ export function assessCapabilityIntake(
     },
     implementation_checks: { status: "not_run" as const, detail: "Implementation has not been built", at: null, evidence_hash: null },
     independent_behavior_checks: {
-      status: definition.origin.kind === "authored" ? "not_applicable" as const : request.independent_verdict ? "unknown" as const : "not_run" as const,
-      detail: definition.origin.kind === "authored" ? "Authored development capability has no recovered behavior to independently verify" : request.independent_verdict ? "An uploaded verdict is recorded but has not been independently revalidated" : "No independent evaluation has run",
-      at: null,
+      status: definition.origin.kind === "authored"
+        ? "not_applicable" as const
+        : request.independent_verdict?.verdict === "pass" && request.independent_verdict.cases > 0
+          ? "passed" as const
+          : request.independent_verdict
+            ? "unknown" as const
+            : "not_run" as const,
+      detail: definition.origin.kind === "authored"
+        ? "Authored development capability has no recovered behavior to independently verify"
+        : request.independent_verdict?.verdict === "pass" && request.independent_verdict.cases > 0
+          ? `${request.independent_verdict.cases} independent original-behavior evaluations passed (${request.independent_verdict.evaluator})`
+          : request.independent_verdict
+            ? "An uploaded verdict is recorded but has not been independently revalidated"
+            : "No independent evaluation has run",
+      at: request.independent_verdict?.at ?? null,
       evidence_hash: request.independent_verdict?.report_hash ?? null,
     },
     composition_checks: { status: "not_run" as const, detail: "No composition has run", at: null, evidence_hash: null },

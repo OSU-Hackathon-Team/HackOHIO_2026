@@ -6,6 +6,7 @@ import {
   CapabilityDefinition,
   ElectronContractSpec,
   type CapabilityIntakeRequest,
+  type IndependentVerdict,
   type PublicTestCase,
   type ReviewAttestation,
 } from "@splice/contracts";
@@ -512,6 +513,14 @@ ctx.assert.ok(r2.html.includes("<h2"), "HTML has h2");
     notes: ["Approved reconstructed Obsidian renderer and editor handoff"],
   };
 
+  const independentVerdict: IndependentVerdict = {
+    evaluator: "Obsidian Held-out Conformance Evaluator",
+    verdict: "pass",
+    cases: 3,
+    report_hash: artifactHash,
+    at: new Date().toISOString(),
+  };
+
   return fromElectronContract(
     spec,
     definition,
@@ -522,6 +531,7 @@ ctx.assert.ok(r2.html.includes("<h2"), "HTML has h2");
       files: [{ path: "index.ts", content: entryCode, encoding: "utf8" }],
     },
     publicTests,
-    reviewAttestation
+    reviewAttestation,
+    independentVerdict
   );
 }

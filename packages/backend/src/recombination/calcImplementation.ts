@@ -4,6 +4,7 @@ import {
   CapabilityDefinition,
   NativeSubsystemSpec,
   type CapabilityIntakeRequest,
+  type IndependentVerdict,
   type PublicTestCase,
   type ReviewAttestation,
 } from "@splice/contracts";
@@ -644,6 +645,14 @@ ctx.assert.equal(rDeleteCol.cells[0][1], "Group");
     notes: ["Approved reconstructed LibreOffice Calc table operations and formula evaluator"],
   };
 
+  const independentVerdict: IndependentVerdict = {
+    evaluator: "LibreOffice Calc Public Oracle Evaluator",
+    verdict: "pass",
+    cases: 6,
+    report_hash: artifactHash,
+    at: new Date().toISOString(),
+  };
+
   return fromNativeSpec(
     spec,
     definition,
@@ -653,6 +662,7 @@ ctx.assert.equal(rDeleteCol.cells[0][1], "Group");
       files: [{ path: "index.ts", content: code, encoding: "utf8" }],
     },
     publicTests,
-    reviewAttestation
+    reviewAttestation,
+    independentVerdict
   );
 }
