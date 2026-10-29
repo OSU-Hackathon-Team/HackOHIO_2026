@@ -373,12 +373,27 @@ export function createRendererIntakeRequest(
     preferred_runtime: "ts_worker",
     public_tests: [
       {
-        name: "render_public_markdown",
-        requirement_ids: handoff.requirements.map(r => r.id),
+        name: "render_headings_and_formatting",
+        requirement_ids: ["headings-rendering", "text-formatting"],
         kind: "public",
       },
       {
-        name: "edit_public_markdown",
+        name: "render_code_and_callout",
+        requirement_ids: ["code-block-callout"],
+        kind: "public",
+      },
+      {
+        name: "render_tables",
+        requirement_ids: ["code-block-callout"],
+        kind: "public",
+      },
+      {
+        name: "render_lists_and_links",
+        requirement_ids: ["nested-lists", "external-link", "internal-link"],
+        kind: "public",
+      },
+      {
+        name: "edit_operations",
         requirement_ids: ["note-editing"],
         kind: "public",
       },
@@ -409,23 +424,73 @@ export default operations;
 
   const publicTests: PublicTestCase[] = [
     {
-      name: "render_public_markdown",
-      requirement_ids: handoff.requirements.map(r => r.id),
+      name: "render_headings_and_formatting",
+      requirement_ids: ["headings-rendering", "text-formatting"],
       harness: "ts",
       code: `
-const res = await ctx.call("render", { markdown: "# Test Heading\\n*italic*" });
-ctx.assert.ok(res.html.includes("<h1"), "HTML has h1");
-ctx.assert.ok(res.html.includes("<em") || res.html.includes("<i"), "HTML has italic");
+const res = await ctx.call("render", {
+  markdown: "# Heading 1\\n## Heading 2\\n*Italic text*\\n**Bold text**\\n~~Strikethrough text~~"
+});
+ctx.assert.ok(res.html.includes("<h1"), "HTML must contain <h1>");
+ctx.assert.ok(res.html.includes("<h2"), "HTML must contain <h2>");
+ctx.assert.ok(res.html.includes("<em>Italic text</em>") || res.html.includes("<i>Italic text</i>"), "HTML must contain italic");
+ctx.assert.ok(res.html.includes("<strong>Bold text</strong>") || res.html.includes("<b>Bold text</b>"), "HTML must contain bold");
+ctx.assert.ok(res.html.includes("<del>Strikethrough text</del>") || res.html.includes("<s>Strikethrough text</s>"), "HTML must contain strikethrough");
 `,
     },
     {
-      name: "edit_public_markdown",
+      name: "render_code_and_callout",
+      requirement_ids: ["code-block-callout"],
+      harness: "ts",
+      code: `
+const res = await ctx.call("render", {
+  markdown: "\`\`\`javascript\\nconsole.log('hi');\\n\`\`\`\\n> [!NOTE]\\n> This is a callout."
+});
+ctx.assert.ok(res.html.includes("<pre>") || res.html.includes("<pre "), "HTML must contain <pre>");
+ctx.assert.ok(res.html.includes("console.log"), "HTML must contain code content");
+ctx.assert.ok(res.html.includes("callout") || res.html.includes("note"), "HTML must contain callout");
+`,
+    },
+    {
+      name: "render_tables",
+      requirement_ids: ["code-block-callout"],
+      harness: "ts",
+      code: `
+const res = await ctx.call("render", {
+  markdown: "| Col 1 | Col 2 |\\n|---|---|\\n| A | B |"
+});
+ctx.assert.ok(res.html.includes("<table>") || res.html.includes("<table "), "HTML must contain <table>");
+ctx.assert.ok(res.html.includes("Col 1"), "HTML must contain header");
+ctx.assert.ok(res.html.includes("A"), "HTML must contain cell");
+`,
+    },
+    {
+      name: "render_lists_and_links",
+      requirement_ids: ["nested-lists", "external-link", "internal-link"],
+      harness: "ts",
+      code: `
+const res = await ctx.call("render", {
+  markdown: "- Parent\\n  - Child\\n[External](https://example.com)\\n[[Internal]]"
+});
+ctx.assert.ok(res.html.includes("<ul>") || res.html.includes("<li"), "HTML must contain list tags");
+ctx.assert.ok(res.html.includes("Parent"), "HTML must contain Parent");
+ctx.assert.ok(res.html.includes("Child"), "HTML must contain Child");
+ctx.assert.ok(res.html.includes("https://example.com"), "HTML must contain external url");
+ctx.assert.ok(res.html.includes("Internal"), "HTML must contain internal link");
+`,
+    },
+    {
+      name: "edit_operations",
       requirement_ids: ["note-editing"],
       harness: "ts",
       code: `
-const res = await ctx.call("edit", { doc: "# Heading", action: "append", text: "\\n\\nBody text" });
-ctx.assert.equal(res.markdown, "# Heading\\n\\nBody text");
-ctx.assert.ok(res.html.includes("<h1"), "HTML has h1");
+const r1 = await ctx.call("edit", { doc: "# Heading 1", action: "append", text: "\\n\\nParagraph text" });
+ctx.assert.equal(r1.markdown, "# Heading 1\\n\\nParagraph text");
+ctx.assert.ok(r1.html.includes("<h1"), "HTML has h1");
+ctx.assert.ok(r1.html.includes("<p"), "HTML has p");
+const r2 = await ctx.call("edit", { doc: "# Old", action: "replace", text: "## New" });
+ctx.assert.equal(r2.markdown, "## New");
+ctx.assert.ok(r2.html.includes("<h2"), "HTML has h2");
 `,
     },
   ];
