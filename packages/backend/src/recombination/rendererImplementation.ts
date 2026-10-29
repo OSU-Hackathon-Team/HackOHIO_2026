@@ -449,6 +449,13 @@ const res = await ctx.call("render", {
 ctx.assert.ok(res.html.includes("<pre>") || res.html.includes("<pre "), "HTML must contain <pre>");
 ctx.assert.ok(res.html.includes("console.log"), "HTML must contain code content");
 ctx.assert.ok(res.html.includes("callout") || res.html.includes("note"), "HTML must contain callout");
+ctx.assert.ok(res.html.includes("This is a callout"), "HTML must contain callout content");
+
+const resQuote = await ctx.call("render", {
+  markdown: "> A simple quote\\n> Second quote line"
+});
+ctx.assert.ok(resQuote.html.includes("<blockquote>"), "HTML must contain <blockquote>");
+ctx.assert.ok(resQuote.html.includes("A simple quote"), "HTML must contain quote text");
 `,
     },
     {
@@ -472,11 +479,15 @@ ctx.assert.ok(res.html.includes("A"), "HTML must contain cell");
 const res = await ctx.call("render", {
   markdown: "- Parent\\n  - Child\\n[External](https://example.com)\\n[[Internal]]"
 });
-ctx.assert.ok(res.html.includes("<ul>") || res.html.includes("<li"), "HTML must contain list tags");
+ctx.assert.ok(res.html.includes("<ul>") && res.html.includes("<li"), "HTML must contain list tags");
 ctx.assert.ok(res.html.includes("Parent"), "HTML must contain Parent");
 ctx.assert.ok(res.html.includes("Child"), "HTML must contain Child");
 ctx.assert.ok(res.html.includes("https://example.com"), "HTML must contain external url");
 ctx.assert.ok(res.html.includes("Internal"), "HTML must contain internal link");
+const ulCloses = (res.html.match(/<\\/ul>/g) || []).length;
+ctx.assert.equal(ulCloses, 2, "HTML must close both nested <ul> tags");
+const liCloses = (res.html.match(/<\\/li>/g) || []).length;
+ctx.assert.equal(liCloses, 2, "HTML must close <li> tags");
 `,
     },
     {
