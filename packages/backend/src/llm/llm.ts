@@ -447,6 +447,7 @@ function parseOutput<T>(raw: string, parse: (v: unknown) => T): T {
   }
 
   if (!parsed) {
+    console.error("[llm parse error raw length]", raw.length, "[raw head]", raw.slice(0, 500), "[raw tail]", raw.slice(-500));
     throw new LlmSchemaError("Model output was not valid JSON", raw);
   }
 
