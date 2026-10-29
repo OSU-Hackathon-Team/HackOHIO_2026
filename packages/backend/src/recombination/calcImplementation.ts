@@ -435,9 +435,31 @@ export async function createCalcIntakeRequest(
               name: "operation",
               type: {
                 kind: "object",
-                additional: true,
+                additional: false,
                 fields: [
                   { name: "type", type: { kind: "enum", values: ["sort_range", "insert_rows", "delete_rows", "insert_columns", "delete_columns"] }, optional: false },
+                  { name: "range", type: textWire, optional: true },
+                  {
+                    name: "keys",
+                    type: {
+                      kind: "array",
+                      items: {
+                        kind: "object",
+                        additional: false,
+                        fields: [
+                          { name: "column", type: int32, optional: false },
+                          { name: "ascending", type: boolWire, optional: false },
+                        ],
+                      },
+                      max_items: 10,
+                      ordered: true,
+                    },
+                    optional: true,
+                  },
+                  { name: "contains_header", type: boolWire, optional: true },
+                  { name: "index", type: int32, optional: true },
+                  { name: "count", type: int32, optional: true },
+                  { name: "output_range", type: textWire, optional: true },
                 ],
               },
               optional: false,
