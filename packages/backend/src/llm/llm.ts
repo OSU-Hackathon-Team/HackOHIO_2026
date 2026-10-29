@@ -421,18 +421,35 @@ function progressReporter(onProgress?: (n: number) => void) {
 
 function parseOutput<T>(raw: string, parse: (v: unknown) => T): T {
   let json: unknown;
-  try {
-    json = JSON.parse(raw);
-  } catch {
-    const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    const objectMatch = raw.match(/(\{[\s\S]*\})/);
-    const candidate = fenced ? fenced[1].trim() : objectMatch ? objectMatch[1].trim() : raw;
+  const candidates: string[] = [raw.trim()];
+
+  // First { to last }
+  const objectMatch = raw.match(/(\{[\s\S]*\})/);
+  if (objectMatch) candidates.push(objectMatch[1].trim());
+
+  // Greedy fenced block
+  const fullBlock = raw.match(/```(?:json)?\s*([\s\S]*)\s*```/);
+  if (fullBlock) candidates.push(fullBlock[1].trim());
+
+  // Non-greedy fenced block
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  if (fenced) candidates.push(fenced[1].trim());
+
+  let parsed = false;
+  for (const cand of candidates) {
     try {
-      json = JSON.parse(candidate);
+      json = JSON.parse(cand);
+      parsed = true;
+      break;
     } catch {
-      throw new LlmSchemaError("Model output was not valid JSON", raw);
+      // try next candidate
     }
   }
+
+  if (!parsed) {
+    throw new LlmSchemaError("Model output was not valid JSON", raw);
+  }
+
   try {
     return parse(json);
   } catch (e) {
