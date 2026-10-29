@@ -65,6 +65,21 @@ test("${isHeldOut ? 'held_out' : 'public'}_case_${i}_${c.case_id}", () => {
 `;
   }).join("\n");
 
+  const quoteAndListTest = isHeldOut ? "" : `
+test("quote_and_list_invariants", () => {
+  const quoteRes = renderMarkdown("> A simple quote\\n> Second quote line");
+  assert.ok(quoteRes.html.includes("<blockquote>"), "HTML must contain <blockquote> for blockquotes");
+  assert.ok(quoteRes.html.includes("A simple quote"), "HTML must contain quote text");
+
+  const listRes = renderMarkdown("- Parent\\n  - Child\\n[External](https://example.com)\\n[[Internal]]");
+  assert.ok(listRes.html.includes("Child</li>"), "HTML must close Child item with </li>");
+  const ulOpens = (listRes.html.match(/<ul\\b/g) || []).length;
+  const ulCloses = (listRes.html.match(/<\\/ul>/g) || []).length;
+  assert.equal(ulOpens, 2, "HTML must open 2 nested <ul> tags");
+  assert.equal(ulCloses, 2, "HTML must close both nested <ul> tags");
+});
+`;
+
   const editTest = isHeldOut ? "" : `
 test("editMarkdown_operations", () => {
   const res1 = editMarkdown("", "replace", "# Test Title");
@@ -78,6 +93,7 @@ test("editMarkdown_operations", () => {
 
   return `
 ${assertions}
+${quoteAndListTest}
 ${editTest}
 `;
 }
@@ -142,9 +158,11 @@ export function editMarkdown(doc: string, action: "replace" | "append", text: st
 The renderer must parse and render:
 1. Headings # through ###### into <h1> through <h6>
 2. Formatting: *italic* into <em>, **bold** into <strong>, ~~strikethrough~~ into <del>
-3. Lists: unordered bullet lists (- or *), nested lists into <ul><li><ul>...
+3. Lists: unordered bullet lists (- or *). Top-level items are wrapped in <ul><li>...</li></ul>. Nested items indented with spaces create nested <ul><li>...</li></ul> inside the parent list. Every opened <ul> must be properly closed with </ul> when the list ends or switches to non-list content.
 4. Fenced code blocks \`\`\`lang ... \`\`\` into <pre><code>...</code></pre>
-5. Callouts > [!NOTE] into <div class="callout" data-callout="note">...</div>
+5. Blockquotes and Callouts:
+   - Callout syntax > [!NOTE] into <div class="callout" data-callout="note">...</div>
+   - Standard blockquotes > quote text (without [!TAG]) into <blockquote>quote text</blockquote>
 6. Tables: pipe tables into <table><thead><tr><th>...</th></tr></thead><tbody><tr><td>...</td></tr></tbody></table>
 7. External links [text](url) into <a class="external-link" href="url">text</a>
 8. Internal links [[Target]] into <a class="internal-link" data-href="Target" href="Target">Target</a>
