@@ -424,7 +424,14 @@ function parseOutput<T>(raw: string, parse: (v: unknown) => T): T {
   try {
     json = JSON.parse(raw);
   } catch {
-    throw new LlmSchemaError("Model output was not valid JSON", raw);
+    const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    const objectMatch = raw.match(/(\{[\s\S]*\})/);
+    const candidate = fenced ? fenced[1].trim() : objectMatch ? objectMatch[1].trim() : raw;
+    try {
+      json = JSON.parse(candidate);
+    } catch {
+      throw new LlmSchemaError("Model output was not valid JSON", raw);
+    }
   }
   try {
     return parse(json);

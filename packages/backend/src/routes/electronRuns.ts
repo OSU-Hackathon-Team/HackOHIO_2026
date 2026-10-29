@@ -12,6 +12,8 @@ import { REPO_ROOT, config } from "../config.js";
 import { openSse } from "../http/sse.js";
 import { RendererReplaySource } from "../recombination/rendererReplay.js";
 import { buildRendererPublicHandoff } from "../recombination/rendererPublicHandoff.js";
+import { implementRenderer, createRendererIntakeRequest, RendererImplementationReport } from "../recombination/rendererImplementation.js";
+import type { RecombinationService } from "../recombination/service.js";
 
 const StartRequest = z.object({
   archive_id: z.string().regex(/^[a-f0-9]{64}$/),
@@ -31,7 +33,7 @@ type Run = {
 type Event = { type: "log" | "done"; message?: string; run?: Run };
 
 export function electronRunsRouter(stateDir = path.resolve(process.env.SPLICE_STATE_DIR || ".splice-state"),
-  pipelineScript = path.join(REPO_ROOT, "scripts", "electron", "pipeline.mjs"), rendererWorkerScript?: string): Router {
+  pipelineScript = path.join(REPO_ROOT, "scripts", "electron", "pipeline.mjs"), rendererWorkerScript?: string, service?: RecombinationService): Router {
   const router = Router();
   const root = path.join(stateDir, "electron-runs");
   const archivePath = (id: string) => path.join(root, "archives", `${id}.asar`);
@@ -246,6 +248,43 @@ export function electronRunsRouter(stateDir = path.resolve(process.env.SPLICE_ST
       return res.send(`${JSON.stringify(handoff, null, 2)}\n`);
     } catch (error) {
       return res.status(409).json({ error: (error as Error).message });
+    }
+  });
+
+  router.get("/api/electron/renderer-discoveries/:id/implementation", async (req, res) => {
+    if (!/^renderer-[a-f0-9-]{36}$/.test(req.params.id)) return res.status(400).json({ error: "Invalid discovery ID" });
+    const target = path.join(root, "renderer-discoveries", req.params.id, "implementation-report.json");
+    try {
+      return res.json(JSON.parse(await fsp.readFile(target, "utf8")));
+    } catch {
+      return res.status(404).json({ error: "No implementation report found for this discovery" });
+    }
+  });
+
+  router.post("/api/electron/renderer-discoveries/:id/implement", async (req, res) => {
+    if (!/^renderer-[a-f0-9-]{36}$/.test(req.params.id)) return res.status(400).json({ error: "Invalid discovery ID" });
+    try {
+      const report = await implementRenderer(req.params.id, root);
+      return res.json({ ok: report.status === "passed", report });
+    } catch (error) {
+      return res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  router.post("/api/electron/renderer-discoveries/:id/intake", async (req, res) => {
+    if (!/^renderer-[a-f0-9-]{36}$/.test(req.params.id)) return res.status(400).json({ error: "Invalid discovery ID" });
+    if (!service) return res.status(503).json({ error: "Recombination service is not configured" });
+    try {
+      const dir = path.join(root, "renderer-discoveries", req.params.id);
+      const report = RendererImplementationReport.parse(JSON.parse(await fsp.readFile(path.join(dir, "implementation-report.json"), "utf8")));
+      const draft = JSON.parse(await fsp.readFile(path.join(dir, "draft.json"), "utf8"));
+      const replay = JSON.parse(await fsp.readFile(path.join(dir, "replay", "replay-report.json"), "utf8"));
+      const handoff = buildRendererPublicHandoff(req.params.id, draft, replay);
+      const intakeRequest = createRendererIntakeRequest(req.params.id, report, handoff);
+      const result = await service.intake(intakeRequest);
+      return res.status(201).json(result);
+    } catch (error) {
+      return res.status(400).json({ error: (error as Error).message });
     }
   });
 

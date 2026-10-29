@@ -3,208 +3,77 @@
   "kind": "renderer_public_handoff",
   "status": "draft",
   "implementation_ready": false,
-  "discovery_id": "renderer-616f32ca-1695-459f-813d-8225bf596396",
-  "objective": "Observe the original Obsidian UI and build a replayable trace. Create test-vault as a fixture folder and one Markdown fixture file named Demo.md containing a single complete note with: # through ###### headings with distinct labels; *italic phrase*; **bold phrase**; ~~deleted phrase~~; a parent bullet and an indented child bullet; a fenced javascript block with one code line; [External](https://example.com); [[Internal Note]]; a > [!NOTE] callout and body; and a three-column Markdown table with header, alignment delimiter, and two rows. Use the native folder picker only to open the fixture folder as a vault. Verify the replacement window and vault title. Use visible @refs from the latest snapshot to open Demo.md in the file tree; do not use ambiguous .cm-content selectors. Confirm the editor contains the full fixture before changing view. Click the control whose current-view label says editing and click-to-read; then snapshot and inspect the rendered headings/em/strong/del/code/a/callout/table elements. Cite both the fixture or editor input and the successful reading-view snapshot for each Markdown behavior. Return precise observed input/action/output statements, not generalized ability claims. If any step fails, recover through the UI where possible and record the actual blocker. Also test edit persistence by appending a unique marker using the visible editor ref, switch to another note, reopen Demo.md, and verify the marker and Markdown remain. Do not claim syntax that was not rendered or persistence that was not read back. Do not implement anything; the host will replay the trace independently.",
+  "discovery_id": "renderer-f42fde9c-f0ef-4c24-b885-abfad470c500",
+  "objective": "FIRST create a fixture DIRECTORY named vault and put your Markdown fixture note inside vault (named test-note.md with content '# Note\\nInitial'). Open that exact vault through the UI: click Open folder as vault, call native_dialog choose_folder with path vault. Never confirm the default folder. Verify the window and file tree show test-note.md before editing; otherwise cancel and correct setup. Open test-note.md in the editor. First switch to reading mode and take a snapshot to learn rendered_documents indices (use numeric output_document index 0). Return to editing mode and take a fresh snapshot for editable_controls and view_controls refs. For render_case use input_method keyboard, document_path vault/test-note.md, and numeric output_document 0. Remember render_case fills FIRST and then clicks the reading control itself, so call it while in editing mode. After each capture, click the view control to return to editing mode and take a fresh snapshot before the next capture. Capture THREE distinct Markdown cases: 1) headings-and-formatting: all six heading levels (# Heading 1 through ###### Heading 6) and text formatting (*Italic text*, **Bold text**, ~~Strikethrough text~~); 2) blocks-and-tables: a fenced javascript code block (```javascript\\nconsole.log('hi');\\n```), a > [!NOTE] callout, and a Markdown table (| Col 1 | Col 2 |\\n|---|---|\\n| A | B |); 3) lists-and-links: a bullet list with indented child bullets (- Parent\\n  - Child\\n  - Child 2), an external link [External](https://example.com), and an internal link [[Internal]]. Use unordered bullets (- ) for nested lists to match Obsidian editor text exactly. Then write a draft with precise requirements citing the successful captured observation IDs for all requirements. Cover all tested Markdown syntax. Do not implement anything; the host will replay the trace independently.",
   "provenance": {
     "basis": "Original-app UI observations replayed against the same packaged application archive",
     "archive_sha256": "3a349274f789b62c5b35ad19de10311909a94e8783033569c2210a4bac491780",
     "replay_status": "passed",
-    "replayed_observations": 20,
-    "cited_observations": 8,
+    "replayed_observations": 13,
+    "cited_observations": 3,
     "limitations": [
       "This artifact contains observed examples, not candidate implementation results or held-out checks.",
-      "A passed original replay confirms trace repeatability; it does not approve requirement semantics or implementation readiness."
+      "A passed original replay confirms trace repeatability; it does not approve requirement semantics or implementation readiness.",
+      "Captured DOM omits script, style and SVG nodes, event attributes and inline styles; these cases do not establish pixel parity or omitted markup behavior."
     ]
   },
   "requirements": [
     {
-      "id": "RQ-001",
-      "statement": "Open the fixture folder 'test-vault' using the native folder picker to create a vault, replacing the window title with 'Graph view - test-vault - Obsidian 1.14.5'",
+      "id": "headings-rendering",
+      "statement": "Entering '# Heading 1' through '###### Heading 6' in editing mode renders six distinct heading levels in reading mode with corresponding h1-h6 HTML elements.",
       "citations": [
         {
-          "observation_id": 23,
+          "observation_id": 11,
           "replay_status": "passed"
         }
       ]
     },
     {
-      "id": "RQ-002",
-      "statement": "Click on the 'Demo' file reference (@18) in the file tree to open 'Demo.md', displaying the full fixture content in the editor",
+      "id": "text-formatting",
+      "statement": "Text formatted with '*Italic text*' renders as em HTML elements, '**Bold text**' renders as strong HTML elements, and '~~Strikethrough text~~' renders as del HTML elements in reading mode.",
       "citations": [
         {
-          "observation_id": 24,
+          "observation_id": 11,
           "replay_status": "passed"
         }
       ]
     },
     {
-      "id": "RQ-003",
-      "statement": "Switch from editing to reading mode by clicking the view control (@26) labeled 'Current view: editing | Click to read'",
+      "id": "code-block-callout",
+      "statement": "A fenced JavaScript code block with ```javascript\\nconsole.log('hi');\\n``` renders with syntax highlighting in a pre element with language-javascript class, and a '> [!NOTE]\\n> This is a callout.' renders as a callout div with data-callout='note' attribute in reading mode.",
       "citations": [
         {
-          "observation_id": 25,
+          "observation_id": 13,
           "replay_status": "passed"
         }
       ]
     },
     {
-      "id": "RQ-004",
-      "statement": "Render H1-H6 headings from '# Heading One' through '###### Heading Six' syntax in the fixture, confirmed by observing <h1 data-heading=\"Heading One\"> through <h6 data-heading=\"Heading Six\"> elements in reading mode",
+      "id": "nested-lists",
+      "statement": "A bullet list with '- Parent' and indented child items ('  - Child\\n  - Child 2') renders as nested ul/li HTML elements in reading mode.",
       "citations": [
         {
-          "observation_id": 19,
-          "replay_status": "not_compared"
-        },
-        {
-          "observation_id": 25,
+          "observation_id": 15,
           "replay_status": "passed"
         }
       ]
     },
     {
-      "id": "RQ-005",
-      "statement": "Render italic text from '*italic phrase*' syntax in the fixture, confirmed by observing <em>italic phrase</em> element in reading mode",
+      "id": "external-link",
+      "statement": "An external link '[External](https://example.com)' renders as an external-link anchor element with href='https://example.com' and rel='noopener nofollow' attributes in reading mode.",
       "citations": [
         {
-          "observation_id": 19,
-          "replay_status": "not_compared"
-        },
-        {
-          "observation_id": 25,
+          "observation_id": 15,
           "replay_status": "passed"
         }
       ]
     },
     {
-      "id": "RQ-006",
-      "statement": "Render bold text from '**bold phrase**' syntax in the fixture, confirmed by observing <strong>bold phrase</strong> element in reading mode",
+      "id": "internal-link",
+      "statement": "An internal link '[[Internal]]' renders as an internal-link anchor element with data-href='Internal' attribute in reading mode.",
       "citations": [
         {
-          "observation_id": 19,
-          "replay_status": "not_compared"
-        },
-        {
-          "observation_id": 25,
-          "replay_status": "passed"
-        }
-      ]
-    },
-    {
-      "id": "RQ-007",
-      "statement": "Render strikethrough text from '~~deleted phrase~~' syntax in the fixture, confirmed by observing <del>deleted phrase</del> element in reading mode",
-      "citations": [
-        {
-          "observation_id": 19,
-          "replay_status": "not_compared"
-        },
-        {
-          "observation_id": 25,
-          "replay_status": "passed"
-        }
-      ]
-    },
-    {
-      "id": "RQ-008",
-      "statement": "Render a parent bullet '- Parent bullet' and indented child bullet '  - Child bullet' from the fixture, confirmed by observing <li> elements with appropriate nesting in reading mode",
-      "citations": [
-        {
-          "observation_id": 19,
-          "replay_status": "not_compared"
-        },
-        {
-          "observation_id": 25,
-          "replay_status": "passed"
-        }
-      ]
-    },
-    {
-      "id": "RQ-009",
-      "statement": "Render a fenced code block with '```javascript console.log(\"Hello World\"); ```' syntax from the fixture, confirmed by observing <pre> and <code class=\"language-javascript\"> elements containing the code line in reading mode",
-      "citations": [
-        {
-          "observation_id": 19,
-          "replay_status": "not_compared"
-        },
-        {
-          "observation_id": 25,
-          "replay_status": "passed"
-        }
-      ]
-    },
-    {
-      "id": "RQ-010",
-      "statement": "Render an external link '[External](https://example.com)' from the fixture, confirmed by observing <a data-href=\"https://example.com\" class=\"external-link\">External</a> element in reading mode",
-      "citations": [
-        {
-          "observation_id": 19,
-          "replay_status": "not_compared"
-        },
-        {
-          "observation_id": 25,
-          "replay_status": "passed"
-        }
-      ]
-    },
-    {
-      "id": "RQ-011",
-      "statement": "Render an internal link '[[Internal Note]]' from the fixture, confirmed by observing <a data-href=\"Internal Note\" class=\"internal-link\">Internal Note</a> element in reading mode",
-      "citations": [
-        {
-          "observation_id": 19,
-          "replay_status": "not_compared"
-        },
-        {
-          "observation_id": 25,
-          "replay_status": "passed"
-        }
-      ]
-    },
-    {
-      "id": "RQ-012",
-      "statement": "Render a callout '> [!NOTE] This is a note callout body.' with body from the fixture, confirmed by observing <div class=\"callout\" data-callout=\"note\"> and <p dir=\"auto\">This is a note callout body.</p> elements in reading mode",
-      "citations": [
-        {
-          "observation_id": 19,
-          "replay_status": "not_compared"
-        },
-        {
-          "observation_id": 25,
-          "replay_status": "passed"
-        }
-      ]
-    },
-    {
-      "id": "RQ-013",
-      "statement": "Render a three-column Markdown table with header row 'Column 1 | Column 2 | Column 3', delimiter row '--- | --- | ---', and two body rows 'Row 1 Col 1 | Row 1 Col 2 | Row 1 Col 3' and 'Row 2 Col 1 | Row 2 Col 2 | Row 2 Col 3' from the fixture, confirmed by observing <table>, <thead>, <tbody>, and corresponding <tr>, <th>, <td> elements with correct data in reading mode",
-      "citations": [
-        {
-          "observation_id": 19,
-          "replay_status": "not_compared"
-        },
-        {
-          "observation_id": 25,
-          "replay_status": "passed"
-        }
-      ]
-    },
-    {
-      "id": "RQ-014",
-      "statement": "Persist text edits by appending 'MARKER_12345' via editor (div[role='textbox']), navigating to another note (@19) and back (@18), then confirming the marker remains in reading mode",
-      "citations": [
-        {
-          "observation_id": 30,
-          "replay_status": "passed"
-        },
-        {
-          "observation_id": 31,
-          "replay_status": "passed"
-        },
-        {
-          "observation_id": 32,
-          "replay_status": "passed"
-        },
-        {
-          "observation_id": 33,
+          "observation_id": 15,
           "replay_status": "passed"
         }
       ]
@@ -212,120 +81,66 @@
   ],
   "observations": [
     {
-      "observation_id": 19,
-      "replay_status": "not_compared",
-      "action": {
-        "kind": "fixture_input",
-        "path": "test-vault/Demo.md",
-        "content": "# Heading One\n## Heading Two\n### Heading Three\n#### Heading Four\n##### Heading Five\n###### Heading Six\n\nThis is *italic phrase* here.\nThis is **bold phrase** here.\nThis is ~~deleted phrase~~ here.\n\n- Parent bullet\n  - Child bullet\n\n```javascript\nconsole.log(\"Hello World\");\n```\n\n[External](https://example.com)\n[[Internal Note]]\n\n> [!NOTE]\n> This is a note callout body.\n\n| Column 1 | Column 2 | Column 3 |\n| --- | --- | --- |\n| Row 1 Col 1 | Row 1 Col 2 | Row 1 Col 3 |\n| Row 2 Col 1 | Row 2 Col 2 | Row 2 Col 3 |\n",
-        "directory": false
-      },
-      "observed_output": {}
-    },
-    {
-      "observation_id": 23,
+      "observation_id": 11,
       "replay_status": "passed",
       "action": {
-        "kind": "ui_action",
-        "action": "snapshot",
-        "selector": "",
-        "value": ""
+        "kind": "renderer_case",
+        "case_id": "headings-and-formatting",
+        "input_markdown": "# Heading 1\n## Heading 2\n### Heading 3\n#### Heading 4\n##### Heading 5\n###### Heading 6\n*Italic text*\n**Bold text**\n~~Strikethrough text~~"
       },
       "observed_output": {
-        "title": "Graph view - test-vault - Obsidian 1.14.5",
-        "text": "test-vault\nDemo\nGraph view\nGraph view\nFilters\nGroups\nDisplay\nForces",
-        "rendered": "<p class=\"u-muted\">The sidebar is empty, try dragging a tab here.</p>\n<p class=\"u-muted\">The sidebar is empty, try dragging a tab here.</p>"
+        "rendered": "<div class=\"markdown-preview-view markdown-rendered node-insert-event is-readable-line-width allow-fold-headings allow-fold-lists show-indentation-guide show-properties\" tabindex=\"-1\"><div class=\"markdown-preview-sizer markdown-preview-section\"><div class=\"markdown-preview-pusher\"></div><div class=\"mod-header mod-ui\"><div class=\"inline-title\" contenteditable=\"true\" spellcheck=\"true\" autocapitalize=\"on\" tabindex=\"-1\" enterkeyhint=\"done\">test-note</div><div class=\"metadata-container\" tabindex=\"-1\" data-property-count=\"0\"><div class=\"metadata-error-container\"></div><div class=\"metadata-properties-heading\" tabindex=\"0\"><div class=\"collapse-indicator collapse-icon\"></div><div class=\"metadata-properties-title\">Properties</div></div><div class=\"metadata-content\"><div class=\"metadata-properties\"></div><div class=\"metadata-add-button text-icon-button\" tabindex=\"0\"><span class=\"text-button-icon\"></span><span class=\"text-button-label\">Add property</span></div></div></div></div><div class=\"el-h1\"><h1 data-heading=\"Heading 1\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"></span>Heading 1</h1></div><div class=\"el-h2\"><h2 data-heading=\"Heading 2\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"></span>Heading 2</h2></div><div class=\"el-h3\"><h3 data-heading=\"Heading 3\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"></span>Heading 3</h3></div><div class=\"el-h4\"><h4 data-heading=\"Heading 4\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"></span>Heading 4</h4></div><div class=\"el-h5\"><h5 data-heading=\"Heading 5\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"></span>Heading 5</h5></div><div class=\"el-h6\"><h6 data-heading=\"Heading 6\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"></span>Heading 6</h6></div><div class=\"el-p\"><p dir=\"auto\"><em>Italic text</em><br>\n<strong>Bold text</strong><br>\n<del>Strikethrough text</del></p></div><div class=\"mod-footer mod-ui\"><div class=\"embedded-backlinks\"></div></div></div></div>"
       }
     },
     {
-      "observation_id": 24,
+      "observation_id": 13,
       "replay_status": "passed",
       "action": {
-        "kind": "ui_action",
-        "action": "click",
-        "selector": "@18",
-        "value": ""
+        "kind": "renderer_case",
+        "case_id": "blocks-and-tables",
+        "input_markdown": "```javascript\nconsole.log('hi');\n```\n> [!NOTE]\n> This is a callout.\n| Col 1 | Col 2 |\n|---|---|\n| A | B |"
       },
       "observed_output": {
-        "title": "Demo - test-vault - Obsidian 1.14.5",
-        "text": "test-vault\nDemo\nDemo\nDemo\nDemo\n# Heading One\nHeading Two\nHeading Three\nHeading Four\nHeading Five\nHeading Six\n\n\nThis is italic phrase here.\nThis is bold phrase here.\nThis is deleted phrase here.\n\n\n- Parent bullet\n  - Child bullet\n\n\nJavaScript\nconsole.log(\"Hello World\");\n\n\nExternal\nInternal Note\n\n\nNote\n\nThis is a note callout body.\n\n\n\nColumn 1\n\t\nColumn 2\n\t\nColumn 3\n\n\nRow 1 Col 1\n\t\nRow 1 Col 2\n\t\nRow 1 Col 3\n\n\nRow 2 Col 1\n\t\nRow 2 Col 2\n\t\nRow 2 Col 3\n\n\n0 backlinks\n84 words\n515 characters",
-        "rendered": "<p class=\"u-muted\">The sidebar is empty, try dragging a tab here.</p>\n<p dir=\"auto\">This is a note callout body.</p>\n<table class=\"table-editor\" tabindex=\"-1\">\n<thead>\n<tr>\n<th dir=\"ltr\"><div class=\"table-cell-wrapper\">Column 1</div><div class=\"table-col-drag-handle\" data-ignore-swipe=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-grip-horizontal\"><circle cx=\"12\" cy=\"9\" r=\"1\"></circle><circle cx=\"19\" cy=\"9\" r=\"1\"></circle><circle cx=\"5\" cy=\"9\" r=\"1\"></circle><circle cx=\"12\" cy=\"15\" r=\"1\"></circle><circle cx=\"19\" cy=\"15\" r=\"1\"></circle><circle cx=\"\n<p class=\"u-muted\">The sidebar is empty, try dragging a tab here.</p>"
+        "rendered": "<div class=\"markdown-preview-view markdown-rendered node-insert-event is-readable-line-width allow-fold-headings allow-fold-lists show-indentation-guide show-properties\" tabindex=\"-1\"><div class=\"markdown-preview-sizer markdown-preview-section\"><div class=\"markdown-preview-pusher\"></div><div class=\"mod-header mod-ui\"><div class=\"inline-title\" contenteditable=\"true\" spellcheck=\"true\" autocapitalize=\"on\" tabindex=\"-1\" enterkeyhint=\"done\">test-note</div><div class=\"metadata-container\" tabindex=\"-1\" data-property-count=\"0\"><div class=\"metadata-error-container\"></div><div class=\"metadata-properties-heading\" tabindex=\"0\"><div class=\"collapse-indicator collapse-icon\"></div><div class=\"metadata-properties-title\">Properties</div></div><div class=\"metadata-content\"><div class=\"metadata-properties\"></div><div class=\"metadata-add-button text-icon-button\" tabindex=\"0\"><span class=\"text-button-icon\"></span><span class=\"text-button-label\">Add property</span></div></div></div></div><div class=\"el-pre\"><pre class=\"language-javascript\"><code data-line=\"0\" class=\"language-javascript is-loaded\"><span class=\"token console class-name\">console</span><span class=\"token punctuation\">.</span><span class=\"token method function property-access\">log</span><span class=\"token punctuation\">(</span><span class=\"token string\">'hi'</span><span class=\"token punctuation\">)</span><span class=\"token punctuation\">;</span>\n</code><button class=\"copy-code-button\"></button></pre></div><div class=\"el-div\"><div data-callout-metadata=\"\" data-callout-fold=\"\" data-callout=\"note\" class=\"callout\"><div class=\"callout-title\" dir=\"auto\"><div class=\"callout-icon\"></div><div class=\"callout-title-inner\">Note</div></div><div class=\"callout-content\">\n<p dir=\"auto\">This is a callout.<br>\n| Col 1 | Col 2 |<br>\n|---|---|<br>\n| A | B |</p>\n</div></div></div><div class=\"mod-footer mod-ui\"><div class=\"embedded-backlinks\"></div></div></div></div>"
       }
     },
     {
-      "observation_id": 25,
+      "observation_id": 15,
       "replay_status": "passed",
       "action": {
-        "kind": "ui_action",
-        "action": "click",
-        "selector": "@26",
-        "value": ""
+        "kind": "renderer_case",
+        "case_id": "lists-and-links",
+        "input_markdown": "- Parent\n  - Child\n  - Child 2\n[External](https://example.com)\n[[Internal]]"
       },
       "observed_output": {
-        "title": "Demo - test-vault - Obsidian 1.14.5",
-        "text": "test-vault\nDemo\nDemo\nDemo\nDemo\nHeading One\nHeading Two\nHeading Three\nHeading Four\nHeading Five\nHeading Six\n\nThis is italic phrase here.\nThis is bold phrase here.\nThis is deleted phrase here.\n\nParent bullet\nChild bullet\nconsole.log(\"Hello World\");\n\n\nExternal\nInternal Note\n\nNote\n\nThis is a note callout body.\n\nColumn 1\tColumn 2\tColumn 3\nRow 1 Col 1\tRow 1 Col 2\tRow 1 Col 3\nRow 2 Col 1\tRow 2 Col 2\tRow 2 Col 3\n0 backlinks\n84 words\n515 characters",
-        "rendered": "<p class=\"u-muted\">The sidebar is empty, try dragging a tab here.</p>\n<p dir=\"auto\">This is a note callout body.</p>\n<table class=\"table-editor\" tabindex=\"-1\">\n<thead>\n<tr>\n<th dir=\"ltr\"><div class=\"table-cell-wrapper\">Column 1</div><div class=\"table-col-drag-handle\" data-ignore-swipe=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon lucide-grip-horizontal\"><circle cx=\"12\" cy=\"9\" r=\"1\"></circle><circle cx=\"19\" cy=\"9\" r=\"1\"></circle><circle cx=\"5\" cy=\"9\" r=\"1\"></circle><circle cx=\"12\" cy=\"15\" r=\"1\"></circle><circle cx=\"19\" cy=\"15\" r=\"1\"></circle><circle cx=\"\n<h1 data-heading=\"Heading One\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading One</h1>\n<h2 data-heading=\"Heading Two\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Two</h2>\n<h3 data-heading=\"Heading Three\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Three</h3>\n<h4 data-heading=\"Heading Four\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Four</h4>\n<h5 data-heading=\"Heading Five\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Five</h5>\n<h6 data-heading=\"Heading Six\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Six</h6>\n<p dir=\"auto\">This is <em>italic phrase</em> here.<br>\nThis is <strong>bold phrase</strong> here.<br>\nThis is <del>deleted phrase</del> here.</p>\n<li data-line=\"0\" dir=\"auto\"><span class=\"list-bullet\"></span><span class=\"list-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Parent bullet\n<ul class=\"has-list-bullet\">\n<li data-line=\"1\" dir=\"auto\"><span class=\"list-bullet\"></span>Child bullet</li>\n</ul>\n</li>\n<li data-line=\"1\" dir=\"auto\"><span class=\"list-bullet\"></span>Child bullet</li>\n<pre class=\"language-javascript\"><code data-line=\"0\" class=\"language-javascript is-loaded\"><span class=\"token console class-name\">console</span><span class=\"token punctuation\">.</span><span class=\"token method function property-access\">log</span><span class=\"token punctuation\">(</span><span class=\"token string\">\"Hello World\"</span><span class=\"token punctuation\">)</span><span class=\"token punctuation\">;</span>\n</code><button class=\"copy-code-button\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linec\n<code data-line=\"0\" class=\"language-javascript is-loaded\"><span class=\"token console class-name\">console</span><span class=\"token punctuation\">.</span><span class=\"token method function property-access\">log</span><span class=\"token punctuation\">(</span><span class=\"token string\">\"Hello World\"</span><span class=\"token punctuation\">)</span><span class=\"token punctuation\">;</span>\n</code>\n<p dir=\"auto\"><a data-tooltip-position=\"top\" aria-label=\"https://example.com\" rel=\"noopener nofollow\" class=\"external-link\" href=\"https://example.com\" target=\"_blank\">External</a><br>\n<a data-href=\"Internal Note\" href=\"Internal Note\" class=\"internal-link is-unresolved\" target=\"_blank\" rel=\"noopener nofollow\">Internal Note</a></p>\n<a data-tooltip-position=\"top\" aria-label=\"https://example.com\" rel=\"noopener nofollow\" class=\"external-link\" href=\"https://example.com\" target=\"_blank\">External</a>\n<a data-href=\"Internal Note\" href=\"Internal Note\" class=\"internal-link is-unresolved\" target=\"_blank\" rel=\"noopener nofollow\">Internal Note</a>\n<p dir=\"auto\">This is a note callout body.</p>\n<table>\n<thead>\n<tr>\n<th dir=\"ltr\">Column 1</th>\n<th dir=\"ltr\">Column 2</th>\n<th dir=\"ltr\">Column 3</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td dir=\"ltr\">Row 1 Col 1</td>\n<td dir=\"ltr\">Row 1 Col 2</td>\n<td dir=\"ltr\">Row 1 Col 3</td>\n</tr>\n<tr>\n<td dir=\"ltr\">Row 2 Col 1</td>\n<td dir=\"ltr\">Row 2 Col 2</td>\n<td dir=\"ltr\">Row 2 Col 3</td>\n</tr>\n</tbody>\n</table>\n<p class=\"u-muted\">The sidebar is empty, try dragging a tab here.</p>"
+        "rendered": "<div class=\"markdown-preview-view markdown-rendered node-insert-event is-readable-line-width allow-fold-headings allow-fold-lists show-indentation-guide show-properties\" tabindex=\"-1\"><div class=\"markdown-preview-sizer markdown-preview-section\"><div class=\"markdown-preview-pusher\"></div><div class=\"mod-header mod-ui\"><div class=\"inline-title\" contenteditable=\"true\" spellcheck=\"true\" autocapitalize=\"on\" tabindex=\"-1\" enterkeyhint=\"done\">test-note</div><div class=\"metadata-container\" tabindex=\"-1\" data-property-count=\"0\"><div class=\"metadata-error-container\"></div><div class=\"metadata-properties-heading\" tabindex=\"0\"><div class=\"collapse-indicator collapse-icon\"></div><div class=\"metadata-properties-title\">Properties</div></div><div class=\"metadata-content\"><div class=\"metadata-properties\"></div><div class=\"metadata-add-button text-icon-button\" tabindex=\"0\"><span class=\"text-button-icon\"></span><span class=\"text-button-label\">Add property</span></div></div></div></div><div class=\"el-ul\"><ul class=\"has-list-bullet\">\n<li data-line=\"0\" dir=\"auto\"><span class=\"list-bullet\"></span><span class=\"list-collapse-indicator collapse-indicator collapse-icon\"></span>Parent\n<ul class=\"has-list-bullet\">\n<li data-line=\"1\" dir=\"auto\"><span class=\"list-bullet\"></span>Child</li>\n<li data-line=\"2\" dir=\"auto\"><span class=\"list-bullet\"></span>Child 2<br>\n<a data-tooltip-position=\"top\" aria-label=\"https://example.com\" rel=\"noopener nofollow\" class=\"external-link\" href=\"https://example.com\" target=\"_blank\">External</a><br>\n<a data-href=\"Internal\" href=\"Internal\" class=\"internal-link is-unresolved\" target=\"_blank\" rel=\"noopener nofollow\">Internal</a></li>\n</ul>\n</li>\n</ul></div><div class=\"mod-footer mod-ui\"><div class=\"embedded-backlinks\"></div></div></div></div>"
       }
+    }
+  ],
+  "cases": [
+    {
+      "case_id": "headings-and-formatting",
+      "observation_id": 11,
+      "input_markdown": "# Heading 1\n## Heading 2\n### Heading 3\n#### Heading 4\n##### Heading 5\n###### Heading 6\n*Italic text*\n**Bold text**\n~~Strikethrough text~~",
+      "expected_html": "<div class=\"markdown-preview-view markdown-rendered node-insert-event is-readable-line-width allow-fold-headings allow-fold-lists show-indentation-guide show-properties\" tabindex=\"-1\"><div class=\"markdown-preview-sizer markdown-preview-section\"><div class=\"markdown-preview-pusher\"></div><div class=\"mod-header mod-ui\"><div class=\"inline-title\" contenteditable=\"true\" spellcheck=\"true\" autocapitalize=\"on\" tabindex=\"-1\" enterkeyhint=\"done\">test-note</div><div class=\"metadata-container\" tabindex=\"-1\" data-property-count=\"0\"><div class=\"metadata-error-container\"></div><div class=\"metadata-properties-heading\" tabindex=\"0\"><div class=\"collapse-indicator collapse-icon\"></div><div class=\"metadata-properties-title\">Properties</div></div><div class=\"metadata-content\"><div class=\"metadata-properties\"></div><div class=\"metadata-add-button text-icon-button\" tabindex=\"0\"><span class=\"text-button-icon\"></span><span class=\"text-button-label\">Add property</span></div></div></div></div><div class=\"el-h1\"><h1 data-heading=\"Heading 1\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"></span>Heading 1</h1></div><div class=\"el-h2\"><h2 data-heading=\"Heading 2\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"></span>Heading 2</h2></div><div class=\"el-h3\"><h3 data-heading=\"Heading 3\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"></span>Heading 3</h3></div><div class=\"el-h4\"><h4 data-heading=\"Heading 4\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"></span>Heading 4</h4></div><div class=\"el-h5\"><h5 data-heading=\"Heading 5\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"></span>Heading 5</h5></div><div class=\"el-h6\"><h6 data-heading=\"Heading 6\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"></span>Heading 6</h6></div><div class=\"el-p\"><p dir=\"auto\"><em>Italic text</em><br>\n<strong>Bold text</strong><br>\n<del>Strikethrough text</del></p></div><div class=\"mod-footer mod-ui\"><div class=\"embedded-backlinks\"></div></div></div></div>",
+      "input_verification": "saved_document",
+      "output_projection": "sanitized_document_dom_v1"
     },
     {
-      "observation_id": 30,
-      "replay_status": "passed",
-      "action": {
-        "kind": "ui_action",
-        "action": "fill",
-        "selector": "div[role='textbox']",
-        "value": "MARKER_12345"
-      },
-      "observed_output": {
-        "title": "Demo - test-vault - Obsidian 1.14.5",
-        "text": "test-vault\nDemo\nDemo\nDemo\nDemo\nMARKER_12345\n0 backlinks\n2 words\n12 characters",
-        "rendered": "<p class=\"u-muted\">The sidebar is empty, try dragging a tab here.</p>\n<h1 data-heading=\"Heading One\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading One</h1>\n<h2 data-heading=\"Heading Two\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Two</h2>\n<h3 data-heading=\"Heading Three\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Three</h3>\n<h4 data-heading=\"Heading Four\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Four</h4>\n<h5 data-heading=\"Heading Five\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Five</h5>\n<h6 data-heading=\"Heading Six\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Six</h6>\n<p dir=\"auto\">This is <em>italic phrase</em> here.<br>\nThis is <strong>bold phrase</strong> here.<br>\nThis is <del>deleted phrase</del> here.</p>\n<li data-line=\"0\" dir=\"auto\"><span class=\"list-bullet\"></span><span class=\"list-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Parent bullet\n<ul class=\"has-list-bullet\">\n<li data-line=\"1\" dir=\"auto\"><span class=\"list-bullet\"></span>Child bullet</li>\n</ul>\n</li>\n<li data-line=\"1\" dir=\"auto\"><span class=\"list-bullet\"></span>Child bullet</li>\n<pre class=\"language-javascript\"><code data-line=\"0\" class=\"language-javascript is-loaded\"><span class=\"token console class-name\">console</span><span class=\"token punctuation\">.</span><span class=\"token method function property-access\">log</span><span class=\"token punctuation\">(</span><span class=\"token string\">\"Hello World\"</span><span class=\"token punctuation\">)</span><span class=\"token punctuation\">;</span>\n</code><button class=\"copy-code-button\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linec\n<code data-line=\"0\" class=\"language-javascript is-loaded\"><span class=\"token console class-name\">console</span><span class=\"token punctuation\">.</span><span class=\"token method function property-access\">log</span><span class=\"token punctuation\">(</span><span class=\"token string\">\"Hello World\"</span><span class=\"token punctuation\">)</span><span class=\"token punctuation\">;</span>\n</code>\n<p dir=\"auto\"><a data-tooltip-position=\"top\" aria-label=\"https://example.com\" rel=\"noopener nofollow\" class=\"external-link\" href=\"https://example.com\" target=\"_blank\">External</a><br>\n<a data-href=\"Internal Note\" href=\"Internal Note\" class=\"internal-link is-unresolved\" target=\"_blank\" rel=\"noopener nofollow\">Internal Note</a></p>\n<a data-tooltip-position=\"top\" aria-label=\"https://example.com\" rel=\"noopener nofollow\" class=\"external-link\" href=\"https://example.com\" target=\"_blank\">External</a>\n<a data-href=\"Internal Note\" href=\"Internal Note\" class=\"internal-link is-unresolved\" target=\"_blank\" rel=\"noopener nofollow\">Internal Note</a>\n<p dir=\"auto\">This is a note callout body.</p>\n<table>\n<thead>\n<tr>\n<th dir=\"ltr\">Column 1</th>\n<th dir=\"ltr\">Column 2</th>\n<th dir=\"ltr\">Column 3</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td dir=\"ltr\">Row 1 Col 1</td>\n<td dir=\"ltr\">Row 1 Col 2</td>\n<td dir=\"ltr\">Row 1 Col 3</td>\n</tr>\n<tr>\n<td dir=\"ltr\">Row 2 Col 1</td>\n<td dir=\"ltr\">Row 2 Col 2</td>\n<td dir=\"ltr\">Row 2 Col 3</td>\n</tr>\n</tbody>\n</table>\n<p class=\"u-muted\">The sidebar is empty, try dragging a tab here.</p>"
-      }
+      "case_id": "blocks-and-tables",
+      "observation_id": 13,
+      "input_markdown": "```javascript\nconsole.log('hi');\n```\n> [!NOTE]\n> This is a callout.\n| Col 1 | Col 2 |\n|---|---|\n| A | B |",
+      "expected_html": "<div class=\"markdown-preview-view markdown-rendered node-insert-event is-readable-line-width allow-fold-headings allow-fold-lists show-indentation-guide show-properties\" tabindex=\"-1\"><div class=\"markdown-preview-sizer markdown-preview-section\"><div class=\"markdown-preview-pusher\"></div><div class=\"mod-header mod-ui\"><div class=\"inline-title\" contenteditable=\"true\" spellcheck=\"true\" autocapitalize=\"on\" tabindex=\"-1\" enterkeyhint=\"done\">test-note</div><div class=\"metadata-container\" tabindex=\"-1\" data-property-count=\"0\"><div class=\"metadata-error-container\"></div><div class=\"metadata-properties-heading\" tabindex=\"0\"><div class=\"collapse-indicator collapse-icon\"></div><div class=\"metadata-properties-title\">Properties</div></div><div class=\"metadata-content\"><div class=\"metadata-properties\"></div><div class=\"metadata-add-button text-icon-button\" tabindex=\"0\"><span class=\"text-button-icon\"></span><span class=\"text-button-label\">Add property</span></div></div></div></div><div class=\"el-pre\"><pre class=\"language-javascript\"><code data-line=\"0\" class=\"language-javascript is-loaded\"><span class=\"token console class-name\">console</span><span class=\"token punctuation\">.</span><span class=\"token method function property-access\">log</span><span class=\"token punctuation\">(</span><span class=\"token string\">'hi'</span><span class=\"token punctuation\">)</span><span class=\"token punctuation\">;</span>\n</code><button class=\"copy-code-button\"></button></pre></div><div class=\"el-div\"><div data-callout-metadata=\"\" data-callout-fold=\"\" data-callout=\"note\" class=\"callout\"><div class=\"callout-title\" dir=\"auto\"><div class=\"callout-icon\"></div><div class=\"callout-title-inner\">Note</div></div><div class=\"callout-content\">\n<p dir=\"auto\">This is a callout.<br>\n| Col 1 | Col 2 |<br>\n|---|---|<br>\n| A | B |</p>\n</div></div></div><div class=\"mod-footer mod-ui\"><div class=\"embedded-backlinks\"></div></div></div></div>",
+      "input_verification": "saved_document",
+      "output_projection": "sanitized_document_dom_v1"
     },
     {
-      "observation_id": 31,
-      "replay_status": "passed",
-      "action": {
-        "kind": "ui_action",
-        "action": "click",
-        "selector": "@19",
-        "value": ""
-      },
-      "observed_output": {
-        "title": "Demo - test-vault - Obsidian 1.14.5",
-        "text": "test-vault\nDemo\nDemo\nDemo\nDemo\nMARKER_12345\n0 backlinks\n2 words\n12 characters",
-        "rendered": "<p class=\"u-muted\">The sidebar is empty, try dragging a tab here.</p>\n<h1 data-heading=\"Heading One\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading One</h1>\n<h2 data-heading=\"Heading Two\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Two</h2>\n<h3 data-heading=\"Heading Three\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Three</h3>\n<h4 data-heading=\"Heading Four\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Four</h4>\n<h5 data-heading=\"Heading Five\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Five</h5>\n<h6 data-heading=\"Heading Six\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Six</h6>\n<p dir=\"auto\">This is <em>italic phrase</em> here.<br>\nThis is <strong>bold phrase</strong> here.<br>\nThis is <del>deleted phrase</del> here.</p>\n<li data-line=\"0\" dir=\"auto\"><span class=\"list-bullet\"></span><span class=\"list-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Parent bullet\n<ul class=\"has-list-bullet\">\n<li data-line=\"1\" dir=\"auto\"><span class=\"list-bullet\"></span>Child bullet</li>\n</ul>\n</li>\n<li data-line=\"1\" dir=\"auto\"><span class=\"list-bullet\"></span>Child bullet</li>\n<pre class=\"language-javascript\"><code data-line=\"0\" class=\"language-javascript is-loaded\"><span class=\"token console class-name\">console</span><span class=\"token punctuation\">.</span><span class=\"token method function property-access\">log</span><span class=\"token punctuation\">(</span><span class=\"token string\">\"Hello World\"</span><span class=\"token punctuation\">)</span><span class=\"token punctuation\">;</span>\n</code><button class=\"copy-code-button\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linec\n<code data-line=\"0\" class=\"language-javascript is-loaded\"><span class=\"token console class-name\">console</span><span class=\"token punctuation\">.</span><span class=\"token method function property-access\">log</span><span class=\"token punctuation\">(</span><span class=\"token string\">\"Hello World\"</span><span class=\"token punctuation\">)</span><span class=\"token punctuation\">;</span>\n</code>\n<p dir=\"auto\"><a data-tooltip-position=\"top\" aria-label=\"https://example.com\" rel=\"noopener nofollow\" class=\"external-link\" href=\"https://example.com\" target=\"_blank\">External</a><br>\n<a data-href=\"Internal Note\" href=\"Internal Note\" class=\"internal-link is-unresolved\" target=\"_blank\" rel=\"noopener nofollow\">Internal Note</a></p>\n<a data-tooltip-position=\"top\" aria-label=\"https://example.com\" rel=\"noopener nofollow\" class=\"external-link\" href=\"https://example.com\" target=\"_blank\">External</a>\n<a data-href=\"Internal Note\" href=\"Internal Note\" class=\"internal-link is-unresolved\" target=\"_blank\" rel=\"noopener nofollow\">Internal Note</a>\n<p dir=\"auto\">This is a note callout body.</p>\n<table>\n<thead>\n<tr>\n<th dir=\"ltr\">Column 1</th>\n<th dir=\"ltr\">Column 2</th>\n<th dir=\"ltr\">Column 3</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td dir=\"ltr\">Row 1 Col 1</td>\n<td dir=\"ltr\">Row 1 Col 2</td>\n<td dir=\"ltr\">Row 1 Col 3</td>\n</tr>\n<tr>\n<td dir=\"ltr\">Row 2 Col 1</td>\n<td dir=\"ltr\">Row 2 Col 2</td>\n<td dir=\"ltr\">Row 2 Col 3</td>\n</tr>\n</tbody>\n</table>\n<p class=\"u-muted\">The sidebar is empty, try dragging a tab here.</p>"
-      }
-    },
-    {
-      "observation_id": 32,
-      "replay_status": "passed",
-      "action": {
-        "kind": "ui_action",
-        "action": "click",
-        "selector": "@18",
-        "value": ""
-      },
-      "observed_output": {
-        "title": "Demo - test-vault - Obsidian 1.14.5",
-        "text": "test-vault\nDemo\nDemo\nDemo\nDemo\nMARKER_12345\n0 backlinks\n2 words\n12 characters",
-        "rendered": "<p class=\"u-muted\">The sidebar is empty, try dragging a tab here.</p>\n<h1 data-heading=\"Heading One\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading One</h1>\n<h2 data-heading=\"Heading Two\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Two</h2>\n<h3 data-heading=\"Heading Three\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Three</h3>\n<h4 data-heading=\"Heading Four\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Four</h4>\n<h5 data-heading=\"Heading Five\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Five</h5>\n<h6 data-heading=\"Heading Six\" dir=\"auto\"><span class=\"heading-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Heading Six</h6>\n<p dir=\"auto\">This is <em>italic phrase</em> here.<br>\nThis is <strong>bold phrase</strong> here.<br>\nThis is <del>deleted phrase</del> here.</p>\n<li data-line=\"0\" dir=\"auto\"><span class=\"list-bullet\"></span><span class=\"list-collapse-indicator collapse-indicator collapse-icon\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" class=\"svg-icon right-triangle\"><path d=\"M3 8L12 17L21 8\"></path></svg></span>Parent bullet\n<ul class=\"has-list-bullet\">\n<li data-line=\"1\" dir=\"auto\"><span class=\"list-bullet\"></span>Child bullet</li>\n</ul>\n</li>\n<li data-line=\"1\" dir=\"auto\"><span class=\"list-bullet\"></span>Child bullet</li>\n<pre class=\"language-javascript\"><code data-line=\"0\" class=\"language-javascript is-loaded\"><span class=\"token console class-name\">console</span><span class=\"token punctuation\">.</span><span class=\"token method function property-access\">log</span><span class=\"token punctuation\">(</span><span class=\"token string\">\"Hello World\"</span><span class=\"token punctuation\">)</span><span class=\"token punctuation\">;</span>\n</code><button class=\"copy-code-button\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linec\n<code data-line=\"0\" class=\"language-javascript is-loaded\"><span class=\"token console class-name\">console</span><span class=\"token punctuation\">.</span><span class=\"token method function property-access\">log</span><span class=\"token punctuation\">(</span><span class=\"token string\">\"Hello World\"</span><span class=\"token punctuation\">)</span><span class=\"token punctuation\">;</span>\n</code>\n<p dir=\"auto\"><a data-tooltip-position=\"top\" aria-label=\"https://example.com\" rel=\"noopener nofollow\" class=\"external-link\" href=\"https://example.com\" target=\"_blank\">External</a><br>\n<a data-href=\"Internal Note\" href=\"Internal Note\" class=\"internal-link is-unresolved\" target=\"_blank\" rel=\"noopener nofollow\">Internal Note</a></p>\n<a data-tooltip-position=\"top\" aria-label=\"https://example.com\" rel=\"noopener nofollow\" class=\"external-link\" href=\"https://example.com\" target=\"_blank\">External</a>\n<a data-href=\"Internal Note\" href=\"Internal Note\" class=\"internal-link is-unresolved\" target=\"_blank\" rel=\"noopener nofollow\">Internal Note</a>\n<p dir=\"auto\">This is a note callout body.</p>\n<table>\n<thead>\n<tr>\n<th dir=\"ltr\">Column 1</th>\n<th dir=\"ltr\">Column 2</th>\n<th dir=\"ltr\">Column 3</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td dir=\"ltr\">Row 1 Col 1</td>\n<td dir=\"ltr\">Row 1 Col 2</td>\n<td dir=\"ltr\">Row 1 Col 3</td>\n</tr>\n<tr>\n<td dir=\"ltr\">Row 2 Col 1</td>\n<td dir=\"ltr\">Row 2 Col 2</td>\n<td dir=\"ltr\">Row 2 Col 3</td>\n</tr>\n</tbody>\n</table>\n<p class=\"u-muted\">The sidebar is empty, try dragging a tab here.</p>"
-      }
-    },
-    {
-      "observation_id": 33,
-      "replay_status": "passed",
-      "action": {
-        "kind": "ui_action",
-        "action": "click",
-        "selector": "@26",
-        "value": ""
-      },
-      "observed_output": {
-        "title": "Demo - test-vault - Obsidian 1.14.5",
-        "text": "test-vault\nDemo\nDemo\nDemo\nDemo\n\nMARKER_12345\n\n0 backlinks\n2 words\n12 characters",
-        "rendered": "<p class=\"u-muted\">The sidebar is empty, try dragging a tab here.</p>\n<p dir=\"auto\">MARKER_12345</p>\n<p class=\"u-muted\">The sidebar is empty, try dragging a tab here.</p>"
-      }
+      "case_id": "lists-and-links",
+      "observation_id": 15,
+      "input_markdown": "- Parent\n  - Child\n  - Child 2\n[External](https://example.com)\n[[Internal]]",
+      "expected_html": "<div class=\"markdown-preview-view markdown-rendered node-insert-event is-readable-line-width allow-fold-headings allow-fold-lists show-indentation-guide show-properties\" tabindex=\"-1\"><div class=\"markdown-preview-sizer markdown-preview-section\"><div class=\"markdown-preview-pusher\"></div><div class=\"mod-header mod-ui\"><div class=\"inline-title\" contenteditable=\"true\" spellcheck=\"true\" autocapitalize=\"on\" tabindex=\"-1\" enterkeyhint=\"done\">test-note</div><div class=\"metadata-container\" tabindex=\"-1\" data-property-count=\"0\"><div class=\"metadata-error-container\"></div><div class=\"metadata-properties-heading\" tabindex=\"0\"><div class=\"collapse-indicator collapse-icon\"></div><div class=\"metadata-properties-title\">Properties</div></div><div class=\"metadata-content\"><div class=\"metadata-properties\"></div><div class=\"metadata-add-button text-icon-button\" tabindex=\"0\"><span class=\"text-button-icon\"></span><span class=\"text-button-label\">Add property</span></div></div></div></div><div class=\"el-ul\"><ul class=\"has-list-bullet\">\n<li data-line=\"0\" dir=\"auto\"><span class=\"list-bullet\"></span><span class=\"list-collapse-indicator collapse-indicator collapse-icon\"></span>Parent\n<ul class=\"has-list-bullet\">\n<li data-line=\"1\" dir=\"auto\"><span class=\"list-bullet\"></span>Child</li>\n<li data-line=\"2\" dir=\"auto\"><span class=\"list-bullet\"></span>Child 2<br>\n<a data-tooltip-position=\"top\" aria-label=\"https://example.com\" rel=\"noopener nofollow\" class=\"external-link\" href=\"https://example.com\" target=\"_blank\">External</a><br>\n<a data-href=\"Internal\" href=\"Internal\" class=\"internal-link is-unresolved\" target=\"_blank\" rel=\"noopener nofollow\">Internal</a></li>\n</ul>\n</li>\n</ul></div><div class=\"mod-footer mod-ui\"><div class=\"embedded-backlinks\"></div></div></div></div>",
+      "input_verification": "saved_document",
+      "output_projection": "sanitized_document_dom_v1"
     }
   ]
 }

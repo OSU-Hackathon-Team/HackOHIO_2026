@@ -23,10 +23,15 @@ test("fixture browser case capture verifies exact input and records settled DOM 
     const captured = await captureRendererCase(page, input);
     assert.equal(captured.input_verified, true);
     assert.equal(captured.rendered, "<h1>Recorded fixture text</h1>");
+    assert.equal((await captureRendererCase(page, { ...input, input_selector: "body" })).rendered, "<h1>Recorded fixture text</h1>");
+    await page.locator("#output").evaluate((node: any) => {
+      const title = node.ownerDocument.createElement("div"); title.contentEditable = "true"; title.textContent = "Inline title"; node.append(title);
+      const inactive = node.ownerDocument.createElement("textarea"); inactive.hidden = true; node.append(inactive);
+    });
     const roots = await observedRenderedDocuments(page);
     assert.equal(roots.length, 1);
     assert.equal(await page.locator(roots[0].selector).getAttribute("id"), "output");
-    assert.equal((await captureRendererCase(page, { ...input, input_selector: "body" })).rendered, "<h1>Recorded fixture text</h1>");
+    await assert.rejects(captureRendererCase(page, { ...input, input_selector: "body" }), /no unique editable descendant/);
     assert.equal((await captureRendererCase(page, { ...input, input_method: "keyboard" })).rendered, "<h1>Recorded fixture text</h1>");
     assert.equal((await captureRendererCase(page, { ...input, markdown: "" })).rendered, "<h1></h1>");
     await assert.rejects(captureRendererCase(page, { ...input, markdown: "" }, { readDocument: async () => {
@@ -44,9 +49,9 @@ test("fixture live preview can hide markers while saved-document verification pr
     const page = await browser.newPage();
     await page.setContent(`<div id="editor" contenteditable="true"></div><button id="read">Read</button><div id="output" hidden></div>
       <script>window.savedDoc='';const editor=document.querySelector('#editor');
-      editor.addEventListener('input',()=>{window.savedDoc=editor.innerText;editor.replaceChildren();
-      const hidden=document.createElement('span');hidden.hidden=true;hidden.textContent=window.savedDoc.slice(0,2);
-      editor.append(hidden,document.createTextNode(window.savedDoc.slice(2)));});
+      editor.addEventListener('input',()=>{const pending=editor.innerText;setTimeout(()=>{window.savedDoc=pending;},2200);editor.replaceChildren();
+      const hidden=document.createElement('span');hidden.hidden=true;hidden.textContent=pending.slice(0,2);
+      editor.append(hidden,document.createTextNode(pending.slice(2)));});
       document.querySelector('#read').onclick=()=>{const output=document.querySelector('#output');output.hidden=false;
       output.innerHTML='<h1></h1>';output.querySelector('h1').textContent=window.savedDoc.slice(2);};</script>`);
     const result = await captureRendererCase(page, { case_id: "fixture-hidden-syntax", markdown: "# Heading", input_selector: "#editor",

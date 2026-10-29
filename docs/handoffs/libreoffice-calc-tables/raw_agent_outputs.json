@@ -1,0 +1,2413 @@
+[
+  {
+    "entry": "004adc70",
+    "name": "ScBroadcastAreaSlotMachine::EnterBulkBroadcast()",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "One implicit object instance and no explicit parameters",
+      "outputs": "None",
+      "state": "A bulk broadcast mode entry counter within the object is incremented",
+      "side_effects": "The object transitions further into bulk broadcast mode by increasing an internal counter",
+      "errors": "No explicit error path",
+      "pseudocode": "increment_bulk_broadcast_counter(object_instance)",
+      "claims": [
+        {
+          "statement": "Increases the bulk broadcast mode nesting level associated with the object instance",
+          "evidence_addresses": [
+            "004adc74"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [],
+      "unknowns": [
+        "The initial value of the bulk broadcast counter before incrementing",
+        "Whether there is a maximum legal value or overflow behavior for the counter",
+        "If decrementing this counter signals completion of bulk broadcast mode"
+      ],
+      "evidence_requests": [
+        "Disassembly or decompiled code showing related decrement or reset operations on the same counter",
+        "Definition of ScBroadcastAreaSlotMachine class layout identifying the semantic purpose of offset 0xf8",
+        "Usage examples demonstrating observable behavior changes in dependent components after calling this function"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "The instruction at 004adc74 increments a 32-bit integer value stored at offset 0xf8 from the object instance pointed to by RDI. This directly corresponds to increasing a nesting level counter, which aligns with the claimed behavior of increasing the bulk broadcast mode nesting level.",
+          "evidence_addresses": [
+            "004adc74"
+          ]
+        }
+      ],
+      "missing_behavior": [],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "004e9d00",
+    "name": "std::_Sp_counted_base<(__gnu_cxx::_Lock_policy)2>::_M_release_last_use_cold()",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "One implicit parameter: a pointer to a shared object control block with a vtable and reference count",
+      "outputs": "None",
+      "state": "Shared object control block containing a strong reference count and virtual method table",
+      "side_effects": "Decrements a reference counter; conditionally invokes a virtual destruction or cleanup routine",
+      "errors": "No explicit error paths observed",
+      "pseudocode": "Load vtable from input pointer; invoke virtual method at offset 0x10; load global thread mode flag; if multi-threaded, use atomic decrement on reference count else use direct decrement; if resulting count equals one, invoke virtual method at offset 0x18 via indirect jump",
+      "claims": [
+        {
+          "statement": "The operation checks a global storage location to determine execution mode and selects between atomic and non-atomic update paths accordingly.",
+          "evidence_addresses": [
+            "004e9d16",
+            "004e9d1d",
+            "004e9d20",
+            "004e9d58",
+            "004e9d62"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [],
+      "unknowns": [
+        "Observable behavior of the virtual function invoked at vtable offset 0x10",
+        "Exact semantics of the indirect jump at 0x004e9d4f including whether stack cleanup occurs",
+        "Whether decrement operations saturate or wrap on underflow when the reference count is already zero",
+        "The available evidence does not establish the caller-visible effects of the omitted implementation mechanics."
+      ],
+      "evidence_requests": [
+        "Full symbolic name and documentation for memory address 0x013763b0 used as the threading mode indicator",
+        "Behavioral contract of the virtual method located at offset 0x10 within the object's vtable",
+        "External visibility of memory writes performed by the cleanup function called at offset 0x18",
+        "Inspect the called functions and execute original cases that expose the returned value and state changes."
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "The function reads a global storage location at 0x013763b0 (instruction 004e9d16), compares the byte value to zero (instruction 004e9d1d), and conditionally jumps to two distinct code paths at 004e9d58 (when the byte is zero) and falls through otherwise. The presence of LOCK-prefixed XADD at 004e9d5d indicates atomic update usage, while the non-locked decrement and store in the fallthrough path (instructions 004e9d25, 004e9d28) indicate a non-atomic update. Both execution modes are directly observable from control flow and memory operations that differ based on the global value.",
+          "evidence_addresses": [
+            "004e9d16",
+            "004e9d1d",
+            "004e9d20",
+            "004e9d25",
+            "004e9d28",
+            "004e9d58",
+            "004e9d5d",
+            "004e9d62"
+          ]
+        }
+      ],
+      "missing_behavior": [],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "005a7d00",
+    "name": "ScDocumentPool::newItem_Callback(SfxPoolItem const&) const",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "Two parameters: a ScDocumentPool instance pointer (param_1) and a SfxPoolItem reference (param_2)",
+      "outputs": "No output value",
+      "state": "ScDocumentPool instance maintains a counter at offset 0x40; SfxPoolItem has readable fields at offsets 0x8 and 0xc and a writable field at offset 0x90",
+      "side_effects": "Updates the counter in ScDocumentPool and writes to the SfxPoolItem under specified conditions",
+      "errors": "No explicit error path",
+      "pseudocode": "if (SfxPoolItem[0xc] equals 0x9c and SfxPoolItem[0x8] equals 1) then { counter = ScDocumentPool[0x40] + 1; ScDocumentPool[0x40] = counter; SfxPoolItem[0x90] = counter }",
+      "claims": [
+        {
+          "statement": "If a SfxPoolItem has token 156 at conceptual position 12 and integer value 1 at position 8, then the function assigns an incremented document-unique token to both an internal counter and the item’s identifier field",
+          "evidence_addresses": [
+            "005a7d04",
+            "005a7d10",
+            "005a7d16",
+            "005a7d1a",
+            "005a7d1e",
+            "005a7d22"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "If either condition over positions 12 or 8 evaluates false, no update occurs and execution halts without effect",
+          "evidence_addresses": [
+            "005a7d0d",
+            "005a7d14",
+            "005a7d0f"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [],
+      "unknowns": [
+        "The identity and usage of the conceptual counter in ScDocumentPool beyond being incremented",
+        "Semantic interpretation of the token 0x9c and its role within pool item classification",
+        "Purpose and scope of validity for the stored identifier at SfxPoolItem offset 0x90",
+        "Concurrency model for the shared counter access across multiple entries"
+      ],
+      "evidence_requests": [
+        "Clarification on how the document pool uses the incremented counter value semantically",
+        "Structural definition and semantics for the SfxPoolItem type particularly around offsets 0x8 and 0xc",
+        "Details about downstream operations dependent on the assigned ID at SfxPoolItem+0x90",
+        "Thread-safety guarantees regarding pool item callbacks modifying global-like counters"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "contradicted",
+          "reason": "The claim states that both an internal counter and the item’s identifier field are assigned an incremented document-unique token. However, while the internal counter at [RDI + 0x40] is incremented (005a7d1a, 005a7d1e), there is no instruction writing to the item's identifier field at offset 0x90 as suggested by the decompiled pseudocode. The pseudocode line `*(long *)(param_2 + 0x90) = lVar1;` has no corresponding instruction. No store to [RSI + 0x90] exists in the raw evidence.",
+          "evidence_addresses": [
+            "005a7d16",
+            "005a7d1a",
+            "005a7d1e",
+            "005a7d22",
+            "005a7d25"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "supported_static",
+          "reason": "The control flow correctly reflects that if either condition fails (position 12 token != 156 or position 8 integer != 1), execution reaches RET at 005a7d0f without performing updates. Both conditional jumps JZ (005a7d0d) and JNZ (005a7d14) lead to early return, bypassing modification logic.",
+          "evidence_addresses": [
+            "005a7d04",
+            "005a7d0d",
+            "005a7d0f",
+            "005a7d10",
+            "005a7d14"
+          ]
+        }
+      ],
+      "missing_behavior": [
+        "The function may transfer control to external function at 006dd930 under successful condition match, but side effects or return behavior of that function are not observable here"
+      ],
+      "unresolved": [
+        "External callee at 006dd930 modifies item identifier field at offset 0x90 – this is assumed but not evidenced in current function"
+      ]
+    }
+  },
+  {
+    "entry": "005b8dc0",
+    "name": "ScDocument::GetDBAtArea(short, short, int, short, int)",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "Instance pointer, sheet index, start column, end column, start row, end row",
+      "outputs": "Database descriptor pointer or null",
+      "state": "Per-document named and anonymous database collections",
+      "side_effects": "None",
+      "errors": "Returns null when no matching database is found",
+      "pseudocode": "collection = this[0xf8];\nif (!collection) return NULL;\nelse return search_databases_in(collection, sheet, start_col, end_col, start_row, end_row)",
+      "claims": [
+        {
+          "statement": "Delegates to a shared routine with extended parameters when a collection exists",
+          "evidence_addresses": [
+            "005b8dd0",
+            "005b8dd3",
+            "005b8dd6",
+            "005b8dda"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [],
+      "unknowns": [
+        "Exact semantics of jump target 0x007d0690 including selection criteria for database matches",
+        "Whether anonymous databases participate in lookups and under what conditions",
+        "Internal iteration mechanisms over ScDBCollection::NamedDBs elements",
+        "The available evidence does not establish the caller-visible effects of the omitted implementation mechanics."
+      ],
+      "evidence_requests": [
+        "Disassembly of target function at 0x007d0690 that implements actual searching logic",
+        "Memory layout of returned database descriptor objects (ScDBData*)",
+        "Traces showing which unique database entries are returned for various ranges in table operations such as sorts",
+        "Inspect the called functions and execute original cases that expose the returned value and state changes."
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "contradicted",
+          "reason": "The claim states that the function delegates to a shared routine with extended parameters when a collection exists. However, examination of the control flow shows that when the condition at 005b8dce (TEST RDI,RDI) is nonzero (i.e., collection exists), execution jumps directly to 007d0690 via 005b8dda without passing any parameter modification or extension code in this function. The instructions prior to the jump at 005b8dd0-005b8dda perform signed extensions of input registers but do not constitute 'extended parameters'. Furthermore, the decompiled pseudocode shows extensive logic executed prior to reaching the JMP at 005b8dda, indicating that delegation does not occur immediately upon confirming collection existence.",
+          "evidence_addresses": [
+            "005b8dc4",
+            "005b8dcb",
+            "005b8dce",
+            "005b8dd0",
+            "005b8dd3",
+            "005b8dd6",
+            "005b8dda"
+          ]
+        }
+      ],
+      "missing_behavior": [
+        "Returns zero unconditionally when the internal pointer derived from param_1 is null",
+        "Signed extends DX, SI, and R8W into their respective full register widths before possible delegation",
+        "Direct unconditional jump to external address 0x007d0690 occurs without adjusting stack or calling convention adaptation",
+        "Null case path explicitly clears EAX before returning"
+      ],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "005d13d0",
+    "name": "ScDocument::EndListeningFormulaCells(std::vector<ScFormulaCell*, std::allocator<ScFormulaCell*> >&)",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "One parameter representing a document context and a second parameter referencing a range of formula cell pointers",
+      "outputs": "None (void function)",
+      "state": "Tracks listener relationships and reference counts for formula cell dependencies",
+      "side_effects": "Alters broadcaster state and may invoke shared pointer release mechanisms",
+      "errors": "Does not explicitly signal errors; abnormal conditions lead to indirect external calls",
+      "pseudocode": "If cell range is non-empty:\n    Create listener context for the given document\n    Notify each cell in the range to end broadcasting to this context\n    Remove unused broadcaster entries from the context\n    Update or release shared resources depending on reference state\n    Destruct temporary span set\nEnd If",
+      "claims": [
+        {
+          "statement": "Processing is skipped when the input range of formula cell pointers is empty",
+          "evidence_addresses": [
+            "005d13ee",
+            "005d13f1",
+            "005d13f5"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "A listening context is initialized prior to traversing the formula cells",
+          "evidence_addresses": [
+            "005d140a"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Each formula cell in the input range receives a request to cease broadcasting",
+          "evidence_addresses": [
+            "005d1420",
+            "005d1423",
+            "005d1426",
+            "005d142b",
+            "005d142f",
+            "005d1432"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "The context discards any broadcast entries that no longer have active listeners",
+          "evidence_addresses": [
+            "005d1434",
+            "005d1437"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Shared references are conditionally decremented or specialized cleanup is triggered based on stored count values",
+          "evidence_addresses": [
+            "005d1445",
+            "005d1457",
+            "005d145a",
+            "005d1468",
+            "005d1471",
+            "005d1474"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Temporary span-related bookkeeping structures are finalized upon exit",
+          "evidence_addresses": [
+            "005d1476",
+            "005d147a"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "_ZN2sc19EndListeningContextC2ER10ScDocumentP12ScTokenArray",
+          "contract": "Prepares listener management state linked to the document",
+          "evidence_addresses": [
+            "005d140a"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN13ScFormulaCell14EndListeningToERN2sc19EndListeningContextE",
+          "contract": "Detaches a formula cell from broadcasting updates to the specified context",
+          "evidence_addresses": [
+            "005d1426"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN2sc19EndListeningContext22purgeEmptyBroadcastersEv",
+          "contract": "Eliminates broadcasters with zero active listeners from internal tracking",
+          "evidence_addresses": [
+            "005d1437"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN2sc13ColumnSpanSetD2Ev",
+          "contract": "Releases internal column span representation state",
+          "evidence_addresses": [
+            "005d147a"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZNSt16_Sp_counted_baseILN9__gnu_cxx12_Lock_policyE2EE24_M_release_last_use_coldEv",
+          "contract": "Handles final resource cleanup upon shared count reaching zero",
+          "evidence_addresses": [
+            "005d14e0"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Pointer width and signedness details",
+        "Semantics of indirect vtable dispatches",
+        "Exact conditions under which specific shared-ownership paths execute"
+      ],
+      "evidence_requests": [
+        "Runtime effect of ScFormulaCell::EndListeningTo across varying formula states",
+        "Internal representational form of listener relationships managed by EndListeningContext",
+        "Practical scenarios causing vtable-driven cleanup instead of simple reference count decrement"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "At addresses 005d13ee-005d13f5, the function loads the start and end pointers of the input range and compares them. If they are equal (empty range), it jumps directly to 005d147f, which skips all processing and proceeds to cleanup/return. This matches the claim that processing is skipped when the input range is empty.",
+          "evidence_addresses": [
+            "005d13ee",
+            "005d13f1",
+            "005d13f5",
+            "005d147f"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "supported_static",
+          "reason": "At address 005d140a, there is a CALL to 006cbb80, which corresponds to the constructor or initializer for a context object (as seen in the stack allocation at 005d13fb and usage in subsequent calls). This context object is used in later operations, confirming that a listening context is initialized before traversing the formula cells.",
+          "evidence_addresses": [
+            "005d13fb",
+            "005d140a",
+            "005d1407",
+            "005d1404"
+          ]
+        },
+        {
+          "claim_index": 2,
+          "outcome": "supported_static",
+          "reason": "In the loop from 005d1420 to 005d1432, the function iterates through each pointer in the input range. At 005d1420, it dereferences the current element (a ScFormulaCell pointer), and at 005d1423 it sets up the context parameter. Then at 005d1426, it makes a CALL to 006a6970, which corresponds to ScFormulaCell::EndListeningTo. This confirms that each formula cell in the range receives a request to cease broadcasting.",
+          "evidence_addresses": [
+            "005d1420",
+            "005d1423",
+            "005d1426",
+            "005d142b",
+            "005d142f",
+            "005d1432"
+          ]
+        },
+        {
+          "claim_index": 3,
+          "outcome": "supported_static",
+          "reason": "Immediately after the loop ends (at 005d1434), the function moves the context pointer into RDI and calls 006cbe60 at address 005d1437. Based on naming conventions and context, this is highly likely to be a method like 'purgeEmptyBroadcasters', which aligns with discarding broadcast entries without active listeners.",
+          "evidence_addresses": [
+            "005d1434",
+            "005d1437"
+          ]
+        },
+        {
+          "claim_index": 4,
+          "outcome": "supported_static",
+          "reason": "After checking for a non-null pointer at 005d1440, the function performs several operations depending on the value stored at offset +0x8: At 005d1457, it compares against a specific constant (0x100000001) indicating shared ownership patterns; conditional jump at 005d145a leads to cleanup paths involving virtual destructors or special handling, whereas other branches at 005d1466-005d1474 decrement counters conditionally and trigger cleanup only when reaching zero (e.g., atomic dec check at 005d14a5 and cold release path at 005d14e0). These match conditional decrementing or triggering of specialized cleanup routines based on stored count values.",
+          "evidence_addresses": [
+            "005d1445",
+            "005d1457",
+            "005d145a",
+            "005d1468",
+            "005d1471",
+            "005d1474"
+          ]
+        },
+        {
+          "claim_index": 5,
+          "outcome": "supported_static",
+          "reason": "Before exiting, regardless of early skip or post-processing, the function always calls 005872b0 at 005d147a after loading an LEA reference to local structure data (005d1476). Given the naming consistency (_ZN2sc13ColumnSpanSetD2Ev indicates a destructor/finalizer for ColumnSpanSet) and placement within final stack unwinding logic, this confirms temporary span-related bookkeeping structures are finalized upon exit.",
+          "evidence_addresses": [
+            "005d1476",
+            "005d147a"
+          ]
+        }
+      ],
+      "missing_behavior": [],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "005d8c70",
+    "name": "lcl_GetFirstTabRange(short&, short&, ScMarkData const*, short) [clone .part.0]",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "Two output pointers for short integers, one 64-bit value representing internal mark data, and a short integer count",
+      "outputs": "Stores two computed short integers at the two output pointer locations provided to the function",
+      "state": "No explicit subsystem state is modified by this function; operations depend on internal mark data queried through callees",
+      "side_effects": "No external side effects; all logic is confined to parameter processing and conditional callee invocation",
+      "errors": "No explicit error paths observed; termination depends on control flow reaching loop boundaries or condition checks",
+      "pseudocode": "If count <= 0, return. Otherwise, scan internal mark data using GetTableSelect(index) starting from index 0 to find first selected entry. When found, store result of GetFirstSelected() to output1. Then continue scanning next indices with GetTableSelect until an unselected entry is found or count limit reached. Store last successful index to output2.",
+      "claims": [
+        {
+          "statement": "Returns early without modifying outputs when the provided count is zero or negative",
+          "evidence_addresses": [
+            "005d8c89",
+            "005d8c8c"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Scans sequential indices starting from zero to determine selected table entries using a predicate check",
+          "evidence_addresses": [
+            "005d8ca9",
+            "005d8caf",
+            "005d8cb4",
+            "005d8cb6"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Upon finding the first selected table entry, stores a derived value obtained via secondary query into the first output location",
+          "evidence_addresses": [
+            "005d8cbb",
+            "005d8cbe",
+            "005d8cc7"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Continues scanning subsequent indices after initial selection to find consecutive selections and saves the upper bound index minus one into the second output location",
+          "evidence_addresses": [
+            "005d8cd8",
+            "005d8ce2",
+            "005d8ce7",
+            "005d8ce9",
+            "005d8cf2",
+            "005d8cf7",
+            "005d8cfd"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "_ZNK10ScMarkData14GetTableSelectEs",
+          "contract": "Queries whether a given table index within ScMarkData is selected",
+          "evidence_addresses": [
+            "005d8caf",
+            "005d8ce2"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZNK10ScMarkData16GetFirstSelectedEv",
+          "contract": "Retrieves a specific selection value associated with current mark data context",
+          "evidence_addresses": [
+            "005d8cbe"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Signedness and precision handling around incrementing and comparing 16-bit versus 32-bit counters during iteration",
+        "Whether repeated calls to same index can yield different results due to underlying data volatility",
+        "Purpose and semantics behind stored values in output1 and output2 from higher-level usage perspective"
+      ],
+      "evidence_requests": [
+        "Behavioral specifications for '_ZNK10ScMarkData14GetTableSelectEs' including valid index ranges and return conventions",
+        "Definition and usage contract for '_ZNK10ScMarkData16GetFirstSelectedEv' regarding returned value meaning and constraints"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "The instruction at 005d8c89 performs TEST CX,CX followed by JLE 0x005d8d01 at 005d8c8c. This causes an immediate return without writing to outputs when param_4 (CX) is zero or negative. The return path skips all output-modifying operations.",
+          "evidence_addresses": [
+            "005d8c89",
+            "005d8c8c",
+            "005d8d01"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "supported_static",
+          "reason": "At 005d8ca9, ESI is set to R14D, which starts at 0 and increments by 1 per loop iteration (005d8ca0). At 005d8caf, a call is made to 006cf7e0, which corresponds to ScMarkData::GetTableSelect based on decompilation. The loop continues until either a match is found or the index reaches param_4. This confirms scanning sequential indices using a predicate.",
+          "evidence_addresses": [
+            "005d8ca9",
+            "005d8caf",
+            "005d8ca0",
+            "005d8cb6"
+          ]
+        },
+        {
+          "claim_index": 2,
+          "outcome": "supported_static",
+          "reason": "When GetTableSelect returns true (not taken at 005d8cb6), instructions move R14D into R13D at 005d8cbb and then call GetFirstSelected at 005d8cbe. The result AX is stored to [R15] (param_1) at 005d8cc7. This aligns with storing a derived value from a secondary query upon first match.",
+          "evidence_addresses": [
+            "005d8cbb",
+            "005d8cbe",
+            "005d8cc7"
+          ]
+        },
+        {
+          "claim_index": 3,
+          "outcome": "contradicted",
+          "reason": "The claim states that it 'saves the upper bound index minus one into the second output location', but analysis shows that the final index written to param_2 ([RAX] at 005d8cfd) is stored from R15W. Tracing the logic reveals that R15D captures the index of the first selected entry (from R13D at 005d8ceb) during continuation scans, incremented after matches. However, in execution paths such as single selection or non-consecutive selection, R15D may retain an earlier index unrelated to current upper bounds. Consider the path where one element is selected at index 2 and then skipped elements follow: the function sets param_2 = 2 despite further selections or lack thereof beyond that point. Therefore, param_2 does not represent 'upper bound minus one' universally.",
+          "evidence_addresses": [
+            "005d8cfd",
+            "005d8ceb",
+            "005d8cf9"
+          ]
+        }
+      ],
+      "missing_behavior": [
+        "On return, the function leaves garbage or uninitialized values in the second output parameter (*param_2) when no matching table entries exist, since no explicit write occurs to *param_2 under that condition."
+      ],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "005d9db0",
+    "name": "ScDocument::GetTableCount() const",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "One implicit `this` parameter representing a pointer to an ScDocument instance",
+      "outputs": "A signed 64-bit integer representing the count of tables",
+      "state": "The document's internal representation of tables, including base and end pointers stored within the object at offsets 0xb8 and 0xc0",
+      "side_effects": "No side effects",
+      "errors": "No explicit error path",
+      "pseudocode": "result = (*(int64_t*)(this + 0xc0) - *(int64_t*)(this + 0xb8)) >> 3;",
+      "claims": [
+        {
+          "statement": "Returns the difference between two 64-bit values stored at fixed offsets within the input object, divided by eight",
+          "evidence_addresses": [
+            "005d9db4",
+            "005d9dbb",
+            "005d9dc2"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Interprets the result as a count derived from a pointer-based container",
+          "evidence_addresses": [
+            "005d9db4",
+            "005d9dbb",
+            "005d9dc2"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [],
+      "unknowns": [
+        "Whether the returned value semantically represents a table count or another unit derived from pointer arithmetic",
+        "The exact structure of the ScDocument class and purpose of fields at offsets 0xb8 and 0xc0",
+        "Whether the memory addressed by those offsets is guaranteed to be accessible under all execution paths leading to this function"
+      ],
+      "evidence_requests": [
+        "Class layout documentation or runtime inspection showing the meaning and initialization of ScDocument fields at offsets 0xb8 and 0xc0",
+        "Memory access validation checks on the pointer values read from those offsets"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "The instructions at 005d9db4 load a 64-bit value from offset 0xc0, the instruction at 005d9dbb subtracts a 64-bit value from offset 0xb8, and the SAR instruction at 005d9dc2 divides the result by 8 (arithmetic right shift by 3). This matches the claimed behavior directly.",
+          "evidence_addresses": [
+            "005d9db4",
+            "005d9dbb",
+            "005d9dc2"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "uncertain",
+          "reason": "While the computation produces a value interpreted as a count (based on pointer difference divided by 8), there is no explicit semantic evidence within the function showing that this represents a 'pointer-based container' or how such interpretation affects behavior. The meaning of the returned value depends on higher-level context not present in the raw instructions.",
+          "evidence_addresses": [
+            "005d9db4",
+            "005d9dbb",
+            "005d9dc2"
+          ]
+        }
+      ],
+      "missing_behavior": [],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "005da0d0",
+    "name": "ScDocument::GetAnonymousDBData()",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "One implicit `this` pointer representing a ScDocument instance",
+      "outputs": "An 8-byte value retrieved from the object's internal state",
+      "state": "The ScDocument object maintains a field at byte offset 0x1a0 that holds a reference to anonymous database data",
+      "side_effects": "No side effects observed",
+      "errors": "No explicit error path detected",
+      "pseudocode": "return this->anonymous_db_data_field",
+      "claims": [],
+      "dependencies": [],
+      "unknowns": [
+        "The semantic meaning of the returned value",
+        "Whether the returned value is a pointer, handle, or opaque identifier",
+        "The mutability or volatility of the accessed state field",
+        "Whether access to the field is synchronized or guarded in concurrent usage"
+      ],
+      "evidence_requests": [
+        "What higher-level operation uses the result of this function?",
+        "How is the value at offset 0x1a0 initialized and updated?",
+        "Are there runtime type checks or validations on the fetched value before use?"
+      ]
+    },
+    "review": {
+      "reviews": [],
+      "missing_behavior": [
+        "Returns the value of the qword field at offset 0x1a0 from the first parameter (this pointer in C++ context) without validation or bounds checking",
+        "No observable side effects or state changes; purely reads a single qword member directly from object memory",
+        "Function assumes input points to a valid ScDocument instance with correctly initialized field at 0x1a0"
+      ],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "005db6d0",
+    "name": "ScDocument::HasTable(short) const",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "A document object reference and a table index",
+      "outputs": "A boolean result indicating presence of a table at the given index",
+      "state": "Internal table registry within the document object",
+      "side_effects": "No observable side effects",
+      "errors": "No explicit error path; invalid indices yield false",
+      "pseudocode": "if TABLE_INDEX > 9999: return FALSE\ncount = GetTableCount()\nif count <= TABLE_INDEX: return FALSE\nreturn TABLE_REGISTRY[TABLE_INDEX] != null",
+      "claims": [
+        {
+          "statement": "Returns false for table indices greater than 9999",
+          "evidence_addresses": [
+            "005db6d4",
+            "005db6d9",
+            "005db6db"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Returns false when the table index is greater than or equal to the total table count",
+          "evidence_addresses": [
+            "005db6ec",
+            "005db6f1",
+            "005db6f4",
+            "005db6f6"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Returns true if a table exists at the specified index in the internal registry",
+          "evidence_addresses": [
+            "005db700",
+            "005db70c",
+            "005db712"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "_ZNK10ScDocument13GetTableCountEv",
+          "contract": "Provides current count of tables in document",
+          "evidence_addresses": [
+            "005db6ec"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Whether concurrent modifications affect internal consistency between GetTableCount() and registry lookup",
+        "Exact nature of entries stored within TABLE_REGISTRY"
+      ],
+      "evidence_requests": []
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "At address 005db6d4, SI (holding param_2, a ushort) is compared to 0x270f (which is 9999). At address 005db6d9, JBE jumps to 005db6e0 if SI <= 9999 (unsigned comparison), so if SI > 9999, the jump is not taken and XOR EAX,EAX sets return to 0 at 005db6db, returning false.",
+          "evidence_addresses": [
+            "005db6d4",
+            "005db6d9",
+            "005db6db"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "contradicted",
+          "reason": "At 005db6ec, _ZNK10ScDocument13GetTableCountEv is called, which returns a value into AX. This is compared with BX (a sign-extended copy of param_2) at 005db6f1 via CMP AX,BX. The next instruction JG at 005db6f4 means the jump is taken only if AX > BX (signed comparison). However, since GetTableCount() may return a signed int, comparing it with unsigned param_2 can create mismatched semantics. Counterexample: let param_2=0xffff (65535), which passes the first check at 005db6d4 (as 0xffff <= 9999 unsigned fails, so this claim isn’t reached). But if param_2=10000 and GetTableCount() returns -1 (interpreted as signed), then -1 > 10000 (signed), so execution would incorrectly proceed to claim there’s a valid table index.",
+          "evidence_addresses": [
+            "005db6ec",
+            "005db6f1",
+            "005db6f4"
+          ]
+        },
+        {
+          "claim_index": 2,
+          "outcome": "uncertain",
+          "reason": "The function accesses a pointer at [R12+0xb8] assumed to point to a table registry, then loads [RAX + RBX*0x8] where RBX = sign-extended param_2. It checks whether that qword is nonzero using SETNZ AL at 005db712. While this suggests existence testing of a slot in an array-like structure, we lack full type information confirming alignment/padding/slot size assumptions or even validity of treating param_2 directly as an array index without bounds beyond what was checked earlier. We also don't know how many slots exist past GetTableCount(). Thus, though likely intended to reflect existence, correctness depends on unverifiable context such as internal layout and external initialization of entries.",
+          "evidence_addresses": [
+            "005db700",
+            "005db70c",
+            "005db712"
+          ]
+        }
+      ],
+      "missing_behavior": [
+        "The function does not validate whether param_2 lies within allocated bounds of the underlying table storage pointed to by [R12+0xb8]. Accesses may read invalid pointers based solely on previous count checks."
+      ],
+      "unresolved": [
+        "Behavior details of callee _ZNK10ScDocument13GetTableCountEv at 0x005d9db0 required to confirm exact signedness handling and possible truncation issues during comparison with unsigned param_2"
+      ]
+    }
+  },
+  {
+    "entry": "005e8aa0",
+    "name": "ScDocument::DeleteCol(int, short, int, short, short, unsigned long, ScDocument*, bool*, ScMarkData const*)",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "Ten arguments: document handle, start column index, column count, start row index, row count, sheet index, column delta, unused 64-bit value, output boolean pointer, and optional mark data pointer.",
+      "outputs": "None",
+      "state": "Document grid storage and cell data",
+      "side_effects": "Deletes cells and shifts remaining columns left within affected tables",
+      "errors": "No explicit error path, execution always returns",
+      "pseudocode": "For each matching table, remove the specified column span and shift data left. Trigger dependent updates.",
+      "claims": [
+        {
+          "statement": "The function inspects whether column indices and row indices overlap with the current table dimensions before modifying content",
+          "evidence_addresses": [
+            "005e8cfe",
+            "005e8eb3",
+            "005e8de2",
+            "005e8f9a"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "The function adjusts internal column references to reflect shifted positions after deleting columns",
+          "evidence_addresses": [
+            "005e8e9c",
+            "005e906b",
+            "005e9209"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Caller receives an indication via output parameter that some action occurred",
+          "evidence_addresses": [
+            "005e8ef0"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "_ZNK10ScDocument13GetTableCountEv",
+          "contract": "Returns total active sheet count",
+          "evidence_addresses": [
+            "005e8b46",
+            "005e8bb9",
+            "005e8d9a",
+            "005e8f81",
+            "005e9152",
+            "005e9211"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN2sc14AutoCalcSwitchC2ER10ScDocumentb",
+          "contract": "Temporarily disables automatic recalculation",
+          "evidence_addresses": [
+            "005e8b6b",
+            "005e90ae"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN26ScBroadcastAreaSlotMachine18EnterBulkBroadcastEv",
+          "contract": "Enters batch broadcast mode to defer cell update notifications",
+          "evidence_addresses": [
+            "005e8b9b",
+            "005e90d0"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZL20lcl_GetFirstTabRangeRsS_PK10ScMarkDatas.part.0",
+          "contract": "Updates range coordinates based on marked selections",
+          "evidence_addresses": [
+            "005e8be4",
+            "005e9170"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x005d0f10",
+          "contract": "Clears or invalidates cells within given 2D bounds across multiple sheets",
+          "evidence_addresses": [
+            "005e8cf2",
+            "005e8e7d"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x005d1320",
+          "contract": "Inserts or removes rows/columns and updates references accordingly",
+          "evidence_addresses": [
+            "005e8d92"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x005d8b50",
+          "contract": "Advances through filtered sheet views checking tab selection criteria",
+          "evidence_addresses": [
+            "005e8dba",
+            "005e922a"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_006f5da0",
+          "contract": "Resets temporary coordinate stack used during multi-sheet operations",
+          "evidence_addresses": [
+            "005e8e9c"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_005be7a0",
+          "contract": "Removes columns from individual sheet and propagates structural changes",
+          "evidence_addresses": [
+            "005e9209"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_00729210",
+          "contract": "Physically deletes stored cell content within requested region of a single sheet",
+          "evidence_addresses": [
+            "005e8f69"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_005f7f80",
+          "contract": "Prepares all sheets for major structural changes such as mass column deletion",
+          "evidence_addresses": [
+            "005e906b"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_00722520",
+          "contract": "Flushes pending cell changes to external listeners registered per sheet",
+          "evidence_addresses": [
+            "005e9091"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_004adc80",
+          "contract": "Leaves bulk broadcast mode releasing deferred notification queue",
+          "evidence_addresses": [
+            "005e9031",
+            "005e9119"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_00927370",
+          "contract": "Re-enables automatic formula recalculation restoring prior setting",
+          "evidence_addresses": [
+            "005e903d",
+            "005e9121"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_00799fa0",
+          "contract": "Signals chart objects may require dimensional data regeneration post-edit",
+          "evidence_addresses": [
+            "005e8fc6"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_005f4af0",
+          "contract": "Initializes hashtable bucket array for tracking pending cell expression dependencies",
+          "evidence_addresses": [
+            "005e8fcf"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_00373840",
+          "contract": "Deallocates heap-allocated node arrays backing unordered set collections",
+          "evidence_addresses": [
+            "005e8fe9",
+            "005e9018"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_005b6a40",
+          "contract": "Resets secondary collection tracking separate category of dynamic spreadsheet elements",
+          "evidence_addresses": [
+            "005e8ff5"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_00722640",
+          "contract": "Propagates finalized modifications upstream to referencing calculations and visualizations",
+          "evidence_addresses": [
+            "005e90f9"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Width and signedness of several intermediate calculated offset fields",
+        "Ordering between deferred cell clearing and reference updating steps",
+        "Presence of indirect dispatch beyond explicitly called helpers",
+        "Full behavior of mark-based filtering in multi-sheet contexts"
+      ],
+      "evidence_requests": [
+        "Concrete sheet structure layouts and indexing conventions",
+        "Exact definitions of flags controlling conditional column shifting rules",
+        "Details of interaction between bulk broadcasting and auto-calc settings"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "Addresses 005e8de2, 005e8eb3, 005e8f9a involve comparisons between column indices/row indices and table dimensions. At 005e8de2, AX (table max column) is compared with a column index. At 005e8eb3, AX is compared with a computed column limit. At 005e8f9a, table max column is compared with a column index. These checks occur before modifying content through calls like 005e8d92 (005d1320) and 005e9209 (005be7a0). The control flow ensures these validations precede modifications.",
+          "evidence_addresses": [
+            "005e8de2",
+            "005e8eb3",
+            "005e8f9a",
+            "005e8d92",
+            "005e9209"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "uncertain",
+          "reason": "Addresses 005e8e9c, 005e906b, 005e9209 correspond to calls: 005e8e9c (006f5da0), 005e906b (005f7f80), 005e9209 (005be7a0). While 005f7f80 may relate to adjustments post-deletion based on naming, there is no concrete evidence visible in the function's static control flow or data handling that confirms internal column references are adjusted to reflect shifted positions. No direct manipulation of column indices or mapping structures post-deletion is visible in isolation.",
+          "evidence_addresses": [
+            "005e8e9c",
+            "005e906b",
+            "005e9209"
+          ]
+        },
+        {
+          "claim_index": 2,
+          "outcome": "supported_static",
+          "reason": "At address 005e8ef0, there is a conditional write to the memory pointed to by RAX (loaded from stack at 005e8ee4). Specifically, 'MOV byte ptr [RAX],0x0' occurs if RAX is non-zero. Given param_9 is stored in RAX's source location (stack), this indicates a status return through the output parameter param_9, set to 0 indicating action occurrence or completion status. This satisfies the claim of indicating action occurrence to the caller.",
+          "evidence_addresses": [
+            "005e8ef0",
+            "005e8ee4",
+            "005e8eee"
+          ]
+        }
+      ],
+      "missing_behavior": [
+        "Clearing cell contents in deleted columns and rows",
+        "Adjusting formula references affected by deleted columns and rows",
+        "Updating named ranges impacted by column or row deletions",
+        "Handling invalidation or adjustment of cell merge regions spanning deleted columns or rows",
+        "Shifting or removal of drawing objects anchored in deleted columns or rows",
+        "Signaling chart listeners of structural changes requiring chart updates",
+        "Memory deallocation or reuse for cells falling entirely within deleted columns or rows"
+      ],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "005e9310",
+    "name": "ScDocument::DeleteRow(short, short, short, short, int, unsigned long, ScDocument*, bool*, ScMarkData const*)",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "Deletes rows within specified bounds across sheets, tracking marks; inputs are document context, row range, count, and optional selection marks.",
+      "outputs": "No return value; modifies document state directly.",
+      "state": "Document grid content, formula references, sheet dimensions, selection marks, calculation flags, and listener groups.",
+      "side_effects": "Modifies cell values and references; removes rows; updates dependent calculations and chart data; clears temporary stacks and hash tables.",
+      "errors": "No explicit error path; depends on allocator and indirect callees for exception safety.",
+      "pseudocode": "While rows to delete remain within sheet bounds: adjust row indices, shift cells upward, update sheet metadata, clear moved ranges, recalculate dependencies, notify listeners, purge caches.",
+      "claims": [
+        {
+          "statement": "Adjusts row range bounds when initial range exceeds sheet limits",
+          "evidence_addresses": [
+            "005e936a",
+            "005e936f",
+            "005e9372",
+            "005e9376",
+            "005e937a",
+            "005e937e"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Skips deletion if no rows fall within existing sheet dimensions",
+          "evidence_addresses": [
+            "005e95ef",
+            "005e95f8",
+            "005e95fe"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Shifts cell contents up by row count when deleting from middle of sheet",
+          "evidence_addresses": [
+            "005e958f",
+            "005e95ba",
+            "005e9681",
+            "005e9779"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Clears shifted region and updates formula references accordingly",
+          "evidence_addresses": [
+            "005e981b",
+            "005e9857",
+            "005e9883"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Updates sheet dimension counters after successful deletions",
+          "evidence_addresses": [
+            "005e94ef",
+            "005e9681"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Invalidates calculation caches and triggers recalculation sequence",
+          "evidence_addresses": [
+            "005e99a0",
+            "005e9a08",
+            "005e9a29"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Notifies registered listeners of structural changes",
+          "evidence_addresses": [
+            "005e98ae",
+            "005e98b9",
+            "005e98f6"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Purges internal temporary storage and hash tables before exit",
+          "evidence_addresses": [
+            "005e991a",
+            "005e9940",
+            "005e996f"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "_ZNK10ScDocument13GetTableCountEv",
+          "contract": "Returns current number of sheets in workbook",
+          "evidence_addresses": [
+            "005e939b",
+            "005e93de",
+            "005e9597",
+            "005e96d0",
+            "005e9899"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN2sc14AutoCalcSwitchC2ER10ScDocumentb",
+          "contract": "Disables automatic recalculation during batch edits",
+          "evidence_addresses": [
+            "005e93c0",
+            "005e99e6"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZL20lcl_GetFirstTabRangeRsS_PK10ScMarkDatas.part.0",
+          "contract": "Extracts first selected contiguous tab range from mark structure",
+          "evidence_addresses": [
+            "005e9404",
+            "005e96ea"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x005d0f10",
+          "contract": "Removes row entries from broadcast area registry",
+          "evidence_addresses": [
+            "005e94ef",
+            "005e9681"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x005d1320",
+          "contract": "Moves cell ranges vertically adjusting relative references",
+          "evidence_addresses": [
+            "005e958f"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x005d8b50",
+          "contract": "Advances iterator over marked sheet ranges",
+          "evidence_addresses": [
+            "005e95ba",
+            "005e9796"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x006f5da0",
+          "contract": "Releases temporary storage resources used during edit",
+          "evidence_addresses": [
+            "005e969c"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x005be7a0",
+          "contract": "Clears deleted cell range retaining formatting",
+          "evidence_addresses": [
+            "005e9779"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN10ScDocument18EndListeningGroupsERKSt6vectorI9ScAddressSaIS1_EE",
+          "contract": "Ends batched listening group notifications",
+          "evidence_addresses": [
+            "005e98ae"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x005f72b0",
+          "contract": "Unregisters listening groups affected by range deletion",
+          "evidence_addresses": [
+            "005e98b9"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN26ScBroadcastAreaSlotMachine18EnterBulkBroadcastEv",
+          "contract": "Enters bulk broadcast mode during structural changes",
+          "evidence_addresses": [
+            "005e9a08"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x00722640",
+          "contract": "Invalidates chart listeners referencing deleted rows",
+          "evidence_addresses": [
+            "005e9a29"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x004adc80",
+          "contract": "Exits bulk broadcast mode restoring normal updates",
+          "evidence_addresses": [
+            "005e9a49"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x005f7f80",
+          "contract": "Purges invalidated formula results and dependencies",
+          "evidence_addresses": [
+            "005e99a3"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x00722520",
+          "contract": "Releases shared formula resources orphaned by row shifts",
+          "evidence_addresses": [
+            "005e99c9"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN25ScChartListenerCollection17UpdateDirtyChartsEv",
+          "contract": "Triggers redraw of charts affected by edit",
+          "evidence_addresses": [
+            "005e98f6"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x00373840",
+          "contract": "Frees heap-allocated buffers safely",
+          "evidence_addresses": [
+            "005e9911",
+            "005e9934",
+            "005e9963"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZNSt10_HashtableIsSt4pairIKsSt13unordered_setIsSt4hashIsESt8equal_toIsESaIsEEESaIS9_ENSt8__detail10_Select1stES6_S4_NSB_18_Mod_range_hashingENSB_20_Default_ranged_hashENSB_20_Prime_rehash_policyENSB_17_Hashtable_traitsILb0ELb0ELb1EEEE5clearEv",
+          "contract": "Empties temporary hashtable of intermediate address sets",
+          "evidence_addresses": [
+            "005e991a"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZNSt10_HashtableIsSt4pairIKsSt13unordered_setItSt4hashItESt8equal_toItESaItEEESaIS9_ENSt8__detail10_Select1stES5_IsES3_IsENSB_18_Mod_range_hashingENSB_20_Default_ranged_hashENSB_20_Prime_rehash_policyENSB_17_Hashtable_traitsILb0ELb0ELb1EEEE5clearEv",
+          "contract": "Empties temporary hashtable of intermediate integer sets",
+          "evidence_addresses": [
+            "005e9940"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN2sc14AutoCalcSwitchD2Ev",
+          "contract": "Restores prior automatic recalculation setting",
+          "evidence_addresses": [
+            "005e996f",
+            "005e9a51"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Exact parameter semantics due to missing type information",
+        "Specific handling of merged cells across deleted spans",
+        "Interaction behavior between multiple overlapping mark selections",
+        "Ordering guarantees among side-effecting operations",
+        "Performance characteristics under extreme sheet sizes",
+        "Thread-safety mechanisms during concurrent access"
+      ],
+      "evidence_requests": [
+        "Sample runtime argument snapshots showing concrete input types"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "At 005e936a-005e937e, comparisons and conditional moves adjust the row range bounds based on sheet limits. Specifically, CX/ESI (param_4/param_2) and R8W/EAX (param_3/param_5) are compared and conditionally moved to ensure they stay within calculated upper limits. This directly implements clamping initial ranges.",
+          "evidence_addresses": [
+            "005e936a",
+            "005e936f",
+            "005e9372",
+            "005e9376",
+            "005e937a",
+            "005e937e"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "supported_static",
+          "reason": "At 005e95ef-005e95fe, the function compares the sheet's max row (EAX) with the adjusted start row (EDX). If EAX < EDX (no rows in range), it jumps over the deletion loop to 005e95fe. Additionally, 005e95f1-005e95f8 checks a flag derived from addition overflow and jumps back only if set, further gating the operation. This confirms skipping deletion for out-of-bounds rows.",
+          "evidence_addresses": [
+            "005e95ef",
+            "005e95f8",
+            "005e95fe"
+          ]
+        },
+        {
+          "claim_index": 2,
+          "outcome": "supported_static",
+          "reason": "At 005e958f, there is a call to a function that handles cell shifting. The parameters include negative row offsets (-param_7 via NEG R8D at 005e950f before being passed) indicating upward movement. The loop involving 005e9760-005e979d shows repeated calls to this cell-shifting mechanism, confirming cells are shifted up by the deleted row count when deletion is in the middle of a sheet.",
+          "evidence_addresses": [
+            "005e950f",
+            "005e958f",
+            "005e9760",
+            "005e9779",
+            "005e979d"
+          ]
+        },
+        {
+          "claim_index": 3,
+          "outcome": "supported_static",
+          "reason": "At 005e981b, a function is called which tests for mark data presence related to formula handling. Following this, at 005e9857, 'func_0x00728cc0' processes copied content including formulas. Immediately after, at 005e9883, another function 'func_0x00721630' is called. The pattern of these three distinct functions—checking conditions, copying/clearing, then updating references—is consistent with clearing content and updating formula references.",
+          "evidence_addresses": [
+            "005e981b",
+            "005e9857",
+            "005e9883"
+          ]
+        },
+        {
+          "claim_index": 4,
+          "outcome": "supported_static",
+          "reason": "At 005e94ef and 005e9681, calls to 'func_0x005d0f10' modify internal structures representing ranges using variables like iStack_e8 and others derived from current sheet dimensions (005e94fb-005e9505). These modifications occur post-adjustment of sheet boundaries or deletion operations, aligning with updating sheet dimension counters after successful deletions.",
+          "evidence_addresses": [
+            "005e94ef",
+            "005e94fb",
+            "005e9505",
+            "005e9681"
+          ]
+        },
+        {
+          "claim_index": 5,
+          "outcome": "supported_static",
+          "reason": "At 005e99a0, 'func_0x005f7f80' is called, initiating cache invalidation logic. Then from 005e99af through loops ending at 005e99d2/005e9a32, multiple calls to 'func_0x00722520'/'func_00722640' operate on document tables, typical of recalculating dependent cells or broadcast events. Finally at 005e9a08, 'func_0x004adc70' sets up bulk broadcast mode likely preceding full recalculation sweep.",
+          "evidence_addresses": [
+            "005e99a0",
+            "005e99c9",
+            "005e9a08",
+            "005e9a29"
+          ]
+        },
+        {
+          "claim_index": 6,
+          "outcome": "supported_static",
+          "reason": "At 005e98ae and 005e98b9, specific functions '_ZN10ScDocument18EndListeningGroups...' and 'func_0x005f72b0' are invoked respectively with context pointers indicating notification of listener collections about structural grid modifications such as row deletions.",
+          "evidence_addresses": [
+            "005e98ae",
+            "005e98b9"
+          ]
+        },
+        {
+          "claim_index": 7,
+          "outcome": "uncertain",
+          "reason": "While several cleanup-like routines around 005e991a-005e996f clear hash table contents and local buffers, the description lacks specificity proving all claimed temporary storages/hashes are purged unconditionally prior to exit. Without visibility into target functions' behavior ('func_0x005f4af0', 'func_0x005b6a40'), certainty cannot be established.",
+          "evidence_addresses": [
+            "005e991a",
+            "005e9940",
+            "005e996f"
+          ]
+        }
+      ],
+      "missing_behavior": [
+        "Clears remaining cells in affected columns where deleted rows existed beyond new sheet size.",
+        "Handles floating-point NaN/infinity during calculation cache resets or propagation.",
+        "Explicitly signals UI layer about completed batch deletion event upon return."
+      ],
+      "unresolved": [
+        "Behavior details of func_0x005f4af0 regarding hash table purging.",
+        "Internal logic of func_0x005b6a40 managing hash table destruction.",
+        "Specifics of how func_0x00722520 and func_0x00722640 handle cascade recalculations."
+      ]
+    }
+  },
+  {
+    "entry": "005e9b60",
+    "name": "ScDocument::InsertCol(int, short, int, short, short, unsigned long, ScDocument*, ScMarkData const*)",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "Nine parameters where the first is a document handle, followed by sheet index bounds, column index bounds, flags, and optional mark data for selective application",
+      "outputs": "Returns 1 on successful completion or 0 on early termination due to invalid ranges",
+      "state": "Document-wide auto-calculation setting and per-sheet dirty flags; broadcast area slot machine state for deferred updates",
+      "side_effects": "Shifts existing columns rightward to make space for new columns within specified sheet-column ranges; notifies dependent systems of structural changes",
+      "errors": "Returns zero immediately if computed sheet range has negative span; no other explicit error handling observed",
+      "pseudocode": "if sheet_start > sheet_end: swap them \nif col_start > col_end: reduce col_end to col_start \nif no selection given: disable auto calc \nfor each sheet in computed sheet range: \n  if sheet exists and (no selection given or sheet selected): \n    shift columns right starting from col_start to col_end inclusive \nrestore auto calc if changed \nperform bulk notifications and cleanup",
+      "claims": [
+        {
+          "statement": "Swaps initial sheet indices when the first exceeds the second",
+          "evidence_addresses": [
+            "005e9bbd",
+            "005e9bc0",
+            "005e9bc2",
+            "005e9bc9"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Caps column end index to not exceed column start when misordered",
+          "evidence_addresses": [
+            "005e9bcc",
+            "005e9bd0",
+            "005e9bd7",
+            "005e9bdf"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Returns success without iteration when no selection mask is passed",
+          "evidence_addresses": [
+            "005e9be6",
+            "005e9be9",
+            "005ea198",
+            "005ea187"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "_ZNK10ScDocument13GetTableCountEv",
+          "contract": "Returns the maximum valid sheet index plus one for boundary checks",
+          "evidence_addresses": [
+            "005e9bf2",
+            "005e9c4b",
+            "005e9d3b",
+            "005e9e56",
+            "005e9e8e",
+            "005e9fe1",
+            "005ea1f2",
+            "005ea2ae"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN10ScDocument11SetAutoCalcEb",
+          "contract": "Enables or disables automatic recalculation mode for the entire document",
+          "evidence_addresses": [
+            "005e9c15",
+            "005e9ce1",
+            "005ea1aa",
+            "005ea171"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN5ScTab10InsertColEiiP10ScColParam",
+          "contract": "Performs physical column shifting within a single sheet's data array",
+          "evidence_addresses": [
+            "005e9cb1"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN5ScTab13DeleteColInfoEii",
+          "contract": "Clears metadata associated with deleted column positions after insertion completes",
+          "evidence_addresses": [
+            "005e9fcb"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Width of integer parameters used in indexing",
+        "Signedness of offset adjustments during shifts",
+        "Ordering guarantees between broadcast notifications and auto-calc restoration",
+        "Whether skipped sheets affect overall return status"
+      ],
+      "evidence_requests": [
+        "Header definitions for ScDocument methods to confirm index semantics",
+        "Documentation describing interaction patterns between broadcast machinery and calc settings",
+        "Runtime trace showing intermediate buffer states during column movement"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "The instructions at 005e9bbd through 005e9bc9 implement the swap of initial sheet indices (stored in ECX and R15D) when the first exceeds the second. The comparison at 005e9bbd checks if ECX < R15D; if false (first >= second), the jump at 005e9bc0 is not taken and the values are swapped using MOVs.",
+          "evidence_addresses": [
+            "005e9bbd",
+            "005e9bc0",
+            "005e9bc2",
+            "005e9bc9"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "contradicted",
+          "reason": "The claim states that the column end index is capped to not exceed the column start when misordered, but the code at 005e9bcc through 005e9bdf implements the opposite behavior: if the column start (R8W) is greater than or equal to the initial value in AX (which represents part of the column specification), then R12D is set to AX (the 'start' value). However, if R8W < AX, then AX is replaced with the value from [RBP + -0x112]. This means the function adjusts indices based on ordering but not necessarily capping the end index directly. Furthermore, this logic pertains more to column parameters rather than sheet indices mentioned in the function description and appears to relate to internal parameter adjustment rather than enforcing a strict cap rule. The specific assertion about capping behavior is not fully substantiated by the control flow here because the adjustment depends on comparisons between multiple intermediate values.",
+          "evidence_addresses": [
+            "005e9bcc",
+            "005e9bd0",
+            "005e9bd7",
+            "005e9bdf"
+          ]
+        },
+        {
+          "claim_index": 2,
+          "outcome": "supported_static",
+          "reason": "At 005e9be6 and 005e9be9, the code tests R13 (param_9, the ScMarkData pointer) against zero. If zero, it jumps to 005ea198, where there is early initialization of local variables followed by branching away from any major processing loops, setting up for an immediate return path (eventually reaching MOV EAX,0x1 at 005ea187). This clearly supports returning success without iteration when no selection mask is passed.",
+          "evidence_addresses": [
+            "005e9be6",
+            "005e9be9",
+            "005ea198",
+            "005ea187"
+          ]
+        }
+      ],
+      "missing_behavior": [
+        "Concrete example handling showing the actual swapping mechanism for sheet indices when condition holds.",
+        "Observable final computed column boundary values as affected by the conditional move/capping operations around 005e9bd0-005e9bdf",
+        "Direct visibility into how the return register (EAX/RAX) gets its value (success code 1) in all execution paths, especially non-trivial ones involving loop completions and cleanup routines"
+      ],
+      "unresolved": [
+        "_ZNK10ScDocument13GetTableCountEv",
+        "_ZN10ScDocument11SetAutoCalcEb",
+        "func_0x005f70d0",
+        "func_0x0071f1f0",
+        "_ZNK10ScMarkData14GetTableSelectEs",
+        "func_0x006cf7e0",
+        "func_0x005d1320",
+        "func_0x005d8b50",
+        "_ZL20lcl_GetFirstTabRangeRsS_PK10ScMarkDatas_part_0",
+        "func_0x006f5da0",
+        "func_0x005be7a0",
+        "func_0x005d1510",
+        "func_0x005f7f80",
+        "_ZN26ScBroadcastAreaSlotMachine18EnterBulkBroadcastEv",
+        "func_0x00722520",
+        "func_0x004adc80",
+        "_ZN2sc14AutoCalcSwitchC2ER10ScDocumentb",
+        "_ZN2sc14AutoCalcSwitchD2Ev",
+        "_ZNSt10_HashtableIsSt4pairIKsSt13unordered_setIsSt4hashIsESt8equal_toIsESaIsEEESaIS9_ENSt8__detail10_Select1stES6_S4_NSB_18_Mod_range_hashingENSB_20_Default_ranged_hashENSB_20_Prime_rehash_policyENSB_17_Hashtable_traitsILb0ELb0ELb1EEEE5clearEv",
+        "_ZNSt10_HashtableIsSt4pairIKsSt13unordered_setItSt4hashItESt8equal_toItESaItEEESaIS9_ENSt8__detail10_Select1stES5_IsES3_IsENSB_18_Mod_range_hashingENSB_20_Default_ranged_hashENSB_20_Prime_rehash_policyENSB_17_Hashtable_traitsILb0ELb0ELb1EEEE5clearEv",
+        "_ZN25ScChartListenerCollection17UpdateDirtyChartsEv"
+      ]
+    }
+  },
+  {
+    "entry": "005ea350",
+    "name": "ScDocument::InsertRow(short, short, short, short, int, unsigned long, ScDocument*, ScMarkData const*)",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "document handle, start row, start column, end row, end column, sheet index, unknown integer parameter, unknown parameter, optional mark data",
+      "outputs": "1 on successful completion, 0 on early exit due to invalid table count",
+      "state": "Document grid containing multiple sheets, each with cells and formula dependencies. Auto-calculation and modification flags.",
+      "side_effects": "Shifts cell data downward to insert blank rows in specified sheet regions, updates dependent formula references, modifies broadcast listeners, adjusts chart data",
+      "errors": "No explicit error path, but returns 0 when initial table count check fails",
+      "pseudocode": "disable_auto_calc(document)\ninitialize_range_bounds(start_row, start_col, end_row, end_col)\nif (mark_data):\n  validate_sheet_selection(mark_data)\nfor each sheet in document.sheets:\n  if sheet in range and selected:\n    shift_cells_down(sheet, bounds)\nupdate_listening_context(document)\nnotify_broadcast_areas()\nprocess_chart_collections()\ncleanup_temporary_structures()\nrestore_auto_calc_setting(document)\nreturn 1",
+      "claims": [
+        {
+          "statement": "Operation succeeds only when document contains at least one sheet",
+          "evidence_addresses": [
+            "005ea3d2"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Inserted row range gets adjusted when starting position exceeds ending position",
+          "evidence_addresses": [
+            "005ea392",
+            "005ea395",
+            "005ea397",
+            "005ea3a6",
+            "005ea3aa",
+            "005ea3ad"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Operation affects all sheets when no specific sheet selection is provided",
+          "evidence_addresses": [
+            "005ea443",
+            "005ea452",
+            "005ea461"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Only explicitly selected sheets participate in the insert when mark data is present",
+          "evidence_addresses": [
+            "005ea476",
+            "005ea47b",
+            "005ea7c0",
+            "005ea7c5",
+            "005ea878",
+            "005ea87d"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Cell content shifts vertically downward beginning at start row within affected sheets",
+          "evidence_addresses": [
+            "005ea4a6",
+            "005ea7ef",
+            "005ea8c6"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "_ZNK10ScDocument13GetTableCountEv",
+          "contract": "Returns current sheet count in the workbook from internal counter",
+          "evidence_addresses": [
+            "005ea3d2",
+            "005ea443",
+            "005ea531",
+            "005ea65d",
+            "005ea688",
+            "005ea745",
+            "005ea82f",
+            "005ea8e0",
+            "005eabd9"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN10ScDocument11SetAutoCalcEb",
+          "contract": "Controls whether formulas evaluate automatically after edits",
+          "evidence_addresses": [
+            "005ea3f5",
+            "005ea4d6",
+            "005eaaa7"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x005f70d0",
+          "contract": "Toggles document dirty flag indicating unsaved modifications exist",
+          "evidence_addresses": [
+            "005ea40f",
+            "005ea4c7",
+            "005eaa98"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZL20lcl_GetFirstTabRangeRsS_PK10ScMarkDatas.part.0",
+          "contract": "Extracts active sheet bounds from multiple sheet selections",
+          "evidence_addresses": [
+            "005ea553",
+            "005ea69e"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN2sc19EndListeningContextC2ER10ScDocumentP12ScTokenArray",
+          "contract": "Prepares temporary structure for managing dependency listeners during batch updates",
+          "evidence_addresses": [
+            "005ea5cd"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Meaning of stack parameters param_6 (0x8), param_7 (0x10), param_8 (0x18)",
+        "Deterministic conditions causing 0 return vs observed single case pass",
+        "Whether negative row indices would trigger underflow behavior",
+        "Interaction between overlapping selections across different sheets",
+        "Order of sheet traversal relative to visual numbering sequence"
+      ],
+      "evidence_requests": [
+        "Runtime values captured for param_6/7/8 during insert_rows A1:B4 scenario",
+        "Additional test runs varying row/column ranges including edge positions",
+        "Coverage expansion to include multi-sheet selection use cases",
+        "Observations covering full iteration space particularly loop exit conditions",
+        "Behavioral trace of zero sheet count initialization scenarios"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "Instruction at 005ea3d2 calls a function that likely retrieves document sheet count; if zero, the operation would fail early based on control flow leading to error paths. Observed as prerequisite before row insertion logic.",
+          "evidence_addresses": [
+            "005ea3d2",
+            "005ea3cc"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "supported_static",
+          "reason": "Instructions at 005ea392, 005ea395, 005ea397 adjust row range parameters using conditional moves when start > end, normalizing the row positions before proceeding with further logic.",
+          "evidence_addresses": [
+            "005ea392",
+            "005ea395",
+            "005ea397",
+            "005ea3a6",
+            "005ea3aa",
+            "005ea3ad"
+          ]
+        },
+        {
+          "claim_index": 2,
+          "outcome": "uncertain",
+          "reason": "Code indicates branching behavior for handling ScMarkData presence or absence (e.g., 005ea443), but without clear mapping of default-all-sheets behavior when no specific sheet selection exists. No explicit loop over all sheets confirmed in static view.",
+          "evidence_addresses": [
+            "005ea443",
+            "005ea452",
+            "005ea461"
+          ]
+        },
+        {
+          "claim_index": 3,
+          "outcome": "contradicted",
+          "reason": "Function calls like 005ea7c0 show use of GetTableSelect, indicating sheet filtering occurs. However, there are also unconditional branches where ScMarkData is skipped, suggesting some operations may affect all sheets regardless of selection when conditions bypass mark-based checks.",
+          "evidence_addresses": [
+            "005ea476",
+            "005ea7c0",
+            "005ea46d"
+          ]
+        },
+        {
+          "claim_index": 4,
+          "outcome": "supported_static",
+          "reason": "Multiple calls such as at 005ea4a6, 005ea7ef demonstrate calls to functions taking start row arguments that shift cells downward within affected sheets consistent with claimed vertical displacement.",
+          "evidence_addresses": [
+            "005ea4a6",
+            "005ea7ef"
+          ]
+        }
+      ],
+      "missing_behavior": [
+        "Shifted cell content includes formula recalculation signals depending on moved formulas",
+        "Handling of edge-case document state where active sheet index goes out of bounds post-insertion",
+        "Specific adjustments made to outline row flags or grouped rows structures during insertion"
+      ],
+      "unresolved": [
+        "Behavioral specifics of callee at 005d9db0 (_ZNK10ScDocument13GetTableCountEv)",
+        "Implementation details of ScMarkData usage in callees like 006cf7e0 (_ZNK10ScMarkData14GetTableSelectEs)"
+      ]
+    }
+  },
+  {
+    "entry": "005edde0",
+    "name": "ScDocument::CopyToDocument(short, int, short, short, int, short, InsertDeleteFlags, bool, ScDocument&, ScMarkData const*, bool)",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "Two sheet positions (source and destination), axis-aligned bounding coordinates, flags encoding transfer behaviors, and optional metadata references",
+      "outputs": "No return value; observable changes occur in document state",
+      "state": "Document-wide cell values, formula expressions, and display properties per sheet",
+      "side_effects": "Region transfer between sheets subject to active flags and dimension constraints",
+      "errors": "Process terminates abnormally if stack guard corruption detected",
+      "pseudocode": "IF source_position <= 9999 AND dest_position <= 9999 THEN\n  CALL internal_transfer_logic WITH bounds_and_flags\nELSE\n  RETURN early_without_effect\nEND IF",
+      "claims": [
+        {
+          "statement": "Returns without effect when either the first coordinate or eighth parameter exceed the value 9999",
+          "evidence_addresses": [
+            "005ede1c",
+            "005ede22",
+            "005ede28"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Delegates to internal routine when all position arguments are within 0 to 9999 inclusive",
+          "evidence_addresses": [
+            "005ede50",
+            "005ede82"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "005edaf0",
+          "contract": "Performs conditional cell data relocation based on structured input descriptors",
+          "evidence_addresses": [
+            "005ede82"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "00374ed0",
+          "contract": "Terminates execution unconditionally upon invocation",
+          "evidence_addresses": [
+            "005ede8b"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Semantic meaning of individual bits within input flags",
+        "Exact scope and nature of copied content elements",
+        "Interaction between overlapping source/destination ranges",
+        "Behavior under concurrent modification scenarios"
+      ],
+      "evidence_requests": [
+        "Detailed mapping of flag values to copy behaviors",
+        "Concrete examples showing before-and-after document states"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "The function compares the first coordinate (AX, derived from ECX, param_4) against 9999 at 005ede1c. If greater, it jumps to early return logic starting at 005ede2a. Separately, it compares the eighth parameter (R10W, param_7) against 9999 at 005ede22. If greater, it also leads to the same early return at 005ede2a via fallthrough and jump at 005ede28. Both checks independently lead to an immediate stack unwind and RET without further side effects.",
+          "evidence_addresses": [
+            "005ede1c",
+            "005ede20",
+            "005ede22",
+            "005ede28",
+            "005ede2a",
+            "005ede37",
+            "005ede39",
+            "005ede45"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "supported_static",
+          "reason": "When both coordinates are less than or equal to 9999, control proceeds past the initial comparisons (005ede1c–005ede28). The conditional jump at 005ede28 transfers control to 005ede50 on success. At 005ede50, the function prepares arguments and calls an internal routine (__thiscall to 0x005edaf0) via CALL at 005ede82. This confirms delegation under valid input conditions.",
+          "evidence_addresses": [
+            "005ede50",
+            "005ede82"
+          ]
+        }
+      ],
+      "missing_behavior": [],
+      "unresolved": [
+        "_ZN10ScDocument14CopyToDocumentERK7ScRange17InsertDeleteFlagsbRS_PK10ScMarkDatab",
+        "func_0x00374ed0"
+      ]
+    }
+  },
+  {
+    "entry": "005f8210",
+    "name": "ScDocument::EndListeningGroups(std::vector<ScAddress, std::allocator<ScAddress> > const&)",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "One read-only input: a sequence of cell address tokens",
+      "outputs": "None",
+      "state": "Manages listener dependencies for cell addresses, and tracks shared resource references",
+      "side_effects": "Invalidates listeners for given cell addresses, purges unused broadcaster entries, decrements shared resource counters",
+      "errors": "No explicit error path signaled by return code or exception",
+      "pseudocode": "For each cell address in the input sequence, look up its sheet and notify the listening context. After processing all addresses, purge broadcasters with no remaining listeners and release temporary resources.",
+      "claims": [],
+      "dependencies": [
+        {
+          "target": "_ZN2sc19EndListeningContextC2ER10ScDocumentP12ScTokenArray",
+          "contract": "Constructs a temporary context token for managing listener invalidation over multiple cells",
+          "evidence_addresses": [
+            "005f8244"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN2sc19EndListeningContext22purgeEmptyBroadcastersEv",
+          "contract": "Removes broadcaster records that are no longer referenced by active listeners",
+          "evidence_addresses": [
+            "005f82f3"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN2sc13ColumnSpanSetD2Ev",
+          "contract": "Releases internally allocated scratch space for column span tracking",
+          "evidence_addresses": [
+            "005f82c9"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZNSt16_Sp_counted_baseILN9__gnu_cxx12_Lock_policyE2EE24_M_release_last_use_coldEv",
+          "contract": "Finalizes a shared resource instance when its last user releases reference",
+          "evidence_addresses": [
+            "005f832e"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Exact identity and structure of listener groups",
+        "Internal mapping from ScAddress sheet index to sheet representation",
+        "Mechanism of listener notification inside callee 0075dc90",
+        "Reference counting update rules for shared broadcaster resources",
+        "Order of listener notifications when multiple addresses are given",
+        "The available evidence does not establish the caller-visible effects of the omitted implementation mechanics."
+      ],
+      "evidence_requests": [
+        "Definition of broadcaster entry lifecycle and reference-counting semantics",
+        "Contract of sheet lookup function using table index",
+        "Behavioral specification of listener notification routine",
+        "Inspect the called functions and execute original cases that expose the returned value and state changes."
+      ]
+    },
+    "review": {
+      "reviews": [],
+      "missing_behavior": [
+        "The function iterates through a vector of ScAddress objects, calling _ZN10ScDocument10FetchTableEs for each entry.",
+        "For non-null fetched table pointers, func_0x0075dc90 is called with the table and a context object.",
+        "After processing the vector, _ZN2sc19EndListeningContext22purgeEmptyBroadcastersEv is called on the context.",
+        "The function manages reference counting for objects pointed to by plStack_50, using either lockless or locked decrement based on __libc_single_threaded.",
+        "If the reference count reaches 1 before decrementing, _ZNSt16_Sp_counted_baseILN9__gnu_cxx12_Lock_policyE2EE24_M_release_last_use_coldEv is called.",
+        "If plStack_50[1] equals 0x100000001, virtual functions at offsets 0x10 and 0x18 are called on the object.",
+        "_ZN2sc13ColumnSpanSetD2Ev is called during cleanup.",
+        "There is a stack canary check; if it fails, func_0x00374ed0 is called and control flows to an external handler."
+      ],
+      "unresolved": [
+        "_ZN2sc19EndListeningContextC2ER10ScDocumentP12ScTokenArray",
+        "_ZN10ScDocument10FetchTableEs",
+        "func_0x0075dc90",
+        "_ZN2sc19EndListeningContext22purgeEmptyBroadcastersEv",
+        "__libc_single_threaded",
+        "LOCK/UNLOCK mechanisms",
+        "_ZNSt16_Sp_counted_baseILN9__gnu_cxx12_Lock_policyE2EE24_M_release_last_use_coldEv",
+        "_ZN2sc13ColumnSpanSetD2Ev",
+        "func_0x00374ed0"
+      ]
+    }
+  },
+  {
+    "entry": "006a6970",
+    "name": "ScFormulaCell::EndListeningTo(sc::EndListeningContext&)",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "Two parameters: a ScFormulaCell instance and an EndListeningContext reference",
+      "outputs": "None (void return)",
+      "state": "Cell listening relationships and context modification tracking flags",
+      "side_effects": "Updates context state to indicate modification; adjusts listening relationships between cells and their dependencies",
+      "errors": "No explicit error path, or stack canary failure triggers external handler at 006a6b1f",
+      "pseudocode": "if (cell.hasGroup()) cell.getGroup().endAllGroupListening(context.getDocument()); if (context.allowsListeningChanges() && cell.isUnmodified()) { context.setModified(); for each dependency of cell: if dependency.type == ABSREF: convert to absolute and notify; elif dependency.type == SPECIAL: handle specially; }",
+      "claims": [],
+      "dependencies": [
+        {
+          "target": "Unknown target ending at 006a5b50",
+          "contract": "Terminates all listening connections for a given formula group using a document reference",
+          "evidence_addresses": [
+            "006a69a6"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "Unknown target ending at 006cbcb0",
+          "contract": "Initializes or prepares internal structures for traversing formula cell dependencies",
+          "evidence_addresses": [
+            "006a69fe"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "Unknown target ending at 0037f440",
+          "contract": "Provides sequential access to unresolved dependencies during traversal",
+          "evidence_addresses": [
+            "006a6a33",
+            "006a6a5d"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "Unknown target ending at 006a1020",
+          "contract": "Performs specialized pre-processing required before converting certain dependency types",
+          "evidence_addresses": [
+            "006a6a55"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "Unknown target ending at 00893a60",
+          "contract": "Translates relative addressing data into absolute sheet coordinates",
+          "evidence_addresses": [
+            "006a6ab2"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "Unknown target ending at 005d1010",
+          "contract": "Relays calculated absolute addresses back to a listening context instance",
+          "evidence_addresses": [
+            "006a6add"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "Unknown target ending at 005d0d70",
+          "contract": "Executes alternate relaying mechanism when specific mode bits are set in context structures",
+          "evidence_addresses": [
+            "006a6b15"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "Unknown target ending at 00374ed0",
+          "contract": "Handles exceptions caused by stack guard mismatches during execution",
+          "evidence_addresses": [
+            "006a6b1f"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Exact semantics behind checks involving bytes at 0x5f8 and 0x5f9 in the second parameter",
+        "Purpose of byte flags used at offset 0x28 in the first parameter",
+        "Semantics of comparing quadwords at offsets 0x8 versus 0x10 in the first parameter",
+        "Behavioral significance of distinguishing byte values 0x3 vs 0x4 at offset 0xa in dependency structures",
+        "Internal structure layouts referenced in offset usages across parameters and locals",
+        "The available evidence does not establish the caller-visible effects of the omitted implementation mechanics."
+      ],
+      "evidence_requests": [
+        "Class definitions detailing ScFormulaCell member layouts particularly for offsets 0x20 (group), 0x28 (flag), 0x8 and 0x10 (range pointers), and 0x78 (dependency iterator)",
+        "Layout and semantic documentation for EndListeningContext focusing on members at index [], 0x30, 0x5f8, 0x5f9, and 0x608 which appear to control operational modes",
+        "Specification for how different byte values (like 0x3 and 0x4) at offset 0xa in dependency records influence control flow decisions",
+        "Documentation for vtable methods like those called indirectly at location 006a6a9e within dependency traversal logic",
+        "Inspect the called functions and execute original cases that expose the returned value and state changes."
+      ]
+    },
+    "review": {
+      "reviews": [],
+      "missing_behavior": [
+        "The function updates listener state by modifying fields within the ScFormulaCell instance at offsets 0x28, 0x8, and 0x10, indicating conditional logic based on cell listening status.",
+        "Writes to memory at offset 0x608 of the context object (pointed to by R13) to indicate a dirty formula state.",
+        "Calls external functions such as _ZN18ScFormulaCellGroup20endAllGroupListeningER10ScDocument, func_0x006cbcb0, func_0x0037f440, _ZNK15ScSingleRefData5toAbsERK10ScDocumentRK9ScAddress, func_0x005d1010, and func_0x005d0d70 which affect document and cell state but are not detailed in decompilation.",
+        "Conditionally branches based on flags stored in objects, e.g., checking bytes at offsets 0x5f8, 0x5f9, and 0x1e to determine execution path.",
+        "Sets up stack-based structures for intermediate computation and calls polymorphic methods via vtable dispatch (call through [RAX + 0xb8]).",
+        "Handles exceptional control flow with stack canary checks and failure reporting via func_0x00374ed0."
+      ],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "006cbb80",
+    "name": "sc::EndListeningContext::EndListeningContext(ScDocument&, ScTokenArray*)",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "Three parameters: a pointer to uninitialized context memory, a document handle, and a formula token array",
+      "outputs": "None (constructor-style initializer)",
+      "state": "Establishes a listening context that associates a document with a token array and prepares internal tracking structures",
+      "side_effects": "Allocates and configures subordinate objects for document listening",
+      "errors": "No explicit local error handling; behavior depends on callees",
+      "pseudocode": "context->document = document_handle\ncontext->token_array = token_array\nlistener_tracker = alloc(0x78)\nlistener_tracker->vtable = 0x12f9148\nlistener_tracker->owner_ref = 0x100000001\ncallee_init(listener_tracker + 16, document_handle)\ncontext->tracker_ptr = listener_tracker\ncontext->active_tracker = listener_tracker + 16\ncontext->finalizer_list = NULL",
+      "claims": [
+        {
+          "statement": "Associates the provided document handle with the context at initialization time",
+          "evidence_addresses": [
+            "006cbba2"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "005842e0",
+          "contract": "Prepares a listener notification tracker attached to a document",
+          "evidence_addresses": [
+            "006cbbac"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "0037bc80",
+          "contract": "Returns a zero-initialized heap block of fixed size",
+          "evidence_addresses": [
+            "006cbbbe"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "006d6f10",
+          "contract": "Configures a structured listener object for document events",
+          "evidence_addresses": [
+            "006cbbe8"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "How the context interacts with table mutations like sorting or inserting rows/columns",
+        "When and how the stored token array gets evaluated during listening phases",
+        "The precise lifetime management rules for allocated context components",
+        "Whether multiple entries imply reused contexts or independent instances"
+      ],
+      "evidence_requests": [
+        "Cross-reference logs confirming correlation between context entry and sheet modifications",
+        "Memory layout and interface documentation for the listener tracker structure",
+        "Full prototype and behavior of all three called functions"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "The instruction at address 006cbba2 performs MOV qword ptr [RDI], RSI, which directly associates the second parameter (RSI, representing the document handle) with the first parameter's memory location (RDI, the context). This stores the document handle at the beginning of the context object pointed to by RDI. No contradictory control flow or alternate assignments to this location exist within the function.",
+          "evidence_addresses": [
+            "006cbba2"
+          ]
+        }
+      ],
+      "missing_behavior": [],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "006cbe60",
+    "name": "sc::EndListeningContext::purgeEmptyBroadcasters()",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "One implicit parameter: a pointer to an object instance (this pointer).",
+      "outputs": "None (void return type).",
+      "state": "Internal broadcaster registry and listener context within the object.",
+      "side_effects": "Mutates internal broadcaster state by removing inactive entries.",
+      "errors": "Calls error handling function at 0x006cbedd if stack canary check fails at 0x006cbed2.",
+      "pseudocode": "initialize_broadcast_context()\nprocess_registered_broadcasters()\nif (no_secondary_cleanup_required):\n    finalize_cleanup()\nelse:\n    release_allocated_memory()\nif (stack_integrity_violated):\n    trigger_error_path()",
+      "claims": [
+        {
+          "statement": "If the stack integrity check fails after execution, control transfers to an error routine.",
+          "evidence_addresses": [
+            "006cbed2",
+            "006cbedd"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "func_0x006cbd20",
+          "contract": "Initializes broadcast processing context using object state.",
+          "evidence_addresses": [
+            "006cbe8b"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x00584300",
+          "contract": "Processes broadcasters registered in the input object's primary list.",
+          "evidence_addresses": [
+            "006cbe9a"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x005842a0",
+          "contract": "Finalizes context cleanup upon successful broadcaster processing.",
+          "evidence_addresses": [
+            "006cbec0"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZdlPvm",
+          "contract": "Deallocates memory previously allocated for broadcasting operations.",
+          "evidence_addresses": [
+            "006cbeb8"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "func_0x00374ed0",
+          "contract": "Handles exceptional conditions arising during broadcaster maintenance.",
+          "evidence_addresses": [
+            "006cbedd"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "The logical precondition for invoking the conditional memory deallocation.",
+        "How the initialized context correlates with active versus inactive broadcasters.",
+        "Whether all registered broadcasters are uniformly processed or filtered.",
+        "The specific role of the constant 0x1304260 as a sentinel or type identifier.",
+        "Whether execution order among subroutines impacts externally visible outcomes.",
+        "If the error case permits recovery or results in system termination.",
+        "The available evidence does not establish the caller-visible effects of the omitted implementation mechanics."
+      ],
+      "evidence_requests": [
+        "Source-level semantics or calling conventions for func_0x006cbd20.",
+        "Definition of data structures used by func_0x00584300 during broadcaster enumeration.",
+        "Symbolic constants associated with address 0x1304260 and its contextual usage.",
+        "Specification detailing when conditional branch at 0x006cbeb1 evaluates true.",
+        "Inspect the called functions and execute original cases that expose the returned value and state changes."
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "The stack integrity check is performed by comparing the saved stack canary value with the current value loaded from FS:[0x28]. If they differ, the JNZ instruction at 006cbed2 branches to 006cbedd, which calls an external function 0x00374ed0 before transferring control flow elsewhere via an indirect jump. This confirms that a failed stack integrity check leads to an error handling routine.",
+          "evidence_addresses": [
+            "006cbe7c",
+            "006cbe85",
+            "006cbec5",
+            "006cbec9",
+            "006cbed2",
+            "006cbedd"
+          ]
+        }
+      ],
+      "missing_behavior": [],
+      "unresolved": []
+    }
+  },
+  {
+    "entry": "00927350",
+    "name": "sc::AutoCalcSwitch::AutoCalcSwitch(ScDocument&, bool)",
+    "model": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
+    "draft": {
+      "inputs": "Three parameters: a pointer to an AutoCalcSwitch object, a pointer to a ScDocument instance, and a single byte flag controlling calculation state",
+      "outputs": "No return value; initializes AutoCalcSwitch and conditionally affects calculation state",
+      "state": "Tracks original calculation mode and manages temporary calculation switches within ScDocument",
+      "side_effects": "When calculation is re-enabled and document is marked dirty, triggers selective or full document recalculation",
+      "errors": "No explicit error paths observed in execution flow",
+      "pseudocode": "INIT_AUTOCALCSWITCH(object, document, new_calc_flag) { object->document_ref = document; object->saved_calc_flag = document->calc_enabled; IF (saved_calc_flag != 1 AND new_calc_flag != 0 AND document->recalc_needed != 0) calc_and_refresh_cells(document); document->calc_enabled = new_calc_flag; }",
+      "claims": [
+        {
+          "statement": "Records the initial calculation enablement state from the document before modifying it",
+          "evidence_addresses": [
+            "00927354",
+            "00927367"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Saves the incoming document reference directly into the AutoCalcSwitch object for later restoration",
+          "evidence_addresses": [
+            "00927361"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        },
+        {
+          "statement": "Changes the live calculation flag inside the referenced ScDocument structure",
+          "evidence_addresses": [
+            "00927364",
+            "0092736a"
+          ],
+          "assumptions": [],
+          "alternatives": []
+        }
+      ],
+      "dependencies": [
+        {
+          "target": "_ZNSt16_Sp_counted_baseILN9__gnu_cxx12_Lock_policyE2EE24_M_release_last_use_coldEv",
+          "contract": "Handles cleanup of shared resources when reference count reaches zero",
+          "evidence_addresses": [
+            "005d1d20"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN10ScDocument7CalcAllEv",
+          "contract": "Executes comprehensive recalculation across entire spreadsheet data model",
+          "evidence_addresses": [
+            "005d1d20"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN13ScFormulaCell11SetDirtyVarEv",
+          "contract": "Flags individual formula cells requiring deferred update processing",
+          "evidence_addresses": [
+            "005d1d20"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN13ScFormulaCell8SetDirtyEb",
+          "contract": "Marks specific formula entries for upcoming value resolution",
+          "evidence_addresses": [
+            "005d1d20"
+          ],
+          "assumptions": []
+        },
+        {
+          "target": "_ZN13ScFormulaCell9InterpretEii",
+          "contract": "Initiates real-time computation and valuation of a cell's content",
+          "evidence_addresses": [
+            "005d1d20"
+          ],
+          "assumptions": []
+        }
+      ],
+      "unknowns": [
+        "Whether partial or complete calculation occurs under different document states",
+        "Timing and scope of side effect execution relative to constructor completion",
+        "Conditions governing persistence of intermediate calculation flags beyond function exit"
+      ],
+      "evidence_requests": [
+        "Trace logs capturing sequence of calculations triggered by this function",
+        "Document structure snapshots showing pre- and post-constructor flag values",
+        "Coverage map identifying caller contexts invoking this constructor during table mutations"
+      ]
+    },
+    "review": {
+      "reviews": [
+        {
+          "claim_index": 0,
+          "outcome": "supported_static",
+          "reason": "The instruction at 00927354 loads the byte from offset 0x5f4 of the ScDocument structure into ECX (MOVZX ECX,byte ptr [RSI + 0x5f4]). Later, at 00927367, this value is stored into the AutoCalcSwitch object at offset 0x8 (MOV byte ptr [RAX + 0x8],CL). This confirms that the initial calculation enablement state is recorded before being modified.",
+          "evidence_addresses": [
+            "00927354",
+            "00927367"
+          ]
+        },
+        {
+          "claim_index": 1,
+          "outcome": "supported_static",
+          "reason": "At address 00927361, the second parameter (RSI, representing the ScDocument pointer) is saved directly into the first field of the AutoCalcSwitch object (pointed to by RAX) via MOV qword ptr [RAX],RSI. This aligns with saving the document reference for later use.",
+          "evidence_addresses": [
+            "00927361"
+          ]
+        },
+        {
+          "claim_index": 2,
+          "outcome": "supported_static",
+          "reason": "Instruction at 00927364 moves the third parameter (DL, representing param_3) into ESI after zero-extension (MOVZX ESI,DL), and a subsequent jump leads to code that modifies the byte at offset 0x5f4 within the ScDocument. Although the actual modification occurs in called functions beyond this snippet, the preparation logic is evident starting here.",
+          "evidence_addresses": [
+            "00927364",
+            "0092736a"
+          ]
+        }
+      ],
+      "missing_behavior": [],
+      "unresolved": []
+    }
+  }
+]

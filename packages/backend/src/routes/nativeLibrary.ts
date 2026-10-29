@@ -7,9 +7,12 @@ import { writeNativeDraft } from "../spec/nativeDraft.js";
 import { openSse } from "../http/sse.js";
 import { formatLlmError } from "../llm/llm.js";
 import { config } from "../config.js";
+import { createCalcIntakeRequest } from "../recombination/calcImplementation.js";
+import type { RecombinationService } from "../recombination/service.js";
 
 export function nativeLibraryRouter(store: NativeLibraryStore | null = nativeLibraryStore(), writer = writeNativeDraft,
-  options: { timeoutMs?: number; modelEnabled?: boolean; discover?: typeof discoverCapabilities; discoveryTimeoutMs?: number } = {}): Router {
+  options: { timeoutMs?: number; modelEnabled?: boolean; discover?: typeof discoverCapabilities; discoveryTimeoutMs?: number } = {},
+  recombinationService?: RecombinationService): Router {
   const router = Router();
   // One backend process owns the current Studio worker; extraction and discovery share this per-analysis lock.
   const active = new Set<string>();
@@ -24,6 +27,17 @@ export function nativeLibraryRouter(store: NativeLibraryStore | null = nativeLib
     if (!store) return res.status(503).json({ error: "S3 library is not configured" });
     try { return res.json({ feature: await store.addFeature(parsed.data) }); }
     catch (error) { return res.status((error as Error).name === "NoSuchKey" ? 404 : 503).json({ error: (error as Error).message }); }
+  });
+  router.post("/api/library/features/:id/intake", async (req, res) => {
+    if (!store) return res.status(503).json({ error: "S3 library is not configured" });
+    if (!recombinationService) return res.status(503).json({ error: "Recombination service is not configured" });
+    try {
+      const intakeRequest = await createCalcIntakeRequest(req.params.id, store);
+      const result = await recombinationService.intake(intakeRequest);
+      return res.status(201).json(result);
+    } catch (error) {
+      return res.status(500).json({ error: (error as Error).message });
+    }
   });
   router.get("/api/library", async (_req, res) => {
     if (!store) return res.json({ enabled: false, analyses: [], blocks: [] });
