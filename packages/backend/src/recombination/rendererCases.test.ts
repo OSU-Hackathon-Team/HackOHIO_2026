@@ -49,9 +49,9 @@ test("fixture live preview can hide markers while saved-document verification pr
     const page = await browser.newPage();
     await page.setContent(`<div id="editor" contenteditable="true"></div><button id="read">Read</button><div id="output" hidden></div>
       <script>window.savedDoc='';const editor=document.querySelector('#editor');
-      editor.addEventListener('input',()=>{window.savedDoc=editor.innerText;editor.replaceChildren();
-      const hidden=document.createElement('span');hidden.hidden=true;hidden.textContent=window.savedDoc.slice(0,2);
-      editor.append(hidden,document.createTextNode(window.savedDoc.slice(2)));});
+      editor.addEventListener('input',()=>{const pending=editor.innerText;setTimeout(()=>{window.savedDoc=pending;},2200);editor.replaceChildren();
+      const hidden=document.createElement('span');hidden.hidden=true;hidden.textContent=pending.slice(0,2);
+      editor.append(hidden,document.createTextNode(pending.slice(2)));});
       document.querySelector('#read').onclick=()=>{const output=document.querySelector('#output');output.hidden=false;
       output.innerHTML='<h1></h1>';output.querySelector('h1').textContent=window.savedDoc.slice(2);};</script>`);
     const result = await captureRendererCase(page, { case_id: "fixture-hidden-syntax", markdown: "# Heading", input_selector: "#editor",

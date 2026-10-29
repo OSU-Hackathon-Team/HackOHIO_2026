@@ -88,14 +88,15 @@ export async function captureRendererCase(page: Page, raw: unknown, options: { r
   } else await editor.fill(input.markdown);
   const requested = options.readDocument ? input.markdown : input.markdown.replaceAll("\r\n", "\n");
   let actual = "", matches = 0;
-  for (let attempt = 0; attempt < 12 && matches < 2; attempt++) {
+  const inputAttempts = options.readDocument ? 60 : 12;
+  for (let attempt = 0; attempt < inputAttempts && matches < 2; attempt++) {
     await page.waitForTimeout(150);
     try {
       const value = options.readDocument ? await options.readDocument() : await editor.evaluate((node: any) =>
         ["INPUT", "TEXTAREA"].includes(node.tagName) ? node.value : node.innerText);
       actual = options.readDocument ? value : value.replaceAll("\r\n", "\n");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT" || attempt === 11) throw error;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT" || attempt === inputAttempts - 1) throw error;
       actual = ""; matches = 0;
       continue;
     }
