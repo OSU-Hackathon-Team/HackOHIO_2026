@@ -342,6 +342,7 @@ export class FilesystemRecombinationService implements RecombinationService {
         if (signal?.aborted) throw new Error("Application build was cancelled");
         const scenarioDir = fs.mkdtempSync(path.join(os.tmpdir(), "splice-composition-scenario-"));
         let state = openStateStore(scenarioDir);
+        initializeDocuments(state, plan);
         let calls = 0;
         let assertions = 0;
         let successfulInvocations = 0;
@@ -377,7 +378,9 @@ export class FilesystemRecombinationService implements RecombinationService {
               const definition = plan.documents.find((document) => document.id === step.document && document.owner_instance === null);
               if (!definition) throw new Error(`Scenario ${scenario.id} cannot edit document ${step.document}`);
               const current = state.getDocument(step.document);
-              const value = current?.data && typeof current.data === "object" && !Array.isArray(current.data) ? structuredClone(current.data) as Record<string, unknown> : {};
+              const value = current?.data && typeof current.data === "object" && !Array.isArray(current.data)
+                ? structuredClone(current.data) as Record<string, unknown>
+                : structuredClone(definition.initial as Record<string, unknown> ?? {});
               writePath(value, step.path, step.value);
               state.putDocument(step.document, encodeWireValue(definition.schema, value), current?.revision ?? null);
             } else if (step.kind === "assert_document") {
