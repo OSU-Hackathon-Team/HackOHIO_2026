@@ -16,7 +16,7 @@ import { buildRendererPublicHandoff } from "./rendererPublicHandoff.js";
 import { hashJson } from "../capabilities/identity.js";
 import { fromElectronContract } from "../capabilities/fromElectronContract.js";
 
-const MAX_REPAIRS = 2;
+const MAX_REPAIRS = 3;
 
 export const RendererImplementationReport = z.object({
   schema: z.literal(1),
@@ -169,7 +169,7 @@ The renderer must parse and render:
 
 The editMarkdown function must update the document string and return { markdown, html }.
 - If action === "replace", new markdown is text.
-- If action === "append", new markdown is doc + text.
+- If action === "append", new markdown is doc + text. (Do not add any newline or extra characters; strictly concatenate doc + text).
 - Return { markdown: newMarkdown, html: renderMarkdown(newMarkdown).html }.
 
 CRITICAL RULES:
