@@ -368,8 +368,8 @@ export function createRendererIntakeRequest(
     requires: [],
     state: { ownership: "package", durable: false, schema: null, migrations: [] },
     lifecycle: { start_operation: null, dispose_operation: null, restart_policy: "on_crash" },
-    host_effects: [{ effect: "renderer_dom", scope: "document", reason: "Displays rendered Markdown HTML" }],
-    assumptions: ["UTF-8 encoded Markdown input"],
+    host_effects: [],
+    assumptions: ["UTF-8 encoded Markdown input", "The renderer returns HTML for a trusted host view to insert"],
     preferred_runtime: "ts_worker",
     public_tests: [
       {
