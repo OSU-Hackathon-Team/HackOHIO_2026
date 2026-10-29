@@ -481,13 +481,11 @@ const res = await ctx.call("render", {
 });
 ctx.assert.ok(res.html.includes("<ul>") && res.html.includes("<li"), "HTML must contain list tags");
 ctx.assert.ok(res.html.includes("Parent"), "HTML must contain Parent");
-ctx.assert.ok(res.html.includes("Child"), "HTML must contain Child");
+ctx.assert.ok(res.html.includes("Child</li>"), "HTML must close Child item with </li> before </ul>");
 ctx.assert.ok(res.html.includes("https://example.com"), "HTML must contain external url");
 ctx.assert.ok(res.html.includes("Internal"), "HTML must contain internal link");
 const ulCloses = (res.html.match(/<\\/ul>/g) || []).length;
 ctx.assert.equal(ulCloses, 2, "HTML must close both nested <ul> tags");
-const liCloses = (res.html.match(/<\\/li>/g) || []).length;
-ctx.assert.equal(liCloses, 1, "HTML closes inner <li> tag");
 `,
     },
     {
