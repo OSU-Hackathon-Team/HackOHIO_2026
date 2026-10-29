@@ -370,7 +370,7 @@ export async function createCalcIntakeRequest(
   const textWire: any = { kind: "string", encoding: "utf-8", max_bytes: 50000 };
   const float64: any = { kind: "float", bits: 64 };
   const int32: any = { kind: "int", bits: 32, signed: true };
-  const boolWire: any = { kind: "boolean" };
+  const boolWire: any = { kind: "bool" };
   const cellMap: any = { kind: "map", values: { kind: "string", encoding: "utf-8", max_bytes: 5000 }, max_entries: 2048 };
   const gridWire: any = { kind: "array", items: { kind: "array", items: textWire, max_items: 100, ordered: true }, max_items: 500, ordered: true };
 
