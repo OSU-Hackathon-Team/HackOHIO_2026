@@ -528,10 +528,18 @@ export async function createCalcIntakeRequest(
       code: `
 const r1 = await ctx.call("evaluate", { formula: "=5=5", cells: {} });
 ctx.assert.equal(r1.value, 1, "REQ-1: 5=5 pushes 1.0");
+const r1b = await ctx.call("evaluate", { formula: "=5==5", cells: {} });
+ctx.assert.equal(r1b.value, 1, "5==5 pushes 1.0");
+const rGt = await ctx.call("evaluate", { formula: "=10>2", cells: {} });
+ctx.assert.equal(rGt.value, 1, "10>2 pushes 1.0");
 const r2 = await ctx.call("evaluate", { formula: "=2>10", cells: {} });
 ctx.assert.equal(r2.value, 0, "REQ-2: 2>10 pushes 0.0");
 const r3 = await ctx.call("evaluate", { formula: "=4<=4", cells: {} });
 ctx.assert.equal(r3.value, 1, "REQ-3: 4<=4 pushes 1.0");
+const rLt = await ctx.call("evaluate", { formula: "=2<10", cells: {} });
+ctx.assert.equal(rLt.value, 1, "2<10 pushes 1.0");
+const rGe = await ctx.call("evaluate", { formula: "=10>=2", cells: {} });
+ctx.assert.equal(rGe.value, 1, "10>=2 pushes 1.0");
 `,
     },
     {
