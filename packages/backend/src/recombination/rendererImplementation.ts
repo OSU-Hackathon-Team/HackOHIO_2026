@@ -466,6 +466,7 @@ const res = await ctx.call("render", {
   markdown: "\`\`\`javascript\\nconsole.log('hi');\\n\`\`\`\\n> [!NOTE]\\n> This is a callout."
 });
 ctx.assert.ok(res.html.includes("<pre>") || res.html.includes("<pre "), "HTML must contain <pre>");
+ctx.assert.equal((res.html.match(/<pre\b/g) || []).length, 1, "Must contain exactly one <pre> code block");
 ctx.assert.ok(res.html.includes("console.log"), "HTML must contain code content");
 ctx.assert.ok(res.html.includes("callout") || res.html.includes("note"), "HTML must contain callout");
 ctx.assert.ok(res.html.includes("This is a callout"), "HTML must contain callout content");
