@@ -13,6 +13,8 @@ import recallBpJson from "../../../../../fixtures/hand-authored/blueprints/recal
 import studyRoomBundleJson from "../../../../../fixtures/bundles/_seed/study-room.json";
 import mockPrioritySpecJson from "../../../../../fixtures/specs/_seed/mockpriority.priority_score.json";
 import mockPriorityBpJson from "../../../../../fixtures/blueprints/_seed/mockpriority.priority_score.json";
+import { demoMode } from "../../demo/mode";
+import { DEMO_TARGETS, DEMO_FEATURES } from "../../demo/fixtures";
 
 export interface AppFlowStep {
   stepNumber: string;
@@ -184,7 +186,7 @@ export type FeatureReadiness = "verified" | "sample" | "needs_review" | "blocked
 
 export interface IdeFeatureRecord {
   featureId: string;
-  builderId: "wiki-links" | "spaced-review" | "fuzzy-search" | "cloud-sync";
+  builderId: "wiki-links" | "spaced-review" | "fuzzy-search" | "cloud-sync" | "obsidian-editor" | "calc-tables";
   targetId: string;
   title: string;
   sourceApp: string;
@@ -298,7 +300,7 @@ export const mockNativeSpec: NativeSubsystemSpec = {
   } as any),
 };
 
-export const IDE_TARGETS: DecompiledTarget[] = [
+const SEED_TARGETS: DecompiledTarget[] = [
   {
     id: "inkwell",
     name: "Inkwell Notes",
@@ -470,7 +472,9 @@ export const IDE_TARGETS: DecompiledTarget[] = [
   },
 ];
 
-export const IDE_FEATURES: IdeFeatureRecord[] = [
+export const IDE_TARGETS: DecompiledTarget[] = demoMode ? DEMO_TARGETS : SEED_TARGETS;
+
+const SEED_FEATURES: IdeFeatureRecord[] = [
   {
     featureId: "inkwell.wikilink_graph",
     builderId: "wiki-links",
@@ -768,3 +772,5 @@ export const IDE_FEATURES: IdeFeatureRecord[] = [
   },
 ];
 
+
+export const IDE_FEATURES: IdeFeatureRecord[] = demoMode ? DEMO_FEATURES : SEED_FEATURES;

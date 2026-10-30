@@ -33,6 +33,7 @@ import { SavedBuildingBlocksWorkspace, type SavedLibrarySelection } from "./Save
 import { cn } from "../lib/cn";
 import { api, developmentMode } from "../api/client";
 import { mockApi } from "../api/mock";
+import { demoMode } from "../demo/mode";
 import type { FeatureSpec, FeatureBlueprint, NativeSubsystemSpec, NativeExtraction } from "@splice/contracts";
 import { useEffect } from "react";
 
@@ -53,7 +54,7 @@ export function AppLibrary() {
   const liveFeatures = useIdeStore((s) => s.liveNativeFeatures);
   const allTargets = [...IDE_TARGETS, ...liveTargets];
   const allFeatures = [...IDE_FEATURES, ...liveFeatures];
-  useEffect(() => { void useIdeStore.getState().loadLiveNativeSpecs(); }, []);
+  useEffect(() => { if (!demoMode) void useIdeStore.getState().loadLiveNativeSpecs(); }, []);
   const feature = allFeatures.find((f) => f.featureId === selectedId);
   const target = allTargets.find((a) => a.id === feature?.targetId);
   const isNativeTarget = target?.engineKind === "ghidra_native";
@@ -329,8 +330,8 @@ export function AppLibrary() {
                 {feature.everydayBenefit}
               </p>
 
-              {/* Native Reconstruction Action Box */}
-              {isNativeTarget ? (
+              {/* Clean-room reconstruction action box (any target with a behavioral spec) */}
+              {target?.nativeSpec ? (
                 <div className="my-6 rounded-xl border border-indigo-900/60 bg-indigo-950/30 p-5">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
@@ -338,7 +339,7 @@ export function AppLibrary() {
                         Clean-Room Engine Reconstruction
                       </h3>
                       <p className="mt-1 text-xs text-indigo-300/80">
-                        Adapt native behavioral spec to FeatureSpec and synthesize a portable TypeScript engine.
+                        Adapt the behavioral spec into a FeatureSpec and synthesize a portable TypeScript engine.
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -367,9 +368,9 @@ export function AppLibrary() {
                       </WorkspaceButton>
                       {(reconstructedBp || included.includes(feature.featureId)) && (
                         <WorkspaceButton
-                          onPress={() => useIdeStore.getState().setWorkspacePage("pipeline")}
+                          onPress={() => useIdeStore.getState().setWorkspacePage(demoMode ? "app" : "pipeline")}
                         >
-                          Preview in Sandbox <ArrowUpRight className="size-4" />
+                          {demoMode ? "Open my app" : "Preview in Sandbox"} <ArrowUpRight className="size-4" />
                         </WorkspaceButton>
                       )}
                     </div>
@@ -400,7 +401,7 @@ export function AppLibrary() {
                       {reconstructTests && (
                         <div className="mt-2 flex items-center gap-2 text-xs text-emerald-400">
                           <CheckCircle2 className="size-3.5" />
-                          <span>Acceptance Tests: {reconstructTests.passed} / {reconstructTests.total} passed</span>
+                          <span>Checks: {reconstructTests.passed} / {reconstructTests.total} passed</span>
                         </div>
                       )}
                       {reconstructError && (

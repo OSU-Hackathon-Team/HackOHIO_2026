@@ -49,3 +49,20 @@ test("raw HTML is neutralized outside code fences only", () => {
   assert.equal(neutralizeHtml("# <img onerror=x>"), "# &lt;img onerror=x>");
   assert.equal(neutralizeHtml("```js\nif (a < b) {}\n```"), "```js\nif (a < b) {}\n```");
 });
+
+import { PipelineEvent } from "@splice/contracts";
+import { playDemoRun, demoSpec } from "../src/demo/script";
+import { DEMO_FEATURES } from "../src/demo/fixtures";
+
+test("scripted runs emit valid pipeline events and end with a passing blueprint", async () => {
+  for (const feature of DEMO_FEATURES) {
+    const events: PipelineEvent[] = [];
+    await playDemoRun(demoSpec(feature.featureId), (e) => events.push(PipelineEvent.parse(e)), undefined, 10_000);
+    const blueprint = events.find((e) => e.type === "blueprint");
+    assert.ok(blueprint && blueprint.type === "blueprint");
+    const v = blueprint.blueprint.verification;
+    assert.equal(v.status, "passed"); assert.ok(v.total > 0); assert.equal(v.passed, v.total);
+    assert.equal(events.filter((e) => e.type === "test_result").length, v.total);
+    assert.deepEqual(events.at(-1), { ...events.at(-1), type: "done", ok: true });
+  }
+});

@@ -9,6 +9,7 @@ import {
 import { z } from "zod";
 import { streamGet, streamPost } from "./sse";
 import { mockApi } from "./mock";
+import { demoMode } from "../demo/mode";
 
 export interface Api {
   library?(signal?: AbortSignal): Promise<NativeLibrary>;
@@ -185,6 +186,7 @@ export const liveApi: Api = {
 };
 
 export const developmentMode =
+  demoMode ||
   (import.meta as any).env?.VITE_API_MODE === "mock" ||
   (typeof location !== "undefined" && new URLSearchParams(location.search).get("mode") === "development");
 
