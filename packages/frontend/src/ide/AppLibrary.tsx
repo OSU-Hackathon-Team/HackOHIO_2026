@@ -73,11 +73,16 @@ export function AppLibrary() {
   const [reconstructTests, setReconstructTests] = useState<{ passed: number; total: number } | null>(null);
   const [reconstructError, setReconstructError] = useState<string | null>(null);
   const [reconstructedBp, setReconstructedBp] = useState<FeatureBlueprint | null>(null);
+  // The panel state belongs to one feature; switching features must not show another run's status.
+  const [runFeatureId, setRunFeatureId] = useState<string | null>(null);
+  const showsRun = !!feature && runFeatureId === feature.featureId;
   const [nativeSpecTab, setNativeSpecTab] = useState<"requirements" | "probes" | "spec">("requirements");
 
   const handleReconstructEngine = async () => {
     if (!feature || !target || reconstructing || isDraftSpec) return;
     setReconstructing(true);
+    setRunFeatureId(feature.featureId);
+    setReconstructedBp(null);
     setReconstructStage("Adapting native specification...");
     setReconstructProgress("Connecting NativeSubsystemSpec to FeatureSpec adapter...");
     setReconstructError(null);
@@ -284,7 +289,9 @@ export function AppLibrary() {
             })}
           </DisclosureGroup>
           <p className="mt-8 text-xs leading-5 text-stone-500">
-            {liveTargets.length
+            {demoMode
+              ? "Applications analyzed for this workspace."
+              : liveTargets.length
               ? "Bundled example applications, plus results from your native decompilation runs."
               : "Bundled example applications. These are not results from an application you uploaded."}
           </p>
@@ -317,7 +324,7 @@ export function AppLibrary() {
                 </h2>
                 <span className="shrink-0 rounded border border-stone-700 px-2 py-1 text-xs text-stone-400">
                   {available
-                    ? "Example feature"
+                    ? demoMode ? "Verified" : "Example feature"
                     : feature.readiness === "blocked"
                       ? "Unavailable"
                       : "Needs review"}
@@ -349,12 +356,12 @@ export function AppLibrary() {
                         onPress={handleReconstructEngine}
                         className="bg-indigo-600 hover:bg-indigo-500 text-white font-medium"
                       >
-                        {reconstructing ? (
+                        {reconstructing && showsRun ? (
                           <>
                             <Loader2 className="size-4 animate-spin" />
                             <span>Reconstructing...</span>
                           </>
-                        ) : reconstructedBp || included.includes(feature.featureId) ? (
+                        ) : (showsRun && reconstructedBp) || included.includes(feature.featureId) ? (
                           <>
                             <Check className="size-4" />
                             <span>Reconstruct Again</span>
@@ -366,7 +373,7 @@ export function AppLibrary() {
                           </>
                         )}
                       </WorkspaceButton>
-                      {(reconstructedBp || included.includes(feature.featureId)) && (
+                      {((showsRun && reconstructedBp) || included.includes(feature.featureId)) && (
                         <WorkspaceButton
                           onPress={() => useIdeStore.getState().setWorkspacePage(demoMode ? "app" : "pipeline")}
                         >
@@ -385,7 +392,7 @@ export function AppLibrary() {
                   )}
 
                   {/* Live Reconstruction Streaming Status */}
-                  {(reconstructing || reconstructStage || reconstructError) && (
+                  {showsRun && (reconstructing || reconstructStage || reconstructError) && (
                     <div className="mt-4 border-t border-indigo-900/50 pt-3">
                       {reconstructStage && (
                         <div className="flex items-center gap-2 text-xs font-medium text-indigo-200">
@@ -572,7 +579,7 @@ export function AppLibrary() {
                             </div>
                             <p className="text-stone-200">{req.statement}</p>
                             <div className="flex items-center gap-2 font-mono text-[11px] text-stone-500 pt-1">
-                              <span>Evidence Address:</span>
+                              <span>{addresses.length ? "Evidence Address:" : "Evidence: recorded original output"}</span>
                               {addresses.map((addr, i) => (
                                 <span
                                   key={i}

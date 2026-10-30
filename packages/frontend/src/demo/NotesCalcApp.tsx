@@ -7,7 +7,7 @@ import { cn } from "../lib/cn";
 import { renderMarkdown } from "./engines/obsidianRenderer";
 import { CALC_FEATURE, OBSIDIAN_FEATURE } from "./fixtures";
 import {
-  applyTableOp, colName, evaluateGrid, hasFormulas, joinNote, neutralizeHtml, splitNote,
+  applyTableOp, colName, evaluateGrid, hasFormulas, joinNote, neutralizeHtml, serializeGrid, splitNote,
   type Grid, type Segment, type TableAction,
 } from "./notesDocument";
 
@@ -31,7 +31,7 @@ export function NotesCalcApp() {
   }
 
   const note = s.notes.find((n) => n.id === s.selectedNoteId) ?? s.notes[0];
-  const segments: Segment[] = hasCalc ? splitNote(note.body) : [{ kind: "markdown", text: note.body }];
+  const segments: Segment[] = splitNote(note.body);
   const updateTable = (index: number, grid: Grid) =>
     s.updateNote(note.id, note.title, joinNote(segments.map((seg, i) => (i === index ? { kind: "calc", grid } : seg))));
 
@@ -87,8 +87,11 @@ export function NotesCalcApp() {
                 seg.kind === "markdown" ? (
                   <div key={i} className="obsidian-preview" onClick={followLink}
                     dangerouslySetInnerHTML={{ __html: renderMarkdown(neutralizeHtml(seg.text)).html }} />
-                ) : (
+                ) : hasCalc ? (
                   <CalcTable key={i} grid={seg.grid} onChange={(grid) => updateTable(i, grid)} />
+                ) : (
+                  // Without the Calc engine a table is plain source; the run-2 renderer would apply *…* italics inside it.
+                  <pre key={i} className="my-4 overflow-x-auto rounded-md bg-[#262626] p-4 font-mono text-sm text-[#e6c07b]">{serializeGrid(seg.grid)}</pre>
                 ),
               )
             )}
