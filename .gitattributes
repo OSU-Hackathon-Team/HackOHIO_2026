@@ -10,3 +10,6 @@ scripts/ec2_lo_trial_bootstrap.sh text eol=lf
 
 # Worker scripts are sent to Linux and run under Bash.
 infra/**/*.sh text eol=lf
+
+# Run-2 engines are hash-pinned to the recorded export's splice.lock.json.
+packages/frontend/src/demo/engines/*.ts text eol=lf
