@@ -9,6 +9,7 @@ import studyRoom from "../../../../fixtures/bundles/_seed/study-room.json";
 
 const mockHex64 = "0".repeat(64);
 import { mockNativeSpec } from "../ide/data/ideFixtures";
+import { demoSpec, isDemoFeature, playDemoRun } from "../demo/script";
 
 import mockPrioritySpecJson from "../../../../fixtures/specs/_seed/mockpriority.priority_score.json";
 import mockPriorityBpJson from "../../../../fixtures/blueprints/_seed/mockpriority.priority_score.json";
@@ -43,6 +44,7 @@ export const mockApi: Api = {
     on({ type: "done", run_id, feature_id: featureId, ts: Date.now(), ok: true, replayed: true });
   },
   async implement(spec, on, signal) {
+    if (isDemoFeature(spec.feature_id)) return playDemoRun(spec, on, signal);
     const blueprint = blueprints.find(b => b.feature_id === spec.feature_id);
     if (!blueprint) throw new Error("No locally checked development engine for this feature.");
     const run_id = `development-${++sequence}`, base = { run_id, feature_id: spec.feature_id };
@@ -107,6 +109,7 @@ export const mockApi: Api = {
   },
   async adaptNativeSpec(req) {
     await pause();
+    if (isDemoFeature(req.feature_id)) return demoSpec(req.feature_id!);
     return {
       ...mockPrioritySpec,
       feature_id: req.feature_id ?? mockPrioritySpec.feature_id,

@@ -33,6 +33,7 @@ import { SavedBuildingBlocksWorkspace, type SavedLibrarySelection } from "./Save
 import { cn } from "../lib/cn";
 import { api, developmentMode } from "../api/client";
 import { mockApi } from "../api/mock";
+import { demoMode } from "../demo/mode";
 import type { FeatureSpec, FeatureBlueprint, NativeSubsystemSpec, NativeExtraction } from "@splice/contracts";
 import { useEffect } from "react";
 
@@ -53,7 +54,7 @@ export function AppLibrary() {
   const liveFeatures = useIdeStore((s) => s.liveNativeFeatures);
   const allTargets = [...IDE_TARGETS, ...liveTargets];
   const allFeatures = [...IDE_FEATURES, ...liveFeatures];
-  useEffect(() => { void useIdeStore.getState().loadLiveNativeSpecs(); }, []);
+  useEffect(() => { if (!demoMode) void useIdeStore.getState().loadLiveNativeSpecs(); }, []);
   const feature = allFeatures.find((f) => f.featureId === selectedId);
   const target = allTargets.find((a) => a.id === feature?.targetId);
   const isNativeTarget = target?.engineKind === "ghidra_native";
@@ -72,11 +73,16 @@ export function AppLibrary() {
   const [reconstructTests, setReconstructTests] = useState<{ passed: number; total: number } | null>(null);
   const [reconstructError, setReconstructError] = useState<string | null>(null);
   const [reconstructedBp, setReconstructedBp] = useState<FeatureBlueprint | null>(null);
+  // The panel state belongs to one feature; switching features must not show another run's status.
+  const [runFeatureId, setRunFeatureId] = useState<string | null>(null);
+  const showsRun = !!feature && runFeatureId === feature.featureId;
   const [nativeSpecTab, setNativeSpecTab] = useState<"requirements" | "probes" | "spec">("requirements");
 
   const handleReconstructEngine = async () => {
     if (!feature || !target || reconstructing || isDraftSpec) return;
     setReconstructing(true);
+    setRunFeatureId(feature.featureId);
+    setReconstructedBp(null);
     setReconstructStage("Adapting native specification...");
     setReconstructProgress("Connecting NativeSubsystemSpec to FeatureSpec adapter...");
     setReconstructError(null);
@@ -283,7 +289,9 @@ export function AppLibrary() {
             })}
           </DisclosureGroup>
           <p className="mt-8 text-xs leading-5 text-stone-500">
-            {liveTargets.length
+            {demoMode
+              ? "Applications analyzed for this workspace."
+              : liveTargets.length
               ? "Bundled example applications, plus results from your native decompilation runs."
               : "Bundled example applications. These are not results from an application you uploaded."}
           </p>
@@ -316,7 +324,7 @@ export function AppLibrary() {
                 </h2>
                 <span className="shrink-0 rounded border border-stone-700 px-2 py-1 text-xs text-stone-400">
                   {available
-                    ? "Example feature"
+                    ? demoMode ? "Verified" : "Example feature"
                     : feature.readiness === "blocked"
                       ? "Unavailable"
                       : "Needs review"}
@@ -329,8 +337,8 @@ export function AppLibrary() {
                 {feature.everydayBenefit}
               </p>
 
-              {/* Native Reconstruction Action Box */}
-              {isNativeTarget ? (
+              {/* Clean-room reconstruction action box (any target with a behavioral spec) */}
+              {target?.nativeSpec ? (
                 <div className="my-6 rounded-xl border border-indigo-900/60 bg-indigo-950/30 p-5">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div>
@@ -338,7 +346,7 @@ export function AppLibrary() {
                         Clean-Room Engine Reconstruction
                       </h3>
                       <p className="mt-1 text-xs text-indigo-300/80">
-                        Adapt native behavioral spec to FeatureSpec and synthesize a portable TypeScript engine.
+                        Adapt the behavioral spec into a FeatureSpec and synthesize a portable TypeScript engine.
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -348,12 +356,12 @@ export function AppLibrary() {
                         onPress={handleReconstructEngine}
                         className="bg-indigo-600 hover:bg-indigo-500 text-white font-medium"
                       >
-                        {reconstructing ? (
+                        {reconstructing && showsRun ? (
                           <>
                             <Loader2 className="size-4 animate-spin" />
                             <span>Reconstructing...</span>
                           </>
-                        ) : reconstructedBp || included.includes(feature.featureId) ? (
+                        ) : (showsRun && reconstructedBp) || included.includes(feature.featureId) ? (
                           <>
                             <Check className="size-4" />
                             <span>Reconstruct Again</span>
@@ -365,11 +373,11 @@ export function AppLibrary() {
                           </>
                         )}
                       </WorkspaceButton>
-                      {(reconstructedBp || included.includes(feature.featureId)) && (
+                      {((showsRun && reconstructedBp) || included.includes(feature.featureId)) && (
                         <WorkspaceButton
-                          onPress={() => useIdeStore.getState().setWorkspacePage("pipeline")}
+                          onPress={() => useIdeStore.getState().setWorkspacePage(demoMode ? "app" : "pipeline")}
                         >
-                          Preview in Sandbox <ArrowUpRight className="size-4" />
+                          {demoMode ? "Open my app" : "Preview in Sandbox"} <ArrowUpRight className="size-4" />
                         </WorkspaceButton>
                       )}
                     </div>
@@ -384,7 +392,7 @@ export function AppLibrary() {
                   )}
 
                   {/* Live Reconstruction Streaming Status */}
-                  {(reconstructing || reconstructStage || reconstructError) && (
+                  {showsRun && (reconstructing || reconstructStage || reconstructError) && (
                     <div className="mt-4 border-t border-indigo-900/50 pt-3">
                       {reconstructStage && (
                         <div className="flex items-center gap-2 text-xs font-medium text-indigo-200">
@@ -400,7 +408,7 @@ export function AppLibrary() {
                       {reconstructTests && (
                         <div className="mt-2 flex items-center gap-2 text-xs text-emerald-400">
                           <CheckCircle2 className="size-3.5" />
-                          <span>Acceptance Tests: {reconstructTests.passed} / {reconstructTests.total} passed</span>
+                          <span>Checks: {reconstructTests.passed} / {reconstructTests.total} passed</span>
                         </div>
                       )}
                       {reconstructError && (
@@ -571,7 +579,7 @@ export function AppLibrary() {
                             </div>
                             <p className="text-stone-200">{req.statement}</p>
                             <div className="flex items-center gap-2 font-mono text-[11px] text-stone-500 pt-1">
-                              <span>Evidence Address:</span>
+                              <span>{addresses.length ? "Evidence Address:" : "Evidence: recorded original output"}</span>
                               {addresses.map((addr, i) => (
                                 <span
                                   key={i}

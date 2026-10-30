@@ -12,3 +12,28 @@
 [data-rac][data-drop-target] { outline: 2px solid theme(colors.blue.600); outline-offset: 2px; }
 [data-rac][data-drop-target][role="row"] { background: theme(colors.blue.50); }
 .builder-modal { padding-top: max(1rem, env(safe-area-inset-top)); padding-bottom: max(1rem, env(safe-area-inset-bottom)); padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right)); }
+
+/* Demo mode: Obsidian-style reading view for HTML produced by the run-2 renderer. */
+.obsidian-preview { color: #dcddde; font-size: 1rem; line-height: 1.7; }
+.obsidian-preview h1, .obsidian-preview h2, .obsidian-preview h3,
+.obsidian-preview h4, .obsidian-preview h5, .obsidian-preview h6 { color: #f2f2f2; font-weight: 700; line-height: 1.3; margin: 1.4em 0 0.5em; }
+.obsidian-preview h1 { font-size: 1.9em; margin-top: 0; }
+.obsidian-preview h2 { font-size: 1.5em; }
+.obsidian-preview h3 { font-size: 1.25em; }
+.obsidian-preview p { margin: 0.75em 0; }
+.obsidian-preview strong { color: #f2f2f2; }
+.obsidian-preview del { color: #8a8a8a; }
+.obsidian-preview ul { list-style: disc; padding-left: 1.6em; margin: 0.5em 0; }
+.obsidian-preview ul ul { list-style: circle; margin: 0.15em 0; }
+.obsidian-preview a { color: #a882ff; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.obsidian-preview a.internal-link { text-decoration: none; }
+.obsidian-preview a:hover { color: #c3a8ff; }
+.obsidian-preview a:focus-visible { outline: 2px solid #a882ff; outline-offset: 2px; border-radius: 2px; }
+.obsidian-preview pre { background: #262626; border-radius: 6px; padding: 0.9em 1em; overflow-x: auto; margin: 1em 0; }
+.obsidian-preview code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.875em; color: #e6c07b; }
+.obsidian-preview blockquote { border-left: 3px solid #a882ff; padding: 0.1em 1em; color: #b3b3b3; margin: 1em 0; }
+.obsidian-preview .callout { background: rgba(68, 138, 255, 0.1); border-left: 3px solid #448aff; border-radius: 4px; padding: 0.75em 1em; margin: 1em 0; color: #dcddde; }
+.obsidian-preview .callout::before { content: "ⓘ  " attr(data-callout); display: block; color: #448aff; font-weight: 600; text-transform: capitalize; margin-bottom: 0.25em; }
+.obsidian-preview table { border-collapse: collapse; margin: 1em 0; font-size: 0.9em; }
+.obsidian-preview th, .obsidian-preview td { border: 1px solid #3a3a3a; padding: 0.4em 0.8em; }
+.obsidian-preview th { background: #262626; color: #f2f2f2; }
