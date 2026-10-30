@@ -28,6 +28,8 @@ import { StudioView } from "./views/StudioView";
 import { RecombinationView } from "../recombination/RecombinationView";
 import { PipelineTest } from "./PipelineTest";
 import { cn } from "../lib/cn";
+import { demoMode } from "../demo/mode";
+import { NotesCalcApp } from "../demo/NotesCalcApp";
 
 const destinations = [
   { id: "chat", label: "Chat", icon: MessageSquare },
@@ -36,6 +38,8 @@ const destinations = [
   { id: "pipeline", label: "Pipeline test", icon: FlaskConical },
   { id: "recombination", label: "Recombine", icon: Workflow },
 ] as const;
+// Demo mode runs without a backend: only pages that work offline are shown or mounted.
+const visibleDestinations = demoMode ? destinations.filter((d) => d.id !== "pipeline" && d.id !== "recombination") : destinations;
 export function IdeWorkbench() {
   const state = useIdeStore();
   return (
@@ -74,7 +78,7 @@ export function IdeWorkbench() {
           </ModalOverlay>
         </DialogTrigger>
         <nav aria-label="Workspace navigation" className="grid gap-2">
-          {destinations.map((item) => (
+          {visibleDestinations.map((item) => (
             <WorkspaceButton
               key={item.id}
               aria-current={
@@ -102,10 +106,10 @@ export function IdeWorkbench() {
         </nav>
         <div className="mt-auto border-t border-stone-800 px-3 pt-5">
           <p className="text-xs font-medium text-stone-400">
-            Example workspace
+            {demoMode ? "Demo workspace" : "Example workspace"}
           </p>
           <p className="mt-2 text-xs leading-5 text-stone-500">
-            Explore bundled source apps and build with their features.
+            {demoMode ? "Rebuild Obsidian and LibreOffice Calc features, then combine them into one app." : "Explore bundled source apps and build with their features."}
           </p>
         </div>
       </aside>
@@ -116,17 +120,22 @@ export function IdeWorkbench() {
         <div hidden={state.workspacePage !== "library"} className="h-full">
           <AppLibrary />
         </div>
-        <div hidden={state.workspacePage !== "pipeline"} className="h-full">
-          <PipelineTest />
-        </div>
-        <div hidden={state.workspacePage !== "recombination"} className="h-full">
-          <RecombinationView />
-        </div>
+        {!demoMode && (
+          <>
+            <div hidden={state.workspacePage !== "pipeline"} className="h-full">
+              <PipelineTest />
+            </div>
+            <div hidden={state.workspacePage !== "recombination"} className="h-full">
+              <RecombinationView />
+            </div>
+          </>
+        )}
         <div hidden={state.workspacePage !== "app"} className="h-full">
           <div className="flex h-full flex-col">
             <header className="flex min-h-16 shrink-0 items-center justify-between border-b border-stone-800 px-8">
               <h1 className="text-sm font-medium">My app</h1>
               <div className="flex gap-1">
+                {!demoMode && (<>
                 <WorkspaceButton
                   aria-label="Undo layout change"
                   isDisabled={!state.pastLayouts.length || state.chatBusy}
@@ -141,6 +150,7 @@ export function IdeWorkbench() {
                 >
                   <Redo2 className="size-4" aria-hidden="true" />
                 </WorkspaceButton>
+                </>)}
                 <WorkspaceButton onPress={() => state.setWorkspacePage("chat")}>
                   Edit with assistant
                 </WorkspaceButton>
@@ -155,7 +165,7 @@ export function IdeWorkbench() {
               </p>
             )}
             <div className="min-h-0 flex-1">
-              <StudioView />
+              {demoMode ? <NotesCalcApp /> : <StudioView />}
             </div>
           </div>
         </div>

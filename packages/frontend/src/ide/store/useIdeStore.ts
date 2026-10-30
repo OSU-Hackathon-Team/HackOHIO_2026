@@ -16,6 +16,9 @@ import {
   type IdeFeatureRecord,
 } from "../data/ideFixtures";
 import { applyDecompEvent, initialRunView, nativeSpecToLibrary, type DecompRunView } from "../data/liveNative";
+import { demoMode } from "../../demo/mode";
+import { DEMO_NOTES } from "../../demo/notes";
+import { demoReply } from "../../demo/chatScript";
 
 export type ActivityId =
   | "chat"
@@ -324,7 +327,7 @@ export const useIdeStore = create<IdeState>((set, get) => ({
   setWorkspacePage(workspacePage) {
     set({ workspacePage });
   },
-  projectTitle: "My Study Space",
+  projectTitle: demoMode ? "Project Plan" : "My Study Space",
   activeActivity: "chat",
   sidebarOpen: false,
   copilotOpen: false,
@@ -349,7 +352,7 @@ export const useIdeStore = create<IdeState>((set, get) => ({
   highlightedExport: null,
 
   studioSubMode: "canvas",
-  includedFeatureIds: ["inkwell.wikilink_graph", "recall.sm2_scheduler"],
+  includedFeatureIds: demoMode ? [] : ["inkwell.wikilink_graph", "recall.sm2_scheduler"],
   nativeHandoff: null,
   liveNativeTargets: [],
   liveNativeFeatures: [],
@@ -358,8 +361,8 @@ export const useIdeStore = create<IdeState>((set, get) => ({
   layout: INITIAL_LAYOUT,
   pastLayouts: [],
   futureLayouts: [],
-  notes: INITIAL_NOTES,
-  selectedNoteId: "cardiology",
+  notes: demoMode ? DEMO_NOTES : INITIAL_NOTES,
+  selectedNoteId: demoMode ? DEMO_NOTES[0].id : "cardiology",
   reviews: INITIAL_REVIEWS,
   statusError: null,
 
@@ -392,7 +395,9 @@ export const useIdeStore = create<IdeState>((set, get) => ({
       role: "assistant",
       ts: Date.now() - 500,
       model: "AI Assistant",
-      text: "What would you like to make?\n\nYour study app starts with connected notes and spaced repetition from two example applications. Describe a change here, or explore their building blocks in the app library.",
+      text: demoMode
+        ? "What would you like to make?\n\nThis workspace starts empty. Open the App library to rebuild Obsidian's Markdown editor and LibreOffice Calc's tables, then ask me to edit your notes."
+        : "What would you like to make?\n\nYour study app starts with connected notes and spaced repetition from two example applications. Describe a change here, or explore their building blocks in the app library.",
     },
   ],
   chatBusy: false,
@@ -709,8 +714,8 @@ export const useIdeStore = create<IdeState>((set, get) => ({
     const id = `note-${Date.now()}`;
     const newNote: NoteItem = {
       id,
-      title: `New Study Note ${get().notes.length + 1}`,
-      body: "Connected to [[Cardiology]] and [[Physiology]].",
+      title: demoMode ? `New note ${get().notes.length + 1}` : `New Study Note ${get().notes.length + 1}`,
+      body: demoMode ? "# New note\n\nLinked from [[Project Plan]]." : "Connected to [[Cardiology]] and [[Physiology]].",
     };
     set((s) => ({
       notes: [...s.notes, newNote],
@@ -935,6 +940,22 @@ export const useIdeStore = create<IdeState>((set, get) => ({
       chatBusy: true,
       statusError: null,
     }));
+    if (demoMode) {
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      if (signal.aborted || turn !== copilotTurn) return;
+      const { notes, selectedNoteId, includedFeatureIds } = get();
+      const reply = demoReply(prompt, { notes, selectedNoteId, included: includedFeatureIds });
+      set((s) => ({
+        notes: reply.notes ?? s.notes,
+        selectedNoteId: reply.selectedNoteId ?? s.selectedNoteId,
+        chatBusy: false,
+        chatMessages: [...s.chatMessages, {
+          id: crypto.randomUUID(), role: "assistant" as const, ts: Date.now(), model: "Splice assistant", text: reply.text,
+          actions: reply.notes ? [{ label: "Open my app", tab: PRESET_WINDOWS[4] }] : undefined,
+        }],
+      }));
+      return;
+    }
     const lower = prompt.toLowerCase();
     // Library guidance is local navigation help, explicitly labeled separately from model replies.
     if (

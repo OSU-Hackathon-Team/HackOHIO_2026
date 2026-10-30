@@ -4,6 +4,8 @@ import { ArrowUp, ArrowUpRight, Square, MessageSquare } from "lucide-react";
 import { useIdeStore } from "./store/useIdeStore";
 import { WorkspaceButton } from "./WorkspaceButton";
 import { cn } from "../lib/cn";
+import { demoMode } from "../demo/mode";
+import { DEMO_SUGGESTIONS } from "../demo/chatScript";
 
 export function ChatPage() {
   const state = useIdeStore();
@@ -106,10 +108,10 @@ export function ChatPage() {
           )}
           {state.chatMessages.length === 1 && (
             <div className="mb-4 flex flex-wrap gap-2">
-              {[
+              {(demoMode ? DEMO_SUGGESTIONS : [
                 "Add a study goals introduction",
                 "Arrange my app sections side by side",
-              ].map((text) => (
+              ]).map((text) => (
                 <WorkspaceButton
                   key={text}
                   className="border border-stone-800 text-xs"

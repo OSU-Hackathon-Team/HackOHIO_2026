@@ -2,6 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { splitNote, joinNote, evaluateGrid, applyTableOp, hasFormulas, neutralizeHtml, type Grid } from "../src/demo/notesDocument";
+import { PipelineEvent } from "@splice/contracts";
+import { playDemoRun, demoSpec } from "../src/demo/script";
+import { DEMO_FEATURES, OBSIDIAN_FEATURE, CALC_FEATURE } from "../src/demo/fixtures";
+import { demoReply } from "../src/demo/chatScript";
+import { DEMO_NOTES } from "../src/demo/notes";
 
 // splice.lock.json of the recorded run-2 export (plan 49717df1…): artifact `src/index.ts` per package.
 const RUN2_SOURCES = {
@@ -15,8 +21,6 @@ test("demo engines are byte-identical to the run-2 export", () => {
     assert.equal(createHash("sha256").update(bytes).digest("hex"), sha256, file);
   }
 });
-
-import { splitNote, joinNote, evaluateGrid, applyTableOp, hasFormulas, neutralizeHtml, type Grid } from "../src/demo/notesDocument";
 
 const note = "# Budget\n\n```calc\nItem | Qty | Cost | Total\nLaptops | 3 | 20 | =B2*C2\n```\n\nAfter.";
 
@@ -50,10 +54,6 @@ test("raw HTML is neutralized outside code fences only", () => {
   assert.equal(neutralizeHtml("```js\nif (a < b) {}\n```"), "```js\nif (a < b) {}\n```");
 });
 
-import { PipelineEvent } from "@splice/contracts";
-import { playDemoRun, demoSpec } from "../src/demo/script";
-import { DEMO_FEATURES } from "../src/demo/fixtures";
-
 test("scripted runs emit valid pipeline events and end with a passing blueprint", async () => {
   for (const feature of DEMO_FEATURES) {
     const events: PipelineEvent[] = [];
@@ -65,4 +65,23 @@ test("scripted runs emit valid pipeline events and end with a passing blueprint"
     assert.equal(events.filter((e) => e.type === "test_result").length, v.total);
     assert.deepEqual(events.at(-1), { ...events.at(-1), type: "done", ok: true });
   }
+});
+
+test("scripted chat edits notes through the engines once the features are added", () => {
+  const ctx = { notes: DEMO_NOTES, selectedNoteId: "project-plan", included: [OBSIDIAN_FEATURE, CALC_FEATURE] };
+  assert.match(demoReply("Add a table", { ...ctx, included: [] }).text, /Obsidian/);
+  assert.match(demoReply("Sort the inventory by units", { ...ctx, included: [OBSIDIAN_FEATURE] }).text, /Calc/);
+
+  const sorted = demoReply("Sort the inventory by units", ctx);
+  const inventory = sorted.notes!.find((n) => n.id === "inventory")!;
+  const grid = (splitNote(inventory.body).find((s) => s.kind === "calc") as { grid: Grid }).grid;
+  assert.deepEqual(grid.map((r) => r[1]), ["Units", 5, 3, 2, 1]);
+
+  const summary = demoReply("Summarize the budget", ctx);
+  assert.match(summary.notes!.find((n) => n.id === "budget")!.body, /total is \*\*290\*\*/);
+
+  const created = demoReply("Create a note called Travel", ctx);
+  assert.equal(created.notes!.at(-1)!.title, "Travel");
+  assert.equal(created.selectedNoteId, created.notes!.at(-1)!.id);
+  assert.match(demoReply("make it purple", ctx).text, /can add a table/);
 });
