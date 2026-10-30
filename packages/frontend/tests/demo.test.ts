@@ -15,3 +15,37 @@ test("demo engines are byte-identical to the run-2 export", () => {
     assert.equal(createHash("sha256").update(bytes).digest("hex"), sha256, file);
   }
 });
+
+import { splitNote, joinNote, evaluateGrid, applyTableOp, hasFormulas, neutralizeHtml, type Grid } from "../src/demo/notesDocument";
+
+const note = "# Budget\n\n```calc\nItem | Qty | Cost | Total\nLaptops | 3 | 20 | =B2*C2\n```\n\nAfter.";
+
+test("notes split into markdown and calc tables and join back unchanged", () => {
+  const segments = splitNote(note);
+  assert.deepEqual(segments.map((s) => s.kind), ["markdown", "calc", "markdown"]);
+  assert.equal(joinNote(segments), note);
+});
+
+test("calc tables evaluate formulas on the run-2 engine", () => {
+  const [, table] = splitNote(note);
+  assert.equal(table.kind, "calc");
+  const grid = (table as { grid: Grid }).grid;
+  assert.ok(hasFormulas(grid));
+  assert.deepEqual(evaluateGrid(grid)[1], ["Laptops", 3, 20, 60]);
+  assert.equal(evaluateGrid([["=1/0"]])[0][0], "#ERR");
+});
+
+test("table operations reorder, insert and delete through the engine", () => {
+  const inventory: Grid = [["Product", "Units"], ["Pear", 3], ["Apple", 2], ["Peach", 5]];
+  assert.deepEqual(applyTableOp(inventory, { type: "sort", column: 0, ascending: true }).map((r) => r[0]), ["Product", "Apple", "Peach", "Pear"]);
+  assert.deepEqual(applyTableOp(inventory, { type: "sort", column: 1, ascending: false }).map((r) => r[1]), ["Units", 5, 3, 2]);
+  assert.deepEqual(applyTableOp(inventory, { type: "insert_row", index: 2 })[2], ["", ""]);
+  assert.deepEqual(applyTableOp(inventory, { type: "delete_row", index: 1 }).map((r) => r[0]), ["Product", "Apple", "Peach"]);
+  assert.deepEqual(applyTableOp(inventory, { type: "insert_column", index: 1 })[0], ["Product", "", "Units"]);
+  assert.deepEqual(applyTableOp(inventory, { type: "delete_column", index: 0 })[0], ["Units"]);
+});
+
+test("raw HTML is neutralized outside code fences only", () => {
+  assert.equal(neutralizeHtml("# <img onerror=x>"), "# &lt;img onerror=x>");
+  assert.equal(neutralizeHtml("```js\nif (a < b) {}\n```"), "```js\nif (a < b) {}\n```");
+});
