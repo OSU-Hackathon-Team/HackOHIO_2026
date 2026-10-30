@@ -13,6 +13,7 @@ because every track references them.
 
 | Document | Contents |
 |---|---|
+| [demo-notes.md](demo-notes.md) | Running and presenting the offline Obsidian + Calc event demo (`?mode=demo`) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | End-to-end component and data-flow map |
 | [STEP3_MILESTONE.md](STEP3_MILESTONE.md) | What the Step 3 backend and Studio verify today, and what is open |
 | [WORKSPACE_UI.md](WORKSPACE_UI.md) | Chat / App library / My app workspace layout |
