@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { z } from "zod";
 import type { ShowcaseCodeJob } from "@splice/contracts";
 import { DEMO_NOTES } from "./notes";
+import { withLiveBudgetTables } from "./showcaseRecipe";
 import { applyShowcaseActions, projectTotal, tableTotal, tableValues, ShowcaseAction, ShowcaseProject, showcaseId } from "./showcaseModel";
 
 const KEY = "splice.showcase.projects.v1";
@@ -27,7 +28,7 @@ function makeProject(recipe: "blank" | "trip" | "budget" | "study" = "blank"): S
     p.capabilities = ["notes", "calc", "metrics", "charts", "tasks", "search"];
     p.notes = DEMO_NOTES.map(n => ({ ...n, tags: [] }));
     p.tables = [{ id: showcaseId(), title: "Event costs", grid: [["Item", "Qty", "Unit cost", "Total"], ["Posters", 4, 25, "=B2*C2"], ["Stickers", 200, 0.5, "=B3*C3"], ["Snacks", 30, 3, "=B4*C4"], ["Grand total", "", "", "=D2+D3+D4"]] }];
-    p.sections = [{ id: showcaseId(), kind: "metric", ref: "all", title: "Event total", visible: true, width: "half" }, { id: showcaseId(), kind: "notes", ref: "all", title: "Project notes", visible: true, width: "half" }, { id: showcaseId(), kind: "table", ref: p.tables[0].id, title: "Event costs", visible: true, width: "full" }, { id: showcaseId(), kind: "chart", ref: p.tables[0].id, title: "Costs by item", visible: true, width: "half" }];
+    p.sections = [{ id: showcaseId(), kind: "metric", ref: "all", title: "Event total", visible: true, width: "half" }, { id: showcaseId(), kind: "chart", ref: p.tables[0].id, title: "Costs by item", visible: true, width: "half" }, { id: showcaseId(), kind: "notes", ref: "all", title: "Project notes", visible: true, width: "full" }, { id: showcaseId(), kind: "table", ref: p.tables[0].id, title: "Event costs", visible: true, width: "full" }];
   } else {
     p.title = "Study notebook";
     p.capabilities = ["notes", "tasks", "search", "tags"];
@@ -35,13 +36,26 @@ function makeProject(recipe: "blank" | "trip" | "budget" | "study" = "blank"): S
     p.tasks = [{ id: showcaseId(), title: "Review notes", done: false }];
     p.sections = [{ id: showcaseId(), kind: "notes", ref: "all", title: "Study notes", visible: true, width: "full" }, { id: showcaseId(), kind: "tasks", ref: "all", title: "Study tasks", visible: true, width: "half" }];
   }
-  return ShowcaseProject.parse(p);
+  return ShowcaseProject.parse(withLiveBudgetTables(p));
 }
 
 function initial(): { saved: Saved; storageError?: string } {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { saved: Saved.parse(JSON.parse(raw)) };
+    if (raw) {
+      const saved = Saved.parse(JSON.parse(raw));
+      const projects = saved.projects.map(project => {
+        const upgraded = withLiveBudgetTables(project);
+        return upgraded === project ? project : { ...upgraded, revision: project.revision + 1 };
+      });
+      if (projects.some((project, index) => project !== saved.projects[index])) {
+        const upgraded = Saved.parse({ ...saved, projects });
+        try { localStorage.setItem(KEY, JSON.stringify(upgraded)); }
+        catch { return { saved: upgraded, storageError: "The recipe was upgraded in memory, but local storage could not save it. Retry save when space is available." }; }
+        return { saved: upgraded };
+      }
+      return { saved };
+    }
   } catch { return { saved: { projects: [makeProject()], activeId: "", messages: [], chats: {}, histories: {}, codeVersions: {} }, storageError: "Saved projects could not be read. This session is in memory; the stored data was left untouched." }; }
   const p = makeProject();
   return { saved: { projects: [p], activeId: p.id, messages: [{ id: showcaseId(), role: "assistant", text: "Describe an app to build, or start with a recipe. I can add notes, tables, tasks, summary cards, charts, and change the layout." }], chats: {}, histories: {}, codeVersions: {} } };
@@ -139,7 +153,7 @@ export const useShowcase = create<ShowcaseState>((set, get) => {
     },
     selectSection(id) { set({ selectedSectionId: id }); }, cancel, retrySave: persist,
     importProject(raw) {
-      const p = ShowcaseProject.parse(JSON.parse(raw));
+      const p = ShowcaseProject.parse(withLiveBudgetTables(ShowcaseProject.parse(JSON.parse(raw))));
       const copy = { ...p, id: showcaseId(), title: `${p.title} (imported)`, revision: 0 };
       cancel(); set(s => ({ projects: [copy, ...s.projects], activeId: copy.id, messages: [], selectedSectionId: null, error: undefined })); persist();
     },

@@ -45,3 +45,12 @@
 .showcase-light .obsidian-preview blockquote { color: #475569; }
 .showcase-light .obsidian-preview .callout { color: #334155; }
 .showcase-light .obsidian-preview a { color: #2563eb; }
+#showcase-preview .obsidian-preview { max-width: 100%; overflow-x: auto; }
+#showcase-preview .obsidian-preview a,
+#showcase-preview .obsidian-preview code { color: var(--accent-ink); }
+#showcase-preview .obsidian-preview a:focus-visible { outline-color: var(--accent-ink); }
+#showcase-preview .obsidian-preview blockquote,
+#showcase-preview .obsidian-preview .callout { border-left-color: var(--accent-ink); }
+#showcase-preview .obsidian-preview .callout::before { color: var(--accent-ink); }
+.showcase-light #showcase-preview .obsidian-preview th,
+.showcase-light #showcase-preview .obsidian-preview td { border-color: #cbd5e1; }

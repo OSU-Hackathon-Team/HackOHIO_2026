@@ -168,3 +168,75 @@ test("an existing table can be embedded directly and edits update both views", a
   await page.getByRole("button", { name: "New table in note" }).click();
   await expect(page.getByTestId("embedded-table")).toHaveCount(2);
 });
+
+test("Event budget recipe shows live tables inside notes and preserves formula edits", async ({ page }) => {
+  await page.goto("/?mode=demo");
+  await page.getByRole("button", { name: "Event budget", exact: true }).click();
+  await page.getByRole("button", { name: "Budget", exact: true }).click();
+  const costs = page.getByTestId("embedded-table");
+  await expect(costs.getByText("Event costs", { exact: true })).toBeVisible();
+  await expect(costs.getByLabel("Cell D2")).toHaveValue("=B2*C2");
+  await expect(page.getByText("$290.00")).toBeVisible();
+  await costs.getByLabel("Cell B2").fill("5");
+  await costs.getByLabel("Cell B2").press("Enter");
+  await expect(page.getByText("$315.00")).toBeVisible();
+  await expect(costs.getByText("= 125")).toBeVisible();
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export Budget Markdown" }).click();
+  expect(await readFile(await (await download).path(), "utf8")).toContain("| Posters | 5 | 25 | 125 |");
+  await page.getByRole("button", { name: "Inventory", exact: true }).click();
+  const stock = page.getByTestId("embedded-table");
+  await expect(stock.getByText("Inventory stock", { exact: true })).toBeVisible();
+  await stock.getByTitle("Sort Product ascending").click();
+  await expect(stock.getByLabel("Cell A2")).toHaveValue("Apple");
+  await page.reload();
+  await page.getByRole("button", { name: "Budget", exact: true }).click();
+  await expect(page.getByTestId("embedded-table").getByText("= 125")).toBeVisible();
+});
+
+test("saved Event budget projects upgrade untouched calc fences", async ({ page }) => {
+  await page.goto("/?mode=demo");
+  await page.getByRole("button", { name: "Event budget", exact: true }).click();
+  await page.evaluate(() => {
+    const key = "splice.showcase.projects.v1";
+    const saved = JSON.parse(localStorage.getItem(key)!);
+    const project = saved.projects.find((entry: { title: string }) => entry.title === "Event budget");
+    project.notes.find((note: { id: string }) => note.id === "budget").body = "# Budget\n\nBooth costs. Totals are live **Calc** formulas.\n\n```calc\nItem | Qty | Unit cost | Total\nPosters | 4 | 25 | =B2*C2\nStickers | 200 | 0.5 | =B3*C3\nSnacks | 30 | 3 | =B4*C4\nGrand total | | | =D2+D3+D4\n```\n\nBack to [[Project Plan]].";
+    project.notes.find((note: { id: string }) => note.id === "inventory").body = "# Inventory\n\nWhat we are bringing. Sort it from the table toolbar.\n\n```calc\nProduct | Units | Location\nPear | 3 | Booth\nApple | 2 | Van\nPeach | 5 | Booth\nBanners | 1 | Van\n```";
+    project.tables = project.tables.filter((table: { title: string }) => table.title !== "Inventory stock");
+    localStorage.setItem(key, JSON.stringify(saved));
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "Budget", exact: true }).click();
+  await expect(page.getByTestId("embedded-table").getByText("Event costs", { exact: true })).toBeVisible();
+  await expect(page.locator(".obsidian-preview pre")).toHaveCount(0);
+  await page.getByRole("button", { name: "Inventory", exact: true }).click();
+  await expect(page.getByTestId("embedded-table").getByText("Inventory stock", { exact: true })).toBeVisible();
+});
+
+test("note code fences preserve literal characters", async ({ page }) => {
+  await page.goto("/?mode=demo");
+  await page.getByRole("button", { name: "Event budget", exact: true }).click();
+  await page.getByRole("button", { name: "Project Plan", exact: true }).click();
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await page.getByLabel("Note Markdown").fill("# Literal code\n\n```ts\na*b\nc*d\n<img src=x>\n```\n");
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  await expect(page.locator(".obsidian-preview pre code")).toHaveText("a*b\nc*d\n<img src=x>");
+  await expect(page.locator(".obsidian-preview img")).toHaveCount(0);
+});
+
+test("showcase controls align and narrow screens do not overflow", async ({ page }) => {
+  await page.setViewportSize({ width: 800, height: 900 });
+  await page.goto("/?mode=demo");
+  await page.getByRole("button", { name: "Event budget", exact: true }).click();
+  const controls = page.locator("#showcase-preview > header").locator("button, select");
+  const boxes = await controls.evaluateAll(elements => elements.map(element => {
+    const { width, height } = element.getBoundingClientRect();
+    return { width, height };
+  }));
+  expect(new Set(boxes.map(box => box.width)).size).toBe(1);
+  expect(new Set(boxes.map(box => box.height)).size).toBe(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(800);
+  await page.getByRole("button", { name: "Budget", exact: true }).click();
+  await expect(page.getByTestId("embedded-table")).toBeVisible();
+});
