@@ -28,6 +28,7 @@ export interface ShowcaseCodeRevision {
 }
 /** A trusted same-origin iframe calls this host-owned bridge; edits still use the validated action executor. */
 export interface ShowcasePreviewBridge<Project, Action> {
+  revision: string;
   getProject(): Project;
   subscribe(listener: (project: Project) => void): () => void;
   apply(actions: Action[]): void;

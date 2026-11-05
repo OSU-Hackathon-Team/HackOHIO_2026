@@ -52,9 +52,9 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import type { Project, Runtime } from "./runtime";
 import "./styles.css";
-declare global { interface Window { __spliceShowcaseBridge?: { getProject(): Project; subscribe(listener: (project: Project) => void): () => void; apply: Runtime["apply"]; select: Runtime["select"]; tableValues: Runtime["tableValues"]; total: Runtime["total"]; reportReady(): void; reportError(message: string): void }; __splicePreviewReady?: boolean } }
+declare global { interface Window { __spliceShowcaseBridge?: { revision: string; getProject(): Project; subscribe(listener: (project: Project) => void): () => void; apply: Runtime["apply"]; select: Runtime["select"]; tableValues: Runtime["tableValues"]; total: Runtime["total"]; reportReady(): void; reportError(message: string): void }; __splicePreviewReady?: boolean } }
 const bridge = window.parent.__spliceShowcaseBridge;
-if (!bridge) throw new Error("Showcase host is unavailable");
+if (!bridge || !window.location.pathname.includes(bridge.revision)) throw new Error("Showcase host is unavailable for this revision");
 class Boundary extends React.Component<{ children: React.ReactNode }, { error?: string }> {
   state: { error?: string } = {};
   static getDerivedStateFromError(error: Error) { return { error: error.message }; }
@@ -161,7 +161,7 @@ async function smokePreview(revision: string, project: CodeRequest["project"], d
     const page = await browser.newPage();
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
-    await page.addInitScript({ content: `window.__spliceShowcaseBridge = { getProject: () => (${JSON.stringify(project)}), subscribe: () => () => {}, apply: () => {}, select: () => {}, tableValues: (id) => (${JSON.stringify(derived.tableValues)})[id] ?? [], total: (id) => id ? (${JSON.stringify(derived.tableTotals)})[id] ?? 0 : ${JSON.stringify(derived.total)}, reportReady: () => { window.__splicePreviewReady = true; }, reportError: (message) => { throw new Error(message); } };` });
+    await page.addInitScript({ content: `window.__spliceShowcaseBridge = { revision: ${JSON.stringify(revision)}, getProject: () => (${JSON.stringify(project)}), subscribe: () => () => {}, apply: () => {}, select: () => {}, tableValues: (id) => (${JSON.stringify(derived.tableValues)})[id] ?? [], total: (id) => id ? (${JSON.stringify(derived.tableTotals)})[id] ?? 0 : ${JSON.stringify(derived.total)}, reportReady: () => { window.__splicePreviewReady = true; }, reportError: (message) => { throw new Error(message); } };` });
     await page.goto(`file://${path.join(dist, "index.html")}`);
     try { await page.waitForFunction(() => (globalThis as typeof globalThis & { __splicePreviewReady?: boolean }).__splicePreviewReady === true, undefined, { timeout: 8000 }); }
     catch (error) { throw new Error(`Browser boot failed: ${errors.join("; ") || (error instanceof Error ? error.message : String(error))}`); }

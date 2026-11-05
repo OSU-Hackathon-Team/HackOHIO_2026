@@ -18,6 +18,7 @@ export function CodeCanvas({ projectId, revision }: { projectId: string; revisio
     const current = () => { const state = useShowcase.getState(); return state.activeId === projectId && state.codeVersions[projectId]?.current === revision; };
     let timer: ReturnType<typeof setTimeout> | undefined;
     const bridge: Bridge = {
+      revision,
       getProject: () => activeShowcaseProject(useShowcase.getState()),
       subscribe: listener => useShowcase.subscribe(state => { if (current()) listener(activeShowcaseProject(state)); }),
       apply: actions => { if (current()) useShowcase.getState().apply(actions); },
