@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { checkBuild, createPreparedRevision, mergeFiles, readRevision, validateRevision } from "./codeJobs.js";
+import { baselineAppSource, baselineCssSource, checkBuild, createPreparedRevision, mergeFiles, readRevision, validateRevision } from "./codeJobs.js";
 
 const project = { id: crypto.randomUUID(), revision: 0, title: "Trip planner", notes: [], tables: [], tasks: [], sections: [], theme: { mode: "dark", accent: "amber" } };
 const derived = { total: 0, tableTotals: {}, tableValues: {} };
@@ -30,7 +30,14 @@ test("prepared fallback is a real revision and reopens without a model call", as
     assert.match(prepared.model, /Prepared example/);
     const reopened = await readRevision(prepared.revision);
     assert.match(reopened.source["App.tsx"], /runtime\.total/);
-    assert.match(reopened.parentSource["App.tsx"], /return null/);
+    assert.match(reopened.parentSource["App.tsx"], /ShowcasePreviewPanels/);
     await validateRevision(prepared.revision, project, derived);
   } finally { await rm(path.join(root, prepared.revision), { recursive: true, force: true }); }
+});
+
+test("editable baseline bundles the real showcase panels", async () => {
+  const revision = crypto.randomUUID();
+  const withSection = { ...project, version: 1, capabilities: ["calc", "metrics"], theme: { ...project.theme, density: "comfortable" }, sections: [{ id: crypto.randomUUID(), kind: "metric", ref: "all", title: "Total", visible: true, width: "half" }] };
+  try { await checkBuild(revision, { "App.tsx": baselineAppSource, "styles.css": baselineCssSource }, withSection, derived, new AbortController().signal); }
+  finally { await rm(path.join(root, revision), { recursive: true, force: true }); }
 });
