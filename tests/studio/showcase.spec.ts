@@ -16,7 +16,7 @@ test("showcase recipe supports direct cell edits, totals, undo and refresh", asy
   await expect(page.getByRole("heading", { name: "Trip planner" })).toBeVisible();
   await expect(page.getByText("$760.00")).toBeVisible();
   const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Export" }).click();
+  await page.getByRole("button", { name: "Export", exact: true }).click();
   const exported = await download;
   expect(exported.suggestedFilename()).toBe("trip-planner.json");
   const json = await readFile(await exported.path(), "utf8");
@@ -88,7 +88,7 @@ test("cancelled replies cannot change the app, and basic chat commands work offl
   await page.getByLabel("Describe a change").fill("Create a note called Travel");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByText("Applied locally while Codex was unavailable.", { exact: false })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Travel" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Travel", exact: true })).toBeVisible();
 });
 
 test("model supplied Markdown cannot inject active HTML", async ({ page }) => {
@@ -126,4 +126,45 @@ test("filters, task details, metrics, and chart bindings work in the app", async
   await expect(page.getByLabel("Priority Send invites")).toHaveValue("high");
   await page.getByLabel("Complete Send invites").check();
   await expect(page.getByText("100%", { exact: true })).toBeVisible();
+});
+
+test("chat embeds a live table in a note and the table survives refresh", async ({ page }) => {
+  await page.route("**/api/showcase/edits", route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ outcome: "apply", message: "Embedded", model: "test", actions: [
+    { type: "note.create", target: "", data: { title: "Budget", body: "# Budget\n\nLive costs:" } },
+    { type: "table.create", target: "", data: { title: "Costs", grid: [["Item", "Qty", "Price", "Total"], ["Taxi", 1, 40, "=B2*C2"]], section: false } },
+    { type: "note.embedTable", target: "Budget", data: { table: "Costs" } },
+  ] }) }));
+  await page.goto("/?mode=demo");
+  await page.getByLabel("Describe a change").fill("Make a Budget note with a live costs table inside it");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  const embedded = page.getByTestId("embedded-table");
+  await expect(embedded).toBeVisible();
+  await expect(embedded.getByText("Costs", { exact: true })).toBeVisible();
+  await embedded.getByLabel("Cell B2").fill("2");
+  await embedded.getByLabel("Cell B2").press("Enter");
+  await expect(embedded.getByText("= 80")).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId("embedded-table").getByText("= 80")).toBeVisible();
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Export Budget Markdown" }).click();
+  const exported = await download;
+  const markdown = await readFile(await exported.path(), "utf8");
+  expect(markdown).toContain("| Taxi | 2 | 40 | 80 |");
+  expect(markdown).not.toContain("![[table:");
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await expect(page.getByLabel("Note Markdown")).toHaveValue(/!\[\[table:[^\]]+\]\]/);
+});
+
+test("an existing table can be embedded directly and edits update both views", async ({ page }) => {
+  await page.goto("/?mode=demo");
+  await page.getByRole("button", { name: "Trip planner", exact: true }).click();
+  await page.getByLabel("Embed table in Itinerary").selectOption({ label: "Trip budget" });
+  const embedded = page.getByTestId("embedded-table");
+  await expect(embedded.getByLabel("Cell B3")).toHaveValue("3");
+  await embedded.getByLabel("Cell B3").fill("4");
+  await embedded.getByLabel("Cell B3").press("Enter");
+  await expect(page.getByText("$880.00")).toBeVisible();
+  await expect(page.getByLabel("Cell B3")).toHaveCount(2);
+  await page.getByRole("button", { name: "New table in note" }).click();
+  await expect(page.getByTestId("embedded-table")).toHaveCount(2);
 });

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowDown, ArrowUp, Download, FilePlus2, Plus, Redo2, Send, Square, Undo2, Upload } from "lucide-react";
 import { renderMarkdown } from "./engines/obsidianRenderer";
 import { hasFormulas } from "./notesDocument";
-import { cellLabel, metricValue, parseCsv, ShowcaseProject, tableCsv, tableValues, type ShowcaseAction } from "./showcaseModel";
+import { cellLabel, metricValue, noteMarkdownExport, parseCsv, ShowcaseProject, splitTableEmbeds, tableCsv, tableValues, type ShowcaseAction } from "./showcaseModel";
 import { activeShowcaseProject, useShowcase } from "./showcaseStore";
 import { ShowcaseHistory } from "./ShowcaseHistory";
 
@@ -131,10 +131,36 @@ function Library({ p, apply, card, button, soft, open }: { p: ShowcaseProject; a
 function NotesPanel({ p, apply, button, soft, light }: { p: ShowcaseProject; apply: ReturnType<typeof useAction>; button: string; soft: string; light: boolean }) {
   const [selected, setSelected] = useState<string | null>(null), [search, setSearch] = useState(""), [tag, setTag] = useState(""), [editing, setEditing] = useState(false);
   const note = p.notes.find(n => n.id === selected) ?? p.notes[0];
+  const parts = note ? splitTableEmbeds(note.body) : [];
+  const availableTables = p.tables.filter(t => !parts.some(part => part.kind === "table" && (part.ref === t.id || part.ref.toLowerCase() === t.title.toLowerCase())));
   const tags = [...new Set(p.notes.flatMap(n => n.tags))];
   const visible = p.notes.filter(n => (!search || `${n.title} ${n.body}`.toLowerCase().includes(search.toLowerCase())) && (!tag || n.tags.includes(tag)));
   const follow = (e: React.MouseEvent) => { const el = (e.target as HTMLElement).closest("a"); if (!el) return; e.preventDefault(); if (el.classList.contains("internal-link")) { const title = el.getAttribute("data-href") || el.textContent || ""; const target = p.notes.find(n => n.title.toLowerCase() === title.toLowerCase()); if (target) { setSelected(target.id); setEditing(false); } } else { const href = el.getAttribute("href"); if (href && /^https?:\/\//.test(href)) window.open(href, "_blank", "noopener,noreferrer"); } };
-  return <div className="grid min-h-64 grid-cols-[170px_1fr] gap-4"><div className={`border-r pr-3 ${light ? "border-slate-200" : "border-stone-700"}`}><button className={`${button} mb-3 w-full`} onClick={() => apply([action("note.create", "", { title: `New note ${p.notes.length + 1}` })])}><Plus size={13} /> New note</button>{p.capabilities.includes("search") && <input aria-label="Search notes" className={`mb-2 w-full rounded border px-2 py-1 text-xs ${light ? "bg-white" : "bg-[#282828] border-stone-700"}`} placeholder="Search notes" value={search} onChange={e => setSearch(e.target.value)} />}{p.capabilities.includes("tags") && tags.length > 0 && <select aria-label="Filter tags" value={tag} onChange={e => setTag(e.target.value)} className={`mb-2 w-full rounded border px-2 py-1 text-xs ${light ? "bg-white" : "bg-[#282828] border-stone-700"}`}><option value="">All tags</option>{tags.map(t => <option key={t}>{t}</option>)}</select>}{visible.map(n => { const index = search ? n.body.toLowerCase().indexOf(search.toLowerCase()) : -1; const snippet = index < 0 ? "" : n.body.slice(Math.max(0, index - 22), index + search.length + 35).replace(/\s+/g, " "); return <button key={n.id} className={`mb-1 block w-full rounded px-2 py-1 text-left text-sm ${note?.id === n.id ? light ? "bg-blue-50" : "bg-stone-700" : ""}`} onClick={() => { setSelected(n.id); setEditing(false); }}><span className="block truncate">{n.title}</span>{snippet && <span className={`block truncate text-xs ${soft}`}>{snippet}</span>}</button>; })}{visible.length === 0 && <p className={`text-xs ${soft}`}>No notes found.</p>}</div><div className="min-w-0">{!note ? <p className={soft}>Create your first note.</p> : <><div className="mb-3 flex items-center justify-between gap-2"><h3 className="truncate font-semibold">{note.title}</h3><div className="flex gap-1"><button className={button} onClick={() => setEditing(!editing)}>{editing ? "Preview" : "Edit"}</button><button className={button} onClick={() => apply([action("note.duplicate", note.id, {})])}>Duplicate</button><button className={button} onClick={() => apply([action("note.delete", note.id, {})])}>Delete</button><button className={button} onClick={() => download(`${note.title}.md`, note.body, "text/markdown")}>↓</button></div></div>{editing ? <NoteEditor key={note.id} note={note} apply={apply} light={light} /> : <div className="obsidian-preview max-h-[480px] overflow-y-auto text-sm" onClick={follow} dangerouslySetInnerHTML={{ __html: safeHtml(note.body) }} />}</>}</div></div>;
+  const createTable = () => {
+    if (!note) return;
+    const base = `${note.title} table`;
+    let title = base, suffix = 2;
+    while (p.tables.some(t => t.title.toLowerCase() === title.toLowerCase())) title = `${base} ${suffix++}`;
+    apply([action("table.create", "", { title, grid: [["Item", "Value"], ["Example", 0]], section: false }), action("note.embedTable", note.id, { table: title })]);
+  };
+  return <div className="grid min-h-64 grid-cols-[170px_1fr] gap-4">
+    <div className={`border-r pr-3 ${light ? "border-slate-200" : "border-stone-700"}`}>
+      <button className={`${button} mb-3 w-full`} onClick={() => apply([action("note.create", "", { title: `New note ${p.notes.length + 1}` })])}><Plus size={13} /> New note</button>
+      {p.capabilities.includes("search") && <input aria-label="Search notes" className={`mb-2 w-full rounded border px-2 py-1 text-xs ${light ? "bg-white" : "bg-[#282828] border-stone-700"}`} placeholder="Search notes" value={search} onChange={e => setSearch(e.target.value)} />}
+      {p.capabilities.includes("tags") && tags.length > 0 && <select aria-label="Filter tags" value={tag} onChange={e => setTag(e.target.value)} className={`mb-2 w-full rounded border px-2 py-1 text-xs ${light ? "bg-white" : "bg-[#282828] border-stone-700"}`}><option value="">All tags</option>{tags.map(t => <option key={t}>{t}</option>)}</select>}
+      {visible.map(n => { const index = search ? n.body.toLowerCase().indexOf(search.toLowerCase()) : -1; const snippet = index < 0 ? "" : n.body.slice(Math.max(0, index - 22), index + search.length + 35).replace(/\s+/g, " "); return <button key={n.id} className={`mb-1 block w-full rounded px-2 py-1 text-left text-sm ${note?.id === n.id ? light ? "bg-blue-50" : "bg-stone-700" : ""}`} onClick={() => { setSelected(n.id); setEditing(false); }}><span className="block truncate">{n.title}</span>{snippet && <span className={`block truncate text-xs ${soft}`}>{snippet}</span>}</button>; })}
+      {visible.length === 0 && <p className={`text-xs ${soft}`}>No notes found.</p>}
+    </div>
+    <div className="min-w-0">{!note ? <p className={soft}>Create your first note.</p> : <>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><h3 className="truncate font-semibold">{note.title}</h3><div className="flex flex-wrap gap-1"><button className={button} onClick={() => setEditing(!editing)}>{editing ? "Preview" : "Edit"}</button><button className={button} onClick={() => apply([action("note.duplicate", note.id, {})])}>Duplicate</button><button className={button} onClick={() => apply([action("note.delete", note.id, {})])}>Delete</button><button className={button} aria-label={`Export ${note.title} Markdown`} onClick={() => download(`${note.title}.md`, noteMarkdownExport(p, note.id), "text/markdown")}>↓</button></div></div>
+      <div className="mb-3 flex flex-wrap gap-2"><button className={button} onClick={createTable}>New table in note</button><select aria-label={`Embed table in ${note.title}`} className={button} value="" disabled={!availableTables.length} onChange={e => { if (e.target.value) apply([action("note.embedTable", note.id, { table: e.target.value })]); }}><option value="">Embed existing table…</option>{availableTables.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}</select></div>
+      {editing ? <NoteEditor key={note.id} note={note} apply={apply} light={light} /> : <div className="max-h-[480px] overflow-y-auto text-sm">{parts.map((part, index) => {
+        if (part.kind === "markdown") return <div key={index} className="obsidian-preview" onClick={follow} dangerouslySetInnerHTML={{ __html: safeHtml(part.text) }} />;
+        const table = p.tables.find(t => t.id === part.ref || t.title.toLowerCase() === part.ref.toLowerCase());
+        return <div key={index} data-testid="embedded-table" className={`my-4 rounded-lg border ${light ? "border-slate-200" : "border-stone-700"}`}>{table ? <><div className={`border-b px-3 py-2 font-medium ${light ? "border-slate-200" : "border-stone-700"}`}>{table.title}</div><div className="p-3"><TablePanel p={p} id={table.id} apply={apply} button={button} soft={soft} light={light} /></div></> : <p className={`p-3 ${soft}`}>Table “{part.ref}” is unavailable.</p>}</div>;
+      })}</div>}
+    </>}</div>
+  </div>;
 }
 function NoteEditor({ note, apply, light }: { note: ShowcaseProject["notes"][number]; apply: ReturnType<typeof useAction>; light: boolean }) {
   const [title, setTitle] = useState(note.title), [body, setBody] = useState(note.body), [tags, setTags] = useState(note.tags.join(", "));

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyShowcaseActions, metricValue, parseCsv, projectTotal, ShowcaseProject, type ShowcaseAction } from "../src/demo/showcaseModel";
+import { applyShowcaseActions, metricValue, noteMarkdownExport, parseCsv, projectTotal, ShowcaseProject, splitTableEmbeds, tableValues, type ShowcaseAction } from "../src/demo/showcaseModel";
 import { evaluateGrid } from "../src/demo/notesDocument";
 
 const blank = (): ShowcaseProject => ({
@@ -76,4 +76,31 @@ test("filters, priorities, and bound metrics remain editable and derived", () =>
   assert.equal(metricValue(edited, edited.sections.find(s => s.title === "Average")!), "50.00");
   assert.equal(metricValue(edited, edited.sections.find(s => s.title === "Progress")!), "100%");
   assert.throws(() => applyShowcaseActions(edited, [action("section.update", "Progress", { ref: "Costs", metric: "completion" })]), /incompatible/);
+});
+
+test("a note embeds one live table by stable ID without copying cells", () => {
+  const p = applyShowcaseActions(blank(), [
+    action("note.create", "", { title: "Budget", body: "# Budget\n\nCosts below." }),
+    action("table.create", "", { title: "Costs", grid: [["Item", "Qty", "Price", "Total"], ["Taxi", 1, 40, "=B2*C2"]], section: false }),
+    action("note.embedTable", "Budget", { table: "Costs" }),
+  ]);
+  assert.equal(p.sections.filter(s => s.kind === "table").length, 0);
+  assert.deepEqual(splitTableEmbeds(p.notes[0].body).map(part => part.kind), ["markdown", "table"]);
+  const ref = splitTableEmbeds(p.notes[0].body)[1];
+  assert.equal(ref.kind === "table" && ref.ref, p.tables[0].id);
+  const changed = applyShowcaseActions(p, [action("table.rename", "Costs", { title: "Travel costs" }), action("table.cell", p.tables[0].id, { row: 1, col: 1, value: 2 })]);
+  assert.equal(tableValues(changed, changed.tables[0].id)[1][3], 80);
+  assert.deepEqual(splitTableEmbeds(changed.notes[0].body)[1], ref);
+  assert.match(noteMarkdownExport(changed, changed.notes[0].id), /\| Taxi \| 2 \| 40 \| 80 \|/);
+  assert.ok(!noteMarkdownExport(changed, changed.notes[0].id).includes("![[table:"));
+  assert.throws(() => applyShowcaseActions(changed, [action("note.embedTable", "Budget", { table: "Travel costs" })]), /already embedded/);
+  assert.throws(() => applyShowcaseActions(p, [action("theme.update", "", { accent: "green" }), action("note.embedTable", "Budget", { table: "Missing" })]), /not found/);
+  assert.equal(p.theme.accent, "amber");
+});
+
+test("table embed markers inside fenced code remain ordinary Markdown", () => {
+  assert.deepEqual(splitTableEmbeds("```md\n![[table:demo]]\n```\n\n![[table:real]]"), [
+    { kind: "markdown", text: "```md\n![[table:demo]]\n```\n\n" },
+    { kind: "table", ref: "real" },
+  ]);
 });

@@ -50,7 +50,7 @@ let generation = 0;
 function appliedMessage(actions: ShowcaseAction[]): string {
   const verbs: Record<string, string> = {
     "project.rename": "renamed the app", "capability.enable": "added a capability", "capability.disable": "removed a capability", "section.add": "added a section", "section.update": "updated a section", "section.move": "moved a section", "section.remove": "removed a section",
-    "note.create": "created a note", "note.update": "edited a note", "note.duplicate": "duplicated a note", "note.delete": "deleted a note", "table.create": "created a table", "table.rename": "renamed a table", "table.delete": "deleted a table", "table.cell": "updated a cell", "table.addRow": "added a table row", "table.deleteRow": "removed a table row", "table.addColumn": "added a table column", "table.deleteColumn": "removed a table column", "table.sort": "sorted a table", "table.filter": "filtered a table",
+    "note.create": "created a note", "note.update": "edited a note", "note.embedTable": "embedded a live table in a note", "note.duplicate": "duplicated a note", "note.delete": "deleted a note", "table.create": "created a table", "table.rename": "renamed a table", "table.delete": "deleted a table", "table.cell": "updated a cell", "table.addRow": "added a table row", "table.deleteRow": "removed a table row", "table.addColumn": "added a table column", "table.deleteColumn": "removed a table column", "table.sort": "sorted a table", "table.filter": "filtered a table",
     "task.create": "created a task", "task.update": "updated a task", "task.delete": "deleted a task", "theme.update": "changed the theme",
   };
   const summary = [...new Set(actions.map(a => verbs[a.type]))];

@@ -35,7 +35,7 @@ export const ShowcaseProject = z.object({
 export type ShowcaseProject = z.infer<typeof ShowcaseProject>;
 
 export const ShowcaseAction = z.object({
-  type: z.enum(["project.rename", "capability.enable", "capability.disable", "section.add", "section.update", "section.move", "section.remove", "note.create", "note.update", "note.duplicate", "note.delete", "table.create", "table.rename", "table.delete", "table.cell", "table.addRow", "table.deleteRow", "table.addColumn", "table.deleteColumn", "table.sort", "table.filter", "task.create", "task.update", "task.delete", "theme.update"]),
+  type: z.enum(["project.rename", "capability.enable", "capability.disable", "section.add", "section.update", "section.move", "section.remove", "note.create", "note.update", "note.embedTable", "note.duplicate", "note.delete", "table.create", "table.rename", "table.delete", "table.cell", "table.addRow", "table.deleteRow", "table.addColumn", "table.deleteColumn", "table.sort", "table.filter", "task.create", "task.update", "task.delete", "theme.update"]),
   target: z.string().max(100),
   data: z.record(z.unknown()),
 });
@@ -79,6 +79,27 @@ const addSection = (p: ShowcaseProject, kind: ShowcaseProject["sections"][number
   p.sections.push({ id: showcaseId(), kind, ref, title, visible: true, width: kind === "notes" ? "full" : "half" });
 };
 
+export type NotePart = { kind: "markdown"; text: string } | { kind: "table"; ref: string };
+/** A standalone ![[table:ID]] line embeds one shared table; fenced code remains Markdown. */
+export function splitTableEmbeds(body: string): NotePart[] {
+  const parts: NotePart[] = [];
+  let markdown = "", fenced = false;
+  for (const line of body.match(/[^\n]*\n|[^\n]+$/g) ?? []) {
+    const content = line.replace(/\r?\n$/, "");
+    const marker = !fenced && /^!\[\[table:([^\]\r\n]+)\]\][ \t]*$/.exec(content);
+    if (marker) {
+      if (markdown) parts.push({ kind: "markdown", text: markdown });
+      parts.push({ kind: "table", ref: marker[1].trim() });
+      markdown = "";
+    } else {
+      markdown += line;
+      if (content.trimStart().startsWith("```")) fenced = !fenced;
+    }
+  }
+  if (markdown) parts.push({ kind: "markdown", text: markdown });
+  return parts;
+}
+
 /** All actions are checked on a copy; one invalid action leaves the original untouched. */
 export function applyShowcaseActions(current: ShowcaseProject, proposed: unknown[]): ShowcaseProject {
   if (!Array.isArray(proposed) || proposed.length < 1 || proposed.length > 20) throw new Error("An edit must contain 1–20 actions");
@@ -109,6 +130,16 @@ export function applyShowcaseActions(current: ShowcaseProject, proposed: unknown
         if (data.tags !== undefined) { enable(p, "tags"); n.tags = z.array(z.string().min(1).max(40)).max(20).parse(data.tags); }
         break;
       }
+      case "note.embedTable": {
+        const n = findByName(p.notes, target, "Note");
+        const t = findByName(p.tables, asString(data.table, "Table"), "Table");
+        if (splitTableEmbeds(n.body).some(part => part.kind === "table" && (part.ref === t.id || part.ref.toLowerCase() === t.title.toLowerCase()))) throw new Error(`Table “${t.title}” is already embedded in this note`);
+        enable(p, "calc");
+        const marker = `![[table:${t.id}]]`;
+        const placement = z.enum(["append", "prepend"]).default("append").parse(data.placement);
+        n.body = z.string().max(100_000).parse(placement === "prepend" ? `${marker}\n\n${n.body}` : `${n.body.trimEnd()}${n.body.trim() ? "\n\n" : ""}${marker}`);
+        break;
+      }
       case "note.delete": p.notes.splice(p.notes.indexOf(findByName(p.notes, target, "Note")), 1); break;
       case "note.duplicate": {
         const original = findByName(p.notes, target, "Note");
@@ -123,7 +154,8 @@ export function applyShowcaseActions(current: ShowcaseProject, proposed: unknown
         if (p.tables.some(t => t.title.toLowerCase() === title.toLowerCase())) throw new Error(`Table “${title}” already exists`);
         const parsed = grid.parse(data.grid);
         if (parsed.some(row => row.length !== parsed[0].length)) throw new Error("Table rows must have the same number of cells");
-        const id = showcaseId(); p.tables.push({ id, title, grid: parsed, filter: "" }); addSection(p, "table", id, title);
+        const id = showcaseId(); p.tables.push({ id, title, grid: parsed, filter: "" });
+        if (data.section !== false) addSection(p, "table", id, title);
         break;
       }
       case "table.rename": {
@@ -302,6 +334,21 @@ export function metricValue(p: ShowcaseProject, section: ShowcaseProject["sectio
 
 export function tableCsv(p: ShowcaseProject, id: string): string {
   return tableValues(p, id).map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\r\n");
+}
+
+/** Markdown export is a portable snapshot; project JSON retains live formulas and bindings. */
+export function noteMarkdownExport(p: ShowcaseProject, id: string): string {
+  const n = p.notes.find(note => note.id === id);
+  if (!n) throw new Error("Note was not found");
+  const cellText = (value: string | number) => String(value).replaceAll("\\", "\\\\").replaceAll("|", "\\|").replace(/\r?\n/g, " ");
+  return splitTableEmbeds(n.body).map(part => {
+    if (part.kind === "markdown") return part.text;
+    const t = p.tables.find(table => table.id === part.ref || table.title.toLowerCase() === part.ref.toLowerCase());
+    if (!t) return `\n\n> Table “${part.ref}” is unavailable.\n\n`;
+    const values = tableValues(p, t.id);
+    const line = (row: (string | number)[]) => `| ${row.map(cellText).join(" | ")} |`;
+    return `\n\n### ${t.title}\n\n${line(values[0])}\n| ${values[0].map(() => "---").join(" | ")} |\n${values.slice(1).map(line).join("\n")}\n\n`;
+  }).join("");
 }
 
 export function parseCsv(source: string): Grid {
