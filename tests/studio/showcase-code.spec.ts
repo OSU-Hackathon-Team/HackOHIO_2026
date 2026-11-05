@@ -92,3 +92,17 @@ test("Stop cancels a code job and a late result cannot activate", async ({ page 
   await expect(page.locator("iframe")).toHaveCount(0);
   await expect(page.getByText("$760.00")).toBeVisible();
 });
+
+test("runtime failure offers immediate restoration of the working app", async ({ page }) => {
+  await mockCandidate(page);
+  await page.route("**/api/showcase/code/revisions/*/app.js", route => route.fulfill({ contentType: "text/javascript", body: `const bridge = parent.__spliceShowcaseBridge; document.getElementById("value").textContent = "Starting"; bridge.reportReady(); setTimeout(() => bridge.reportError("Generated widget crashed"), 50);` }));
+  await page.goto("/?mode=demo");
+  await page.getByRole("button", { name: "Trip planner", exact: true }).click();
+  await page.getByLabel("Chat mode").selectOption("feature");
+  await page.getByLabel("Describe a change").fill("Add a budget widget");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText("Generated widget crashed")).toBeVisible();
+  await page.getByRole("button", { name: "Restore last working version" }).click();
+  await expect(page.locator("iframe")).toHaveCount(0);
+  await expect(page.getByText("$760.00")).toBeVisible();
+});
