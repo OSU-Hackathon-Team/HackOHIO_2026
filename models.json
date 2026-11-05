@@ -14,6 +14,7 @@
     "engine_writer": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
     "ui_synthesizer": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
     "showcase_planner": "gpt-6-luna",
+    "showcase_code_writer": "gpt-5.6-terra",
     "refusal_fallback": "amazon-bedrock/qwen.qwen3-coder-480b-a35b-v1:0",
     "legal_verification": "amazon-bedrock/anthropic.claude-opus-4-6-v1"
   },
@@ -26,6 +27,7 @@
     "engine_writer": "Splice engine_writer: Qwen3 Coder 480B via Bedrock Converse. Environment overrides remain supported.",
     "ui_synthesizer": "Splice ui_synthesizer: Qwen3 Coder 480B via Bedrock Converse. Environment overrides remain supported.",
     "showcase_planner": "Local Codex CLI planner for the showcase. Uses the presenter's ChatGPT login, not Bedrock. Override with MODEL_SHOWCASE_PLANNER.",
+    "showcase_code_writer": "Local Codex CLI writer for showcase preview features. Override with MODEL_SHOWCASE_CODE_WRITER.",
     "refusal_fallback": "Splice refusal_fallback: Qwen3 Coder 480B via Bedrock Converse. Environment overrides remain supported. Retry once on a distinct configured model; identical-model retries are skipped.",
     "legal_verification": "Python pipeline verification role."
   },

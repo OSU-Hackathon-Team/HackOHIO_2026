@@ -17,3 +17,4 @@ export * from "./electronSpec.js";
 export * from "./canonical.js";
 export * from "./capability.js";
 export * from "./composition.js";
+export * from "./showcaseCode.js";

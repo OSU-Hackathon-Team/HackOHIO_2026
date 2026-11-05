@@ -5,6 +5,7 @@ import path from "node:path";
 import { Router } from "express";
 import { z } from "zod";
 import { getModel } from "../models.js";
+import { CodeDerived, CodeProject, CodeRequest, cancelCodeJob, createPreparedRevision, getCodeJob, readRevision, revisionAsset, startCodeJob, validateRevision } from "../showcase/codeJobs.js";
 
 const actionTypes = ["project.rename", "capability.enable", "capability.disable", "section.add", "section.update", "section.move", "section.remove", "note.create", "note.update", "note.embedTable", "note.duplicate", "note.delete", "table.create", "table.rename", "table.delete", "table.cell", "table.addRow", "table.deleteRow", "table.addColumn", "table.deleteColumn", "table.sort", "table.filter", "task.create", "task.update", "task.delete", "theme.update"] as const;
 const PlannerRequest = z.object({
@@ -64,6 +65,48 @@ export function createShowcaseRouter(run = runCodexPlanner) {
     } catch (error) {
       if (!controller.signal.aborted) res.status(502).json({ error: error instanceof Error ? error.message : "Planner failed" });
     } finally { inflight.delete(projectId); }
+  });
+  router.post("/api/showcase/code/jobs", (req, res) => {
+    if (!localRequest(req)) return res.status(403).json({ error: "Showcase code editing is local only" });
+    const parsed = CodeRequest.safeParse(req.body);
+    if (!parsed.success || JSON.stringify(parsed.data).length > 80_000) return res.status(400).json({ error: "Invalid or oversized code request" });
+    try { res.status(202).json(startCodeJob(parsed.data)); }
+    catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : "Unable to start code job" }); }
+  });
+  router.get("/api/showcase/code/jobs/:id", (req, res) => {
+    if (!localRequest(req)) return res.status(403).end();
+    const job = getCodeJob(String(req.params.id));
+    return job ? res.json(job) : res.status(404).json({ error: "Code job not found" });
+  });
+  router.delete("/api/showcase/code/jobs/:id", (req, res) => {
+    if (!localRequest(req)) return res.status(403).end();
+    return res.json({ cancelled: cancelCodeJob(String(req.params.id)) });
+  });
+  router.get("/api/showcase/code/revisions/:id/source", async (req, res) => {
+    if (!localRequest(req)) return res.status(403).end();
+    try { res.json(await readRevision(String(req.params.id))); }
+    catch { res.status(404).json({ error: "Code revision not found" }); }
+  });
+  router.post("/api/showcase/code/revisions/:id/validate", async (req, res) => {
+    if (!localRequest(req)) return res.status(403).end();
+    const project = CodeProject.safeParse(req.body?.project);
+    const derived = CodeDerived.safeParse(req.body?.derived);
+    if (!project.success || !derived.success || JSON.stringify(req.body).length > 80_000) return res.status(400).json({ error: "Invalid project snapshot" });
+    try { await validateRevision(String(req.params.id), project.data, derived.data); res.json({ valid: true }); }
+    catch (error) { res.status(422).json({ error: error instanceof Error ? error.message : "Candidate failed current-data check" }); }
+  });
+  router.post("/api/showcase/code/prepared", async (req, res) => {
+    if (!localRequest(req)) return res.status(403).end();
+    const project = CodeProject.safeParse(req.body?.project), derived = CodeDerived.safeParse(req.body?.derived);
+    const parentRevision = req.body?.parentRevision;
+    if (!project.success || !derived.success || (parentRevision !== null && !z.string().uuid().safeParse(parentRevision).success) || JSON.stringify(req.body).length > 80_000) return res.status(400).json({ error: "Invalid prepared example request" });
+    try { res.json(await createPreparedRevision(project.data, derived.data, parentRevision)); }
+    catch (error) { res.status(422).json({ error: error instanceof Error ? error.message : "Prepared example failed" }); }
+  });
+  router.get("/api/showcase/code/revisions/:id/:asset", (req, res) => {
+    if (!localRequest(req)) return res.status(403).end();
+    try { res.sendFile(revisionAsset(String(req.params.id), String(req.params.asset)), error => { if (error && !res.headersSent) res.status(404).end(); }); }
+    catch { res.status(404).end(); }
   });
   return router;
 }

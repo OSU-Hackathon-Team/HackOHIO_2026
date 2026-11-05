@@ -956,3 +956,12 @@ changes and document removal remain incompatible. The generated Electron host in
 explicit document defaults on launch and offers revision-checked, schema-validated edits to
 composition-owned documents through the preload bridge. The authored notebook uses this to
 store confirmed numeric workbook cells, which its formula workflow reads from durable state.
+
+**Local showcase code editing.** `showcaseCode.ts` defines `ShowcaseCodeJob`,
+`ShowcaseCodeRevision`, and the typed `ShowcasePreviewBridge`. This path is separate from the
+Bedrock synthesis contracts. A job records its project, parent code revision, base data revision,
+model, real stage, repair count, and terminal result. A revision records the accepted source and
+build metadata. The trusted same-origin preview reads current project data through the bridge;
+its `apply` method still runs the host's validated action transaction. The host owns chat,
+revision selection, and recovery. Code revisions live in gitignored local state, while the
+browser stores each project's current revision pointer.
