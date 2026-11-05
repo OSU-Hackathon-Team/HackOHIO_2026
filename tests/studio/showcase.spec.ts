@@ -236,6 +236,10 @@ test("showcase controls align and narrow screens do not overflow", async ({ page
   }));
   expect(new Set(boxes.map(box => box.width)).size).toBe(1);
   expect(new Set(boxes.map(box => box.height)).size).toBe(1);
+  expect(boxes[0]).toEqual({ width: 76, height: 32 });
+  const send = page.getByRole("button", { name: "Send", exact: true });
+  expect(await send.evaluate(element => element.getBoundingClientRect().height)).toBe(32);
+  await expect(send).toHaveText("Send");
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(800);
   await page.getByRole("button", { name: "Budget", exact: true }).click();
   await expect(page.getByTestId("embedded-table")).toBeVisible();

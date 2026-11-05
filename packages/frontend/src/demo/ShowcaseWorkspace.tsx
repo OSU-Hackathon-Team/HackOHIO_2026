@@ -34,8 +34,10 @@ export function ShowcaseWorkspace() {
   const card = light ? "bg-white border-slate-200" : "bg-[#232323] border-stone-700";
   const soft = light ? "text-slate-500" : "text-stone-400";
   const button = `rounded-lg border px-3 py-1.5 text-sm transition hover:opacity-75 ${light ? "border-slate-300 bg-white" : "border-stone-700 bg-[#292929]"}`;
-  const headerButton = `${button} inline-flex h-11 w-24 items-center justify-center gap-1.5 whitespace-nowrap px-2`;
-  const headerSelect = `${button} h-11 w-24 px-2 text-center`;
+  const compactControl = `h-8 w-[76px] rounded-lg border px-1.5 text-xs transition hover:opacity-75 ${light ? "border-slate-300 bg-white" : "border-stone-700 bg-[#292929]"}`;
+  const headerButton = `${compactControl} inline-flex items-center justify-center gap-1 whitespace-nowrap`;
+  const headerSelect = `${compactControl} text-center`;
+  const chatButton = `inline-flex h-8 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-lg border px-2 text-xs transition hover:opacity-75 ${light ? "border-slate-300 bg-white" : "border-stone-700 bg-[#292929]"}`;
   return <div className={`flex min-h-dvh min-w-0 flex-col lg:h-dvh lg:flex-row ${text} ${light ? "showcase-light" : ""}`} style={{ background: light ? "#f6f7f8" : "#181818", fontFamily: "Inter, ui-sans-serif, system-ui", ["--accent" as string]: accentColors[p.theme.accent], ["--accent-ink" as string]: light ? lightAccentText[p.theme.accent] : accentColors[p.theme.accent] }}>
     <aside className={`flex w-full shrink-0 flex-col border-b lg:h-auto lg:w-[320px] lg:border-b-0 lg:border-r xl:w-[360px] ${light ? "border-slate-200 bg-white" : "border-stone-800 bg-[#141414]"}`}>
       <header className={`flex items-center justify-between border-b px-5 py-4 ${light ? "border-slate-200" : "border-stone-800"}`}>
@@ -62,7 +64,7 @@ export function ShowcaseWorkspace() {
           {s.selectedSectionId && <div className={`mb-2 flex items-center justify-between rounded px-2 py-1 text-xs ${light ? "bg-slate-200" : "bg-stone-700"}`}><span>Selected: {s.selectedSectionId.startsWith("code:") ? "built feature" : p.sections.find(section => section.id === s.selectedSectionId)?.title ?? "app section"}</span><button type="button" className="underline" onClick={() => s.selectSection(null)}>Clear</button></div>}
           <label className={`mb-2 block text-xs ${soft}`} htmlFor="showcase-chat-mode">Chat mode</label><select id="showcase-chat-mode" value={chatMode} onChange={e => setChatMode(e.target.value as ChatMode)} className={`mb-2 w-full rounded border px-2 py-1.5 text-sm ${light ? "border-slate-300 bg-white" : "border-stone-600 bg-[#292929]"}`}><option value="auto">Auto · edit data or build a feature</option><option value="edit">Edit app data</option><option value="feature">Build feature · write code</option></select>
           <label className="sr-only" htmlFor="showcase-chat">Describe a change</label><textarea id="showcase-chat" className="h-20 w-full resize-none bg-transparent text-sm outline-none" placeholder="Make me a trip planner with a budget…" value={prompt} maxLength={2000} onChange={e => setPrompt(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (prompt.trim()) submit(e); } }} />
-          <div className="flex items-center justify-between"><span className={`text-xs ${soft}`}>Enter to send · Shift+Enter for newline</span>{s.busy ? <button type="button" className={button} onClick={() => s.cancel()}><Square size={14} /> Stop</button> : <button type="submit" disabled={!prompt.trim()} className={button} style={{ color: "var(--accent-ink)" }}><Send size={15} /> Send</button>}</div>
+          <div className="flex items-center justify-between gap-2"><span className={`min-w-0 text-xs ${soft}`}>Enter to send · Shift+Enter for newline</span>{s.busy ? <button type="button" className={chatButton} onClick={() => s.cancel()}><Square size={13} /> Stop</button> : <button type="submit" disabled={!prompt.trim()} className={chatButton} style={{ color: "var(--accent-ink)" }}><Send size={13} /> Send</button>}</div>
         </form>
         <p className={`mt-3 text-xs ${soft}`}>Live chat uses local Codex. Direct editing and recipes work without it.</p>
       </div>
