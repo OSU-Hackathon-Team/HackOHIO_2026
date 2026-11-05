@@ -4,8 +4,8 @@ import { DEMO_NOTES } from "./notes";
 import { applyShowcaseActions, projectTotal, tableTotal, ShowcaseAction, ShowcaseProject, showcaseId } from "./showcaseModel";
 
 const KEY = "splice.showcase.projects.v1";
-export type ShowcaseMessage = { id: string; role: "user" | "assistant"; text: string; model?: string; actions?: number };
-const message = z.object({ id: z.string(), role: z.enum(["user", "assistant"]), text: z.string(), model: z.string().optional(), actions: z.number().optional() });
+export type ShowcaseMessage = { id: string; role: "user" | "assistant"; text: string; model?: string; actions?: number; revision?: number };
+const message = z.object({ id: z.string(), role: z.enum(["user", "assistant"]), text: z.string(), model: z.string().optional(), actions: z.number().optional(), revision: z.number().int().nonnegative().optional() });
 const Saved = z.object({ projects: z.array(ShowcaseProject).min(1), activeId: z.string(), messages: z.array(message), chats: z.record(z.array(message)).default({}), histories: z.record(z.object({ past: z.array(ShowcaseProject).max(50), future: z.array(ShowcaseProject).max(50) })).default({}) }).refine(value => value.projects.some(p => p.id === value.activeId), "The selected project is missing");
 type Saved = z.infer<typeof Saved>;
 
@@ -109,7 +109,7 @@ export const useShowcase = create<ShowcaseState>((set, get) => {
         const h = get().histories[p.id] ?? { past: [], future: [] };
         set(s => ({ histories: { ...s.histories, [p.id]: { past: [...h.past.slice(-49), p], future: [] } } }));
         replace(next);
-        if (summary) { set(s => ({ messages: [...s.messages, { id: showcaseId(), role: "assistant", text: summary, model, actions: actions.length }] })); persist(); }
+        if (summary) { set(s => ({ messages: [...s.messages, { id: showcaseId(), role: "assistant", text: summary, model, actions: actions.length, revision: next.revision }] })); persist(); }
         set({ error: undefined });
       } catch (error) { set({ error: error instanceof Error ? error.message : "Unable to apply changes" }); throw error; }
     },

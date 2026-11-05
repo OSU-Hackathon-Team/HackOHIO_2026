@@ -69,6 +69,7 @@ test("chat actions update the live app and can be undone as one turn", async ({ 
   await page.getByRole("button", { name: "Undo", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Untitled app" })).toBeVisible();
   await expect(page.getByText("Your app starts here")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Undo this change" })).toHaveCount(0);
 });
 
 test("cancelled replies cannot change the app, and basic chat commands work offline", async ({ page }) => {
