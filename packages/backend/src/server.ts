@@ -12,6 +12,7 @@ import { decompRunsRouter } from "./routes/decompRuns.js";
 import { nativeLibraryRouter } from "./routes/nativeLibrary.js";
 import { createRecombinationRouter } from "./routes/recombination.js";
 import { electronRunsRouter } from "./routes/electronRuns.js";
+import { createShowcaseRouter } from "./routes/showcase.js";
 import { FilesystemRecombinationService } from "./recombination/service.js";
 import { JobManager } from "./recombination/jobs.js";
 
@@ -54,6 +55,7 @@ const recombinationJobs = new JobManager(recombinationStateDir);
 app.use(nativeLibraryRouter(undefined, undefined, undefined, recombinationService));
 app.use(electronRunsRouter(undefined, undefined, undefined, recombinationService));
 app.use(createRecombinationRouter(recombinationService, recombinationJobs));
+app.use(createShowcaseRouter());
 
 // ==============================================================================
 // 3. API 404 Guard
