@@ -37,3 +37,11 @@
 .obsidian-preview table { border-collapse: collapse; margin: 1em 0; font-size: 0.9em; }
 .obsidian-preview th, .obsidian-preview td { border: 1px solid #3a3a3a; padding: 0.4em 0.8em; }
 .obsidian-preview th { background: #262626; color: #f2f2f2; }
+.showcase-light .obsidian-preview { color: #334155; }
+.showcase-light .obsidian-preview h1, .showcase-light .obsidian-preview h2, .showcase-light .obsidian-preview h3,
+.showcase-light .obsidian-preview h4, .showcase-light .obsidian-preview h5, .showcase-light .obsidian-preview h6,
+.showcase-light .obsidian-preview strong { color: #0f172a; }
+.showcase-light .obsidian-preview pre, .showcase-light .obsidian-preview th { background: #f1f5f9; color: #0f172a; }
+.showcase-light .obsidian-preview blockquote { color: #475569; }
+.showcase-light .obsidian-preview .callout { color: #334155; }
+.showcase-light .obsidian-preview a { color: #2563eb; }

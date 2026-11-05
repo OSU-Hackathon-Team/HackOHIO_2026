@@ -49,18 +49,41 @@ export const hasFormulas = (grid: Grid) => grid.some((row) => row.some(isFormula
 
 /** Display values: formulas evaluated by the Calc engine; "#ERR" for non-finite results. */
 export function evaluateGrid(grid: Grid): Grid {
-  const numbers: Record<string, number> = {};
-  grid.forEach((row, r) => row.forEach((cell, c) => {
-    if (typeof cell === "number") numbers[colName(c) + (r + 1)] = cell;
-  }));
-  // shortcut: formulas evaluate in row-major order, so a formula may only reference cells above or left of it; add a dependency graph if notes need forward references.
-  return grid.map((row, r) => row.map((cell, c) => {
-    if (!isFormula(cell)) return cell;
-    const value = evaluateFormula(String(cell), numbers);
-    if (!Number.isFinite(value)) return "#ERR";
-    numbers[colName(c) + (r + 1)] = value;
-    return value;
-  }));
+  const cache = new Map<string, Cell>();
+  const visiting = new Set<string>();
+  const coordinates = (address: string) => {
+    const match = /^([A-Z]+)([1-9]\d*)$/.exec(address);
+    if (!match) return null;
+    let col = 0;
+    for (const letter of match[1]) col = col * 26 + letter.charCodeAt(0) - 64;
+    return [Number(match[2]) - 1, col - 1] as const;
+  };
+  const visit = (r: number, c: number): Cell => {
+    if (!grid[r] || c >= grid[r].length) return "#REF!";
+    const key = `${r}:${c}`;
+    if (cache.has(key)) return cache.get(key)!;
+    if (visiting.has(key)) return "#CYCLE";
+    const raw = grid[r][c];
+    if (!isFormula(raw)) return raw;
+    visiting.add(key);
+    const formula = String(raw).toUpperCase();
+    const refs = [...formula.matchAll(/\b[A-Z]+[1-9]\d*\b/g)].map(match => match[0]);
+    const numberValues: Record<string, number> = {};
+    let error: Cell | null = null;
+    for (const ref of refs) {
+      const coords = coordinates(ref);
+      const value = coords ? visit(coords[0], coords[1]) : "#REF!";
+      if (typeof value === "string" && value.startsWith("#")) { error = value; break; }
+      numberValues[ref] = typeof value === "number" ? value : 0;
+    }
+    const legal = formula.slice(1).replace(/\b[A-Z]+[1-9]\d*\b/g, "0").replace(/\d+(?:\.\d+)?/g, "").replace(/[\s()+*/<>=!-]/g, "") === "";
+    let result: Cell = error ?? (legal ? evaluateFormula(formula, numberValues) : "#ERR");
+    if (typeof result === "number" && !Number.isFinite(result)) result = "#ERR";
+    visiting.delete(key);
+    cache.set(key, result);
+    return result;
+  };
+  return grid.map((row, r) => row.map((_, c) => visit(r, c)));
 }
 
 export type TableAction =
