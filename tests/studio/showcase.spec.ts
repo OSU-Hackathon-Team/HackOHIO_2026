@@ -59,7 +59,7 @@ test("chat actions update the live app and can be undone as one turn", async ({ 
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Trip planner" })).toBeVisible();
   await expect(page.getByText("$400.00")).toHaveCount(0); // No summary card was requested.
-  await expect(page.getByText("Pack bags")).toBeVisible();
+  await expect(page.getByLabel("Task title Pack bags")).toHaveValue("Pack bags");
   await expect(page.getByText("Done: renamed the app, created a note, created a table, created a task.")).toBeVisible();
   await page.reload();
   await expect(page.getByText("Done: renamed the app, created a note, created a table, created a task.")).toBeVisible();
@@ -104,4 +104,26 @@ test("model supplied Markdown cannot inject active HTML", async ({ page }) => {
   expect(await page.evaluate(() => (window as any).__showcaseXss)).toBeUndefined();
   await page.locator(".obsidian-preview a.internal-link").click();
   await expect(page.locator(".obsidian-preview h1")).toHaveText("Safe");
+});
+
+test("filters, task details, metrics, and chart bindings work in the app", async ({ page }) => {
+  await page.goto("/?mode=demo");
+  await page.getByRole("button", { name: "Event budget", exact: true }).click();
+  await page.getByLabel("Filter Event costs").fill("Snacks");
+  await expect(page.getByLabel("Cell A4")).toHaveValue("Snacks");
+  await expect(page.getByLabel("Cell A2")).toHaveCount(0);
+  await page.getByLabel("Filter Event costs").fill("");
+  await page.getByLabel("Value for Costs by item").selectOption("2");
+  await expect(page.getByText("0.5", { exact: true })).toBeVisible();
+  await page.getByLabel("Source for Event total").selectOption("tasks");
+  await expect(page.getByText("0%", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Library", exact: true }).click();
+  await page.getByRole("heading", { name: "Tasks", exact: true }).locator("..").locator("..").getByRole("button", { name: "Add to app" }).click();
+  await page.getByLabel("New task", { exact: true }).fill("Send invites");
+  await page.getByLabel("New task due date").fill("2026-11-10");
+  await page.getByLabel("New task priority").selectOption("high");
+  await page.getByRole("button", { name: "Add task" }).click();
+  await expect(page.getByLabel("Priority Send invites")).toHaveValue("high");
+  await page.getByLabel("Complete Send invites").check();
+  await expect(page.getByText("100%", { exact: true })).toBeVisible();
 });

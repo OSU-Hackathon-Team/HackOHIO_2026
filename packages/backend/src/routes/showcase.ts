@@ -6,11 +6,11 @@ import { Router } from "express";
 import { z } from "zod";
 import { getModel } from "../models.js";
 
-const actionTypes = ["project.rename", "capability.enable", "capability.disable", "section.add", "section.update", "section.move", "section.remove", "note.create", "note.update", "note.duplicate", "note.delete", "table.create", "table.rename", "table.delete", "table.cell", "table.addRow", "table.deleteRow", "table.addColumn", "table.deleteColumn", "table.sort", "task.create", "task.update", "task.delete", "theme.update"] as const;
+const actionTypes = ["project.rename", "capability.enable", "capability.disable", "section.add", "section.update", "section.move", "section.remove", "note.create", "note.update", "note.duplicate", "note.delete", "table.create", "table.rename", "table.delete", "table.cell", "table.addRow", "table.deleteRow", "table.addColumn", "table.deleteColumn", "table.sort", "table.filter", "task.create", "task.update", "task.delete", "theme.update"] as const;
 const PlannerRequest = z.object({
   prompt: z.string().min(1).max(2000), revision: z.number().int().nonnegative(),
   project: z.object({ id: z.string(), revision: z.number().int(), title: z.string(), capabilities: z.array(z.string()), notes: z.array(z.unknown()), tables: z.array(z.unknown()), tasks: z.array(z.unknown()), sections: z.array(z.unknown()), theme: z.unknown() }).passthrough(),
-  derived: z.object({ total: z.number().finite(), tableTotals: z.array(z.object({ id: z.string(), title: z.string(), total: z.number().finite() })), tasksComplete: z.number().int().nonnegative() }),
+  derived: z.object({ today: z.string().optional(), total: z.number().finite(), tableTotals: z.array(z.object({ id: z.string(), title: z.string(), total: z.number().finite() })), tasksComplete: z.number().int().nonnegative(), tasksOverdue: z.array(z.object({ title: z.string(), due: z.string() })).optional() }),
   selectedSectionId: z.string().nullable(), history: z.array(z.object({ role: z.enum(["user", "assistant"]), text: z.string().max(2000) })).max(6),
 });
 const PlannerReply = z.object({ outcome: z.enum(["apply", "answer", "clarify", "unsupported"]), message: z.string().max(1000), actions: z.array(z.object({ type: z.enum(actionTypes), target: z.string().max(100), data_json: z.string().max(20_000) })).max(20) });
@@ -30,12 +30,12 @@ Action catalog (target is an existing stable ID or exact title except for create
 - capability.enable target one of notes,calc,tasks,search,tags,metrics,charts data {}; capability.disable target the same names data {}. Disabling hides dependent sections but preserves their data for undo.
 - note.create target "" data {"title":"Itinerary","body":"# Itinerary\\n..."}; note.update target note title/ID data {"title"?:string,"body"?:string,"append"?:string,"tags"?:string[]}; note.duplicate target note title/ID data {"title":"Copy title"}; note.delete target note title/ID data {}
 - table.create target "" data {"title":"Trip budget","grid":[["Item","Qty","Unit cost","Total"],["Flights",1,400,"=B2*C2"],["Hotel nights",3,120,"=B3*C3"],["Grand total","","","=D2+D3"]]}. All rows equal width. Formulas use simple A1 references, arithmetic and parentheses. A total row should be last.
-- table.rename target table title/ID data {"title":"New name"}; table.delete target table title/ID data {}. table.cell target table title/ID data {"row":1,"col":2,"value":150}. Row/col are zero-based. table.addRow target table title/ID data {"row":["Taxi",1,40,"=B4*C4"]}; omitted index inserts above a final Total row and extends a simple sum formula. For existing formula tables, provide the new row's formula at its resulting row number. table.deleteRow target table title/ID data {"index":2}; disabled on formula tables. table.addColumn target table title/ID data {"title":"Status"}; table.deleteColumn target table title/ID data {"index":2}; column changes disabled on formula tables. table.sort target table title/ID data {"column":1,"ascending":true}; disabled on formula tables.
-- task.create target "" data {"title":"Book flights","due":"2026-11-10"}; task.update target task title/ID data {"title"?:string,"done"?:boolean,"due"?:string}; task.delete target task title/ID data {}
-- section.add target "" data {"kind":"metric"|"chart"|"notes"|"tasks","title":"Trip total","ref":"Trip budget"}. A metric can use ref "all", "tasks", or an existing table title/ID; charts need an existing table. section.update target section title/ID data {"title"?:string,"visible"?:boolean,"width"?:"full"|"half","ref"?:"all"|"tasks"|table title/ID}; section.move target section title/ID data {"index":0}; section.remove target section title/ID data {}.
+- table.rename target table title/ID data {"title":"New name"}; table.delete target table title/ID data {}. table.cell target table title/ID data {"row":1,"col":2,"value":150}. Row/col are zero-based. table.addRow target table title/ID data {"row":["Taxi",1,40,"=B4*C4"]}; omitted index inserts above a final Total row and extends a simple sum formula. For existing formula tables, provide the new row's formula at its resulting row number. table.deleteRow target table title/ID data {"index":2}; disabled on formula tables. table.addColumn target table title/ID data {"title":"Status"}; table.deleteColumn target table title/ID data {"index":2}; column changes disabled on formula tables. table.sort target table title/ID data {"column":1,"ascending":true}; disabled on formula tables. table.filter target table title/ID data {"query":"hotel"}; filters visible rows without changing calculations.
+- task.create target "" data {"title":"Book flights","due":"2026-11-10","priority":"high"}; task.update target task title/ID data {"title"?:string,"done"?:boolean,"due"?:string,"priority"?:"low"|"medium"|"high"}; task.delete target task title/ID data {}
+- section.add target "" data {"kind":"metric"|"chart"|"notes"|"tasks","title":"Trip total","ref":"Trip budget","metric"?:"sum"|"count"|"average"|"completion","categoryColumn"?:0,"valueColumn"?:3}. A metric can use ref "all", "tasks", or an existing table title/ID; task metrics support completion or count, table metrics support sum/count/average. Charts need an existing table and zero-based category/value columns. section.update target section title/ID data {"title"?:string,"visible"?:boolean,"width"?:"full"|"half","ref"?:"all"|"tasks"|table title/ID,"metric"?:"sum"|"count"|"average"|"completion","categoryColumn"?:number,"valueColumn"?:number}; section.move target section title/ID data {"index":0}; section.remove target section title/ID data {}.
 - theme.update target "" data {"mode"?:"dark"|"light","accent"?:"amber"|"green"|"blue"|"violet","density"?:"compact"|"comfortable"}.
 
-Use outcome apply only when actions has at least one item. For questions, use outcome answer and no actions. For ambiguity, clarify. If impossible, unsupported. Make multi-part changes one batch. Handle follow-up references using selected section and recent history. Prefer exact existing IDs. New capability provenance: notes and calc come from previously recorded Obsidian/LibreOffice work; search/tasks/metrics/charts/theme are authored Splice components. Do not claim new decompilation or verification. Keep responses short. A question about totals can use values in current project, but do not invent numbers; calculations are deterministic in the app.`;
+Use outcome apply only when actions has at least one item. For questions, use outcome answer and no actions. For ambiguity, clarify. If impossible, unsupported. Make multi-part changes one batch. Handle follow-up references using selected section and recent history. Prefer exact existing IDs. New capability provenance: notes and calc come from previously recorded Obsidian/LibreOffice work; search/tasks/metrics/charts/theme are authored Splice components. Do not claim new decompilation or verification. Keep responses short. Answer totals from derived values, and answer overdue questions from derived.today and derived.tasksOverdue. Do not invent numbers; calculations are deterministic in the app.`;
 
 function localRequest(req: { ip?: string; headers: Record<string, unknown> }): boolean {
   const ip = req.ip ?? "";
@@ -47,11 +47,15 @@ function localRequest(req: { ip?: string; headers: Record<string, unknown> }): b
 
 export function createShowcaseRouter(run = runCodexPlanner) {
   const router = Router();
+  const inflight = new Set<string>();
   router.post("/api/showcase/edits", async (req, res) => {
     if (!localRequest(req)) return res.status(403).json({ error: "Showcase planner is available from this computer only" });
     const parsed = PlannerRequest.safeParse(req.body);
     if (!parsed.success || parsed.data?.revision !== parsed.data?.project.revision) return res.status(400).json({ error: "Invalid or stale showcase request" });
     if (JSON.stringify(parsed.data).length > 60_000) return res.status(413).json({ error: "This project is too large for one planner request. Edit a smaller section." });
+    const projectId = parsed.data.project.id;
+    if (inflight.has(projectId)) return res.status(409).json({ error: "A showcase request is already running for this project" });
+    inflight.add(projectId);
     const controller = new AbortController();
     res.on("close", () => { if (!res.writableEnded) controller.abort(); });
     try {
@@ -59,7 +63,7 @@ export function createShowcaseRouter(run = runCodexPlanner) {
       if (!controller.signal.aborted) res.json(reply);
     } catch (error) {
       if (!controller.signal.aborted) res.status(502).json({ error: error instanceof Error ? error.message : "Planner failed" });
-    }
+    } finally { inflight.delete(projectId); }
   });
   return router;
 }

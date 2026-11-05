@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyShowcaseActions, parseCsv, projectTotal, ShowcaseProject, type ShowcaseAction } from "../src/demo/showcaseModel";
+import { applyShowcaseActions, metricValue, parseCsv, projectTotal, ShowcaseProject, type ShowcaseAction } from "../src/demo/showcaseModel";
 import { evaluateGrid } from "../src/demo/notesDocument";
 
 const blank = (): ShowcaseProject => ({
@@ -57,4 +57,23 @@ test("forward references, cycles, bad references, and unsupported syntax are vis
 test("CSV import handles quotes, embedded newlines, and numeric cells", () => {
   assert.deepEqual(parseCsv('Item,Qty,Price\r\n"Airport, taxi",1,40\r\n"Two\nlines",2,5\r\n'), [["Item", "Qty", "Price"], ["Airport, taxi", 1, 40], ["Two\nlines", 2, 5]]);
   assert.throws(() => parseCsv('"unclosed'), /unclosed/);
+});
+
+test("filters, priorities, and bound metrics remain editable and derived", () => {
+  const p = applyShowcaseActions(blank(), [
+    action("table.create", "", { title: "Costs", grid: [["Item", "Value"], ["Travel", 40], ["Food", 20]] }),
+    action("task.create", "", { title: "Book travel", due: "2026-11-10", priority: "high" }),
+    action("section.add", "", { kind: "metric", title: "Average", ref: "Costs", metric: "average" }),
+    action("section.add", "", { kind: "metric", title: "Progress", ref: "tasks", metric: "completion" }),
+    action("section.add", "", { kind: "chart", title: "Costs chart", ref: "Costs", categoryColumn: 0, valueColumn: 1 }),
+    action("table.filter", "Costs", { query: "travel" }),
+  ]);
+  assert.equal(metricValue(p, p.sections.find(s => s.title === "Average")!), "30.00");
+  assert.equal(metricValue(p, p.sections.find(s => s.title === "Progress")!), "0%");
+  assert.equal(p.tables[0].filter, "travel");
+  assert.equal(p.tasks[0].priority, "high");
+  const edited = applyShowcaseActions(p, [action("table.cell", "Costs", { row: 1, col: 1, value: 80 }), action("task.update", "Book travel", { done: true })]);
+  assert.equal(metricValue(edited, edited.sections.find(s => s.title === "Average")!), "50.00");
+  assert.equal(metricValue(edited, edited.sections.find(s => s.title === "Progress")!), "100%");
+  assert.throws(() => applyShowcaseActions(edited, [action("section.update", "Progress", { ref: "Costs", metric: "completion" })]), /incompatible/);
 });

@@ -50,7 +50,7 @@ let generation = 0;
 function appliedMessage(actions: ShowcaseAction[]): string {
   const verbs: Record<string, string> = {
     "project.rename": "renamed the app", "capability.enable": "added a capability", "capability.disable": "removed a capability", "section.add": "added a section", "section.update": "updated a section", "section.move": "moved a section", "section.remove": "removed a section",
-    "note.create": "created a note", "note.update": "edited a note", "note.duplicate": "duplicated a note", "note.delete": "deleted a note", "table.create": "created a table", "table.rename": "renamed a table", "table.delete": "deleted a table", "table.cell": "updated a cell", "table.addRow": "added a table row", "table.deleteRow": "removed a table row", "table.addColumn": "added a table column", "table.deleteColumn": "removed a table column", "table.sort": "sorted a table",
+    "note.create": "created a note", "note.update": "edited a note", "note.duplicate": "duplicated a note", "note.delete": "deleted a note", "table.create": "created a table", "table.rename": "renamed a table", "table.delete": "deleted a table", "table.cell": "updated a cell", "table.addRow": "added a table row", "table.deleteRow": "removed a table row", "table.addColumn": "added a table column", "table.deleteColumn": "removed a table column", "table.sort": "sorted a table", "table.filter": "filtered a table",
     "task.create": "created a task", "task.update": "updated a task", "task.delete": "deleted a task", "theme.update": "changed the theme",
   };
   const summary = [...new Set(actions.map(a => verbs[a.type]))];
@@ -127,7 +127,9 @@ export const useShowcase = create<ShowcaseState>((set, get) => {
       const token = ++generation; controller = new AbortController(); const signal = controller.signal;
       set(s => ({ messages: [...s.messages, { id: showcaseId(), role: "user", text: prompt }], busy: true, error: undefined })); persist();
       try {
-        const response = await fetch("/api/showcase/edits", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt, revision: p.revision, project: p, selectedSectionId: get().selectedSectionId, derived: { total: projectTotal(p), tableTotals: p.tables.map(t => ({ id: t.id, title: t.title, total: tableTotal(p, t.id) })), tasksComplete: p.tasks.filter(t => t.done).length }, history: get().messages.slice(-6).map(m => ({ role: m.role, text: m.text })) }), signal });
+        const now = new Date();
+        const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+        const response = await fetch("/api/showcase/edits", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt, revision: p.revision, project: p, selectedSectionId: get().selectedSectionId, derived: { today, total: projectTotal(p), tableTotals: p.tables.map(t => ({ id: t.id, title: t.title, total: tableTotal(p, t.id) })), tasksComplete: p.tasks.filter(t => t.done).length, tasksOverdue: p.tasks.filter(t => !t.done && /^\d{4}-\d{2}-\d{2}$/.test(t.due ?? "") && t.due! < today).map(t => ({ title: t.title, due: t.due! })) }, history: get().messages.slice(-6).map(m => ({ role: m.role, text: m.text })) }), signal });
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : `Assistant request failed (${response.status})`);
         if (signal.aborted || token !== generation || active()?.id !== p.id) return;

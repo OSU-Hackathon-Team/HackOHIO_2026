@@ -27,3 +27,25 @@ test("showcase planner route checks revisions and origin before invoking a model
     assert.equal(calls, 1);
   } finally { server.close(); }
 });
+
+test("showcase planner permits one in-flight request per project", async () => {
+  let release!: () => void;
+  let started!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const entered = new Promise<void>(resolve => { started = resolve; });
+  const app = express(); app.use(express.json());
+  app.use(createShowcaseRouter(async () => { started(); await gate; return { outcome: "answer" as const, message: "Ready", actions: [], model: "test" }; }));
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>(resolve => server.once("listening", resolve));
+  const address = server.address(); assert.ok(address && typeof address !== "string");
+  const url = `http://127.0.0.1:${address.port}/api/showcase/edits`;
+  const post = () => fetch(url, { method: "POST", headers: { "Content-Type": "application/json", Origin: "http://localhost:5173" }, body: JSON.stringify(request) });
+  try {
+    const first = post();
+    await entered;
+    assert.equal((await post()).status, 409);
+    release();
+    assert.equal((await first).status, 200);
+    assert.equal((await post()).status, 200);
+  } finally { release(); server.close(); }
+});

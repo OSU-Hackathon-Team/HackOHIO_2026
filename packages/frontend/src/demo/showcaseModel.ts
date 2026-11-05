@@ -4,9 +4,9 @@ import { applyTableOp, colName, evaluateGrid, hasFormulas, type Grid } from "./n
 const cell = z.union([z.string().max(500), z.number().finite()]);
 const grid = z.array(z.array(cell).min(1).max(16)).min(2).max(100);
 const note = z.object({ id: z.string(), title: z.string().min(1).max(100), body: z.string().max(100_000), tags: z.array(z.string().max(40)).max(20) });
-const table = z.object({ id: z.string(), title: z.string().min(1).max(100), grid });
-const task = z.object({ id: z.string(), title: z.string().min(1).max(200), done: z.boolean(), due: z.string().optional() });
-const section = z.object({ id: z.string(), kind: z.enum(["notes", "table", "tasks", "metric", "chart"]), ref: z.string(), title: z.string().max(100), visible: z.boolean(), width: z.enum(["full", "half"]) });
+const table = z.object({ id: z.string(), title: z.string().min(1).max(100), grid, filter: z.string().max(100).optional() });
+const task = z.object({ id: z.string(), title: z.string().min(1).max(200), done: z.boolean(), due: z.string().optional(), priority: z.enum(["low", "medium", "high"]).optional() });
+const section = z.object({ id: z.string(), kind: z.enum(["notes", "table", "tasks", "metric", "chart"]), ref: z.string(), title: z.string().max(100), visible: z.boolean(), width: z.enum(["full", "half"]), metric: z.enum(["sum", "count", "average", "completion"]).optional(), categoryColumn: z.number().int().nonnegative().optional(), valueColumn: z.number().int().nonnegative().optional() });
 
 export const ShowcaseProject = z.object({
   version: z.literal(1), id: z.string(), revision: z.number().int().nonnegative(), title: z.string().min(1).max(100),
@@ -25,12 +25,17 @@ export const ShowcaseProject = z.object({
     if (s.kind === "table" && !p.tables.some(t => t.id === s.ref)) ctx.addIssue({ code: "custom", message: `Table section ${s.title} has no table` });
     if (s.kind === "chart" && !p.tables.some(t => t.id === s.ref)) ctx.addIssue({ code: "custom", message: `Chart ${s.title} has no table` });
     if (s.kind === "metric" && s.ref !== "all" && s.ref !== "tasks" && !p.tables.some(t => t.id === s.ref)) ctx.addIssue({ code: "custom", message: `Metric ${s.title} has no source` });
+    if (s.kind === "metric" && ((s.metric === "completion" && s.ref !== "tasks") || (s.ref === "tasks" && s.metric !== undefined && !["completion", "count"].includes(s.metric)))) ctx.addIssue({ code: "custom", message: `Metric ${s.title} is incompatible with its source` });
+    if (s.kind === "chart") {
+      const t = p.tables.find(t => t.id === s.ref);
+      if (t && ((s.categoryColumn ?? 0) >= t.grid[0].length || (s.valueColumn ?? t.grid[0].length - 1) >= t.grid[0].length)) ctx.addIssue({ code: "custom", message: `Chart ${s.title} column is out of range` });
+    }
   }
 });
 export type ShowcaseProject = z.infer<typeof ShowcaseProject>;
 
 export const ShowcaseAction = z.object({
-  type: z.enum(["project.rename", "capability.enable", "capability.disable", "section.add", "section.update", "section.move", "section.remove", "note.create", "note.update", "note.duplicate", "note.delete", "table.create", "table.rename", "table.delete", "table.cell", "table.addRow", "table.deleteRow", "table.addColumn", "table.deleteColumn", "table.sort", "task.create", "task.update", "task.delete", "theme.update"]),
+  type: z.enum(["project.rename", "capability.enable", "capability.disable", "section.add", "section.update", "section.move", "section.remove", "note.create", "note.update", "note.duplicate", "note.delete", "table.create", "table.rename", "table.delete", "table.cell", "table.addRow", "table.deleteRow", "table.addColumn", "table.deleteColumn", "table.sort", "table.filter", "task.create", "task.update", "task.delete", "theme.update"]),
   target: z.string().max(100),
   data: z.record(z.unknown()),
 });
@@ -118,7 +123,7 @@ export function applyShowcaseActions(current: ShowcaseProject, proposed: unknown
         if (p.tables.some(t => t.title.toLowerCase() === title.toLowerCase())) throw new Error(`Table “${title}” already exists`);
         const parsed = grid.parse(data.grid);
         if (parsed.some(row => row.length !== parsed[0].length)) throw new Error("Table rows must have the same number of cells");
-        const id = showcaseId(); p.tables.push({ id, title, grid: parsed }); addSection(p, "table", id, title);
+        const id = showcaseId(); p.tables.push({ id, title, grid: parsed, filter: "" }); addSection(p, "table", id, title);
         break;
       }
       case "table.rename": {
@@ -191,10 +196,15 @@ export function applyShowcaseActions(current: ShowcaseProject, proposed: unknown
         t.grid = applyTableOp(t.grid, { type: "sort", column: col, ascending: data.ascending !== false });
         break;
       }
+      case "table.filter": {
+        const t = findByName(p.tables, target, "Table");
+        t.filter = z.string().max(100).parse(data.query);
+        break;
+      }
       case "task.create": {
         enable(p, "tasks");
         const title = asString(data.title, "Task title", 200);
-        p.tasks.push({ id: showcaseId(), title, done: false, due: typeof data.due === "string" ? data.due : undefined });
+        p.tasks.push({ id: showcaseId(), title, done: false, due: typeof data.due === "string" ? data.due : undefined, priority: data.priority === undefined ? undefined : z.enum(["low", "medium", "high"]).parse(data.priority) });
         if (!p.sections.some(s => s.kind === "tasks")) addSection(p, "tasks", "all", "Tasks");
         break;
       }
@@ -203,6 +213,7 @@ export function applyShowcaseActions(current: ShowcaseProject, proposed: unknown
         if (data.title !== undefined) t.title = asString(data.title, "Task title", 200);
         if (data.done !== undefined) t.done = z.boolean().parse(data.done);
         if (data.due !== undefined) t.due = z.string().parse(data.due);
+        if (data.priority !== undefined) t.priority = z.enum(["low", "medium", "high"]).parse(data.priority);
         break;
       }
       case "task.delete": p.tasks.splice(p.tasks.indexOf(findByName(p.tasks, target, "Task")), 1); break;
@@ -220,6 +231,12 @@ export function applyShowcaseActions(current: ShowcaseProject, proposed: unknown
         if (kind === "tasks") enable(p, "tasks");
         const ref = kind === "chart" || (kind === "metric" && data.ref && data.ref !== "all" && data.ref !== "tasks") ? findByName(p.tables, asString(data.ref, "Source table"), "Table").id : kind === "metric" && data.ref === "tasks" ? "tasks" : "all";
         addSection(p, kind, ref, asString(data.title ?? kind, "Section title"));
+        const added = p.sections.at(-1)!;
+        if (kind === "metric") added.metric = data.metric === undefined ? ref === "tasks" ? "completion" : "sum" : z.enum(["sum", "count", "average", "completion"]).parse(data.metric);
+        if (kind === "chart") {
+          if (data.categoryColumn !== undefined) added.categoryColumn = asIndex(data.categoryColumn, p.tables.find(t => t.id === ref)!.grid[0].length - 1, "Category column");
+          if (data.valueColumn !== undefined) added.valueColumn = asIndex(data.valueColumn, p.tables.find(t => t.id === ref)!.grid[0].length - 1, "Value column");
+        }
         break;
       }
       case "section.update": {
@@ -228,6 +245,14 @@ export function applyShowcaseActions(current: ShowcaseProject, proposed: unknown
         if (data.visible !== undefined) s.visible = z.boolean().parse(data.visible);
         if (data.width !== undefined) s.width = z.enum(["full", "half"]).parse(data.width);
         if (data.ref !== undefined && (s.kind === "metric" || s.kind === "chart")) s.ref = data.ref === "all" || data.ref === "tasks" && s.kind === "metric" ? String(data.ref) : findByName(p.tables, asString(data.ref, "Source table"), "Table").id;
+        if (data.metric !== undefined && s.kind === "metric") s.metric = z.enum(["sum", "count", "average", "completion"]).parse(data.metric);
+        if (s.kind === "metric" && data.ref !== undefined && data.metric === undefined) s.metric = s.ref === "tasks" ? "completion" : "sum";
+        if (s.kind === "chart") {
+          const max = p.tables.find(t => t.id === s.ref)!.grid[0].length - 1;
+          if (data.ref !== undefined) { s.categoryColumn = 0; s.valueColumn = max; }
+          if (data.categoryColumn !== undefined) s.categoryColumn = asIndex(data.categoryColumn, max, "Category column");
+          if (data.valueColumn !== undefined) s.valueColumn = asIndex(data.valueColumn, max, "Value column");
+        }
         break;
       }
       case "section.move": {
@@ -258,6 +283,21 @@ export function tableTotal(p: ShowcaseProject, tableId: string): number {
 
 export function projectTotal(p: ShowcaseProject): number {
   return p.tables.reduce((sum, t) => sum + tableTotal(p, t.id), 0);
+}
+
+export function metricValue(p: ShowcaseProject, section: ShowcaseProject["sections"][number]): string {
+  if (section.ref === "tasks") {
+    const done = p.tasks.filter(t => t.done).length;
+    if (section.metric === "count") return String(p.tasks.length);
+    return `${p.tasks.length ? Math.round(done / p.tasks.length * 100) : 0}%`;
+  }
+  const tables = section.ref === "all" ? p.tables : p.tables.filter(t => t.id === section.ref);
+  if (section.metric === "count") return String(tables.reduce((sum, t) => sum + t.grid.slice(1).filter(row => !/\b(total|sum)\b/i.test(String(row[0]))).length, 0));
+  if (section.metric === "average") {
+    const count = tables.reduce((sum, t) => sum + t.grid.slice(1).filter(row => !/\b(total|sum)\b/i.test(String(row[0]))).length, 0);
+    return (count ? tables.reduce((sum, t) => sum + tableTotal(p, t.id), 0) / count : 0).toFixed(2);
+  }
+  return (section.ref === "all" ? projectTotal(p) : tableTotal(p, section.ref)).toFixed(2);
 }
 
 export function tableCsv(p: ShowcaseProject, id: string): string {
