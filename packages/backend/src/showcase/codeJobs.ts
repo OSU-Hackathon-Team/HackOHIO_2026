@@ -106,7 +106,7 @@ async function parentFiles(parent: string | null, projectId: string) {
 export async function readManifest(revision: string): Promise<{ projectId: string; parentRevision: string | null; summary: string; files: string[]; model: string; createdAt: string }> {
   return JSON.parse(await readFile(path.join(revisionDir(revision), "manifest.json"), "utf8"));
 }
-export async function readRevision(revision: string) { const manifest = await readManifest(revision); return { ...manifest, revision, source: await sourceFiles(path.join(revisionDir(revision), "src")), parentSource: await parentFiles(manifest.parentRevision, manifest.projectId) }; }
+export async function readRevision(revision: string) { const manifest = await readManifest(revision); const frozen = await readFile(path.join(revisionDir(revision), "parent.json"), "utf8").then(JSON.parse).catch(() => null); return { ...manifest, revision, source: await sourceFiles(path.join(revisionDir(revision), "src")), parentSource: frozen ?? await parentFiles(manifest.parentRevision, manifest.projectId) }; }
 export async function validateRevision(revision: string, project: CodeRequest["project"], derived: CodeRequest["derived"]) { const manifest = await readManifest(revision); if (manifest.projectId !== project.id) throw new Error("This revision belongs to another project"); await smokePreview(revision, project, derived); }
 export function getCodeJob(jobId: string) { return jobs.get(jobId); }
 export function cancelCodeJob(jobId: string) { const job = jobs.get(jobId); if (!job || ["ready", "failed", "cancelled"].includes(job.status)) return false; job.status = "cancelled"; aborts.get(jobId)?.abort(); return true; }
@@ -193,7 +193,8 @@ export function startCodeJob(input: CodeRequest): ShowcaseCodeJob {
   void (async () => {
     const revision = crypto.randomUUID();
     try {
-      let files = await parentFiles(input.parentRevision, input.projectId);
+      const before = await parentFiles(input.parentRevision, input.projectId);
+      let files = { ...before };
       for (let attempt = 0, diagnostic: string | undefined; attempt < 2; attempt++) {
         if (controller.signal.aborted) throw new Error("Code job cancelled");
         try {
@@ -209,6 +210,7 @@ export function startCodeJob(input: CodeRequest): ShowcaseCodeJob {
       }
       if (controller.signal.aborted) throw new Error("Code job cancelled");
       await writeFile(path.join(revisionDir(revision), "manifest.json"), JSON.stringify({ projectId: input.projectId, parentRevision: input.parentRevision, summary: job.summary, files: job.files, model: job.model, createdAt: new Date().toISOString() }));
+      await writeFile(path.join(revisionDir(revision), "parent.json"), JSON.stringify(before));
       job.revision = revision; job.status = "ready";
     } catch (error) { job.status = timedOut ? "failed" : controller.signal.aborted ? "cancelled" : "failed"; job.error = timedOut ? "Code job timed out after two minutes" : error instanceof Error ? error.message : String(error); await rm(revisionDir(revision), { recursive: true, force: true }); }
     finally { clearTimeout(deadline); job.elapsedMs = Date.now() - started; aborts.delete(job.id); if (activeJob === job.id) activeJob = null; }
@@ -217,12 +219,13 @@ export function startCodeJob(input: CodeRequest): ShowcaseCodeJob {
 }
 export async function createPreparedRevision(project: CodeRequest["project"], derived: CodeRequest["derived"], parentRevision: string | null) {
   if (activeJob) throw new Error("Wait for the running code job to finish");
-  if (parentRevision) await parentFiles(parentRevision, project.id);
+  const before = await parentFiles(parentRevision, project.id);
   const revision = crypto.randomUUID();
   try {
     await checkBuild(revision, { "App.tsx": preparedApp, "styles.css": preparedCss }, project, derived, new AbortController().signal);
     const manifest = { projectId: project.id, parentRevision, summary: "Loaded a banner prepared before the showcase; it uses the current project data.", files: ["App.tsx", "styles.css"], model: "Prepared example · no model call", createdAt: new Date().toISOString() };
     await writeFile(path.join(revisionDir(revision), "manifest.json"), JSON.stringify(manifest));
+    await writeFile(path.join(revisionDir(revision), "parent.json"), JSON.stringify(before));
     return { ...manifest, revision };
   } catch (error) { await rm(revisionDir(revision), { recursive: true, force: true }); throw error; }
 }
