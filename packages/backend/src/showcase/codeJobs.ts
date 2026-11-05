@@ -167,21 +167,28 @@ export async function checkBuild(revision: string, files: Record<string, string>
 }
 async function smokePreview(revision: string, project: CodeRequest["project"], derived: CodeRequest["derived"]) {
   const dist = path.join(revisionDir(revision), "dist");
+  const smokeCode = await smokeHostBundle();
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage();
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
-    await page.addInitScript({ content: `window.__spliceShowcaseBridge = { revision: ${JSON.stringify(revision)}, getProject: () => (${JSON.stringify(project)}), subscribe: () => () => {}, apply: () => {}, select: () => {}, tableValues: (id) => (${JSON.stringify(derived.tableValues)})[id] ?? [], total: (id) => id ? (${JSON.stringify(derived.tableTotals)})[id] ?? 0 : ${JSON.stringify(derived.total)}, reportReady: () => { window.__splicePreviewReady = true; }, reportError: (message) => { throw new Error(message); } };` });
+    await page.addInitScript({ content: `window.__spliceSmokeProject = ${JSON.stringify(project)}; window.__spliceSmokeDerived = ${JSON.stringify(derived)}; window.__spliceSmokeRevision = ${JSON.stringify(revision)}; ${smokeCode}` });
     await page.goto(`file://${path.join(dist, "index.html")}`);
     try { await page.waitForFunction(() => (globalThis as typeof globalThis & { __splicePreviewReady?: boolean }).__splicePreviewReady === true, undefined, { timeout: 8000 }); }
     catch (error) { throw new Error(`Browser boot failed: ${errors.join("; ") || (error instanceof Error ? error.message : String(error))}`); }
     if (await page.locator("#root *").count() === 0) throw new Error("Browser boot failed: the feature rendered no visible interface");
     const firstButton = page.locator("#root button:enabled").first();
     if (await firstButton.count()) await firstButton.click({ timeout: 3000 });
+    await page.waitForTimeout(100);
     if (errors.length) throw new Error(`Browser boot failed: ${errors.join("; ")}`);
     await page.close();
   } finally { await browser.close(); }
+}
+let smokeCodePromise: Promise<string> | undefined;
+function smokeHostBundle() {
+  smokeCodePromise ??= build({ entryPoints: [path.join(path.dirname(fileURLToPath(import.meta.url)), "smokeHost.mjs")], bundle: true, write: false, platform: "browser", format: "iife", target: "es2022", minify: true, logLevel: "silent" }).then(result => result.outputFiles![0].text);
+  return smokeCodePromise;
 }
 export function startCodeJob(input: CodeRequest): ShowcaseCodeJob {
   if (activeJob) throw new Error("A code job is already running");

@@ -4,7 +4,7 @@
   "private": true,
   "main": "dist/server.js",
   "scripts": {
-    "build": "tsc && cp src/sandbox/worker.cjs dist/sandbox/worker.cjs && cp src/capabilities/tsTestRunner.mjs dist/capabilities/tsTestRunner.mjs",
+    "build": "tsc && cp src/sandbox/worker.cjs dist/sandbox/worker.cjs && cp src/capabilities/tsTestRunner.mjs dist/capabilities/tsTestRunner.mjs && cp src/showcase/smokeHost.mjs dist/showcase/smokeHost.mjs",
     "dev": "tsx watch --clear-screen=false src/server.ts",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",

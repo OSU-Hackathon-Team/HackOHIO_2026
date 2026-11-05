@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { baselineAppSource, baselineCssSource, checkBuild, createPreparedRevision, mergeFiles, readRevision, validateRevision } from "./codeJobs.js";
 
-const project = { id: crypto.randomUUID(), revision: 0, title: "Trip planner", notes: [], tables: [], tasks: [], sections: [], theme: { mode: "dark", accent: "amber" } };
+const project = { version: 1, id: crypto.randomUUID(), revision: 0, title: "Trip planner", capabilities: [], notes: [], tables: [], tasks: [], sections: [], theme: { mode: "dark", accent: "amber", density: "comfortable" } };
 const derived = { total: 0, tableTotals: {}, tableValues: {} };
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..", ".splice-state/showcase-code/revisions");
 const files = (app: string) => ({ "App.tsx": `import type { AppProps } from "./runtime"; ${app}`, "styles.css": "body { margin: 0 }" });
@@ -16,12 +16,13 @@ test("candidate source cannot replace the runtime or escape its editable directo
 });
 
 test("a candidate must typecheck and boot in a real browser", async () => {
-  const good = crypto.randomUUID(), bad = crypto.randomUUID(), crash = crypto.randomUUID();
+  const good = crypto.randomUUID(), bad = crypto.randomUUID(), crash = crypto.randomUUID(), interaction = crypto.randomUUID();
   try {
     await checkBuild(good, files("export default function App({ project }: AppProps) { return <p>{project.title}</p> }"), project, derived, new AbortController().signal);
     await assert.rejects(checkBuild(bad, files("import Missing from './missing'; export default function App(_p: AppProps) { return <p>{Missing}</p> }"), project, derived, new AbortController().signal), /Cannot find module/);
     await assert.rejects(checkBuild(crash, files("export default function App(_p: AppProps) { throw new Error('boom'); return <p>Never</p> }"), project, derived, new AbortController().signal), /Browser boot failed/);
-  } finally { await Promise.all([good, bad, crash].map(id => rm(path.join(root, id), { recursive: true, force: true }))); }
+    await assert.rejects(checkBuild(interaction, files("export default function App({runtime}: AppProps) { return <button onClick={() => runtime.apply([{type:'project.rename',target:'',data:{title:''}}])}>Rename</button> }"), project, derived, new AbortController().signal), /Browser boot failed/);
+  } finally { await Promise.all([good, bad, crash, interaction].map(id => rm(path.join(root, id), { recursive: true, force: true }))); }
 });
 
 test("prepared fallback is a real revision and reopens without a model call", async () => {
