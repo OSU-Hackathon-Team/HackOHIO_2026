@@ -225,6 +225,30 @@ test("note code fences preserve literal characters", async ({ page }) => {
   await expect(page.locator(".obsidian-preview img")).toHaveCount(0);
 });
 
+test("note creation, duplication, filtering, and links keep the visible note in sync", async ({ page }) => {
+  await page.goto("/?mode=demo");
+  await page.getByRole("button", { name: "Study notebook", exact: true }).click();
+  await page.getByRole("button", { name: "New note", exact: true }).click();
+  const title = await page.getByLabel("Note title").inputValue();
+  expect(title).toMatch(/^New note \d+$/);
+  await page.getByLabel("Note Markdown").fill("# New entry\n\nSee [[Topics]].");
+  await page.getByLabel("Note Markdown").blur();
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  await expect(page.locator(".obsidian-preview h1")).toHaveText("New entry");
+  await page.getByRole("button", { name: "Duplicate", exact: true }).last().click();
+  await expect(page.getByLabel("Note title")).toHaveValue(`${title} copy`);
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  await page.getByLabel("Search notes").fill("no matching note");
+  await expect(page.getByText("No note matches the current filter.")).toBeVisible();
+  await expect(page.locator(".obsidian-preview")).toHaveCount(0);
+  await page.getByLabel("Search notes").fill("New entry");
+  await page.locator(".obsidian-preview a.internal-link").click();
+  await expect(page.getByLabel("Search notes")).toHaveValue("");
+  await expect(page.locator(".obsidian-preview h1")).toHaveText("Topics");
+  await page.getByTitle("New project").click();
+  await expect(page.locator(".obsidian-preview")).toHaveCount(0);
+});
+
 test("showcase controls align and narrow screens do not overflow", async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 900 });
   await page.goto("/?mode=demo");
