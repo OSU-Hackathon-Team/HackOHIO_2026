@@ -43,7 +43,7 @@
     "dotenv": "^16.4.7",
     "esbuild": "^0.28.2",
     "express": "^4.21.2",
-    "playwright": "1.56.1",
+    "playwright": "1.64.1",
     "typescript": "^5.7.3",
     "zod": "^3.25.76"
   },
