@@ -6,7 +6,7 @@ function render() { document.getElementById("value").textContent = "$" + bridge.
 bridge.subscribe(render); render(); bridge.reportReady();`;
 
 async function mockCandidate(page: import("@playwright/test").Page) {
-  await page.route("**/api/showcase/code/revisions/*/index.html", route => route.fulfill({ contentType: "text/html", body: `<div id="value"></div><script src="app.js"></script>` }));
+  await page.route("**/api/showcase/code/revisions/*/index.html", route => route.fulfill({ contentType: "text/html", body: `<div id="root"><div id="value" style="min-height:180px"></div></div><script src="app.js"></script>` }));
   await page.route("**/api/showcase/code/revisions/*/app.js", route => route.fulfill({ contentType: "text/javascript", body: candidate }));
   await page.route("**/api/showcase/code/revisions/*/source", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ revision, projectId: "test", parentRevision: null, summary: "Budget banner", files: ["App.tsx"], model: "test", createdAt: new Date().toISOString(), source: { "App.tsx": "export default function App() {}" }, parentSource: { "App.tsx": "export default function App() { return null; }" } }) }));
   await page.route("**/api/showcase/code/jobs", route => route.fulfill({ status: 202, contentType: "application/json", body: JSON.stringify({ id: "test-job", status: "planning" }) }));
@@ -22,6 +22,9 @@ test("feature chat activates code, keeps live table data, compares source, and r
   await page.getByRole("button", { name: "Send" }).click();
   const frame = page.frameLocator('iframe[title="Splice feature preview"]');
   await expect(frame.locator("#value")).toHaveText("$760");
+  await expect(page.locator('iframe[title="Splice feature preview"]')).toHaveCSS("height", "180px");
+  await page.getByLabel("Toggle light theme").click();
+  await expect(page.locator('iframe[title="Splice feature preview"]')).toHaveCSS("background-color", "rgb(255, 255, 255)");
   await page.getByLabel("Cell B3").fill("4");
   await page.getByLabel("Cell B3").press("Enter");
   await expect(frame.locator("#value")).toHaveText("$880");

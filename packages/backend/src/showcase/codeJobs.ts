@@ -47,14 +47,14 @@ export default function App({ project, runtime }: AppProps) {
   const total = runtime.total();
   const limit = 800;
   const over = total > limit;
-  return <section className={over ? "budget-banner over" : "budget-banner"}>
+  return <section className={"budget-banner" + (over ? " over" : "") + (project.theme.mode === "light" ? " showcase-light" : "")}>
     <div className="eyebrow">PREPARED EXAMPLE · LIVE PROJECT DATA</div>
     <h2>{over ? "Over the spending limit" : "Spending limit on track"}</h2>
     <p>{project.title}: {"$" + total.toFixed(2)} of {"$" + limit.toFixed(2)}. {over ? "$" + (total - limit).toFixed(2) + " over." : "$" + (limit - total).toFixed(2) + " remaining."}</p>
   </section>;
 }
 `;
-const preparedCss = `.budget-banner { box-sizing: border-box; min-height: 180px; padding: 32px; font: 16px/1.5 system-ui, sans-serif; color: #e8f6ee; background: #173b2c; } .budget-banner.over { color: #fff0ef; background: #7c2424; } .budget-banner h2 { margin: 8px 0; font-size: 28px; } .budget-banner p { margin: 0; } .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .12em; opacity: .7; }`;
+const preparedCss = `.budget-banner { box-sizing: border-box; min-height: 180px; padding: 32px; font: 16px/1.5 system-ui, sans-serif; color: #e8f6ee; background: #173b2c; } .budget-banner.over { color: #fff0ef; background: #7c2424; } .budget-banner.showcase-light { color: #14532d; background: #e6f4e8; } .budget-banner.over.showcase-light { color: #7f1d1d; background: #fee2e2; } .budget-banner h2 { margin: 8px 0; font-size: 28px; } .budget-banner p { margin: 0; } .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .12em; opacity: .7; }`;
 const bootstrap = `import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";

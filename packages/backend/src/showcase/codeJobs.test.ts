@@ -31,6 +31,8 @@ test("prepared fallback is a real revision and reopens without a model call", as
     assert.match(prepared.model, /Prepared example/);
     const reopened = await readRevision(prepared.revision);
     assert.match(reopened.source["App.tsx"], /runtime\.total/);
+    assert.match(reopened.source["App.tsx"], /project\.theme\.mode === "light"/);
+    assert.match(reopened.source["styles.css"], /\.budget-banner\.showcase-light/);
     assert.match(reopened.parentSource["App.tsx"], /ShowcasePreviewPanels/);
     await validateRevision(prepared.revision, project, derived);
   } finally { await rm(path.join(root, prepared.revision), { recursive: true, force: true }); }
