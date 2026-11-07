@@ -1,2 +1,2 @@
-psycopg[binary]==3.3.4
+psycopg[binary]==3.3.8
 boto3==1.43.117
